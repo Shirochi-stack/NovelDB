@@ -46,7 +46,8 @@ object Writers {
     fun baseName(book: BookInfo, settings: SharedSettings): String {
         var name = if (settings.namingMode == NamingMode.ID) book.id else book.title
         if (settings.appendRange && (settings.rangeFrom != null || settings.rangeTo != null)) {
-            name += " (${settings.rangeFrom ?: 1}-${settings.rangeTo ?: "end"})"
+            val range = settings.chapterRange
+            name += " (${settings.rangeFrom ?: 1}-${if (settings.rangeTo == null) "end" else range.last})"
         }
         val cleaned = name.map { if (it in "/\\:*?\"<>|" || it.isISOControl()) '_' else it }.joinToString("").trim()
         return if (cleaned.isEmpty()) book.id else cleaned.take(180)

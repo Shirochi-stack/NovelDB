@@ -16,6 +16,49 @@ from typing import Callable, Optional
 LABEL = "FanFicFare"
 
 
+_bundle_lock = __import__("threading").Lock()
+_bundle_folder = None
+
+
+def _use_bundle() -> None:
+    """Import FanFicFare from the bundle in use (fanficfare/fanficfare.zip, or a downloaded update), unpacked
+    once; the copy the app was built with stays the fallback. A bundle that fails to import is set aside."""
+    global _bundle_folder
+    import sys
+    import zipfile
+    from pathlib import Path
+
+    from noveldb.core import engine_updates, paths
+
+    with _bundle_lock:
+        if _bundle_folder is not None or "fanficfare" in sys.modules:
+            return
+        _bundle_folder = ""
+        bundle = engine_updates.current(engine_updates.FANFICFARE)
+        if bundle is None:
+            return
+        folder = paths.cache_dir() / "fanficfare-runtime" / str(bundle.manifest.get("sha256") or "")[:16]
+        try:
+            if not (folder / "fanficfare" / "__init__.py").is_file():
+                temp = folder.with_name(folder.name + ".tmp")
+                with zipfile.ZipFile(bundle.path) as archive:
+                    for name in archive.namelist():
+                        if name.startswith("/") or ".." in Path(name).parts or not name.startswith("fanficfare/"):
+                            raise ValueError(f"unexpected name in the FanFicFare bundle: {name}")
+                    archive.extractall(temp)
+                temp.rename(folder)
+            sys.path.insert(0, str(folder))
+            import fanficfare.adapters  # noqa: F401  (fails here, not mid-download, if the bundle is broken)
+            _bundle_folder = str(folder)
+        except Exception as e:
+            if str(folder) in sys.path:
+                sys.path.remove(str(folder))
+            for name in [n for n in sys.modules if n.split(".")[0] == "fanficfare"]:
+                del sys.modules[name]
+            if bundle.updated:
+                engine_updates.reject(bundle, str(e))
+
+
 def _inert_cloudscraper() -> None:
     """FanFicFare imports cloudscraper (a Cloudflare workaround) for a setting NovelDB keeps off. The
     built app leaves that package out (desktop_build/noveldb.spec), so FanFicFare gets a stand-in that
@@ -46,10 +89,16 @@ def _inert_cloudscraper() -> None:
     sys.modules["cloudscraper.exceptions"] = exceptions
 
 
+def _prepare() -> None:
+    """Before FanFicFare is imported: the cloudscraper stand-in, then the bundle in use."""
+    _inert_cloudscraper()
+    _use_bundle()
+
+
 def knows(url: str) -> bool:
     """FanFicFare has an adapter for the URL's site (False when the package is missing)."""
     try:
-        _inert_cloudscraper()
+        _prepare()
         from fanficfare import adapters
     except Exception:
         return False
@@ -61,6 +110,7 @@ def knows(url: str) -> bool:
 
 def _fetcher_class():
     """A FanFicFare fetcher that sends its requests through the app (see scraper_mixin.engine_fetch)."""
+    _prepare()
     from fanficfare import exceptions
     from fanficfare.fetchers.base_fetcher import Fetcher, FetcherResponse
 
@@ -99,6 +149,7 @@ def _fetcher_class():
 def _configuration(url: str):
     from importlib import resources
 
+    _prepare()
     from fanficfare import adapters
     from fanficfare.configurable import Configuration
 
@@ -134,7 +185,7 @@ class FanFicFareEngine:
     label = LABEL
 
     def __init__(self, fetch: Callable = None, log: Callable[[str], None] = lambda _m: None):
-        _inert_cloudscraper()
+        _prepare()
         import fanficfare  # noqa: F401  (fails early when the package is missing)
 
         self.fetch = fetch

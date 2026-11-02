@@ -6,9 +6,15 @@ enum Panel: String, CaseIterable, Hashable, Identifiable {
 
     var id: String { rawValue }
 
+    /// The tabs shown: Add and Catalog are one tab ("Download") with a switch at its top.
+    static let shown: [Panel] = [.add, .browser, .queue, .settings]
+
+    /// The shown tab a panel lives in.
+    var tab: Panel { self == .catalog ? .add : self }
+
     var title: String {
         switch self {
-        case .add: return "Add"
+        case .add: return "Download"
         case .catalog: return "Catalog"
         case .browser: return "Browser"
         case .queue: return "Queue"
@@ -18,7 +24,7 @@ enum Panel: String, CaseIterable, Hashable, Identifiable {
 
     var icon: String {
         switch self {
-        case .add: return "plus.circle"
+        case .add: return "square.and.arrow.down"
         case .catalog: return "books.vertical"
         case .browser: return "globe"
         case .queue: return "arrow.down.circle"
@@ -33,13 +39,15 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: Panel? = .add
+    /// Which half of the Download tab shows: the Catalog or the Add links form.
+    @State private var downloadMode: Panel = .add
     @StateObject private var catalog = CatalogState()
 
     var body: some View {
         Group {
             if sizeClass == .regular {
                 NavigationSplitView {
-                    List(Panel.allCases, selection: $selection) { panel in
+                    List(Panel.shown, selection: tabSelection) { panel in
                         NavigationLink(value: panel) {
                             Label(panel.title, systemImage: panel.icon)
                                 .badge(badgeCount(panel))
@@ -48,11 +56,11 @@ struct RootView: View {
                     .themedBackground()
                     .navigationTitle("NovelDB")
                 } detail: {
-                    stack(selection ?? .add)
+                    stack((selection ?? .add).tab)
                 }
             } else {
-                TabView(selection: Binding(get: { selection ?? .add }, set: { selection = $0 })) {
-                    ForEach(Panel.allCases) { panel in
+                TabView(selection: Binding(get: { (selection ?? .add).tab }, set: { tabSelection.wrappedValue = $0 })) {
+                    ForEach(Panel.shown) { panel in
                         stack(panel)
                         .tabItem { Label(panel.title, systemImage: panel.icon) }
                         .badge(badgeCount(panel))
@@ -115,6 +123,13 @@ struct RootView: View {
         model.requestedPanel = nil
     }
 
+    /// The tab picked in the bar or sidebar; the Download tab reopens the half used last.
+    private var tabSelection: Binding<Panel?> {
+        Binding(get: { selection?.tab }, set: { panel in
+            selection = panel == .add ? downloadMode : panel
+        })
+    }
+
     /// The navigation stack of a tab. The Queue's keeps its path in the model, so a notification
     /// can open a job's page.
     @ViewBuilder
@@ -141,8 +156,27 @@ struct RootView: View {
     @ViewBuilder
     private func content(_ panel: Panel) -> some View {
         switch panel {
-        case .add: AddURLView { model.showQueue() }
-        case .catalog: CatalogView(state: catalog)
+        case .add, .catalog:
+            Group {
+                if downloadMode == .catalog {
+                    CatalogView(state: catalog)
+                } else {
+                    AddURLView { model.showQueue() }
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Picker("Download", selection: Binding(get: { downloadMode }, set: { downloadMode = $0; selection = $0 })) {
+                    Label("Catalog", systemImage: "books.vertical").tag(Panel.catalog)
+                    Label("Add links", systemImage: "plus.circle").tag(Panel.add)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(.bar)
+            }
+            .onChange(of: selection) { _, panel in
+                if panel == .add || panel == .catalog, let panel { downloadMode = panel }
+            }
         case .browser: BrowserView { selection = .add }
         case .queue: QueueView()
         case .settings: SettingsView()

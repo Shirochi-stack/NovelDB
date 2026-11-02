@@ -121,3 +121,38 @@ def test_page_messages_are_checked():
     assert generic.parse_message({"type": "genericFetch", "id": 1, "request": {"url": "file:///etc/passwd"}}) is None
     assert generic.parse_message({"type": "genericImage", "id": 2, "url": "https://a.example/c.jpg"}) is not None
     assert generic.parse_message({"type": "somethingElse"}) is None
+
+
+def test_empty_search_pages_are_recognised():
+    from noveldb.core.catalog.generic_search import is_no_results
+
+    assert is_no_results("リクエスト", "178019の検索結果 キーワードに該当する商品は見つかりませんでした。")
+    assert is_no_results("No results found for dragon")
+    assert not is_no_results("Lord of the Mysteries", "A young man wakes up in a foreign world.")
+
+
+def test_book_addresses_are_learned_for_the_id_search(tmp_path):
+    from noveldb.core.catalog import generic_search
+
+    generic_search.learn_template("https://books.example/novel/178019")
+    generic_search.learn_template("https://books.example/genre/12345")  # a list, not a book
+    generic_search.save_learned(tmp_path / "learned.json")
+    saved = json.loads((tmp_path / "learned.json").read_text(encoding="utf-8"))
+    assert saved["books.example"] == "https://books.example/novel/{id}"
+    assert generic_search.ID_QUERY.match("178019") and generic_search.ID_QUERY.match("n1234ab")
+    assert not generic_search.ID_QUERY.match("solo leveling")
+    assert all("{id}" in entry["template"] for entry in generic_search.id_templates())
+
+
+def test_id_and_top_list_messages_are_checked():
+    import pytest
+
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    from noveldb.qt.catalog import generic
+
+    message = generic.parse_message({"type": "genericSearch", "queries": [{"query": "178019", "mode": "id"}]})
+    assert message["queries"] == [{"query": "178019", "mode": "id"}]
+    assert generic.parse_message({"type": "genericTop", "id": 1, "kind": "manga"}) is not None
+    assert generic.parse_message({"type": "genericTop", "id": 1, "kind": "bogus"}) is None
+    assert generic.parse_message({"type": "genericChapter", "id": 3, "url": "https://a.example/b", "index": -1}) is None
+    assert generic.download_icon().startswith("data:image/")

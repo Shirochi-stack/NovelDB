@@ -116,3 +116,24 @@ def test_a_chapter_without_a_list_is_followed_through_next_links():
 def test_pages_are_decoded_in_their_declared_charset():
     gbk = "<html><head><meta charset=gbk></head><body>第一章 开始</body></html>".encode("gbk")
     assert "第一章" in decode({"content": gbk, "headers": ""})
+
+
+def test_list_names_lose_their_age_and_repeated_number():
+    from noveldb.core.engines.generic import clean_name
+
+    assert clean_name("14 14 Nano Tech 1281 days ago") == "14 Nano Tech"
+    assert clean_name("Read Chapter 1") == "Chapter 1"
+    assert clean_name("Novel Chapters Chapter 1281: Epilogue Updated 3 years ago") == "Chapter 1281: Epilogue"
+
+
+def test_list_pages_named_in_a_query_are_followed_and_numbers_come_from_the_addresses():
+    book = "https://n.example/novel/my-book.html"
+    first = ('<html><body><div class="latest"><a href="/novel/my-book_9.html">Chapter 9</a></div><ul>'
+             + "".join(f'<li><a href="/novel/my-book_{n}.html">{n} {n} Tech talk {n} days ago</a></li>' for n in (1, 2, 3))
+             + '</ul><div class="pagination"><a href="/e/fy.php?page=1&amp;wjm=my-book">2</a></div></body></html>')
+    second = ('<html><body><ul>' + "".join(f'<li><a href="/novel/my-book_{n}.html">{n} {n} Part {n}</a></li>' for n in range(4, 10))
+              + '</ul></body></html>')
+    pages = {book: first, "https://n.example/e/fy.php?page=1&wjm=my-book": second}
+    engine = GenericEngine(fetch=lambda url, **_o: page(pages[url], url) if url in pages else page("", url, 404))
+    names = [c["name"] for c in engine.parse_book(book)["chapters"]]
+    assert len(names) == 9 and names[0] == "1 Tech talk" and names[-1] == "9 Part 9"

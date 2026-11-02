@@ -61,6 +61,17 @@ data class SharedSettings(
     val namingMode: NamingMode = NamingMode.TITLE,
     val appendRange: Boolean = false,
 ) {
+    /**
+     * The chapters the range keeps, as `first..last` (unset ends open). A "From" after "To" is a typo,
+     * so it keeps just the "From" chapter rather than nothing.
+     */
+    val chapterRange: IntRange
+        get() {
+            val from = rangeFrom ?: Int.MIN_VALUE
+            val to = rangeTo ?: Int.MAX_VALUE
+            return if (rangeFrom != null && rangeTo != null && rangeFrom > rangeTo) from..from else from..to
+        }
+
     /** `_normalize_interval_range`: each end clamped to 0..300 s, swapped when max < min. */
     val intervalRange: Pair<Double, Double>
         get() {

@@ -145,16 +145,30 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
         }
         FieldFlow {
             FieldGroup {
+                // A wrong entry stays in its field, marked red, until it is fixed; only valid numbers are saved.
+                var badFrom by remember { mutableStateOf(false) }
+                var badTo by remember { mutableStateOf(false) }
+                val crossed = run.rangeFrom != null && run.rangeTo != null && run.rangeFrom!! > run.rangeTo!!
                 MiniLabel("Chapter Range")
                 MiniLabel("From")
-                MiniNumberField(run.rangeFrom?.toString().orEmpty(), "first", decimal = false) { t ->
-                    if (t.isBlank()) edit { it.copy(rangeFrom = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeFrom = v) } }
+                MiniNumberField(run.rangeFrom?.toString().orEmpty(), "first", decimal = false, error = badFrom || crossed) { t ->
+                    val number = t.trim().toIntOrNull()
+                    badFrom = t.isNotBlank() && (number == null || number < 1)
+                    if (t.isBlank()) edit { it.copy(rangeFrom = null) } else if (!badFrom) edit { it.copy(rangeFrom = number) }
                 }
                 MiniLabel("To")
-                MiniNumberField(run.rangeTo?.toString().orEmpty(), "end", decimal = false) { t ->
-                    if (t.isBlank()) edit { it.copy(rangeTo = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeTo = v) } }
+                MiniNumberField(run.rangeTo?.toString().orEmpty(), "end", decimal = false, error = badTo || crossed) { t ->
+                    val number = t.trim().toIntOrNull()
+                    badTo = t.isNotBlank() && (number == null || number < 1)
+                    if (t.isBlank()) edit { it.copy(rangeTo = null) } else if (!badTo) edit { it.copy(rangeTo = number) }
                 }
             }
+        }
+        val rangeFrom = run.rangeFrom
+        val rangeTo = run.rangeTo
+        if (rangeFrom != null && rangeTo != null && rangeFrom > rangeTo) {
+            Text("From is after To, so only chapter $rangeFrom will be downloaded.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
         }
         ChipFlow {
             ToggleChip("Skip paid", run.skipPaid) { v -> edit { it.copy(skipPaid = v) } }

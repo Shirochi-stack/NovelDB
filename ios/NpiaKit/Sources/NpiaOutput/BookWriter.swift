@@ -58,7 +58,7 @@ public enum Writers {
         var name = settings.namingMode == .id ? book.id : book.title
         if settings.appendRange, settings.rangeFrom != nil || settings.rangeTo != nil {
             let from = settings.rangeFrom.map(String.init) ?? "1"
-            let to = settings.rangeTo.map(String.init) ?? "end"
+            let to = settings.rangeTo == nil ? "end" : String(settings.chapterRange.upperBound)
             name += " (\(from)-\(to))"
         }
         let illegal = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters)

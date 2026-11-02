@@ -370,6 +370,7 @@ class ExternalScraper(SiteEnginesMixin):
         self.abort_reason = ''
         # Site engines in the order parse_book tries them (Settings).
         self.engine_order = list(SITE_ENGINES)
+        self.dynamic_priority = True  # only the engines that list a link's site (then the generic fallback)
 
     def _install_bridge_bindings(self, page):
         """Expose Python-backed helpers used by the JS bridge stubs."""
@@ -20135,6 +20136,14 @@ async (items) => {
             if (native is not None if e == ENGINE_NATIVE
                 else native is None or self._engine_knows_site(e, url))
         ]
+        if native is None and self.dynamic_priority:
+            # Dynamic priority: skip the engines that don't list this site; the generic fallback stays.
+            listed = [e for e in order if e == ENGINE_GENERIC or self._engine_knows_site(e, url)]
+            skipped = [e for e in order if e not in listed]
+            if skipped and listed:
+                self.log("Dynamic priority: trying " + ", ".join(ENGINE_LABELS[e] for e in listed)
+                         + f" ({len(skipped)} other engine(s) don't list this site).")
+                order = listed
         fallback = None
         page = None  # the book page for the JS engines: None, "open" or "failed"
         for position, engine in enumerate(order):
@@ -20193,10 +20202,15 @@ async (items) => {
         The generic fallback lists no site, so it never follows a built-in scraper's failure.
         """
         from noveldb.core import engine_updates
-        from noveldb.core.engines import fanficfare_engine
+        from noveldb.core.engines import fanficfare_engine, site_index
 
         if engine == ENGINE_GENERIC:
             return False
+        try:
+            if site_index.supports(engine, url):
+                return True  # the cached site lists (fast); a miss is checked against the engine itself
+        except Exception:
+            pass
         if engine not in engine_updates.BY_NAME:
             return fanficfare_engine.knows(url)
         bundle = engine_updates.current(engine_updates.BY_NAME[engine])

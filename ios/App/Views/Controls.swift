@@ -194,17 +194,28 @@ struct CompactDecimal: View {
 }
 
 /// A small labelled whole-number box; empty means off ("From [  ]").
+/// A positive whole number, or empty for none. A wrong entry stays in the field, marked red, until
+/// it is fixed (only valid numbers are saved); `marked` marks it red for the caller's own reason.
 struct CompactNumber: View {
     let title: String
     @Binding var value: Int?
+    var marked = false
+    @State private var text: String?
+
+    private var shown: String { text ?? value.map(String.init) ?? "" }
+    private var invalid: Bool {
+        let trimmed = shown.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && (Int(trimmed).map { $0 < 1 } ?? true)
+    }
 
     var body: some View {
         HStack(spacing: 3) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             TextField("-", text: Binding(
-                get: { value.map(String.init) ?? "" },
-                set: { text in
-                    let trimmed = text.trimmingCharacters(in: .whitespaces)
+                get: { shown },
+                set: { new in
+                    text = new
+                    let trimmed = new.trimmingCharacters(in: .whitespaces)
                     if trimmed.isEmpty {
                         value = nil
                     } else if let number = Int(trimmed), number > 0 {
@@ -217,6 +228,11 @@ struct CompactNumber: View {
             .font(.subheadline.monospacedDigit())
             .frame(width: 56)
             .textFieldStyle(.roundedBorder)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.red, lineWidth: invalid || marked ? 2 : 0))
+            .onChange(of: value) { _, newValue in
+                // Changed elsewhere (another source's settings): show it, unless the field is mid-edit on it.
+                if let typed = text, Int(typed.trimmingCharacters(in: .whitespaces)) != newValue, !invalid { text = nil }
+            }
         }
     }
 }

@@ -29,10 +29,34 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlsplit
 from noveldb.core.engines.generic import CHAPTER_WORDS, decode, extract_metadata, site_of
 
 SITES_FILE = Path(__file__).with_name("generic_sites.json")
+ID_TEMPLATES_FILE = Path(__file__).with_name("id_templates.json")
+# A novel ID: a number, or a code like "n1234ab".
+ID_QUERY = re.compile(r"^\s*(\d{3,12}|n\d{4}[a-z]{1,3})\s*$", re.I)
+# A page that says the book doesn't exist (an ID no book has).
+NOT_FOUND = re.compile(r"(\b404\b|not found|page not found|does not exist|doesn't exist|no longer available|has been removed|"
+                       r"존재하지 않|삭제된|없는 (작품|페이지|소설)|ページが見つかりません|存在しません|不存在|已下架|找不到)", re.I)
+_learned: Dict[str, str] = {}  # site -> a book page address with {id}, learned from the books searches find
+_learned_lock = threading.Lock()
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/130.0.0.0 Safari/537.36")
 SITES_PER_QUERY = 8
 MODES = ("name", "tag")
+# A site's "nothing matched your search" page, which some search pages give a book-like card or title.
+NO_RESULTS = re.compile(
+    r"(no (items?|results?|books?|novels?|titles?|matches|products?)( were)? (found|matching|match)|nothing (was )?found|"
+    r"did not match any|didn't match any|(found|returned) (0|no) (results?|items?|matches)|\b0 results\b|no results for|"
+    r"見つかりませんでした|該当する.{0,6}(ありません|見つかりません)|検索結果は?0件|"
+    r"검색\s*결과가\s*없|결과가\s*없습니다|일치하는.{0,10}없|"
+    r"没有找到|未找到|沒有找到|找不到相关|暂无(结果|数据|相关)|無結果|无结果|查無|"
+    r"no se encontraron|sin resultados|aucun résultat|ничего не найдено|не найдено|keine (ergebnisse|treffer)|nenhum resultado)",
+    re.I)
+
+
+def is_no_results(*texts: str) -> bool:
+    """A site's empty search page: its title or text says nothing matched."""
+    return any(NO_RESULTS.search(text or "") for text in texts)
+# The dates and counts a book page may show (generic.extract_metadata), passed on to the page as they are.
+FIGURES = ("published", "updated", "rating", "ratings", "likes", "views", "chapters")
 
 
 @lru_cache(maxsize=1)
@@ -43,6 +67,51 @@ def top_sites() -> List[dict]:
         return []
 
 
+@lru_cache(maxsize=1)
+def id_templates() -> List[dict]:
+    try:
+        return json.loads(ID_TEMPLATES_FILE.read_text(encoding="utf-8"))["templates"]
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+def learn_template(url: str) -> None:
+    """Remember how a site addresses its books, when the address carries one number of 3+ digits
+    (".../novel/178019", "?no=12345"): the ID search tries that address with other IDs."""
+    if not looks_like_book(url):
+        return
+    parts = urlsplit(url)
+    numbers = re.findall(r"(?<![\d])\d{3,12}(?![\d])", parts.path + "?" + parts.query)
+    if len(numbers) != 1:
+        return
+    site = site_of(_host(url))
+    template = re.sub(r"(?<![\d])" + numbers[0] + r"(?![\d])", "{id}", f"{parts.scheme}://{parts.netloc}{parts.path}"
+                      + (f"?{parts.query}" if parts.query else ""), count=1)
+    with _learned_lock:
+        if site and site not in _learned and len(_learned) < 400:
+            _learned[site] = template
+
+
+def load_learned(path: Path) -> None:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    with _learned_lock:
+        for site, template in (data or {}).items():
+            if isinstance(template, str) and "{id}" in template and template.startswith(("http://", "https://")):
+                _learned.setdefault(site, template)
+
+
+def save_learned(path: Path) -> None:
+    with _learned_lock:
+        data = dict(_learned)
+    try:
+        Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=0), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _host(url: str) -> str:
     try:
         return (urlsplit(url).hostname or "").lower().removeprefix("www.")
@@ -51,8 +120,10 @@ def _host(url: str) -> str:
 
 
 def default_fetch(url: str, method: str = "GET", data=None, headers: Optional[dict] = None,
-                  binary: bool = False, referer: str = "", timeout: float = 15.0) -> Optional[dict]:
-    """A plain request (the Catalog has no browser of its own): {status, url, content, text, headers}."""
+                  binary: bool = False, referer: str = "", timeout: float = 15.0, quick: bool = False) -> Optional[dict]:
+    """A plain request: {status, url, content, text, headers}. `quick`: a short timeout, for guesses."""
+    if quick:
+        timeout = min(timeout, 8.0)
     import requests
 
     sent = {"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9,*;q=0.5", **(headers or {})}
@@ -171,7 +242,7 @@ def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
 
 class GenericSearch:
     def __init__(self, fetch: Callable = default_fetch, sites: Optional[List[dict]] = None,
-                 known_site: Optional[Callable[[str], bool]] = None, workers: int = 12, site_search=None,
+                 known_site: Optional[Callable[[str], bool]] = None, workers: int = 32, site_search=None,
                  skip_lnreader: bool = True):
         from noveldb.core.catalog.site_search import SiteSearch
 
@@ -191,6 +262,7 @@ class GenericSearch:
         return next((site for site in self.sites if site["site"] == root), None)
 
     def card(self, url: str, title: str = "", snippet: str = "", source: str = "web", cover: str = "") -> dict:
+        learn_template(url)
         site = self.site_for(url)
         return {"url": url, "title": _clean_title(title, url) or url, "author": "", "cover": cover,
                 "description": re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", snippet or "")).strip()[:600], "tags": [],
@@ -203,8 +275,10 @@ class GenericSearch:
         if not result or result["status"] >= 400:
             return dict(card, complete=True)
         meta = extract_metadata(decode(result), result.get("url") or card["url"])
+        if is_no_results(meta.get("title", ""), (meta.get("description") or "")[:400]):
+            return dict(card, complete=True, empty=True)  # the page tells the card to go
         merged = dict(card, complete=True)
-        for key in ("title", "author", "cover", "description", "tags", "status"):
+        for key in ("title", "author", "cover", "description", "tags", "status") + FIGURES:
             value = meta.get(key)
             if value and (key != "description" or len(value) > len(card.get("description") or "")):
                 merged[key] = value
@@ -215,9 +289,11 @@ class GenericSearch:
                 if site.get("search") == "lncrawl"]
 
     def run(self, text: str, mode: str, emit: Callable[[List[dict]], None], stop: threading.Event,
-            done: Callable[[dict], None] = lambda _summary: None, deadline: float = 90.0) -> None:
+            done: Callable[[dict], None] = lambda _summary: None, deadline: float = 45.0,
+            progress: Callable[[dict], None] = lambda _item: None) -> None:
         """Search everything for `text` for up to `deadline` seconds; `emit` gets new and updated cards
-        as they arrive. Sites still answering then are left behind (their cards are dropped)."""
+        as they arrive. Sites still answering then are left behind (their cards are dropped).
+        `progress` hears {"total": n} first, then {"site", "ms", "found", "state"} as each source answers."""
         outer = stop
         stop = threading.Event()
         watcher = threading.Thread(target=lambda: (outer.wait(deadline), stop.set()), daemon=True)
@@ -233,7 +309,7 @@ class GenericSearch:
             with lock:
                 for card in cards:
                     key = card["url"].rstrip("/")
-                    if key in seen or stop.is_set():
+                    if key in seen or stop.is_set() or is_no_results(card["title"], card.get("description", "")[:400]):
                         continue
                     seen[key] = card
                     fresh.append(card)
@@ -250,9 +326,15 @@ class GenericSearch:
                 if not stop.is_set():
                     detail_futures.append(pool.submit(self._detail_and_emit, card, emit, stop, summary))
 
+        import time
+
+        def report(site: str, started: float, found: int, state: str = "ok"):
+            progress({"site": site, "ms": int((time.monotonic() - started) * 1000), "found": found, "state": state})
+
         def from_web(query: str, open_search: bool):
             if stop.is_set():
                 return
+            started = time.monotonic()
             cards = []
             for hit in web_search(query, self.fetch):
                 url = hit["url"]
@@ -262,11 +344,16 @@ class GenericSearch:
                     continue
                 cards.append(self.card(url, hit["title"], hit["snippet"], "web"))
             summary["web"] += len(cards)
-            enrich(offer(cards))
+            fresh = offer(cards)
+            for card in fresh:
+                card["ms"] = int((time.monotonic() - started) * 1000)
+            report("web search", started, len(fresh))
+            enrich(fresh)
 
         def from_lncrawl(entry: dict):
             if stop.is_set():
                 return
+            started = time.monotonic()
             try:
                 from noveldb.core.engines.lncrawl_engine import LncrawlEngine
 
@@ -274,25 +361,35 @@ class GenericSearch:
                 hits = engine.search(entry, text)[:12]
             except Exception:
                 summary["failed"] += 1
+                report(entry["_site"]["site"], started, 0, "failed")
                 return
-            cards = [self.card(hit["url"], hit["name"], hit.get("info", ""), "lncrawl") for hit in hits]
+            ms = int((time.monotonic() - started) * 1000)
+            cards = [dict(self.card(hit["url"], hit["name"], hit.get("info", ""), "lncrawl"), ms=ms) for hit in hits]
             summary["lncrawl"] += len(cards)
-            enrich(offer(cards))
+            fresh = offer(cards)
+            report(entry["_site"]["site"], started, len(fresh))
+            enrich(fresh)
 
         def from_site(site: dict):
             if stop.is_set():
                 return
+            started = time.monotonic()
             home = f"https://{site['host']}/"
             try:
                 hits = (self.site_search.search(home, text) if mode == "name"
                         else self.site_search.tag(home, text))
             except Exception:
                 summary["failed"] += 1
+                report(site["site"], started, 0, "failed")
                 return
-            cards = [self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", ""))
+            ms = int((time.monotonic() - started) * 1000)
+            cards = [dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")), ms=ms)
                      for hit in hits]
             summary["site"] = summary.get("site", 0) + len(cards)
             fresh = offer(cards)
+            plan = getattr(self.site_search, "plan", None)
+            refused = plan is not None and not plan(home).get("reachable", True)
+            report(site["site"], started, len(fresh), "refused" if refused else "ok")
             enrich([card for card in fresh if not card["cover"]])
 
         for site in self.sites:
@@ -304,7 +401,7 @@ class GenericSearch:
         open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
                       else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
         futures.append(pool.submit(from_web, open_words, True))
-        import time
+        progress({"total": len(futures)})
 
         ends = time.monotonic() + deadline
         try:
@@ -321,6 +418,119 @@ class GenericSearch:
         stop.set()
         pool.shutdown(wait=False, cancel_futures=True)
         done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=timed_out or bool(summary.get("late"))))
+
+    def by_id(self, text: str, emit: Callable[[List[dict]], None], stop: threading.Event,
+              done: Callable[[dict], None] = lambda _s: None, progress: Callable[[dict], None] = lambda _i: None,
+              deadline: float = 40.0) -> None:
+        """The book with this ID on every site that addresses its books by ID (the shipped templates,
+        then the ones learned from searches): each page is read, and kept when it is a real book."""
+        import time
+
+        code = text.strip()
+        numeric = code.isdigit()
+        tries, seen_sites = [], set()
+        for entry in id_templates():
+            if (entry.get("id") == "number") == numeric:
+                tries.append((entry["site"], entry["template"]))
+                seen_sites.add(site_of(_host(entry["template"].replace("{id}", "1"))))
+        with _learned_lock:
+            learned = dict(_learned)
+        if numeric:
+            tries.extend((site, template) for site, template in learned.items() if site not in seen_sites)
+        progress({"total": len(tries)})
+        found = {"n": 0}
+        pool = ThreadPoolExecutor(min(self.workers, 16), thread_name_prefix="generic-id")
+
+        def one(site: str, template: str):
+            if stop.is_set():
+                return
+            started = time.monotonic()
+            url = template.replace("{id}", code)
+            card = self.card(url, "", "", "id")
+            card["site"] = site_of(_host(url))
+            book = None
+            try:
+                result = self.fetch(url)
+                final = (result or {}).get("url") or url
+                if result and result["status"] < 400 and code.lower() in final.lower():
+                    meta = extract_metadata(decode(result), final)
+                    title = (meta.get("title") or "").strip()
+                    if title and not NOT_FOUND.search(title) and not is_no_results(title, meta.get("description", "")[:300])                             and not self._same_for_any_id(template, numeric, title):
+                        book = dict(card, url=final, complete=True, ms=int((time.monotonic() - started) * 1000),
+                                    **{k: meta.get(k) for k in ("title", "author", "cover", "description", "tags", "status")
+                                       + FIGURES if meta.get(k)})
+            except Exception:
+                book = None
+            ms = int((time.monotonic() - started) * 1000)
+            progress({"site": card["site"], "ms": ms, "found": 1 if book else 0, "state": "ok" if book else "failed"})
+            if book and not stop.is_set():
+                found["n"] += 1
+                emit([book])
+
+        futures = [pool.submit(one, site, template) for site, template in tries]
+        try:
+            for future in as_completed(futures, timeout=deadline):
+                future.result()
+        except TimeoutError:
+            pass
+        pool.shutdown(wait=False, cancel_futures=True)
+        done({"results": found["n"]})
+
+    def _same_for_any_id(self, template: str, numeric: bool, title: str) -> bool:
+        """The site shows this title for an ID no book has too (a page its scripts fill in, or its home
+        page): the title says nothing about the book."""
+        control = template.replace("{id}", "987654321" if numeric else "n0000zz")
+        try:
+            result = self.fetch(control, quick=True)
+        except Exception:
+            return False
+        if not result or result["status"] >= 400:
+            return False
+        other = (extract_metadata(decode(result), result.get("url") or control).get("title") or "").strip()
+        return bool(other) and other == title
+
+    def popular(self, sites: List[dict], emit: Callable[[List[dict]], None], stop: threading.Event,
+                done: Callable[[dict], None] = lambda _s: None, progress: Callable[[dict], None] = lambda _i: None,
+                deadline: float = 40.0) -> None:
+        """The popular lists of `sites` (busiest first): each card carries its site's rank ("siteRank") and
+        its place in the list ("position") for the page to score. Cards without a cover get their page read."""
+        import time
+
+        pool = ThreadPoolExecutor(min(self.workers, 16), thread_name_prefix="generic-top")
+        progress({"total": len(sites)})
+        seen = set()
+        lock = threading.Lock()
+
+        def one(index: int, site: dict):
+            if stop.is_set():
+                return
+            started = time.monotonic()
+            try:
+                hits = self.site_search.popular(f"https://{site['host']}/")
+            except Exception:
+                hits = []
+            ms = int((time.monotonic() - started) * 1000)
+            cards = []
+            with lock:
+                for position, hit in enumerate(hits):
+                    url = hit["url"].rstrip("/")
+                    if url in seen or is_no_results(hit["title"]) or not looks_like_book(hit["url"], hit["title"]):
+                        continue
+                    seen.add(url)
+                    card = self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", ""))
+                    cards.append(dict(card, ms=ms, siteRank=index, position=position, listLength=len(hits)))
+            progress({"site": site["site"], "ms": ms, "found": len(cards), "state": "ok" if cards else "failed"})
+            if cards and not stop.is_set():
+                emit(cards)
+
+        futures = [pool.submit(one, index, site) for index, site in enumerate(sites)]
+        try:
+            for future in as_completed(futures, timeout=deadline):
+                future.result()
+        except TimeoutError:
+            pass
+        pool.shutdown(wait=False, cancel_futures=True)
+        done({"results": len(seen)})
 
     def _detail_and_emit(self, card: dict, emit, stop: threading.Event, summary: dict) -> None:
         if stop.is_set():

@@ -40,7 +40,7 @@ def _button(form, text):
     return next(b for b in form.findChildren(QPushButton) if b.text() == text)
 
 
-REST = ["lnreader", "lncrawl", "fanficfare", "haruneko", "generic"]
+REST = ["lncrawl", "lnreader", "fanficfare", "haruneko", "generic"]
 
 
 def test_reorder_and_switch_off(form, context):

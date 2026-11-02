@@ -122,6 +122,11 @@ def _tag_links(soup, base: str) -> Dict[str, str]:
     return tags
 
 
+# Where sites keep their popular or ranking lists, tried in turn for the Catalog's top lists.
+POPULAR_PATHS = ("/popular", "/ranking", "/rankings", "/rank", "/top", "/trending", "/most-popular",
+                 "/manga?order=popular", "/series?order=popular", "/comics?order=popular", "/manga/?m_orderby=views",
+                 "/directory?sort=popular", "/browse?sort=popular", "/list?sort=views")
+
 class SiteSearch:
     """Searches sites the generic way; remembers what worked for each (in `cache_file` when given)."""
 
@@ -178,6 +183,9 @@ class SiteSearch:
         if way["kind"] == "get" and "template" in way:
             template = way["template"]
             value = quote(query) if "/{q}" in template else quote_plus(query)
+            if way.get("guess"):
+                # A guessed address: one quick plain request, never a browser tab (most guesses miss).
+                return self.fetch(template.replace("{q}", value), quick=True)
             return self.fetch(template.replace("{q}", value))
         data = dict(way.get("hidden") or {}, **{way["field"]: query})
         if way["kind"] == "post":
@@ -186,7 +194,7 @@ class SiteSearch:
         joiner = "&" if "?" in way["action"] else "?"
         return self.fetch(way["action"] + joiner + urlencode(data))
 
-    def search(self, home: str, query: str, limit: int = 20, budget: float = 30.0) -> List[dict]:
+    def search(self, home: str, query: str, limit: int = 20, budget: float = 20.0) -> List[dict]:
         """Cards from the site's own search for `query` (relevant ones only), within `budget` seconds."""
         started = time.monotonic()
         plan = self.plan(home)
@@ -219,6 +227,31 @@ class SiteSearch:
             if result and result["status"] < 400:
                 return [card for card in extract_cards(decode(result), result.get("url") or url)
                         if relevant(card["title"], query)][:limit]
+        return []
+
+    def popular(self, home: str, limit: int = 30) -> List[dict]:
+        """Cards from the site's popular or ranking list (the first common address that has one, else the
+        home page's biggest list); the address that worked is remembered."""
+        plan = self.plan(home)
+        if not plan.get("reachable", True):
+            return []
+        parts = urlsplit(plan["home"].rstrip("/"))
+        origin = f"{parts.scheme}://{parts.netloc}"
+        known = plan.get("popular")
+        tries = ([known] if known else []) + [origin + path for path in POPULAR_PATHS if origin + path != known]
+        for url in tries:
+            result = self.fetch(url, quick=url != known)
+            if not result or result["status"] >= 400:
+                continue
+            cards = extract_cards(decode(result), result.get("url") or url)
+            if len(cards) >= 6:
+                if plan.get("popular") != url:
+                    plan["popular"] = url
+                    self._save()
+                return cards[:limit]
+        result = self.fetch(plan["home"])
+        if result and result["status"] < 400:
+            return extract_cards(decode(result), result.get("url") or plan["home"])[:limit]
         return []
 
     def tag(self, home: str, tag: str, limit: int = 24) -> List[dict]:

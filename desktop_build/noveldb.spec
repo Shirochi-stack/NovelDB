@@ -33,7 +33,7 @@ datas = [(here("icon.ico"), "."), (here("dpi_setup.py"), "."), (here("assets", "
          (here("assets", "cart-icon.png"), "assets"), (here("assets", "download-icon.png"), "assets")]
 if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobile apps), the generic search page
     datas.append((here("noveldb", "qt", "catalog", "catalog-bridge.js"), os.path.join("noveldb", "qt", "catalog")))
-    for name in ("index.html", "generic.js"):
+    for name in ("index.html", "generic.js", "halgakos-loading.webp"):
         datas.append((here("noveldb", "qt", "catalog", "generic", name), os.path.join("noveldb", "qt", "catalog", "generic")))
 datas.append((here("noveldb", "core", "catalog", "generic_sites.json"), os.path.join("noveldb", "core", "catalog")))
 for name in ("gm_stubs.js", "bridge.js", "rules-lib.js"):
@@ -42,7 +42,8 @@ for name in ("webtoepub-lib.js", "manifest.json", "LICENSE.md"):  # the WebToEpu
     datas.append((here("webtoepub", name), "webtoepub"))
 for folder, names in (("lnreader", ("lnreader-lib.js", "manifest.json", "LICENSE.md")),  # the other rule sets
                       ("lncrawl", ("lncrawl-sources.zip", "manifest.json", "LICENSE")),
-                      ("haruneko", ("haruneko-lib.js", "manifest.json", "LICENSE"))):
+                      ("haruneko", ("haruneko-lib.js", "manifest.json", "LICENSE")),
+                      ("fanficfare", ("fanficfare.zip", "manifest.json", "LICENSE"))):
     for name in names:
         datas.append((here(folder, name), folder))
 

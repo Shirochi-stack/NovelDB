@@ -5,7 +5,7 @@ import pytest
 from noveldb.core import engine_updates as eu
 from noveldb.core.catalog import sites
 from noveldb.core.catalog.urls import NOVELDB_NEXT_URL, is_noveldb_default, is_noveldb_next, is_noveldb_site
-from noveldb.core.settings.model import DEFAULT_CATALOG_URL, ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, SITE_ENGINES
+from noveldb.core.settings.model import NOVELDB_CATALOG_URL, ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, SITE_ENGINES
 from noveldb.core.userscript_patterns import UserScriptPatterns, decode_escapes, is_home_page
 
 # Source domains are built from parts so the names stay out of the repository text.
@@ -22,13 +22,13 @@ def mode(url, enabled=SITE_ENGINES, cart_links=True):
 
 
 def test_noveldb_and_noveldb_next_are_one_class():
-    for url in (DEFAULT_CATALOG_URL, DEFAULT_CATALOG_URL.rstrip("/"), DEFAULT_CATALOG_URL + "?tag=x",
+    for url in (NOVELDB_CATALOG_URL, NOVELDB_CATALOG_URL.rstrip("/"), NOVELDB_CATALOG_URL + "?tag=x",
                 NOVELDB_NEXT_URL, NOVELDB_NEXT_URL + "some/route", "https://abc123.noveldb.pages.dev/"):
         assert is_noveldb_site(url), url
         result = mode(url)
         assert result.kind == sites.KIND_NOVELDB
         assert not result.cart_links and not result.download  # nothing renamed, no Download button
-    assert is_noveldb_default(DEFAULT_CATALOG_URL) and not is_noveldb_next(DEFAULT_CATALOG_URL)
+    assert is_noveldb_default(NOVELDB_CATALOG_URL) and not is_noveldb_next(NOVELDB_CATALOG_URL)
     assert is_noveldb_next(NOVELDB_NEXT_URL) and not is_noveldb_default(NOVELDB_NEXT_URL)
 
 

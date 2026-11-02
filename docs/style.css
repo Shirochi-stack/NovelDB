@@ -427,10 +427,11 @@ a.card-cover-wrap {
     text-decoration: none;
     overflow: hidden;
     border-radius: var(--radius) var(--radius) 0 0;
-    /* Shimmer skeleton while image loads */
-    background: linear-gradient(110deg, var(--bg-input) 30%, #252540 50%, var(--bg-input) 70%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s ease-in-out infinite;
+    /* Halgakos while the image loads, with a shimmer across it */
+    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, .10) 50%, transparent 70%),
+                url(halgakos-loading.webp) center / cover no-repeat, var(--bg-input);
+    background-size: 200% 100%, cover, auto;
+    animation: halgakos-shimmer 1.5s ease-in-out infinite;
 }
 
 .card-cover {
@@ -457,15 +458,21 @@ a.card-cover-wrap.cover-ready {
     100% { background-position: -200% 0; }
 }
 
+@keyframes halgakos-shimmer {
+    0% { background-position: 200% 0, center, 0 0; }
+    100% { background-position: -200% 0, center, 0 0; }
+}
+
+/* A book without a cover (or one that won't load): Halgakos instead of the book emoji. */
 .card-cover.no-img {
     opacity: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 3rem;
-    color: var(--text-muted);
+    font-size: 0;
+    color: transparent;
     aspect-ratio: 3 / 4;
-    background: linear-gradient(135deg, var(--bg-input), var(--bg-card));
+    background: url(halgakos-loading.webp) center / cover no-repeat, var(--bg-input);
 }
 
 .card-body {

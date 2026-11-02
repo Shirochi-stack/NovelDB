@@ -44,7 +44,7 @@ from noveldb.core import paths
 from noveldb.core.catalog.cart import CartItem
 from noveldb.core.catalog import sites
 from noveldb.core.catalog.urls import is_generic_catalog, valid_catalog_url
-from noveldb.core.settings.model import DEFAULT_CATALOG_URL
+from noveldb.core.settings.model import DEFAULT_CATALOG_URL, NOVELDB_CATALOG_URL
 from noveldb.core.sources import detect_source
 from noveldb.qt import icons
 from noveldb.qt.catalog import generic as generic_page
@@ -230,6 +230,7 @@ class CatalogView(QWebEngineView):
 class CatalogPage(QWidget):
     openCart = Signal()
     downloadCart = Signal()
+    downloadLinks = Signal(list)  # Generic search: a book downloaded straight from its details
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -441,7 +442,7 @@ class CatalogPage(QWidget):
     def _use_default(self) -> None:
         from dataclasses import replace
 
-        self.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, url=DEFAULT_CATALOG_URL)))
+        self.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, url=NOVELDB_CATALOG_URL)))
 
     def _open_external(self) -> None:
         if self._on_generic_page():
@@ -525,6 +526,12 @@ class CatalogPage(QWidget):
         if kind.startswith("generic"):
             if kind == "genericReady":
                 self._push_state()
+            if kind == "genericDownload":
+                if self._on_generic_page():
+                    title = str(data.get("title") or "") or data["url"]
+                    self.downloadLinks.emit([data["url"]])
+                    self.toast.show_message(f"{icons.inline(icons.DOWNLOAD)}&nbsp;{escape('Queued: ' + title)}")
+                return
             self.generic.handle(data)
             return
         if kind == "ready":

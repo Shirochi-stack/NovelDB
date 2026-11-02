@@ -330,9 +330,8 @@ class DownloadPipeline(
 
         /** Applies the chapter range and paid filter. */
         fun select(chapters: List<ChapterRef>, shared: SharedSettings): List<ChapterRef> {
-            val from = shared.rangeFrom ?: Int.MIN_VALUE
-            val to = shared.rangeTo ?: Int.MAX_VALUE
-            return chapters.filter { c -> c.index in from..to && !(shared.skipPaid && c.isPaid) }
+            val range = shared.chapterRange
+            return chapters.filter { c -> c.index in range && !(shared.skipPaid && c.isPaid) }
         }
     }
 }

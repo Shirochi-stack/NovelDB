@@ -191,9 +191,8 @@ public struct QdnAdapter: SourceAdapter {
 
     private func wantsBoughtChapters(_ chapters: [ChapterRef], _ context: SourceContext) -> Bool {
         let shared = context.shared(for: .qdn)
-        let from = shared.rangeFrom ?? Int.min
-        let to = shared.rangeTo ?? Int.max
-        return !shared.skipPaid && chapters.contains { $0.isPaid && $0.index >= from && $0.index <= to }
+        let range = shared.chapterRange
+        return !shared.skipPaid && chapters.contains { $0.isPaid && range.contains($0.index) }
     }
 
     private func verification(_ bookID: String, _ context: SourceContext) -> SourceError {

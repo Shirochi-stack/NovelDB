@@ -1,9 +1,38 @@
 package com.shirochi.npia.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.materialIcon
+import androidx.compose.material.icons.materialPath
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -17,8 +46,6 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -57,6 +84,10 @@ fun RootScreen(model: AppViewModel) {
     val focusManager = LocalFocusManager.current
     val cart by model.cart.items.collectAsStateWithLifecycle()
     val catalog = rememberCatalogWeb(model)
+    // Add and Catalog are one bottom tab ("Download"); it reopens whichever of the two was used last.
+    var lastDownloadTab by remember { mutableStateOf(Tab.CATALOG) }
+    if (model.tab in DOWNLOAD_TABS) lastDownloadTab = model.tab
+    val downloadHome = route == null && model.tab in DOWNLOAD_TABS
 
     LaunchedEffect(Unit) {
         manager.messages.collect { snackbar.showSnackbar(it) }
@@ -66,8 +97,10 @@ fun RootScreen(model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            // The catalog site has its own header, so the Catalog tab skips the title bar.
-            if (route != null || model.tab != Tab.CATALOG) TopAppBar(
+            // The Download tab's own header is its Catalog / Add links switch.
+            if (downloadHome) {
+                DownloadSwitch(model.tab, onSelect = { model.select(it) }, actions = if (model.tab == Tab.CATALOG) topBar.actions else null)
+            } else TopAppBar(
                 title = {
                     val title = when (route) {
                         null -> if (model.tab == Tab.SETTINGS) "Settings" else model.tab.title
@@ -85,31 +118,26 @@ fun RootScreen(model: AppViewModel) {
             )
         },
         bottomBar = {
-            NavigationBar {
-                Tab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = model.tab == tab,
-                        onClick = {
-                            if (tab == Tab.CATALOG && model.tab == Tab.CATALOG) catalog.reload()
-                            model.select(tab)
-                        },
-                        label = { Text(tab.title) },
-                        icon = {
-                            val active = jobs.count { it.state.isActive }
-                            val count = when (tab) {
-                                Tab.QUEUE -> active
-                                Tab.ADD -> cart.size
-                                else -> 0
-                            }
-                            if (count > 0) {
-                                BadgedBox(badge = { Badge { Text("$count") } }) { Icon(tab.icon, contentDescription = null) }
-                            } else {
-                                Icon(tab.icon, contentDescription = null)
-                            }
-                        },
-                    )
-                }
-            }
+            val active = jobs.count { it.state.isActive }
+            FloatingTabBar(
+                items = BAR_ITEMS,
+                selected = BAR_ITEMS.first { model.tab in it.tabs },
+                badge = { item ->
+                    when {
+                        Tab.QUEUE in item.tabs -> active
+                        Tab.ADD in item.tabs -> cart.size
+                        else -> 0
+                    }
+                },
+                onSelect = { item ->
+                    if (model.tab in item.tabs) {
+                        if (model.tab == Tab.CATALOG) catalog.reload()
+                        model.select(model.tab)
+                    } else {
+                        model.select(if (item.tabs == DOWNLOAD_TABS) lastDownloadTab else item.tabs.first())
+                    }
+                },
+            )
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
@@ -166,12 +194,103 @@ fun RootScreen(model: AppViewModel) {
     }
 }
 
-private val Tab.icon
-    get() = when (this) {
-        Tab.ADD -> Icons.Filled.Add
-        Tab.CATALOG -> Icons.Filled.Search
-        Tab.BROWSER -> Icons.Filled.AccountCircle
-        Tab.QUEUE -> Icons.AutoMirrored.Filled.List
-        Tab.UPLOADS -> Icons.Filled.Share
-        Tab.SETTINGS -> Icons.Filled.Settings
+private val DOWNLOAD_TABS = setOf(Tab.CATALOG, Tab.ADD)
+
+/** Material's "download" arrow (the core icon set the app ships has none). */
+private val DownloadIcon: ImageVector = materialIcon(name = "Filled.Download") {
+    materialPath {
+        moveTo(19f, 9f); horizontalLineToRelative(-4f); verticalLineTo(3f); horizontalLineTo(9f); verticalLineToRelative(6f)
+        horizontalLineTo(5f); lineToRelative(7f, 7f); lineToRelative(7f, -7f); close()
+        moveTo(5f, 18f); verticalLineToRelative(2f); horizontalLineToRelative(14f); verticalLineToRelative(-2f); horizontalLineTo(5f); close()
     }
+}
+
+/** A bottom-bar entry: one or more tabs (Download holds both Catalog and Add). */
+private class BarItem(val title: String, val icon: ImageVector, val tabs: Set<Tab>)
+
+private val BAR_ITEMS = listOf(
+    BarItem("Download", DownloadIcon, DOWNLOAD_TABS),
+    BarItem(Tab.BROWSER.title, Icons.Filled.AccountCircle, setOf(Tab.BROWSER)),
+    BarItem(Tab.QUEUE.title, Icons.AutoMirrored.Filled.List, setOf(Tab.QUEUE)),
+    BarItem(Tab.UPLOADS.title, Icons.Filled.Share, setOf(Tab.UPLOADS)),
+    BarItem(Tab.SETTINGS.title, Icons.Filled.Settings, setOf(Tab.SETTINGS)),
+)
+
+/** The Download tab's header: find books in the Catalog, or paste links to add. */
+@Composable
+private fun DownloadSwitch(tab: Tab, onSelect: (Tab) -> Unit, actions: (@Composable () -> Unit)?) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val options = listOf(Tab.CATALOG to "Catalog", Tab.ADD to "Add links")
+            SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
+                options.forEachIndexed { index, (option, label) ->
+                    SegmentedButton(
+                        selected = tab == option,
+                        onClick = { onSelect(option) },
+                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                        icon = {
+                            Icon(if (option == Tab.CATALOG) Icons.Filled.Search else Icons.Filled.Add, contentDescription = null)
+                        },
+                    ) { Text(label) }
+                }
+            }
+            actions?.invoke()
+        }
+    }
+}
+
+/**
+ * A floating, rounded bottom bar: the selected tab is a pill with its icon and name, the others
+ * show their icon (and a count badge: the link cart, the running downloads).
+ */
+@Composable
+private fun FloatingTabBar(items: List<BarItem>, selected: BarItem, badge: (BarItem) -> Int, onSelect: (BarItem) -> Unit) {
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(30.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                Modifier.height(62.dp).padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items.forEach { item ->
+                    val on = item == selected
+                    val background by animateColorAsState(
+                        if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        label = "tab",
+                    )
+                    val tint = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(background)
+                            .clickable(role = Role.Tab) { onSelect(item) }
+                            .padding(horizontal = if (on) 16.dp else 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val count = badge(item)
+                        if (count > 0) {
+                            BadgedBox(badge = { Badge { Text("$count") } }) { Icon(item.icon, contentDescription = item.title, tint = tint) }
+                        } else {
+                            Icon(item.icon, contentDescription = item.title, tint = tint)
+                        }
+                        AnimatedVisibility(on, enter = fadeIn() + expandHorizontally(), exit = fadeOut() + shrinkHorizontally()) {
+                            Row {
+                                Spacer(Modifier.width(8.dp))
+                                Text(item.title, style = MaterialTheme.typography.labelLarge, color = tint, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

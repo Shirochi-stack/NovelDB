@@ -141,11 +141,12 @@ private fun StepButton(symbol: String, enabled: Boolean, onClick: () -> Unit) {
  * the parsed value, or null when the box is empty.
  */
 @Composable
-fun MiniNumberField(value: String, placeholder: String, decimal: Boolean, width: Int = 56, onChange: (String) -> Unit) {
+fun MiniNumberField(value: String, placeholder: String, decimal: Boolean, width: Int = 56, error: Boolean = false, onChange: (String) -> Unit) {
     var text by remember(value) { mutableStateOf(value) }
     var focused by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
-    Surface(shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+    val outline = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+    Surface(shape = RoundedCornerShape(8.dp), border = BorderStroke(if (error) 2.dp else 1.dp, outline)) {
         Box(Modifier.width(width.dp).height(32.dp).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
             if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             BasicTextField(

@@ -21,15 +21,34 @@ from PySide6.QtCore import QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtWebEngineCore import QWebEnginePage
 
 from noveldb.core import paths
-from noveldb.core.catalog.generic_search import GenericSearch, default_fetch, top_sites
+from noveldb.core.catalog.generic_search import GenericSearch, default_fetch, load_learned, save_learned, top_sites
+from noveldb.core.catalog.live_reader import LiveReader
 from noveldb.core.catalog.site_search import SiteSearch
 
 log = logging.getLogger(__name__)
 PAGE_DIR = Path(__file__).with_name("generic")
 PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
-MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails")
+MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
+                 "genericDownload", "genericBook", "genericChapter", "genericTop")
+MAX_QUERIES = 6
+# A country's domain and its language (the page's preferred-language setting; others count as English).
+TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
+            "pt": "pt", "fr": "fr", "id": "id", "th": "th", "tr": "tr", "de": "de", "vn": "vi"}
+COMIC_SITE = __import__("re").compile(r"(manga|manhwa|manhua|toon|comic|piccoma|mechacomic|booklive|toomics)", 2)
 _CHALLENGE = ("just a moment", "attention required", "security check", "verify you are human")
+
+
+def download_icon() -> str:
+    """The app's download artwork as a data URL (the one catalog-bridge.js shows on NovelDB)."""
+    import re
+
+    try:
+        text = (Path(__file__).with_name("catalog-bridge.js")).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    found = re.search(r"DOWNLOAD_ICON = '(data:image/[^']+)'", text)
+    return found.group(1) if found else ""
 
 
 def is_generic_page(url: QUrl) -> bool:
@@ -42,17 +61,35 @@ def parse_message(data: dict) -> Optional[dict]:
     if kind not in MESSAGE_TYPES:
         return None
     if kind == "genericSearch":
-        query = data.get("query")
-        if not isinstance(query, str) or not query.strip() or len(query) > 300:
+        # A search is one or more queries run together: the title, and each tag picked in the tag menu.
+        asked = data.get("queries")
+        if not isinstance(asked, list):
+            asked = [{"query": data.get("query"), "mode": data.get("mode")}]
+        queries = []
+        for item in asked[:MAX_QUERIES]:
+            query = item.get("query") if isinstance(item, dict) else None
+            if isinstance(query, str) and query.strip() and len(query) <= 300:
+                queries.append({"query": query.strip(),
+                                "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id") else "name"})
+        if not queries:
             return None
-        data["mode"] = data.get("mode") if data.get("mode") in ("name", "tag") else "name"
-    if kind in ("genericFetch", "genericImage") and not isinstance(data.get("id"), int):
+        data["queries"] = queries
+        data["query"], data["mode"] = queries[0]["query"], queries[0]["mode"]
+    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter") and not isinstance(data.get("id"), int):
         return None
     if kind == "genericFetch":
         request = data.get("request")
         if not isinstance(request, dict) or not str(request.get("url", "")).startswith(("http://", "https://")):
             return None
     if kind == "genericImage" and not str(data.get("url", "")).startswith(("http://", "https://")):
+        return None
+    if kind in ("genericBook", "genericChapter") and not str(data.get("url", "")).startswith(("http://", "https://")):
+        return None
+    if kind == "genericChapter" and not (isinstance(data.get("index"), int) and data["index"] >= 0):
+        return None
+    if kind == "genericTop" and data.get("kind") not in ("manga", "manhwa", "comic", "lightnovel", "webnovel"):
+        return None
+    if kind == "genericDownload" and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
     if kind == "genericDetails":
         card = data.get("card")
@@ -79,7 +116,7 @@ class BrowserFetcher(QObject):
 
     _request = Signal(object)
 
-    def __init__(self, profile, parent: QObject, tabs: int = 3) -> None:
+    def __init__(self, profile, parent: QObject, tabs: int = 4) -> None:
         super().__init__(parent)
         self.profile = profile
         self.tabs = tabs
@@ -144,6 +181,7 @@ class GenericCatalog(QObject):
     _done = Signal(int, dict)
     _detailed = Signal(dict)
     _fetched = Signal(int, object)
+    _progress = Signal(int, dict)
 
     def __init__(self, run_js: Callable[[str], None], profile, known_site: Callable[[str], bool], parent: QObject):
         super().__init__(parent)
@@ -155,18 +193,22 @@ class GenericCatalog(QObject):
         cache = paths.cache_dir() / "generic-search-sites.json"
         self.site_search = SiteSearch(self.fetch, cache_file=cache)
         self.site_search.render = self.browser.fetch
+        self.reader = LiveReader(self.fetch, render=self._render)
+        self._learned_file = paths.cache_dir() / "generic-id-templates.json"
+        load_learned(self._learned_file)
         self._cards.connect(lambda sid, cards: self._call("add", cards, sid))
         self._done.connect(lambda sid, summary: self._call("done", sid, summary))
         self._detailed.connect(lambda card: self._call("details", card))
         self._fetched.connect(lambda fid, result: self._call("fetched", fid, result))
+        self._progress.connect(lambda sid, item: self._call("progress", sid, item))
 
     # -- requests ----------------------------------------------------------------------------------
 
     def fetch(self, url: str, method: str = "GET", data=None, headers=None, binary: bool = False,
-              referer: str = "") -> Optional[dict]:
-        """Plain HTTP; a page that refuses it is read in a hidden Catalog tab instead."""
-        result = default_fetch(url, method=method, data=data, headers=headers, binary=binary, referer=referer)
-        if method == "GET" and not binary and _refused(result):
+              referer: str = "", quick: bool = False) -> Optional[dict]:
+        """Plain HTTP; a page that refuses it is read in a hidden Catalog tab instead (not for `quick` guesses)."""
+        result = default_fetch(url, method=method, data=data, headers=headers, binary=binary, referer=referer, quick=quick)
+        if method == "GET" and not binary and not quick and _refused(result):
             rendered = self.browser.fetch(url)
             if rendered is not None:
                 return rendered
@@ -182,7 +224,7 @@ class GenericCatalog(QObject):
         if kind == "genericReady":
             self.init_page()
         elif kind == "genericSearch":
-            self.search(int(data.get("id") or 0), data["query"], data["mode"])
+            self.search(int(data.get("id") or 0), data["queries"])
         elif kind == "genericStop":
             self._stop.set()
         elif kind == "genericFetch":
@@ -191,29 +233,88 @@ class GenericCatalog(QObject):
             self._background(self._image, data["id"], data["url"], str(data.get("referer") or ""))
         elif kind == "genericDetails":
             self._background(self._details, data["card"])
+        elif kind == "genericTop":
+            self.top(int(data.get("id") or 0), data["kind"], str(data.get("language") or "all")[:5])
+        elif kind == "genericBook":
+            self._background(self._read, data["id"], self.reader.book, data["url"])
+        elif kind == "genericChapter":
+            self._background(self._read, data["id"], self.reader.chapter, data["url"], data["index"])
         return True
 
     def init_page(self) -> None:
         sites = top_sites()
         lnreader = [{"id": plugin, "site": site["site"], "comic": site["comic"]}
                     for site in sites for plugin in site.get("lnreader", [])[:1]]
-        self._call("init", {"sites": [site["site"] for site in sites], "lnreader": lnreader})
+        self._call("init", {"sites": [site["site"] for site in sites], "lnreader": lnreader,
+                            "downloadIcon": download_icon()})
 
-    def search(self, search_id: int, query: str, mode: str) -> None:
+    def search(self, search_id: int, queries: list) -> None:
+        """Runs every query at once; the page hears `done` once, when the last one finishes."""
         self._stop.set()
         self._stop = stop = threading.Event()
         self._search_id = search_id
+        left = [len(queries)]
+        totals: dict = {}
+        lock = threading.Lock()
+
+        def finished(summary: dict) -> None:
+            with lock:
+                for name, value in summary.items():
+                    totals[name] = (totals.get(name) or 0) + value if isinstance(value, (int, float)) and not                         isinstance(value, bool) else (totals.get(name) or value)
+                left[0] -= 1
+                last = left[0] == 0
+            if last:
+                save_learned(self._learned_file)
+                self._done.emit(search_id, totals)
+
+        def run(query: str, mode: str):
+            engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
+            if mode == "id":
+                try:
+                    engine.by_id(query, lambda cards: self._cards.emit(search_id, [dict(c, via="id") for c in cards]), stop,
+                                 finished, progress=lambda item: self._progress.emit(search_id, item))
+                except Exception as e:
+                    log.warning("generic ID search failed: %s", e)
+                    finished({"failed": 1})
+                return
+            try:
+                # `via` tells the page which kind of query found a card (tag results must match the title too).
+                engine.run(query, mode, lambda cards: self._cards.emit(search_id, [dict(card, via=mode) for card in cards]),
+                           stop, finished, progress=lambda item: self._progress.emit(search_id, item))
+            except Exception as e:
+                log.warning("generic search failed: %s", e)
+                finished({"failed": 1})
+
+        for item in queries:
+            threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-search", daemon=True).start()
+
+    def top(self, search_id: int, kind: str, language: str = "all") -> None:
+        """The popular lists of the top sites of one kind (comics: the comic sites; novels: the rest), the
+        sites of the preferred language first (a country's domain tells a site's language; .com and the
+        like count as English)."""
+        self._stop.set()
+        self._stop = stop = threading.Event()
+        comic = kind in ("manga", "manhwa", "comic")
+        sites = [site for site in top_sites() if bool(site.get("comic")) == comic and not site.get("lnreader")
+                 or comic and COMIC_SITE.search(site["site"])]
+        if language != "all":
+            def fits(site: dict) -> bool:
+                country = TLD_LANG.get(site["site"].rsplit(".", 1)[-1])
+                return (country or "en") == language
+            sites = [site for site in sites if fits(site)] + [site for site in sites if not fits(site)]
+        sites = sites[:30]
         engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
 
         def run():
             try:
-                engine.run(query, mode, lambda cards: self._cards.emit(search_id, cards), stop,
-                           lambda summary: self._done.emit(search_id, summary))
+                engine.popular(sites, lambda cards: self._cards.emit(search_id, [dict(c, via="top") for c in cards]), stop,
+                               lambda summary: self._done.emit(search_id, summary),
+                               progress=lambda item: self._progress.emit(search_id, item))
             except Exception as e:
-                log.warning("generic search failed: %s", e)
+                log.warning("generic top list failed: %s", e)
                 self._done.emit(search_id, {"failed": 1})
 
-        threading.Thread(target=run, name="generic-search", daemon=True).start()
+        threading.Thread(target=run, name="generic-top", daemon=True).start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -240,6 +341,19 @@ class GenericCatalog(QObject):
             "responseHeaders": result.get("headers") or "",
             "responseBase64": base64.b64encode(result.get("content") or b"").decode("ascii"),
         })
+
+    def _render(self, url: str, *_args, **_kwargs) -> str:
+        """A page's HTML after its scripts ran (the engines' `render`), from a hidden Catalog tab."""
+        result = self.browser.fetch(url)
+        return (result or {}).get("text") or ""
+
+    def _read(self, fetch_id: int, function, *args) -> None:
+        """The reader's book or chapter, or {error} for the page to show."""
+        try:
+            self._fetched.emit(fetch_id, function(*args))
+        except Exception as e:
+            log.info("generic reader: %s", e)
+            self._fetched.emit(fetch_id, {"error": str(e)[:300] or type(e).__name__})
 
     def _image(self, fetch_id: int, url: str, referer: str) -> None:
         result = default_fetch(url, binary=True, referer=referer, headers={"Accept": "image/*"})

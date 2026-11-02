@@ -37,7 +37,7 @@ from noveldb.core.catalog.urls import NOVELDB_NEXT_URL, valid_catalog_url
 from noveldb.core.settings.model import GENERIC_CATALOG_URL
 from noveldb.core.settings.model import (
     ACCENTS,
-    DEFAULT_CATALOG_URL,
+    NOVELDB_CATALOG_URL,
     ENGINE_LABELS,
     ENGINE_W2E,
     IMAGE_FORMATS,
@@ -658,6 +658,23 @@ def engines_form(context: AppContext) -> Form:
     default.clicked.connect(lambda: context.update_settings(
         lambda s: replace(s, engines=replace(s.engines, order=SITE_ENGINES, disabled=()))))
     f.add(flow(up, down, default))
+    f.check("Dynamic priority", "engines.dynamic_priority")
+    dynamic_hint = f.add_hint("")
+
+    def show_dynamic(_s=None):
+        try:
+            from noveldb.core.engines import site_index
+
+            listed = sum(site_index.counts().values())
+        except Exception:
+            listed = 0
+        dynamic_hint.setText(
+            "On: a link only tries the engines (in the order above) that list its site, then the Generic "
+            "fallback, so engines that can't read it are skipped at once. The site lists are read from the "
+            f"engines themselves and cached ({listed:,} sites); they are rebuilt when an engine updates. "
+            "Off: every engine is tried in turn. Sites the built-in scrapers own are unaffected.")
+
+    f._refreshers.append(show_dynamic)
 
     def show(s):
         engines.blockSignals(True)
@@ -701,6 +718,7 @@ def engines_form(context: AppContext) -> Form:
     f.check("Update the LNReader plugins automatically", "engines.lnreader_auto_update")
     f.check("Update the lightnovel-crawler sources automatically", "engines.lncrawl_auto_update")
     f.check("Update the HaruNeko websites automatically", "engines.haruneko_auto_update")
+    f.check("Update the FanFicFare adapters automatically", "engines.fanficfare_auto_update")
     f.add_hint("All are on by default and checked once a day. Updates come from NovelDB's GitHub releases, "
                "where a daily job rebuilds each engine from its official repository and checks that it loads "
                "before publishing it. A downloaded update that fails to load is set aside.")
@@ -738,14 +756,20 @@ def engines_form(context: AppContext) -> Form:
 
     opted_in.before = {e.name for e in engine_updates.ENGINES if context.settings.engines.auto_update(e.name)}
     context.settingsChanged.connect(opted_in)
-    f.add_hint("novel-downloader is made by the 404 Novel Project (AGPL-3.0): "
-               "https://github.com/404-novel-project/novel-downloader. WebToEpub is made by David Teviotdale "
-               "and contributors (GPL-3.0): https://github.com/dteviot/WebToEpub. LNReader's plugins (MIT): "
-               "https://github.com/LNReader/lnreader-plugins. lightnovel-crawler (GPL-3.0): "
-               "https://github.com/lncrawl/lightnovel-crawler. FanFicFare (Apache-2.0): "
-               "https://github.com/JimmXinu/FanFicFare. HaruNeko (Unlicense): "
-               "https://github.com/manga-download/haruneko. HaruNeko's DRM and image-descrambling code is not "
-               "included, so the few sites that need it stop with a message.")
+    credits = [
+        ("novel-downloader", "the 404 Novel Project", "AGPL-3.0", "https://github.com/404-novel-project/novel-downloader"),
+        ("WebToEpub", "David Teviotdale and contributors", "GPL-3.0", "https://github.com/dteviot/WebToEpub"),
+        ("LNReader plugins", "the LNReader team", "MIT", "https://github.com/LNReader/lnreader-plugins"),
+        ("lightnovel-crawler", "its contributors", "GPL-3.0", "https://github.com/lncrawl/lightnovel-crawler"),
+        ("FanFicFare", "Jim Miller and contributors", "Apache-2.0", "https://github.com/JimmXinu/FanFicFare"),
+        ("HaruNeko", "its contributors", "Unlicense", "https://github.com/manga-download/haruneko"),
+    ]
+    # One source per line.
+    credit_label = f.add_hint("<br>".join(f"<b>{name}</b> by {author} ({license_}): <a href=\"{url}\">{url}</a>"
+                           for name, author, license_, url in credits)
+               + "<br>HaruNeko's DRM and image-descrambling code is not included, so the few sites that need it "
+                 "stop with a message.")
+    credit_label.setOpenExternalLinks(True)
     f.finish()
     return f
 
@@ -864,7 +888,7 @@ def upload_form(context: AppContext) -> Form:
 def catalog_form(context: AppContext) -> Form:
     f = Form(context, "Catalog site")
     url = QLineEdit()
-    url.setPlaceholderText(DEFAULT_CATALOG_URL)
+    url.setPlaceholderText(NOVELDB_CATALOG_URL)
     error = hint("")
 
     def save(text):
@@ -890,7 +914,7 @@ def catalog_form(context: AppContext) -> Form:
     row.addWidget(save_button)
     f.add(holder)
     use_default = QPushButton("Use NovelDB")
-    use_default.clicked.connect(lambda: save(DEFAULT_CATALOG_URL))
+    use_default.clicked.connect(lambda: save(NOVELDB_CATALOG_URL))
     use_next = QPushButton("Use NovelDB Next")
     use_next.clicked.connect(lambda: save(NOVELDB_NEXT_URL))
     use_generic = QPushButton("Use Generic search")

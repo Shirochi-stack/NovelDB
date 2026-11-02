@@ -276,9 +276,9 @@ public struct DownloadPipeline: Sendable {
     }
 
     public static func select(_ chapters: [ChapterRef], shared: SharedSettings) -> [ChapterRef] {
-        chapters.filter { chapter in
-            if let from = shared.rangeFrom, chapter.index < from { return false }
-            if let to = shared.rangeTo, chapter.index > to { return false }
+        let range = shared.chapterRange
+        return chapters.filter { chapter in
+            if !range.contains(chapter.index) { return false }
             if shared.skipPaid, chapter.isPaid { return false }
             return true
         }

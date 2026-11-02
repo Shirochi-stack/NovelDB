@@ -9,7 +9,7 @@ from noveldb.core.catalog.urls import (
     is_noveldb_site,
     valid_catalog_url,
 )
-from noveldb.core.settings.model import DEFAULT_CATALOG_URL
+from noveldb.core.settings.model import NOVELDB_CATALOG_URL
 
 
 def test_valid_catalog_url():
@@ -23,11 +23,11 @@ def test_valid_catalog_url():
 
 
 def test_site_kinds():
-    assert is_noveldb_site(DEFAULT_CATALOG_URL)
-    assert is_noveldb_site(DEFAULT_CATALOG_URL.rstrip("/"))
+    assert is_noveldb_site(NOVELDB_CATALOG_URL)
+    assert is_noveldb_site(NOVELDB_CATALOG_URL.rstrip("/"))
     assert is_noveldb_site(NOVELDB_NEXT_URL)  # NovelDB Next is NovelDB too: no renamed links
     assert is_noveldb_next(NOVELDB_NEXT_URL.rstrip("/"))
-    assert not is_noveldb_next(DEFAULT_CATALOG_URL)
+    assert not is_noveldb_next(NOVELDB_CATALOG_URL)
     assert not is_noveldb_site("https://example.com/")
 
 

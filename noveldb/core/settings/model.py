@@ -29,7 +29,8 @@ ENGINE_LNC = "lncrawl"
 ENGINE_FFF = "fanficfare"
 ENGINE_HN = "haruneko"
 ENGINE_GENERIC = "generic"
-SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, ENGINE_LNR, ENGINE_LNC, ENGINE_FFF, ENGINE_HN,
+# lightnovel-crawler before LNReader: its sources are the more reliable of the two.
+SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, ENGINE_LNC, ENGINE_LNR, ENGINE_FFF, ENGINE_HN,
                 ENGINE_GENERIC)
 ENGINE_LABELS = {
     ENGINE_NATIVE: "Built-in scrapers",
@@ -51,9 +52,11 @@ def engine_order(order, disabled=()) -> tuple[str, ...]:
             seen.append(name)
     return tuple(name for name in seen if name not in set(disabled or ()))
 
-DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
+NOVELDB_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 # The desktop Catalog's generic search page (noveldb/qt/catalog/generic), shown instead of a site.
 GENERIC_CATALOG_URL = "noveldb://generic/"
+# The Catalog a new install starts on: Generic search (TurboLite, without a web view, opens NovelDB).
+DEFAULT_CATALOG_URL = GENERIC_CATALOG_URL
 
 # Source whose run settings live in its override by default (mobile `editRunSettings`).
 NPIA = "npia"
@@ -243,16 +246,20 @@ class EngineSettings:
 
     order: tuple[str, ...] = SITE_ENGINES
     disabled: tuple[str, ...] = ()
+    # Dynamic priority: a link only tries the engines that list its site (noveldb.core.engines.site_index),
+    # in the order above, then the generic fallback; off, every engine is tried in turn.
+    dynamic_priority: bool = True
     nd_auto_update: bool = True
     webtoepub_auto_update: bool = True
     lnreader_auto_update: bool = True
     lncrawl_auto_update: bool = True
     haruneko_auto_update: bool = True
+    fanficfare_auto_update: bool = True
 
     def auto_update(self, engine: str) -> bool:
         return {ENGINE_ND: self.nd_auto_update, ENGINE_W2E: self.webtoepub_auto_update,
                 ENGINE_LNR: self.lnreader_auto_update, ENGINE_LNC: self.lncrawl_auto_update,
-                ENGINE_HN: self.haruneko_auto_update}.get(engine, False)
+                ENGINE_HN: self.haruneko_auto_update, ENGINE_FFF: self.fanficfare_auto_update}.get(engine, False)
 
     def enabled(self) -> tuple[str, ...]:
         return engine_order(self.order, self.disabled)

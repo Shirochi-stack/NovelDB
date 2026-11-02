@@ -24,7 +24,7 @@ class BrowserCatalogPage(QWidget):
         self.site = hint("")
         open_site = QPushButton("Open catalog in browser")
         open_site.setProperty("primary", True)
-        open_site.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.context.settings.catalog.url)))
+        open_site.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self._site())))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.addWidget(title)
@@ -37,8 +37,16 @@ class BrowserCatalogPage(QWidget):
         context.settingsChanged.connect(self._refresh)
         self._refresh()
 
+    def _site(self) -> str:
+        """The catalog site; Generic search is a page of the app's own web view, so NovelDB opens instead."""
+        from noveldb.core.catalog.urls import is_generic_catalog
+        from noveldb.core.settings.model import NOVELDB_CATALOG_URL
+
+        url = self.context.settings.catalog.url
+        return NOVELDB_CATALOG_URL if is_generic_catalog(url) else url
+
     def _refresh(self) -> None:
-        self.site.setText(self.context.settings.catalog.url)
+        self.site.setText(self._site())
 
 
 def catalog_page(context: AppContext) -> QWidget:

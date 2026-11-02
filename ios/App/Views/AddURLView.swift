@@ -92,9 +92,13 @@ struct AddURLView: View {
                 }
                 HStack(spacing: 8) {
                     Text("Chapter Range").font(.subheadline)
-                    CompactNumber(title: "From", value: rangeBinding(\.rangeFrom, \.rangeFrom))
-                    CompactNumber(title: "To", value: rangeBinding(\.rangeTo, \.rangeTo))
+                    CompactNumber(title: "From", value: rangeBinding(\.rangeFrom, \.rangeFrom), marked: rangeCrossed)
+                    CompactNumber(title: "To", value: rangeBinding(\.rangeTo, \.rangeTo), marked: rangeCrossed)
                     Spacer(minLength: 0)
+                }
+                if rangeCrossed, let from = effective.rangeFrom {
+                    Text("From is after To, so only chapter \(from) will be downloaded.")
+                        .font(.caption).foregroundStyle(.red)
                 }
                 FlowLayout(spacing: 8) {
                     ChipToggle(title: "Skip paid", isOn: sharedOnly(\.skipPaid))
@@ -148,6 +152,11 @@ struct AddURLView: View {
 
     private func sharedOnly<T>(_ path: WritableKeyPath<SharedSettings, T>) -> Binding<T> {
         Binding(get: { model.settings.shared[keyPath: path] }, set: { model.settings.shared[keyPath: path] = $0 })
+    }
+
+    private var rangeCrossed: Bool {
+        guard let from = effective.rangeFrom, let to = effective.rangeTo else { return false }
+        return from > to
     }
 
     private func rangeBinding(_ sharedPath: WritableKeyPath<SharedSettings, Int?>, _ overridePath: WritableKeyPath<SharedOverrides, Int?>) -> Binding<Int?> {

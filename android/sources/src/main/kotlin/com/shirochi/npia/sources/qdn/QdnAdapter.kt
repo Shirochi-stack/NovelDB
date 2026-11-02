@@ -211,9 +211,8 @@ class QdnAdapter internal constructor(
 
     private fun wantsBoughtChapters(chapters: List<ChapterRef>, context: SourceContext): Boolean {
         val shared = context.shared(SourceId.QDN)
-        val from = shared.rangeFrom ?: Int.MIN_VALUE
-        val to = shared.rangeTo ?: Int.MAX_VALUE
-        return !shared.skipPaid && chapters.any { it.isPaid && it.index in from..to }
+        val range = shared.chapterRange
+        return !shared.skipPaid && chapters.any { it.isPaid && it.index in range }
     }
 
     /** True the first time for `key`, false the second (and clears it, so a later job asks again). */

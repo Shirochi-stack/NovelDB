@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 from urllib.parse import urlsplit
 
-from noveldb.core.settings.model import DEFAULT_CATALOG_URL, GENERIC_CATALOG_URL
+from noveldb.core.settings.model import NOVELDB_CATALOG_URL, GENERIC_CATALOG_URL
 
 NOVELDB_NEXT_URL = "https://noveldb.pages.dev/"
 
@@ -26,7 +26,7 @@ def _same_site(url: str, site: str, *, any_path: bool, subdomains: bool = False)
 
 def is_noveldb_default(url: str) -> bool:
     """A page of the default NovelDB catalog (GitHub Pages), whose cards carry their own cart buttons."""
-    return _same_site(url, DEFAULT_CATALOG_URL, any_path=False)
+    return _same_site(url, NOVELDB_CATALOG_URL, any_path=False)
 
 
 def is_noveldb_next(url: str) -> bool:

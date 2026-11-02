@@ -148,8 +148,100 @@ def _strip_site_name(title: str, site_name: str, url: str) -> str:
     return title.strip()
 
 
+_DATE = re.compile(r"(\d{4})[-./年]\s*(\d{1,2})[-./月]\s*(\d{1,2})")
+_COUNT = re.compile(r"(\d[\d,.\s]*\d|\d)\s*([kmb万萬억천千])?", re.I)
+_LABELS = {
+    "published": r"(published|release[sd]?|first published|created|start(ed)?|连载时间|發布|发布|出版|연재\s*시작|公開日|配信開始)",
+    "updated": r"(updated?|last updated?|last update|latest update|更新(时间|時間|日)?|최근\s*업데이트|업데이트|最終更新)",
+    "rating": r"(rating|rated|score|评分|評分|평점|評価)",
+    "likes": r"(likes?|favou?rites?|bookmarks?|followers?|收藏|推荐|좋아요|선호작|お気に入り|ブックマーク)",
+    "views": r"(views?|reads?|点击|點擊|阅读|조회수?|閲覧数|PV)",
+    "chapters": r"(chapters?|episodes?|章节数|章節|회차|話数)",
+}
+
+
+def _date(value: str) -> str:
+    """An ISO day (2024-03-09) for anything date-like, else the text as shown."""
+    value = re.sub(r"\s+", " ", str(value or "")).strip()
+    match = _DATE.search(value)
+    if match:
+        year, month, day = (int(part) for part in match.groups())
+        if 1990 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year:04d}-{month:02d}-{day:02d}"
+    return value[:40] if re.search(r"\d", value) or re.search(r"ago", value, re.I) else ""
+
+
+def _count(value: str) -> str:
+    """A count as shown, without its label: "12.3K", "4,521"; "" for none or zero (a page's empty counter)."""
+    match = _COUNT.search(str(value or ""))
+    if not match or not re.sub(r"[0.,\s]", "", match.group(1)):
+        return ""
+    return match.group(1).replace(" ", "") + (match.group(2) or "").upper()
+
+
+def _labelled(soup, label: str) -> str:
+    """The text after a label like "Updated:" or "Rating 4.5", in the same element or the next one."""
+    pattern = re.compile(rf"^\s*{label}\s*[:：]?", re.I)
+    for found in soup.find_all(string=pattern, limit=8):
+        node = found.find_parent()
+        if node is None or node.name in ("script", "style", "a", "option", "title"):
+            continue
+        rest = pattern.sub("", str(found), 1).strip(" :：|·")
+        if not re.search(r"\d", rest):
+            whole = text_of(node)
+            rest = pattern.sub("", whole, 1).strip(" :：|·") if len(whole) < 80 else ""
+        if not re.search(r"\d", rest):
+            sibling = node.find_next_sibling()
+            rest = text_of(sibling)[:60] if sibling is not None else ""
+        if re.search(r"\d", rest):
+            return rest[:60]
+    return ""
+
+
+def _interaction(book: dict, *kinds: str) -> str:
+    stats = book.get("interactionStatistic")
+    for stat in stats if isinstance(stats, list) else [stats]:
+        if isinstance(stat, dict) and any(kind in _ld_text(stat.get("interactionType")) for kind in kinds):
+            return str(stat.get("userInteractionCount") or "")
+    return ""
+
+
+def _figures(soup, book: dict) -> dict:
+    """Dates and counts a book page shows: from its structured data, its meta tags, then labelled text."""
+    rating = book.get("aggregateRating") if isinstance(book.get("aggregateRating"), dict) else {}
+    value = str(rating.get("ratingValue") or "") or (_meta(soup, "og:rating", "rating") or "")
+    if not value:
+        node = soup.select_one("[itemprop=ratingValue]")
+        value = (node.get("content") or text_of(node)) if node is not None else ""
+    if not value:
+        value = _labelled(soup, _LABELS["rating"])
+    value = (re.search(r"\d+(?:[.,]\d+)?", value) or [""])[0].replace(",", ".")
+    if value and not float(value):
+        value = ""  # "0" stars: nobody rated it
+    best = str(rating.get("bestRating") or "")
+    if value and best and best not in ("5", "5.0"):
+        value = f"{value}/{best}"
+    published = (_ld_text(book.get("datePublished") or book.get("dateCreated"))
+                 or _meta(soup, "article:published_time", "book:release_date", "og:novel:release_time", "datePublished")
+                 or _labelled(soup, _LABELS["published"]))
+    updated = (_ld_text(book.get("dateModified"))
+               or _meta(soup, "article:modified_time", "og:updated_time", "og:novel:update_time", "dateModified")
+               or _labelled(soup, _LABELS["updated"]))
+    return {
+        "published": _date(published),
+        "updated": _date(updated),
+        "rating": value,
+        "ratings": _count(str(rating.get("ratingCount") or rating.get("reviewCount") or "")),
+        "likes": _count(_interaction(book, "Like", "Bookmark", "Follow") or _labelled(soup, _LABELS["likes"])),
+        "views": _count(_interaction(book, "View", "Read") or _labelled(soup, _LABELS["views"])),
+        "chapters": _count(str(book.get("numberOfEpisodes") or book.get("numberOfPages") or "")
+                           or _labelled(soup, _LABELS["chapters"])),
+    }
+
+
 def extract_metadata(html: str, url: str, soup=None) -> dict:
-    """{title, author, cover, description, tags, status} read from any book (or search result) page."""
+    """{title, author, cover, description, tags, status, published, updated, rating, ratings, likes, views,
+    chapters} read from any book (or search result) page; a figure the page doesn't show is ""."""
     soup = soup or soup_of(html)
     book = {}
     for item in _json_ld(soup):
@@ -209,6 +301,7 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         status = re.search(r"(ongoing|completed|complete|hiatus)", str(found or ""), re.I)
         status = status.group(1).title() if status else ""
     return {
+        **_figures(soup, book),
         "title": _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url)[:300],
         "author": re.sub(r"\s+", " ", author or "").strip()[:200],
         "cover": cover,
@@ -237,13 +330,70 @@ def shape(url: str) -> str:
     return parts.netloc.removeprefix("www.") + "/".join(segments) + ("?" + query if query else "")
 
 
+# "3 days ago", "Updated 2 years ago", "2024-03-09": when a list shows a chapter's age next to its name.
+_AGE = re.compile(r"\s*(updated\s*)?(\d+|an?|one)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|"
+                  r"초|분|시간|일|주|개월|년|秒|分钟?|小时|天|周|个月|年|日|週間|か月|ヶ月)\s*(ago|전|前)\s*$", re.I)
+_DATE_TAIL = re.compile(r"\s*(updated\s*)?\d{4}[-./]\d{1,2}[-./]\d{1,2}(\s+\d{1,2}:\d{2}(:\d{2})?)?\s*$", re.I)
+
+
+def clean_name(text: str) -> str:
+    """A chapter name as a list shows it, without its age or date, a "Read" prefix or a repeated number."""
+    name = re.sub(r"\s+", " ", text or "").strip()
+    for _ in range(2):
+        name = _AGE.sub("", name)
+        name = _DATE_TAIL.sub("", name).strip()
+    name = re.sub(r"^(read|start reading|continue reading|read now)\s+", "", name, flags=re.I)
+    name = re.sub(r"^(\d+(?:\.\d+)?)\s+\1\b\s*", r"\1 ", name)  # "12 12 Title" (the number in two cells)
+    name = re.sub(r"^(novel chapters|chapters?\s+list|latest chapters?)\s+", "", name, flags=re.I)
+    return name.strip(" -|:·")
+
+
 def _number(text: str, url: str) -> Optional[float]:
+    text = clean_name(text)
     for source in (text, urlsplit(url).path):
-        found = re.search(r"(?:chapter|chap|ch|episode|ep|第|no\.?|#)\s*[-_.]?\s*(\d+(?:\.\d+)?)", source, re.I)
+        found = re.search(r"(?:(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])|第|(?<![a-z])no\.?|#)\s*[-_.]?\s*(\d+(?:\.\d+)?)",
+                          source, re.I)
         if found:
             return float(found.group(1))
     numbers = re.findall(r"\d+(?:\.\d+)?", text or "") or re.findall(r"\d+", urlsplit(url).path.split("/")[-1] or "")
     return float(numbers[0]) if numbers else None
+
+
+def _bare(name: str) -> bool:
+    """A name that says nothing but the number ("Chapter 12", "Ep. 3", "12")."""
+    return bool(re.fullmatch(r"\s*((chapter|chap|ch|episode|ep)\.?\s*)?\d+(\.\d+)?\s*", name or "", re.I))
+
+
+def _url_numbers(chapters: List[dict]) -> Optional[List[float]]:
+    """Each chapter's number from its address, when the addresses differ in one number only
+    (".../book_12.html", "?chapter=12"); None when they don't."""
+    found = []
+    for chapter in chapters:
+        parts = urlsplit(chapter["url"])
+        numbers = re.findall(r"\d+", parts.path.split("/")[-1] + "?" + parts.query)
+        found.append(numbers)
+    if len(found) < 2 or len({len(n) for n in found}) != 1 or not found[0]:
+        return None
+    columns = list(zip(*found))
+    varying = [i for i, column in enumerate(columns) if len(set(column)) > 1]
+    if len(varying) != 1:
+        return None
+    values = [float(n[varying[0]]) for n in found]
+    return values if len(set(values)) == len(values) else None
+
+
+def _reading_order(chapters: List[dict]) -> List[dict]:
+    """Chapters sorted by their number (from the addresses, else the names) when every one has a
+    different number; a list that runs newest first is turned round; otherwise left as it is."""
+    numbers = _url_numbers(chapters)
+    if numbers is None:
+        numbers = [_number(c["name"], c["url"]) for c in chapters]
+        known = [n for n in numbers if n is not None]
+        if not (len(known) == len(chapters) and len(set(known)) == len(known)):
+            if len(known) >= max(2, len(chapters) * 0.6) and known[0] > known[-1]:
+                return list(reversed(chapters))
+            return chapters
+    return [c for _n, c in sorted(zip(numbers, chapters), key=lambda pair: pair[0])]
 
 
 def _links(soup, base: str) -> List[Tuple[str, str, object]]:
@@ -291,6 +441,7 @@ def find_chapters(soup, base: str) -> List[dict]:
         return []
     seen, chapters = {}, []
     for href, text, _anchor in best:
+        text = clean_name(text)
         if href in seen:
             # The same chapter linked twice ("Read first" and "Chapter 1"): keep the chapter-like name.
             chapter = seen[href]
@@ -299,20 +450,17 @@ def find_chapters(soup, base: str) -> List[dict]:
             continue
         seen[href] = chapter = {"url": href, "name": text or f"Chapter {len(chapters) + 1}"}
         chapters.append(chapter)
-    numbers = [_number(c["name"], c["url"]) for c in chapters]
-    known = [n for n in numbers if n is not None]
-    if len(known) == len(chapters) and len(set(known)) == len(known):
-        # Every chapter is numbered: put them in order (lists often lead with "Read first" or the newest).
-        chapters = [c for _n, c in sorted(zip(numbers, chapters), key=lambda pair: pair[0])]
-    elif len(known) >= max(2, len(chapters) * 0.6) and known[0] > known[-1]:
-        chapters.reverse()  # newest first on the page
-    return chapters
+    # Lists often lead with "Read first" or the newest chapters, or run newest first.
+    return _reading_order(chapters)
 
 
 def _list_pages(soup, base: str, seen: set) -> List[str]:
     """Further pages of a chapter list (?page=2, /page/2, rel=next), not yet read."""
     out = []
     base_parts = urlsplit(base)
+    # The book's slug ("my-book" of /novel/my-book.html): list pages elsewhere on the site name it
+    # in their query (/e/extend/fy.php?page=2&wjm=my-book).
+    slug = re.sub(r"\.\w+$", "", base_parts.path.rstrip("/").split("/")[-1])
     for anchor in soup.find_all(["a", "link"], href=True):
         href = clean_url(anchor["href"], base)
         if not href or href in seen:
@@ -321,7 +469,8 @@ def _list_pages(soup, base: str, seen: set) -> List[str]:
         if parts.netloc != base_parts.netloc:
             continue
         rel = " ".join(anchor.get("rel") or [])
-        same_book = parts.path.rstrip("/").startswith(base_parts.path.rstrip("/").split("/page/")[0])
+        same_book = parts.path.rstrip("/").startswith(re.sub(r"\.\w+$", "", base_parts.path.rstrip("/").split("/page/")[0])) \
+            or (len(slug) > 3 and slug in parts.query)
         paged = re.search(r"([?&](page|p|pg|pageNo|epage)=\d+)|(/page/\d+/?$)|(_\d+/?$)", href, re.I)
         if same_book and paged or ("next" in rel and same_book):
             out.append(href)
@@ -502,7 +651,14 @@ class GenericEngine:
             except Exception:
                 continue
             page_soup = soup_of(html)
-            more = [c for c in find_chapters(page_soup, final) if c["url"] not in known]
+            found = find_chapters(page_soup, final)
+            # A chapter seen before under a bare name ("Chapter 12" in a "latest" box) takes the list's fuller one.
+            by_url = {c["url"]: c for c in chapters}
+            for chapter in found:
+                earlier = by_url.get(chapter["url"])
+                if earlier is not None and _bare(earlier["name"]) and not _bare(chapter["name"]):
+                    earlier["name"] = chapter["name"]
+            more = [c for c in found if c["url"] not in known]
             if not more:
                 continue
             known.update(c["url"] for c in more)
@@ -510,12 +666,7 @@ class GenericEngine:
             queue.extend(u for u in _list_pages(page_soup, final, seen_pages) if u not in queue)
         if pages >= self.MAX_LIST_PAGES:
             warnings.append(f"The chapter list goes on past {self.MAX_LIST_PAGES} pages; read the first ones.")
-        numbers = [_number(c["name"], c["url"]) for c in chapters]
-        if all(n is not None for n in numbers) and len(numbers) > 2:
-            chapters = [c for _n, c in sorted(zip(numbers, chapters), key=lambda pair: pair[0])]
-        elif order_reversed:
-            chapters.reverse()
-        return chapters
+        return _reading_order(chapters) if len(chapters) > 2 else chapters
 
     def _chain(self, start: str, soup, warnings: List[str]) -> List[dict]:
         chapters, seen = [], set()

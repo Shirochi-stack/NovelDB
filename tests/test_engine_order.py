@@ -9,7 +9,7 @@ from noveldb.core.settings.model import SITE_ENGINES, AppSettings, EngineSetting
 
 BOOK = {"bookname": "Book", "chapters": [{"url": "https://site.test/c1", "name": "One"}]}
 EMPTY = {"bookname": "Book", "chapters": []}
-REST = ("lnreader", "lncrawl", "fanficfare", "haruneko", "generic")  # after the original three
+REST = ("lncrawl", "lnreader", "fanficfare", "haruneko", "generic")  # after the original three
 
 
 def test_engine_order_keeps_known_engines_and_appends_missing():
@@ -124,8 +124,9 @@ def test_rule_engines_follow_a_built_in_scraper_only_for_sites_they_list():
     s = Recorder({"native": None, "novel_downloader": None, "webtoepub": BOOK}, knows=("webtoepub",))
     assert s.parse_book("https://site.test/book") is BOOK
     assert s.calls == ["native", "open", "webtoepub"]
-    # Sites without a built-in scraper try every engine (page-based WebToEpub matches).
+    # With dynamic priority off, sites without a built-in scraper try every engine (page-based WebToEpub matches).
     s = Recorder({"webtoepub": BOOK}, native=False, knows=())
+    s.dynamic_priority = False
     assert s.parse_book("https://site.test/book") is BOOK
     assert s.calls == ["open", "novel_downloader", "webtoepub"]
 
@@ -147,10 +148,13 @@ def test_site_lists_come_from_the_bundles():
 
 def test_the_rule_sets_and_the_generic_fallback_come_after_webtoepub():
     s = Recorder({"generic": BOOK}, native=False, knows=())
+    s.dynamic_priority = False
     assert s.parse_book("https://site.test/book") is BOOK
     assert s.calls == ["open", "novel_downloader", "webtoepub", *REST]
+
     # The Python engines still run when the page did not load.
     s = Recorder({"lncrawl": BOOK}, native=False, page_ok=False, knows=())
+    s.dynamic_priority = False
     assert s.parse_book("https://site.test/book") is BOOK
     assert s.calls == ["open", "lncrawl"]
 
@@ -235,3 +239,15 @@ def test_webtoepub_books_fetch_chapters_through_webtoepub(monkeypatch):
 
 def test_scraper_defaults_to_every_engine():
     assert external_scraper.ExternalScraper(logger=None).engine_order == list(SITE_ENGINES)
+
+
+def test_dynamic_priority_skips_the_engines_that_do_not_list_the_site():
+    s = Recorder({"lncrawl": None, "generic": BOOK}, native=False, knows=("lncrawl", "fanficfare"))
+    assert s.parse_book("https://site.test/book") is BOOK
+    assert s.calls == ["lncrawl", "fanficfare", "generic"]
+    assert any("Dynamic priority" in line for line in s.lines)
+    # No engine lists it: straight to the generic fallback.
+    s = Recorder({"generic": BOOK}, native=False, knows=())
+    assert s.parse_book("https://site.test/book") is BOOK
+    assert s.calls == ["generic"]
+    assert EngineSettings().dynamic_priority

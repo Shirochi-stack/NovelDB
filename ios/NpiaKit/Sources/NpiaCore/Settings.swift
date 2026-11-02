@@ -314,3 +314,14 @@ public struct AppSettings: Codable, Sendable, Equatable {
         overrides[source.rawValue]?.apply(to: shared) ?? shared
     }
 }
+
+extension SharedSettings {
+    /// The chapters the range keeps (unset ends open). A "From" after "To" is a typo, so it keeps
+    /// just the "From" chapter rather than nothing.
+    public var chapterRange: ClosedRange<Int> {
+        let from = rangeFrom ?? Int.min
+        let to = rangeTo ?? Int.max
+        if let rangeFrom, let rangeTo, rangeFrom > rangeTo { return from...from }
+        return from...to
+    }
+}

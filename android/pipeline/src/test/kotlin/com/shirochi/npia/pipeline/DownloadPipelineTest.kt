@@ -41,6 +41,11 @@ class DownloadPipelineTest {
     }
 
     @Test
+    fun aFromAfterToKeepsJustTheFromChapter() {
+        assertEquals(listOf(4), DownloadPipeline.select(chapters, SharedSettings(rangeFrom = 4, rangeTo = 2)).map { it.index })
+    }
+
+    @Test
     fun unknownUrlFailsFast() = runTest {
         // With the script engines off, no engine can try an unknown site: no page is loaded, nothing is fetched.
         val settings = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub")))

@@ -13,7 +13,7 @@ pytest.importorskip("PySide6.QtWebEngineWidgets")
 from PySide6.QtCore import QEvent, Qt, QUrl  # noqa: E402
 
 from noveldb.core.catalog.urls import NOVELDB_NEXT_URL  # noqa: E402
-from noveldb.core.settings.model import DEFAULT_CATALOG_URL  # noqa: E402
+from noveldb.core.settings.model import NOVELDB_CATALOG_URL  # noqa: E402
 from noveldb.qt.catalog import web  # noqa: E402
 
 
@@ -119,7 +119,7 @@ def test_cart_messages_update_the_link_cart(catalog):
 
 
 def test_open_on_noveldb_goes_to_the_browser(catalog):
-    catalog.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, url=DEFAULT_CATALOG_URL)))
+    catalog.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, url=NOVELDB_CATALOG_URL)))
     catalog._message({"type": "open", "url": "https://x.test/novel/9", "title": "Nine"})
     assert catalog.opened == ["https://x.test/novel/9"]
     assert catalog.context.cart.urls == []
@@ -138,7 +138,7 @@ def test_outside_links_on_unknown_sites_go_to_the_cart_unless_turned_off(catalog
 def test_outside_links_open_in_the_browser_on_noveldb_next_and_supported_sites(catalog):
     """The setting only applies to sites that are not NovelDB, NovelDB Next or a site NovelDB downloads from."""
     supported = "https://global." + "novel" + "pia.com/"
-    for site in (NOVELDB_NEXT_URL, DEFAULT_CATALOG_URL, supported):
+    for site in (NOVELDB_NEXT_URL, NOVELDB_CATALOG_URL, supported):
         catalog.context.update_settings(lambda s, site=site: replace(s, catalog=replace(s.catalog, url=site, cart_links=True)))
         catalog.opened.clear()
         catalog.leave("https://x.test/novel/5", "Five")
@@ -188,7 +188,7 @@ def test_the_download_button_is_offered_for_downloadable_pages_of_supported_site
 
 def test_noveldb_and_unknown_sites_never_get_the_button(catalog):
     catalog.page = FakePage()
-    for site, cart_links in ((NOVELDB_NEXT_URL, False), (DEFAULT_CATALOG_URL, False), ("https://catalog.example/", True)):
+    for site, cart_links in ((NOVELDB_NEXT_URL, False), (NOVELDB_CATALOG_URL, False), ("https://catalog.example/", True)):
         catalog.context.update_settings(lambda s, site=site: replace(s, catalog=replace(s.catalog, url=site, cart_links=True)))
         catalog._page_url = site
         catalog._message({"type": "location", "url": site + "novel/1", "title": "One"})
