@@ -29,7 +29,8 @@ COMMON_SEARCHES = ("/?s={q}", "/search?q={q}", "/search?keyword={q}", "/search?q
 CHROME = re.compile(r"(^|[\s_-])(nav|navbar|menu|gnb|lnb|snb|header|footer|breadcrumbs?|pagination|pager|sidebar|"
                     r"login|account|util|toolbar|topbar|top-bar|dropdown|modal|popup|banner|notice|cookie)([\s_-]|$)",
                     re.I)
-TAG_LINK = re.compile(r"/(genres?|tags?|categor(y|ies)|keywords?|genero|generos|kategori|theme|themes|type)s?[/=]", re.I)
+TAG_LINK = re.compile(r"/(genres?|tags?|categor(y|ies)|keywords?|genero|generos|kategori|theme|themes|type|directory|"
+                      r"manga-genre|manga_genre|series-genre)s?[/=]", re.I)
 _lock = threading.Lock()
 
 
@@ -89,14 +90,19 @@ def _opensearch(soup, base: str, fetch: Callable) -> Optional[dict]:
     return None
 
 
+# Fields of account forms (sign-in, sign-up, newsletter, codes), which are never searches.
+ACCOUNT_FIELD = re.compile(r"(user|login|email|mail|pass|code|phone|account|nick|captcha)", re.I)
+
+
 def _form(soup, base: str) -> Optional[dict]:
     best = None
     for form in soup.find_all("form"):
         fields = form.find_all("input")
         text = [f for f in fields if (f.get("type") or "text").lower() in ("text", "search")
                 and f.get("name") and "pass" not in (f.get("name") or "").lower()]
-        if not text:
-            continue
+        if not text or any(ACCOUNT_FIELD.search(f.get("name") or "") for f in fields
+                           if (f.get("type") or "text").lower() not in ("hidden", "submit")):
+            continue  # a sign-in, sign-up or newsletter form, not a search
         hint = " ".join([form.get("action") or "", form.get("id") or "", " ".join(form.get("class") or []),
                          text[0].get("name") or "", text[0].get("placeholder") or ""]).lower()
         score = 2 * ("search" in hint) + ("q" == text[0].get("name")) + ("s" == text[0].get("name")) + \
@@ -110,15 +116,39 @@ def _form(soup, base: str) -> Optional[dict]:
     return best[1] if best and best[0] >= 0 else None
 
 
+def _tag_name(name: str) -> str:
+    """A tag as words: "Gender Bender", "gender-bender" and "gender_bender" are one tag."""
+    return re.sub(r"[\s_\-]+", " ", (name or "").strip().lower())
+
+
+def is_home_again(cards: List[dict], plan: dict) -> bool:
+    """Results that are mostly the home page's own lists (a search that led back to the home page)."""
+    home = set(plan.get("home_cards") or ())
+    if not home or not cards:
+        return False
+    return sum(card["url"] in home for card in cards) >= len(cards) * 0.5
+
+
+def _searched(final: str, home: str, query: str) -> bool:
+    """The address a search ended on is a search for `query` (not the home page it redirected to)."""
+    from urllib.parse import unquote_plus
+
+    if final.rstrip("/") == home.rstrip("/"):
+        return False
+    words = [w for w in _tag_name(query).split() if len(w) > 1]
+    text = _tag_name(unquote_plus(final))
+    return not words or any(w in text for w in words)
+
+
 def _tag_links(soup, base: str) -> Dict[str, str]:
     tags = {}
     for anchor in soup.find_all("a", href=True):
         href = clean_url(anchor["href"], base)
         if not href or not _same_site(href, base) or not TAG_LINK.search(href):
             continue
-        name = text_of(anchor).strip().lower()
+        name = re.sub(r"\s*\(\d+\)$", "", text_of(anchor).strip().lower())
         if 1 < len(name) <= 40 and name not in tags:
-            tags[re.sub(r"\s*\(\d+\)$", "", name)] = href
+            tags[name] = href
     return tags
 
 
@@ -155,7 +185,7 @@ class SiteSearch:
     def plan(self, home: str) -> dict:
         """How to search `home`'s site: {"ways": [...], "tags": {name: url}, "home": final address}."""
         known = self._plans.get(home)
-        if known and time.time() - known.get("checked", 0) < self.max_age:
+        if known and time.time() - known.get("checked", 0) < self.max_age and "home_cards" in known:
             return known
         result = self.fetch(home)
         plan = {"checked": time.time(), "ways": [], "tags": {}, "home": home,
@@ -171,6 +201,7 @@ class SiteSearch:
             if form:
                 plan["ways"].append(form)
             plan["tags"] = _tag_links(soup, final)
+            plan["home_cards"] = [card["url"] for card in extract_cards(decode(result), final)][:80]
         root = plan["home"].rstrip("/")
         parts = urlsplit(root)
         origin = f"{parts.scheme}://{parts.netloc}"
@@ -259,9 +290,9 @@ class SiteSearch:
         plan = self.plan(home)
         if not plan.get("reachable", True):
             return []
-        want = tag.strip().lower()
-        url = plan["tags"].get(want) or next((u for name, u in plan["tags"].items()
-                                              if want in name or name in want), None)
+        want = _tag_name(tag)
+        names = {_tag_name(name): url for name, url in plan["tags"].items()}
+        url = names.get(want) or next((u for name, u in names.items() if want in name or name in want), None)
         if url:
             result = self.fetch(url)
             if result and result["status"] < 400:
@@ -274,10 +305,14 @@ class SiteSearch:
                 result = self._request(way, tag)
             except Exception:
                 continue
-            if result and result["status"] < 400:
-                cards = extract_cards(decode(result), result.get("url") or home)
-                if cards:
-                    break
+            if not result or result["status"] >= 400 or not _searched(result.get("url") or "", plan["home"], tag):
+                continue  # a guessed address that led back to the home page: its lists are not about the tag
+            cards = extract_cards(decode(result), result.get("url") or home)
+            if is_home_again(cards, plan):
+                cards = []
+                continue
+            if cards:
+                break
         return cards[:limit]
 
 

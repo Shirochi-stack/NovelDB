@@ -266,6 +266,17 @@
         empty();
         pump();
     }
+    // A book found by a tag search whose page lists tags, none of them a picked tag: not what was asked for.
+    function tagWords(tag) { return String(tag || '').toLowerCase().replace(/[\s_\-]+/g, ' ').trim(); }
+    function offTag(group, card) {
+        if (view !== 'search' || !current.tags.length || current.text) return false;
+        var listed = (card.tags || []).map(tagWords).filter(Boolean);
+        if (listed.length < 2) return false;  // too few to tell
+        return !current.tags.some(function (tag) {
+            var want = tagWords(tag);
+            return listed.some(function (have) { return have === want || have.indexOf(want) >= 0 || want.indexOf(have) >= 0; });
+        });
+    }
     function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
 
     // A count worth showing: not missing, and not a page's empty "0" counter.
@@ -1433,6 +1444,7 @@
         details: function (card) {
             var group = byUrl.get(key(card.url));
             if (!group) return;
+            if (offTag(group, card)) { drop(group, card.url); return; }
             if (card.empty || NO_RESULTS.test(card.title || '') || NO_RESULTS.test(String(card.description || '').slice(0, 400))) {
                 drop(group, card.url);
                 return;
