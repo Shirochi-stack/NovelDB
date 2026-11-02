@@ -5,6 +5,7 @@ __pycache__/
 *.pyo
 *.png
 !docs/icons/*.png
+!assets/*.png
 *.exe
 .cache/
 config.json
