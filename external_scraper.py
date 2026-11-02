@@ -65,10 +65,13 @@ if getattr(sys, 'frozen', False):
     if os.path.exists(_bundled_browsers):
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = _bundled_browsers
 
+from noveldb.core.engines.scraper_mixin import PAGE_SCRIPTS, PYTHON_ENGINES, SiteEnginesMixin
 from noveldb.core.settings.model import (
+    ENGINE_GENERIC,
     ENGINE_LABELS,
     ENGINE_NATIVE,
     ENGINE_ND,
+    ENGINE_W2E,
     SITE_ENGINES,
 )
 
@@ -233,7 +236,7 @@ def _load_js_file(filename):
         return f.read()
 
 
-class ExternalScraper:
+class ExternalScraper(SiteEnginesMixin):
     """Playwright-based scraper using novel-downloader JS rules.
 
     Usage:
@@ -4806,6 +4809,8 @@ class ExternalScraper:
             or self._book_data.get('_jara')
             or self._book_data.get('_nweb_novel')
             or self._book_data.get('_webtoepub')
+            or self._script_for_book() is not None
+            or self._python_engine_for_book() is not None
         ):
             return
 
@@ -4893,6 +4898,14 @@ class ExternalScraper:
                     # Re-read the chapter list: parsers keep state from it.
                     self._page.evaluate("window.__W2E_parseBook()")
                     self.log("Page recovered and WebToEpub re-injected.")
+                    return True
+                script = self._script_for_book()
+                if script is not None:
+                    if not self._script_inject(self._page, script):
+                        return False
+                    self.log(f"Page recovered and {script.label} re-injected.")
+                    return True
+                if self._python_engine_for_book() is not None:
                     return True
                 self._install_bridge_bindings(self._page)
                 self._page.evaluate(self._gm_stubs_js)
@@ -20134,6 +20147,8 @@ async (items) => {
                 if message:
                     self.log(message)
                 data = parse(url)
+            elif engine in PYTHON_ENGINES:
+                data = self._python_parse_book(engine, url)
             else:
                 if page is None:
                     try:
@@ -20150,8 +20165,10 @@ async (items) => {
                     continue
                 if engine == ENGINE_ND:
                     data = self._nd_parse_book(url, navigate=False)
-                else:
+                elif engine == ENGINE_W2E:
                     data = self._w2e_parse_book(url)
+                else:
+                    data = self._script_parse_book(engine, url)
             if data and data.get('chapters'):
                 return data
             if data and fallback is None:
@@ -20160,7 +20177,7 @@ async (items) => {
                 break
             later = [
                 e for e in order[position + 1:]
-                if e == ENGINE_NATIVE or page != "failed"
+                if e == ENGINE_NATIVE or e in PYTHON_ENGINES or page != "failed"
             ]
             if later:
                 self.log(
@@ -20171,9 +20188,17 @@ async (items) => {
 
     @staticmethod
     def _engine_knows_site(engine, url):
-        """The engine has a rule or parser registered for the URL's site."""
-        from noveldb.core import engine_updates
+        """The engine has a rule or parser registered for the URL's site.
 
+        The generic fallback lists no site, so it never follows a built-in scraper's failure.
+        """
+        from noveldb.core import engine_updates
+        from noveldb.core.engines import fanficfare_engine
+
+        if engine == ENGINE_GENERIC:
+            return False
+        if engine not in engine_updates.BY_NAME:
+            return fanficfare_engine.knows(url)
         bundle = engine_updates.current(engine_updates.BY_NAME[engine])
         return bool(bundle and bundle.knows(url))
 
@@ -20742,6 +20767,18 @@ async (items) => {
                 index, chapter_info, interval=interval, page=page,
                 log_errors=log_errors, interval_max=interval_max,
             )
+        script = self._script_for_book()
+        if script is not None:
+            return self._script_parse_chapter(
+                script, index, chapter_info, interval=interval, page=page,
+                log_errors=log_errors, interval_max=interval_max,
+            )
+        python_engine = self._python_engine_for_book()
+        if python_engine is not None:
+            return self._python_parse_chapter(
+                python_engine, index, chapter_info, interval=interval,
+                log_errors=log_errors, interval_max=interval_max,
+            )
 
         url = chapter_info.get('url', '')
         name = chapter_info.get('name', '')
@@ -21173,6 +21210,23 @@ async (items) => {
 
         if self._book_data and self._book_data.get('_webtoepub'):
             return self._w2e_parse_chapter_batch(batch_info, report_success)
+        script = self._script_for_book()
+        if script is not None:
+            return self._script_parse_chapter_batch(script, batch_info, report_success)
+        python_engine = self._python_engine_for_book()
+        if python_engine is not None:
+            results = []
+            for index, chapter in enumerate(batch_info):
+                if self._stop_requested:
+                    results.append(None)
+                    continue
+                result = self._python_parse_chapter(
+                    python_engine, index, chapter, interval=interval,
+                    interval_max=interval_max,
+                )
+                results.append(result)
+                report_success(index, result)
+            return results
 
         if (not _skip_sfc_app
                 and self._sfc_should_prefer_app_api()):

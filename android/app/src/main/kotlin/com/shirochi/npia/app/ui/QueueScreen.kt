@@ -371,12 +371,16 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
     // The upload that carries this file: its own, or a ZIP it was packed into.
     val upload = uploads[file.absolutePath] ?: uploads.values.firstOrNull { file.absolutePath in it.paths }
     val saveCopy = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(FileActions.mimeType(file))) { target ->
-        if (target != null) manager.message(if (FileActions.copyTo(context, file, target)) "Saved ${file.name}" else "Could not save ${file.name}")
+        if (target != null) {
+            val name = FileActions.copyName(file)
+            manager.message(if (FileActions.copyTo(context, file, target)) "Saved $name" else "Could not save $name")
+        }
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(file.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (file.isFile) Text(Formatter.formatShortFileSize(context, file.length()), style = MaterialTheme.typography.bodySmall)
+            val size = if (file.isDirectory) file.walkTopDown().filter { it.isFile }.sumOf { it.length() } else file.length()
+            if (file.exists()) Text(Formatter.formatShortFileSize(context, size), style = MaterialTheme.typography.bodySmall)
         }
         if (!file.exists()) {
             Text("Missing", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -385,11 +389,12 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             AssistChip(onClick = { if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}") }, label = { Text("Open") })
             AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share") })
-            if (file.isFile) {
-                AssistChip(onClick = { saveCopy.launch(file.name) }, label = { Text("Save copy") })
-                if (upload?.phase != UploadState.Phase.RUNNING) {
-                    AssistChip(onClick = { model.requestUpload { manager.upload(file, jobId) } }, label = { Text("Upload") })
-                }
+            // A folder (separate TXT) is saved and uploaded as one ZIP.
+            AssistChip(onClick = { saveCopy.launch(FileActions.copyName(file)) },
+                label = { Text(if (file.isDirectory) "Save as ZIP" else "Save copy") })
+            if (upload?.phase != UploadState.Phase.RUNNING) {
+                AssistChip(onClick = { model.requestUpload { manager.upload(file, jobId) } },
+                    label = { Text(if (file.isDirectory) "Upload as ZIP" else "Upload") })
             }
         }
         upload?.let { state ->

@@ -361,6 +361,9 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         disabled=tuple(d for d in disabled if d in SITE_ENGINES) if disabled is not None else eng.disabled,
         nd_auto_update=_first_bool(c, "novel_downloader_auto_update", eng.nd_auto_update),
         webtoepub_auto_update=_first_bool(c, "webtoepub_auto_update", eng.webtoepub_auto_update),
+        lnreader_auto_update=_first_bool(c, "lnreader_auto_update", eng.lnreader_auto_update),
+        lncrawl_auto_update=_first_bool(c, "lncrawl_auto_update", eng.lncrawl_auto_update),
+        haruneko_auto_update=_first_bool(c, "haruneko_auto_update", eng.haruneko_auto_update),
     )
     if not engine_order(engines.order, engines.disabled):
         engines = replace(engines, disabled=())  # never leave every engine off
@@ -414,9 +417,13 @@ def _first_bool(c: dict, key: str, default: bool) -> bool:
 def _valid_url(value: Any) -> Optional[str]:
     from urllib.parse import urlsplit
 
+    from noveldb.core.settings.model import GENERIC_CATALOG_URL
+
     if not isinstance(value, str):
         return None
     text = value.strip()
+    if text == GENERIC_CATALOG_URL:
+        return text
     try:
         parts = urlsplit(text)
     except ValueError:
@@ -570,6 +577,9 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["source_engines_off"] = list(s.engines.disabled)
     c["novel_downloader_auto_update"] = s.engines.nd_auto_update
     c["webtoepub_auto_update"] = s.engines.webtoepub_auto_update
+    c["lnreader_auto_update"] = s.engines.lnreader_auto_update
+    c["lncrawl_auto_update"] = s.engines.lncrawl_auto_update
+    c["haruneko_auto_update"] = s.engines.haruneko_auto_update
     c["app_update_check"] = s.updates.check_automatically
     c["max_concurrent_jobs"] = s.queue.max_concurrent_jobs
 

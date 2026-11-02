@@ -18,16 +18,28 @@ THEMES = ("system", "light", "dark", "amoled")
 ACCENTS = ("halgakos_rose", "desktop_blue", "library_violet")
 NPIA_ENGINES = ("native", "browser")
 
-# Site engines, tried in the user's order until one returns chapters: the app's own scrapers,
-# the novel-downloader rules, then the WebToEpub parsers.
+# Site engines, tried in the user's order until one returns chapters: the app's own scrapers, the
+# rule sets of other projects (novel-downloader, WebToEpub, LNReader, lightnovel-crawler, FanFicFare,
+# HaruNeko), then the generic fallback that reads any site's chapter list and text.
 ENGINE_NATIVE = "native"
 ENGINE_ND = "novel_downloader"
 ENGINE_W2E = "webtoepub"
-SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E)
+ENGINE_LNR = "lnreader"
+ENGINE_LNC = "lncrawl"
+ENGINE_FFF = "fanficfare"
+ENGINE_HN = "haruneko"
+ENGINE_GENERIC = "generic"
+SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, ENGINE_LNR, ENGINE_LNC, ENGINE_FFF, ENGINE_HN,
+                ENGINE_GENERIC)
 ENGINE_LABELS = {
     ENGINE_NATIVE: "Built-in scrapers",
     ENGINE_ND: "novel-downloader rules",
     ENGINE_W2E: "WebToEpub parsers",
+    ENGINE_LNR: "LNReader plugins",
+    ENGINE_LNC: "lightnovel-crawler sources",
+    ENGINE_FFF: "FanFicFare adapters",
+    ENGINE_HN: "HaruNeko websites",
+    ENGINE_GENERIC: "Generic fallback",
 }
 
 
@@ -40,6 +52,8 @@ def engine_order(order, disabled=()) -> tuple[str, ...]:
     return tuple(name for name in seen if name not in set(disabled or ()))
 
 DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
+# The desktop Catalog's generic search page (noveldb/qt/catalog/generic), shown instead of a site.
+GENERIC_CATALOG_URL = "noveldb://generic/"
 
 # Source whose run settings live in its override by default (mobile `editRunSettings`).
 NPIA = "npia"
@@ -231,9 +245,14 @@ class EngineSettings:
     disabled: tuple[str, ...] = ()
     nd_auto_update: bool = True
     webtoepub_auto_update: bool = True
+    lnreader_auto_update: bool = True
+    lncrawl_auto_update: bool = True
+    haruneko_auto_update: bool = True
 
     def auto_update(self, engine: str) -> bool:
-        return {ENGINE_ND: self.nd_auto_update, ENGINE_W2E: self.webtoepub_auto_update}.get(engine, False)
+        return {ENGINE_ND: self.nd_auto_update, ENGINE_W2E: self.webtoepub_auto_update,
+                ENGINE_LNR: self.lnreader_auto_update, ENGINE_LNC: self.lncrawl_auto_update,
+                ENGINE_HN: self.haruneko_auto_update}.get(engine, False)
 
     def enabled(self) -> tuple[str, ...]:
         return engine_order(self.order, self.disabled)

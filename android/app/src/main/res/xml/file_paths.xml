@@ -2,4 +2,6 @@
 <paths>
     <external-files-path name="output" path="." />
     <files-path name="internal" path="." />
+    <!-- ZIPs of separate-TXT folders made for sharing (FileActions.shareable). -->
+    <cache-path name="share" path="share/" />
 </paths>

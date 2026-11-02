@@ -47,6 +47,14 @@ class TxtWriterTest {
     }
 
     @Test
+    fun separateFilesReplaceAnEarlierDownloadsChapters() = runTest {
+        java.io.File(tmp.root, "book").mkdirs()
+        java.io.File(tmp.root, "book/0461.txt").writeText("from an earlier download")
+        val folder = TxtWriter().write(bundle(AppSettings(shared = SharedSettings(separateTxt = true))), "book", tmp.root)
+        assertEquals(listOf("0001.txt", "0002.txt"), folder.list()!!.sorted())
+    }
+
+    @Test
     fun baseNameAppendsRange() {
         val book = BookInfo(SourceId.NPIA, "7", "https://example.com", "Title")
         assertEquals("Title (3-end)", Writers.baseName(book, SharedSettings(appendRange = true, rangeFrom = 3)))

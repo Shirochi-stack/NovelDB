@@ -1,6 +1,7 @@
 import NpiaCore
 import NpiaUpload
 import SwiftUI
+import UniformTypeIdentifiers
 import UIKit
 
 /// The two halves of the Queue tab.
@@ -333,6 +334,7 @@ struct FileRow: View {
     @Environment(AppModel.self) private var model
     let file: URL
     let jobID: UUID?
+    @State private var zipCopy: FolderZipDocument?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -345,14 +347,29 @@ struct FileRow: View {
                 }
             }
             HStack(spacing: 16) {
-                ShareLink(item: file) { Label("Share", systemImage: "square.and.arrow.up") }
+                if let folder = FolderZip(sharing: file) {
+                    // Several chapter files (separate TXT) go as one ZIP, made when the sheet asks for it.
+                    ShareLink(item: folder, preview: SharePreview(file.lastPathComponent + ".zip")) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                } else {
+                    ShareLink(item: FolderZip.single(file) ?? file) { Label("Share", systemImage: "square.and.arrow.up") }
+                }
                 Button { FilesApp.reveal(file) } label: { Label("Files", systemImage: "folder") }
-                if !file.hasDirectoryPath, !model.isUploading(file) {
+                // A folder (separate TXT) is saved and uploaded as one ZIP (the uploader zips folders).
+                if file.hasDirectoryPath {
+                    Button { zipCopy = FolderZipDocument(folder: file) } label: { Label("Save as ZIP", systemImage: "doc.zipper") }
+                }
+                if !model.isUploading(file) {
                     Button { model.upload(file, jobID: jobID) } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
                 }
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
+            .fileExporter(
+                isPresented: Binding(get: { zipCopy != nil }, set: { if !$0 { zipCopy = nil } }),
+                document: zipCopy, contentType: .zip, defaultFilename: file.lastPathComponent + ".zip"
+            ) { _ in zipCopy = nil }
             if let activity = model.uploadActivity(for: file) {
                 UploadActivityView(
                     activity: activity,
@@ -374,7 +391,12 @@ struct FileRow: View {
     }
 
     private var size: String? {
-        guard let bytes = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return nil }
+        var bytes = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        if file.hasDirectoryPath {
+            let items = FileManager.default.enumerator(at: file, includingPropertiesForKeys: [.fileSizeKey])
+            bytes = (items?.allObjects as? [URL] ?? []).reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        }
+        guard bytes > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }
@@ -386,6 +408,75 @@ enum FilesApp {
         components?.scheme = "shareddocuments"
         if let target = components?.url {
             UIApplication.shared.open(target)
+        }
+    }
+}
+
+/// A folder output (separate TXT) as one ZIP for Save as ZIP: the system zips it (the same archive
+/// the Files app makes), with the folder as the top entry.
+struct FolderZipDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.zip] }
+    let data: Data
+
+    init?(folder: URL) {
+        guard let zipped = try? FolderZip(folder: folder).zippedData() else { return nil }
+        data = zipped
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
+/// A separate-TXT folder shared as one ZIP. The system zips the folder (as the Files app does) only
+/// when the share sheet asks for the file.
+struct FolderZip: Transferable {
+    let folder: URL
+
+    init(folder: URL) { self.folder = folder }
+
+    /// Only for a folder that holds more than one file; a folder of one file is shared as that file.
+    init?(sharing url: URL) {
+        guard url.hasDirectoryPath, FolderZip.files(in: url).count > 1 else { return nil }
+        folder = url
+    }
+
+    /// The one file inside a single-file folder.
+    static func single(_ url: URL) -> URL? {
+        guard url.hasDirectoryPath else { return nil }
+        let files = files(in: url)
+        return files.count == 1 ? files[0] : nil
+    }
+
+    static func files(in folder: URL) -> [URL] {
+        let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isRegularFileKey])) ?? []
+        return items.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    func zippedData() throws -> Data {
+        var zipped: Data?
+        var failure: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: folder, options: .forUploading, error: &failure) { url in
+            zipped = try? Data(contentsOf: url)
+        }
+        if let failure { throw failure }
+        guard let zipped else { throw CocoaError(.fileReadUnknown) }
+        return zipped
+    }
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .zip) { item in
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("share", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let target = directory.appendingPathComponent(item.folder.lastPathComponent + ".zip")
+            try? FileManager.default.removeItem(at: target)
+            try item.zippedData().write(to: target, options: .atomic)
+            return SentTransferredFile(target)
         }
     }
 }

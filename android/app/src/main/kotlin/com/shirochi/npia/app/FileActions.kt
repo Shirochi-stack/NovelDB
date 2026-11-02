@@ -7,10 +7,12 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /** Opening, sharing, and copying output files through `FileProvider` content URIs. */
 object FileActions {
-    fun mimeType(file: File): String = when (file.extension.lowercase()) {
+    fun mimeType(file: File): String = if (file.isDirectory) "application/zip" else when (file.extension.lowercase()) {
         "epub" -> "application/epub+zip"
         "pdf" -> "application/pdf"
         "txt" -> "text/plain"
@@ -22,10 +24,23 @@ object FileActions {
 
     fun uri(context: Context, file: File): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
 
-    /** Files to hand to other apps; a separate-TXT folder expands to its chapter files. */
-    fun shareable(files: List<File>): List<File> =
-        files.flatMap { if (it.isDirectory) it.listFiles()?.filter(File::isFile)?.sortedBy(File::getName).orEmpty() else listOf(it) }
-            .filter { it.exists() }
+    /**
+     * Files to hand to other apps. A separate-TXT folder goes as one ZIP (written to the cache's
+     * `share` folder) when it holds more than one file, else as its one file.
+     */
+    fun shareable(context: Context, files: List<File>): List<File> =
+        files.flatMap { file ->
+            if (!file.isDirectory) return@flatMap listOf(file)
+            val inside = file.listFiles()?.filter(File::isFile)?.sortedBy(File::getName).orEmpty()
+            if (inside.size > 1) listOfNotNull(zipForSharing(context, file)) else inside
+        }.filter { it.exists() }
+
+    private fun zipForSharing(context: Context, folder: File): File? = runCatching {
+        val directory = File(context.cacheDir, "share").apply { mkdirs() }
+        // Only the latest shared copies are kept.
+        directory.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 24 * 3600_000L }?.forEach { it.delete() }
+        File(directory, "${folder.name}.zip").also { target -> target.outputStream().use { zipFolder(folder, it) } }
+    }.getOrNull()
 
     fun open(context: Context, file: File): Boolean {
         if (file.isDirectory) return share(context, listOf(file))
@@ -36,7 +51,7 @@ object FileActions {
     }
 
     fun share(context: Context, files: List<File>): Boolean {
-        val items = shareable(files)
+        val items = shareable(context, files)
         if (items.isEmpty()) return false
         val uris = items.map { uri(context, it) }
         val intent = if (uris.size == 1) {
@@ -57,10 +72,34 @@ object FileActions {
 
     fun openUrl(context: Context, url: String): Boolean = launch(context, Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 
-    /** Copies a finished file to a location the user picked with the Storage Access Framework. */
+    /** The name a saved copy gets: a folder (separate TXT) is saved as `<folder>.zip`. */
+    fun copyName(file: File): String = if (file.isDirectory) "${file.name}.zip" else file.name
+
+    /**
+     * Copies a finished file to a location the user picked with the Storage Access Framework; a
+     * folder (separate TXT) is written there as one ZIP with the folder as its top entry.
+     */
     fun copyTo(context: Context, file: File, target: Uri): Boolean = runCatching {
-        context.contentResolver.openOutputStream(target, "w")?.use { out -> file.inputStream().use { it.copyTo(out) } } != null
+        context.contentResolver.openOutputStream(target, "w")?.use { out ->
+            if (file.isDirectory) zipFolder(file, out) else file.inputStream().use { it.copyTo(out) }
+        } != null
     }.getOrDefault(false)
+
+    private fun zipFolder(folder: File, out: java.io.OutputStream) {
+        ZipOutputStream(out.buffered()).use { zip ->
+            folder.walkTopDown().sortedBy { it.path }.forEach { item ->
+                val relative = item.relativeTo(folder).invariantSeparatorsPath
+                val name = if (relative.isEmpty()) folder.name else "${folder.name}/$relative"
+                if (item.isDirectory) {
+                    zip.putNextEntry(ZipEntry("$name/"))
+                } else {
+                    zip.putNextEntry(ZipEntry(name))
+                    item.inputStream().use { it.copyTo(zip, 1 shl 16) }
+                }
+                zip.closeEntry()
+            }
+        }
+    }
 
     private fun launch(context: Context, intent: Intent): Boolean = try {
         if (context !is android.app.Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

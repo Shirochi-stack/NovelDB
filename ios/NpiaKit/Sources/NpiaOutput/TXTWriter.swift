@@ -31,6 +31,12 @@ public struct TXTWriter: BookWriter {
         if shared.separateTXT {
             let folder = directory.appendingPathComponent(baseName, isDirectory: true)
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            // The folder holds this download only (as the desktop app does): chapters an earlier
+            // download of the same book left there would otherwise be shared and uploaded with it.
+            let old = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            for file in old where file.pathExtension.lowercased() == "txt" {
+                try? fm.removeItem(at: file)
+            }
             for chapter in bundle.chapters {
                 let name = String(format: "%04d", chapter.ref.index) + ".txt"
                 try Data(render(chapter).utf8).write(to: folder.appendingPathComponent(name), options: .atomic)

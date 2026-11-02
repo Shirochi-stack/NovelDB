@@ -35,6 +35,16 @@ final class TXTWriterTests: XCTestCase {
         XCTAssertEqual(files, ["0001.txt", "0002.txt"])
     }
 
+    func testSeparateFilesReplaceAnEarlierDownloadsChapters() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let old = dir.appendingPathComponent("book", isDirectory: true)
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        try Data("from an earlier download".utf8).write(to: old.appendingPathComponent("0461.txt"))
+        let folder = try await TXTWriter().write(makeBundle { $0.shared.separateTXT = true }, baseName: "book", to: dir)
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+        XCTAssertEqual(files, ["0001.txt", "0002.txt"])
+    }
+
     func testBaseNameAppendsRange() {
         var shared = SharedSettings()
         shared.appendRange = true

@@ -1,0 +1,15 @@
+{
+  "name": "noveldb-lnreader-vendor",
+  "private": true,
+  "description": "Libraries the LNReader plugins require, bundled for the browser by scripts/update_lnreader.py",
+  "dependencies": {
+    "cheerio": "1.0.0",
+    "dayjs": "1.11.13",
+    "htmlparser2": "9.1.0",
+    "@noble/ciphers": "2.1.1",
+    "protobufjs": "7.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.3"
+  }
+}
