@@ -74,10 +74,13 @@ struct NtkChapterListResult {
 struct NtkImage {
     var url = ""
     var name = ""
+    /// Every host serving a webtoon page, `url` first. Empty for an image with a single address.
+    var candidates: [String] = []
 
     init(_ json: HardJSON) {
         url = json.string("url")
         name = json.string("name")
+        candidates = json.strings("candidates")
     }
 }
 
