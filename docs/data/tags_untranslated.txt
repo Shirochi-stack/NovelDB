@@ -34,109 +34,221 @@
 33|||?????|||
 34|||[]|||
 35|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Early Release
-36|||!!|||
-37|||!!!|||
-38|||\"|||
-39|||(???)|||
-40|||(_|||
-41|||***|||
-42|||+1|||
-43|||+@|||
-44|||--|||
-45|||-_-|||
-46|||....|||
-47|||.......|||
-48|||................|||
-49|||...~|||
-50|||0%|||
-51|||0.|||
-52|||01.|||
-53|||1%|||
-54|||1-1|||
-55|||100%|||
-56|||11.|||
-57|||19+|||
-58|||1998년|||
-59|||2+2=5|||
-60|||2-8|||
-61|||2.|||
-62|||2004년|||
-63|||3-1|||
-64|||30%|||
-65|||4.3|||
-66|||4.5|||
-67|||45461;|||
-68|||4858-9715|||
-69|||5%|||
-70|||5.18|||
-71|||50%|||
-72|||50524;|||
-73|||50751;&|||
-74|||50751;~|||
-75|||51053;??|||
-76|||51760;|||
-77|||53192;|||
-78|||53349;|||
-79|||54643;|||
-80|||5@|||
-81|||70%|||
-82|||7:1|||
-83|||8.15|||
-84|||95%|||
-85|||978-89-993-9450-8|||
-86|||979-11-03-31840-6|||
-87|||979-11-6600-303-5|||
-88|||::|||
-89|||;|||
-90|||;;|||
-91|||======|||
-92|||=>|||
-93|||>.<7|||
-94|||>_<|||
-95|||?!?!?!?|||
-96|||?....|||
-97|||??????|||
-98|||?????????????????|||
-99|||[-]|||
-100|||^^*|||
-101|||_|||
-102|||_)|||
-103|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
-104|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
-105|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
-106|||\u007c서리\u007c|||Seori
-107|||~?|||
-108|||~~|||
-109|||¿?|||
-110|||ᯣ_ᯣ|||
-111|||…|||
-112|||■※□¿¤|||
-113|||■■■■■|||
-114|||□□□|||
-115|||●|||
-116|||☁️☁️☁️|||
-117|||★|||
-118|||★★|||
-119|||♃|||
-120|||♡|||
-121|||♡♡|||
-122|||♥|||
-123|||♥♥♥♪|||
-124|||✅|||
-125|||》|||
-126|||\ub178\ubca8\ud53c\uc544공식|||npia Official
-127|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, Magic Fiction, Magic, Personal Novel, jara Novel, Fantasy Magic School
-128|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Wuxia, Martial Arts, New Wuxia, Genre Fiction, Jianghu, Murim, Action, jara Wuxia, jara New Wuxia
-129|||살인\u007c|||Murder|
-130|||\uc870\uc544\ub77c_투베도전|||jara_Today's Best Challenge
-131|||\uc870\uc544\ub77c공모전|||jara Contest
-132|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
-133|||\uc870\uc544\ub77c소설|||jara Novel
-134|||\uc870\uc544\ub77c신입사원|||jara New Hire
-135|||\uc870\uc544\ub77c여|||jara Female
-136|||\uc870\uc544\ub77c연재소설|||jara Serialized Novel
-137|||\uc870\uc544\ub77c의|||jara's
-138|||\uc870\uc544\ub77c첫작|||jara First Work
-139|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
-140|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Everyone Around Me, rbooks
-141|||／|||
+36|||찬탈자|||Usurper
+37|||!!|||
+38|||!!!|||
+39|||\"|||
+40|||(???)|||
+41|||(_|||
+42|||***|||
+43|||+1|||
+44|||+@|||
+45|||--|||
+46|||-_-|||
+47|||....|||
+48|||.......|||
+49|||................|||
+50|||...~|||
+51|||0%|||
+52|||0.|||
+53|||01.|||
+54|||1%|||
+55|||1-1|||
+56|||100%|||
+57|||11.|||
+58|||19+|||
+59|||1998년|||
+60|||2+2=5|||
+61|||2-8|||
+62|||2.|||
+63|||2004년|||
+64|||3-1|||
+65|||30%|||
+66|||4.3|||
+67|||4.5|||
+68|||45461;|||
+69|||4858-9715|||
+70|||5%|||
+71|||5.18|||
+72|||50%|||
+73|||50524;|||
+74|||50751;&|||
+75|||50751;~|||
+76|||51053;??|||
+77|||51760;|||
+78|||53192;|||
+79|||53349;|||
+80|||54643;|||
+81|||5@|||
+82|||70%|||
+83|||7:1|||
+84|||8.15|||
+85|||95%|||
+86|||978-89-993-9450-8|||
+87|||979-11-03-31840-6|||
+88|||979-11-6600-303-5|||
+89|||::|||
+90|||;|||
+91|||;;|||
+92|||======|||
+93|||=>|||
+94|||>.<7|||
+95|||>_<|||
+96|||?!?!?!?|||
+97|||?....|||
+98|||??????|||
+99|||?????????????????|||
+100|||AI만화임|||AI Manhwa
+101|||DIVISION|||Division
+102|||MEME|||Meme
+103|||PPGZ|||PPGZ
+104|||[-]|||
+105|||^^*|||
+106|||_|||
+107|||_)|||
+108|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
+109|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
+110|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
+111|||\u007c서리\u007c|||Frost
+112|||~?|||
+113|||~~|||
+114|||¿?|||
+115|||ᯣ_ᯣ|||
+116|||…|||
+117|||■※□¿¤|||
+118|||■■■■■|||
+119|||□□□|||
+120|||●|||
+121|||☁️☁️☁️|||
+122|||★|||
+123|||★★|||
+124|||♃|||
+125|||♡|||
+126|||♡♡|||
+127|||♥|||
+128|||♥♥♥♪|||
+129|||✅|||
+130|||》|||
+131|||가벼운코미디|||Light Comedy
+132|||가시화|||Visualization
+133|||가주물|||Gajumul
+134|||각오한자만이보거라|||Only the Prepared May Read
+135|||공개절정|||Public Climax
+136|||과거개변|||Past Alteration
+137|||군주님실화냐|||Is the Lord Real?
+138|||권속소환|||Familiar Summoning
+139|||기상청|||Meteorological Agency
+140|||기업V|||Corporate V
+141|||기열|||Giyeol
+142|||까막눈삼디기|||Illiterate Samdigi
+143|||나이트시티|||Night City
+144|||나혼네|||Nahonne
+145|||남자V|||Male V
+146|||내아내임|||My Wife
+147|||네계달|||Netgyedal
+148|||네이키드생존게임|||Naked Survival Game
+149|||\ub178\ubca8\ud53c\uc544공식|||npia Official
+150|||능력계승|||Ability Inheritance
+151|||능력치각성|||Stat Awakening
+152|||다음화안쓰면큰일남|||Trouble If Next Chapter Isn't Written
+153|||도파민주의보|||Dopamine Alert
+154|||독서왕|||Reading King
+155|||동양펑크|||Oriental Punk
+156|||디비전2|||Division 2
+157|||딥페이크|||Deepfake
+158|||뜌따|||Ttuta
+159|||로노바|||Lonova
+160|||마교주|||Demonic Cult Leader
+161|||마법세게|||Magic World
+162|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, Fantasy Academy
+163|||많은장르|||Multi-Genre
+164|||망나니주인공|||Good-for-Nothing MC
+165|||무귀총|||Mugwichong
+166|||무기다중|||Multiple Weapons
+167|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Wuxia, Martial Arts
+168|||밑장빼기|||Bottom Card Trick
+169|||버츄얼편집자|||Virtual Editor
+170|||보안관|||Sheriff
+171|||블러핑|||Bluffing
+172|||비인도적|||Inhumane
+173|||살인\u007c|||Murder
+174|||생활밀착형|||Slice of Life
+175|||섭협|||Seophyeop
+176|||세풍이|||Sepungi
+177|||속궁합|||Compatibility
+178|||스킬다중|||Multiple Skills
+179|||스킬해금|||Skill Unlock
+180|||신데렐라걸즈U149|||Cinderella Girls U149
+181|||신지빙의|||Shinji Possession
+182|||아스카애호|||Asuka Love
+183|||아워노트|||Our Note
+184|||약NTR요소있음|||Mild NTR
+185|||양다리순애|||Two-Timing Pure Love
+186|||에이스컴뱃8|||Ace Combat 8
+187|||여성주도|||Female Lead
+188|||여주강림|||Female Lead Arrives
+189|||연습작임|||Practice Work
+190|||완결까지3|||Complete in 3
+191|||우그웨이|||Oogway
+192|||워해머판타지|||Warhammer Fantasy
+193|||웹소설아님|||Not a Web Novel
+194|||육상|||Track and Field
+195|||을미사변|||Eulmi Incident
+196|||이족보행|||Bipedal Walking
+197|||인생꼬였다|||Life Gone Wrong
+198|||인퍼머스|||Infermus
+199|||작가가사라질수있음|||Author May Disappear
+200|||작가도당황함|||Author Also Confused
+201|||잔잔한듯한|||Calm Vibes
+202|||재소자|||Prisoner
+203|||저주해제|||Curse Lift
+204|||전개느린편|||Slow Pacing
+205|||전설신화|||Legend and Myth
+206|||정마합일|||Righteous-Demonic Union
+207|||정액강화|||Seminal Enhancement
+208|||조선초|||Early Joseon
+209|||\uc870\uc544\ub77c_투베도전|||jara 2nd Challenge
+210|||\uc870\uc544\ub77c공모전|||jara Contest
+211|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
+212|||\uc870\uc544\ub77c소설|||jara Novel
+213|||\uc870\uc544\ub77c신입사원|||jara Newcomer
+214|||\uc870\uc544\ub77c여|||jara Female
+215|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
+216|||\uc870\uc544\ub77c의|||jara's
+217|||\uc870\uc544\ub77c첫작|||jara Debut
+218|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
+219|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Surrounding People rbooks Official
+220|||주식판타지|||Stock Fantasy
+221|||중2때쓴소설|||Novel Written in 8th Grade
+222|||중년남|||Middle-Aged Man
+223|||중반부약피폐|||Mildly Dark Midgame
+224|||지구뽕|||Jiguppong
+225|||창착소설|||Creative Novel
+226|||청춘러브|||Youth Love
+227|||추천많으면연재|||Serialized If Recommended
+228|||축구성장물|||Soccer Growth
+229|||캐릭터다중|||Multiple Characters
+230|||코지아포칼립스|||Cozy Apocalypse
+231|||탑등반준비|||Tower Climb Prep
+232|||탑조난|||Tower Shipwreck
+233|||투자모험가|||Investor Adventurer
+234|||파산자|||Bankrupt
+235|||파워퍼프걸|||Powerpuff Girls
+236|||파워퍼프걸Z|||Powerpuff Girls Z
+237|||패러디일까|||Parody?
+238|||포커페이스|||Poker Face
+239|||피폐물아님|||Not Dark
+240|||피폐이겟지뭐|||Probably Dark
+241|||할리데이비슨|||Harley-Davidson
+242|||행복대출RE|||Happy Loan RE
+243|||행운특성|||Luck Trait
+244|||허남자의탑공략법|||Heo's Tower Strategy
+245|||허벅지|||Thighs
+246|||현대판다티|||Modern DT
+247|||현대판터지|||Modern Brutal
+248|||현실액션|||Realistic Action
+249|||혼약|||Engagement
+250|||흑막용사|||Shadow Hero
+251|||흑역사소환|||Summoning Dark History
+252|||힘숨김|||Hidden Power
+253|||／|||
