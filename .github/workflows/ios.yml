@@ -44,7 +44,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: ios-${{ github.ref }}
+  # A release build (called by mobile-release.yml) is never cancelled by a push to the same branch.
+  group: ios-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
