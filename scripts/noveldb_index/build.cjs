@@ -14,7 +14,8 @@
  * The pieces:
  * - 4096 word buckets: {token: {source: [book number, ...], "+source": [count, first page, [[offset,
  *   length], ...]]}}. A token is a word of a title (its English title and its own), two-character
- *   pieces of Chinese, Japanese and Korean words, "#tag" and "@author". Each source's list of a token
+ *   pieces of Chinese, Japanese and Korean words, "#tag", "@author" and "!source" (all of a source's
+ *   books: its Top list). Each source's list of a token
  *   has every one of its books, the most read first (book numbers count up from the most read), as
  *   differences from the number before (the first one as it is). The bucket holds its first PAGE
  *   books; a longer list's "+source" says how many it has and where its further pages are (pieces of
@@ -214,7 +215,8 @@ function main() {
         counts.set(token, (counts.get(token) || 0) + 1);
     };
     books.forEach((book, number) => {
-        const own = new Set([...tokens(book.titleEn), ...tokens(book.title)]);
+        // "!source": every book of a source, the most read first (a source's Top list).
+        const own = new Set([...tokens(book.titleEn), ...tokens(book.title), "!" + book.source]);
         if (book.author) own.add(authorToken(book.author));
         book.tags.forEach((tag, i) => {
             const original = book.originalTags[i];

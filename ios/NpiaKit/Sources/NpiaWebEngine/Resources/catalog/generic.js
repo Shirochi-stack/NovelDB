@@ -151,6 +151,8 @@
         var names = [];
         var add = function (site) { if (site && names.indexOf(site) < 0) names.push(site); };
         top.only.forEach(add);
+        if (!isComicKind(top.kind)) Object.keys(NOVELDB_SITES).forEach(add);
+        BUILTIN_SITES.forEach(add);
         if (!isComicKind(top.kind)) topPlugins(top.kind, true).forEach(function (p) { add(p.site); });
         progress.sites.forEach(function (item) { add(item.site); });
         order.forEach(function (group) { group.sources.forEach(function (s) { add(s.site); }); });
@@ -180,18 +182,24 @@
         }
         var filter = $('siteFilter').value.trim().toLowerCase();
         var answered = new Map(progress.sites.map(function (item) { return [item.site, item]; }));
-        var names = topCandidates().filter(function (site) { return !filter || site.toLowerCase().indexOf(filter) >= 0 || picking.has(site); });
-        // The picked sites first, then the ones that answered, quickest first, then the rest.
+        var candidates = topCandidates();
+        var names = candidates.filter(function (site) { return !filter || site.toLowerCase().indexOf(filter) >= 0 || picking.has(site); });
+        // A typed address of a site not listed (one whose address keeps moving): offered as it is.
+        var typed = filter.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+        if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(typed) && candidates.indexOf(typed) < 0) names.unshift(typed);
+        // The picked sites first, then NovelDB's, then the ones that answered, quickest first, then the rest.
+        var rank = function (site) { return picking.has(site) ? 0 : NOVELDB_SITES[site] && !isComicKind(top.kind) ? 1 : 2; };
         names.sort(function (a, b) {
             var x = answered.get(a), y = answered.get(b);
-            return (picking.has(b) - picking.has(a)) || (!!y - !!x) || ((x ? x.ms : 0) - (y ? y.ms : 0));
+            return (rank(a) - rank(b)) || (!!y - !!x) || ((x ? x.ms : 0) - (y ? y.ms : 0));
         });
         $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
         $('siteShow').disabled = !picking.size;
         $('siteList').innerHTML = names.slice(0, 300).map(function (site) {
             var item = answered.get(site);
             return '<label class="siterow pick ' + esc(item ? item.state || 'ok' : '') + '"><input type="checkbox" data-site="' + esc(site) + '"'
-                + (picking.has(site) ? ' checked' : '') + '><span>' + esc(site) + '</span><span class="ms">' + (item ? seconds(item.ms) : '')
+                + (picking.has(site) ? ' checked' : '') + '><span>' + esc(site) + '</span><span class="ms">'
+                + (NOVELDB_SITES[site] && !isComicKind(top.kind) ? 'NovelDB' : item ? seconds(item.ms) : '')
                 + '</span><span class="n">' + (item ? esc(siteState(item)) : '') + '</span></label>';
         }).join('') || '<p>No site matches.</p>';
         $('siteList').querySelectorAll('[data-site]').forEach(function (box) {
@@ -646,8 +654,20 @@
         $('settingspanel').classList.toggle('open');
         showImaging();
     });
-    document.addEventListener('click', function (event) {
-        if (!event.target.closest('.popover')) { $('sitespanel').classList.remove('open'); $('settingspanel').classList.remove('open'); }
+    // A tap anywhere outside the Sites and settings panels closes them: on a touch down, which every
+    // part of the page sends (a phone sends no click for a tap on plain text or an empty area). Their
+    // own buttons toggle them on the click that follows.
+    document.addEventListener('pointerdown', function (event) {
+        if (event.target.closest('.popover, #sitesButton, #settingsButton')) return;
+        $('sitespanel').classList.remove('open');
+        $('settingspanel').classList.remove('open');
+    }, true);
+    // A tap on the dimmed page around the details panel closes it (the backdrop is the dialog itself).
+    $('dialog').addEventListener('click', function (event) {
+        if (event.target !== $('dialog')) return;
+        var box = $('dialog').getBoundingClientRect();
+        var outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+        if (outside) $('dialog').close();
     });
 
     // The title at the largest size (13px down to 7px) that shows all of it in its box: the box is two
@@ -726,6 +746,13 @@
         pump();
     }, {rootMargin: '200px'}) : null;
     function pump() {
+        // A NovelDB book's details are one small read of its synopsis: never behind the sites' book pages.
+        queue = queue.filter(function (group) {
+            var first = group.sources[0];
+            if (!first || !first.noveldb || !groups.has(group.key)) return true;
+            send({type: 'genericDetails', id: searchId, card: strip(group, first)});
+            return false;
+        });
         while (loading < (tagOnly() ? 8 : 4) && queue.length) {
             var group = queue.shift();
             if (!groups.has(group.key)) continue;
@@ -907,6 +934,19 @@
     var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE, only: [], seen: {}};
     // The sites picked in the Sites panel for each kind: their own lists, in their own order.
     var topOnly = {};
+    // NovelDB's sources by the site their books are on: a pick of one shows its Top list from NovelDB's
+    // index (every book of the source, the most read first). Written with escapes (the codename rule).
+    var NOVELDB_SITES = {
+        '\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com': ['npia'],
+        '\u006b\u0061\u006b\u0061\u006f.com': ['kpage'],
+        '\u0073\u0066\u0061\u0063\u0067.com': ['sfc'],
+        '\u006e\u0061\u0076\u0065\u0072.com': ['nweb', 'nseries'],
+        '\u006a\u006f\u0061\u0072\u0061.com': ['jara'],
+        '\u006d\u0075\u006e\u0070\u0069\u0061.com': ['mpia'],
+        '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com': ['rbooks']
+    };
+    // The built-in scrapers' other sites: their Top lists come from their own popular pages.
+    var BUILTIN_SITES = ['\u0071\u0069\u0064\u0069\u0061\u006e.com', '\u0066\u0061\u006c\u006f\u006f.com', 'fenrirealm.com', 'xiyuwx.com', 'yeduji.com', 'kobo.com', '1qxs.com', '69shuba.tw'];
     function topKind() { var kind = $('kind').value; return kind === 'all' ? 'webnovel' : kind; }
     function isComicKind(kind) { return kind === 'manga' || kind === 'manhwa' || kind === 'comic'; }
     function showTop() {
@@ -1014,11 +1054,25 @@
             send(Object.assign({type: 'genericTop', id: id, kind: top.kind, language: language}, top.only.length ? {sites: top.only} : {}));
             return;
         }
-        var chosen = top.only.length
-            ? top.only.map(function (site) { return plugins().filter(function (p) { return p.site === site; })[0]; }).filter(Boolean)
+        // Picked sites: NovelDB's sources from its index, LNReader's sites from their popular lists (read
+        // here), any other site from its popular pages (read by the app).
+        var picks = top.only;
+        var chosen = picks.length
+            ? picks.map(function (site) { return plugins().filter(function (p) { return p.site === site; })[0]; }).filter(Boolean)
             : topPlugins(top.kind);
         top.plugins = chosen;
-        if (!chosen.length || !window.__LNR_popular) { empty(); return; }
+        top.ndbSources = [];
+        picks.forEach(function (site) { (NOVELDB_SITES[site] || []).forEach(function (source) { top.ndbSources.push(source); }); });
+        top.others = picks.filter(function (site) { return !NOVELDB_SITES[site] && !chosen.some(function (p) { return p.site === site; }); });
+        if (!chosen.length && !top.ndbSources.length && !top.others.length) { empty(); return; }
+        running = 0;
+        startProgress(chosen.length);
+        if (top.ndbSources.length) askNdbTop(id, false);
+        if (top.others.length) {
+            setRunning(1);
+            send({type: 'genericTop', id: id, kind: top.kind, language: language, sites: top.others});
+        }
+        if (!chosen.length || !window.__LNR_popular) { status('Reading the Top lists of ' + picks.join(', ') + '…'); return; }
         status('Reading the popular lists of ' + chosen.length + ' ' + TOP_NAMES[top.kind] + ' sites…');
         var jobs = chosen.map(function (plugin, siteIndex) {
             // The busiest sites (the top 100 list) count most; the rest count alike.
@@ -1043,7 +1097,22 @@
     }
     // A novel top list's next page: page `top.page + 1` of each of its sites' popular lists. A site that
     // ignores the page number sends its first page again, which adds no book, so the list ends.
+    // The picked NovelDB sources' next page of books (`more`: as the list is scrolled); the app answers
+    // with the cards and then `ndbTopDone`.
+    function askNdbTop(id, more_) {
+        top.ndbScrolled = more_;
+        setRunning(1);
+        send({type: 'genericNdbTop', id: id, sources: top.ndbSources, page: top.ndbPage || 0});
+    }
     function topMoreNovels(id) {
+        // Each part (the LNReader sites, NovelDB's sources, the other sites) reports with moreDone.
+        var lnr = (top.plugins || []).length > 0, ndb = (top.ndbSources || []).length > 0 && top.ndbMore !== false;
+        var others = (top.others || []).length > 0;
+        more.parts = lnr + ndb + others;
+        if (!more.parts) { window.NovelDBGeneric.moreDone(id, {more: false}); return; }
+        if (ndb) askNdbTop(id, true);
+        if (others) send({type: 'genericTopMore', id: id});
+        if (!lnr) return;
         var page = top.page + 1, before = top.scores.size;
         var jobs = (top.plugins || []).map(function (plugin) {
             return {plugin: plugin, weight: 0.3, report: false, run: function () { return window.__LNR_popular(plugin.id, page, false); }};
@@ -1844,13 +1913,31 @@
         add: add,
         moreDone: function (id, state) {
             if (id !== searchId) return;
+            // A top list's next page comes in parts: the last one to answer finishes it.
+            if (state && state.more) more.any = true;
+            if (more.parts > 1) { more.parts--; return; }
+            more.parts = 0;
             more.loading = false;
             more.page++;
-            more.has = !!(state && state.more);
+            more.has = !!more.any;
+            more.any = false;
             if (view === 'top') { top.limit = order.length + TOP_STEP; topRedraw(); topSave(); }
             status(shownCount() + (more.has ? ' books so far' + noveldbCount() + '; scroll for more.' : ' books; that is all the sites have.'));
             empty();
             setTimeout(moreSoon, 300);  // still at the end (few new books): the next page
+        },
+        // The picked NovelDB sources' page of books is in (their cards came through add()).
+        ndbTopDone: function (id, state) {
+            if (id !== searchId) return;
+            setRunning(-1);
+            top.ndbPage = (top.ndbPage || 0) + 1;
+            top.ndbMore = !!(state && state.more);
+            if (view !== 'top') return;
+            top.limit = Math.max(top.limit, order.length + TOP_STEP);
+            topRedraw();
+            if (top.ndbScrolled) { top.ndbScrolled = false; window.NovelDBGeneric.moreDone(id, {more: top.ndbMore}); return; }
+            if (!running) status('The most read on ' + top.only.join(', ') + (top.ndbMore ? '; scroll for more.' : '.'));
+            empty();
         },
         progress: function (id, item) {
             if (id !== searchId || !item) return;

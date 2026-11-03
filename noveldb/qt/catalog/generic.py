@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -33,7 +34,7 @@ PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
 MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
-                 "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen")
+                 "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -115,6 +116,11 @@ def parse_message(data: dict) -> Optional[dict]:
     if kind == "genericTop" and "sites" in data and not (
             isinstance(data["sites"], list) and len(data["sites"]) <= 50
             and all(isinstance(site, str) and 0 < len(site) < 200 for site in data["sites"])):
+        return None
+    if kind == "genericNdbTop" and not (
+            isinstance(data.get("sources"), list) and 0 < len(data["sources"]) <= 12
+            and all(isinstance(s, str) and re.fullmatch(r"[a-z0-9_]{1,20}", s) for s in data["sources"])
+            and isinstance(data.get("page", 0), int) and 0 <= data.get("page", 0) <= 10000):
         return None
     if kind == "genericDownload" and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
@@ -232,6 +238,7 @@ class GenericCatalog(QObject):
     _fetched = Signal(int, object)
     _progress = Signal(int, dict)
     _more_done = Signal(int, dict)
+    _ndb_top_done = Signal(int, dict)
     _reader_status = Signal(int, str)
     _reader_images = Signal(int, dict)
 
@@ -262,6 +269,7 @@ class GenericCatalog(QObject):
         self._fetched.connect(lambda fid, result: self._call("fetched", fid, result))
         self._progress.connect(lambda sid, item: self._call("progress", sid, item))
         self._more_done.connect(lambda sid, state: self._call("moreDone", sid, state))
+        self._ndb_top_done.connect(lambda sid, state: self._call("ndbTopDone", sid, state))
         self._top_sites: list = []  # the sites of the Top list shown, for its next pages
         self._reader_status.connect(lambda fid, text: self._call("readerStatus", fid, text))
         self._reader_images.connect(lambda fid, found: self._call("readerImages", fid, found))
@@ -299,6 +307,8 @@ class GenericCatalog(QObject):
             self.more(int(data.get("id") or 0), data["queries"], data["page"])
         elif kind == "genericTopMore":
             self.top_more(int(data.get("id") or 0))
+        elif kind == "genericNdbTop":
+            self._background(self.ndb_top, int(data.get("id") or 0), data["sources"], int(data.get("page") or 0))
         elif kind == "genericStop":
             self._stop.set()
         elif kind == "genericFetch":
@@ -436,6 +446,19 @@ class GenericCatalog(QObject):
 
         for item in queries:
             threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-more", daemon=True).start()
+
+    def ndb_top(self, search_id: int, sources: list, page: int) -> None:
+        """A Top list of NovelDB's sources: page `page` of their books, the most read first, from the
+        index. The page hears the cards, then `ndbTopDone` with {"more"}."""
+        try:
+            cards, more = self.noveldb.search_page(",".join(sources), "source", page, 40)
+        except Exception as e:
+            log.warning("NovelDB top list failed: %s", e)
+            cards, more = [], False
+        start = page * 40
+        self._cards.emit(search_id, [dict(card, via="top", siteRank=0, position=start + i, listLength=1000000)
+                                     for i, card in enumerate(cards)])
+        self._ndb_top_done.emit(search_id, {"more": more})
 
     def top_more(self, search_id: int) -> None:
         """The next page of the shown Top list's sites' popular lists."""

@@ -466,16 +466,25 @@
     function ndbCount(value) { var n = Number(value) || 0; return n > 0 ? n.toLocaleString('en-US') : ''; }
     /** {cards, more}: `limit` of NovelDB's books for a title or tag search, from place `offset` of its
      *  results. `each(card)`: each card as soon as its block is read; `onTotal(n)`: how many books
-     *  match, as soon as that is known (before any card is read). */
+     *  match, as soon as that is known (before any card is read). Mode 'source': `text` names sources
+     *  ("npia,sfc") and the results are their books, the most read first (their Top lists). */
     var NDB_FIRST = 12, NDB_MORE = 40;  // the first batch is small, to show quickly; scrolling reads the rest
+    function ndbSourceLists(manifest, names) {
+        return Promise.all(names.map(function (name) { return ndbLists(manifest, '!' + name); })).then(function (found) {
+            var out = {};
+            found.forEach(function (lists, i) { if (lists[names[i]]) out[names[i]] = lists[names[i]]; });
+            return out;
+        });
+    }
     function ndbSearch(text, mode, limit, offset, each, onTotal) {
-        var wanted = mode === 'tag' ? [ndbTag(text)] : ndbTokens(text);
+        var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)] : ndbTokens(text);
         limit = limit || NDB_MORE;
         if (!wanted.length) return Promise.resolve({cards: [], more: false});
         var more = false;
         return ndbManifest().then(function (manifest) {
             if (!manifest) return [];
-            return (mode === 'tag' ? ndbTagLists(manifest, text) : ndbStreams(manifest, wanted)).then(function (streams) {
+            var lists = mode === 'source' ? ndbSourceLists(manifest, wanted) : mode === 'tag' ? ndbTagLists(manifest, text) : ndbStreams(manifest, wanted);
+            return lists.then(function (streams) {
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
                 });
@@ -510,6 +519,21 @@
         for (var i = 0; i < text.length; i++) value = ((value * 31) + text.charCodeAt(i)) >>> 0;
         return value % count;
     }
+    // The synopsis shards read lately (a shard holds hundreds of books' synopses): one read for every
+    // card of a search that falls in it.
+    var ndbShards = new Map();
+    function ndbShardFile(url) {
+        if (ndbShards.has(url)) return ndbShards.get(url);
+        var asked = fetchUrl(url, {binary: true, priority: true}).then(function (result) {
+            if (!result || result.status >= 400) { ndbShards.delete(url); return {}; }
+            var bytes = result.bytes;
+            var text = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzip(bytes) : Promise.resolve(new TextDecoder().decode(bytes));
+            return text.then(JSON.parse);
+        }).catch(function () { ndbShards.delete(url); return {}; });
+        ndbShards.set(url, asked);
+        if (ndbShards.size > 8) ndbShards.delete(ndbShards.keys().next().value);
+        return asked;
+    }
     /** A NovelDB book's synopsis, from the site's synopsis shard for it. */
     function ndbDescription(card) {
         var ref = card.noveldb || {};
@@ -517,11 +541,8 @@
             var info = manifest && manifest.sources && manifest.sources[ref.source] && manifest.sources[ref.source].descriptions;
             if (!info || !ref.id) return '';
             var shard = String(ndbShard(ref.id, info.count || 128)).padStart(3, '0');
-            return fetchUrl(NDB_PAGES + info.prefix + shard + '.json.gz', {binary: true, priority: true}).then(function (result) {
-                if (!result || result.status >= 400) return '';
-                var bytes = result.bytes;
-                var text = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzip(bytes) : Promise.resolve(new TextDecoder().decode(bytes));
-                return text.then(function (json) { return String(JSON.parse(json)[String(ref.id)] || '').replace(/\\n/g, '\n').trim(); });
+            return ndbShardFile(NDB_PAGES + info.prefix + shard + '.json.gz').then(function (all) {
+                return String((all || {})[String(ref.id)] || '').replace(/\\n/g, '\n').trim();
             });
         }).catch(function () { return ''; });
     }
@@ -1236,6 +1257,16 @@
         }).catch(function () {}).then(function () { call('moreDone', id, state); });
     }
     /** The next page of the shown top list's sites' popular lists. */
+    /** A Top list of NovelDB's sources (`sources`: "npia", ...): page `page` of their books, the most
+     *  read first, each source in turn. The page hears `ndbTopDone(id, {more})`. */
+    function ndbTop(id, sources, page) {
+        var position = page * NDB_MORE;
+        ndbSearch(sources.join(','), 'source', NDB_MORE, position, function (c) {
+            call('add', [Object.assign(c, {via: 'top', siteRank: 0, position: position++, listLength: 1e6})], id);
+        }).then(function (found) {
+            call('ndbTopDone', id, {more: found.more});
+        }, function () { call('ndbTopDone', id, {more: false}); });
+    }
     function topMore(id) {
         var token = current.token || newToken(), state = {more: false};
         ready.then(function () {
@@ -1478,6 +1509,10 @@
             break;
         case 'genericMore': if (message.page >= 1 && Array.isArray(message.queries)) more(message.id || 0, message.queries, message.page); break;
         case 'genericTopMore': topMore(message.id || 0); break;
+        case 'genericNdbTop':
+            ndbTop(message.id || 0, (Array.isArray(message.sources) ? message.sources : []).filter(function (s) { return /^[a-z0-9_]{1,20}$/.test(s); }).slice(0, 12),
+                   Math.max(0, Math.min(10000, Number(message.page) || 0)));
+            break;
         case 'genericFetch':
             transport(message.request).then(function (reply) { call('fetched', message.id, reply); });
             break;

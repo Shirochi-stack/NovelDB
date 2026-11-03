@@ -272,11 +272,18 @@ class NovelDBIndex:
                     sources: Optional[List[str]] = None, on_total: Optional[Callable[[int], None]] = None) -> tuple:
         """(cards, more): page `page` of the results, `limit` cards each. Each round takes the next
         most read book of every source, the lead source's first; `more` says whether pages follow.
-        `on_total(n)`: how many books match, before the cards are read."""
-        wanted = [tag_token(text)] if mode == "tag" else tokens(text)
-        if not wanted or self.manifest() is None:
-            return [], False
-        streams = self._tag_lists(text) if mode == "tag" else self._streams(wanted)
+        `on_total(n)`: how many books match, before the cards are read. Mode "source": `text` names
+        sources ("npia,sfc"), and the results are their books, the most read first (their Top lists)."""
+        if mode == "source":
+            names = [name for name in text.split(",") if name]
+            if not names or self.manifest() is None:
+                return [], False
+            streams = {name: lst for name in names for source, lst in self._lists("!" + name).items() if source == name}
+        else:
+            wanted = [tag_token(text)] if mode == "tag" else tokens(text)
+            if not wanted or self.manifest() is None:
+                return [], False
+            streams = self._tag_lists(text) if mode == "tag" else self._streams(wanted)
         if sources:
             streams = {name: stream for name, stream in streams.items() if name in sources}
         if on_total is not None:
