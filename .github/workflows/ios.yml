@@ -171,8 +171,13 @@ jobs:
           if [ "$alive" -eq 0 ] && ! ls ~/Library/Logs/DiagnosticReports/NpiaMobile* > /dev/null 2>&1; then
             # A fresh simulator sometimes never starts the app on the first launch (no log, no
             # crash report). A crash is never retried.
+            # Without the console this time: a plain launch waits for the app and prints its pid or the
+            # reason it could not start.
             echo "::warning::NpiaMobile did not start on the first launch; launching it again."
-            alive=$(launch)
+            xcrun simctl terminate "$udid" com.shirochi.npiamobile 2>/dev/null || true
+            xcrun simctl launch "$udid" com.shirochi.npiamobile 2>&1 | tee -a smoke/console.txt || true
+            sleep 25
+            alive=$(xcrun simctl spawn "$udid" launchctl list | grep -c "com.shirochi.npiamobile" || true)
           fi
           xcrun simctl io "$udid" screenshot smoke/screen.png || true
           kill "$logger" || true
