@@ -12,6 +12,8 @@ enum CatalogSite {
     static let defaultAddress = CatalogPages.defaultAddress
     /// NovelDB Next, offered as a suggestion; its cards get link-cart buttons too.
     static let nextAddress = CatalogPages.nextAddress
+    /// The generic search: the default, served from the app (`CatalogPage`).
+    static let genericAddress = CatalogPages.genericAddress
     /// On sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from, links to
     /// other sites go to the link cart (and read "Download"); off, they open in the Browser tab.
     static let cartLinksKey = "catalogCartLinks"
@@ -21,11 +23,18 @@ enum CatalogSite {
     }
 
     static var current: URL {
-        valid(UserDefaults.standard.string(forKey: storageKey)) ?? URL(string: defaultAddress)!
+        valid(UserDefaults.standard.string(forKey: storageKey)) ?? URL(string: genericAddress)!
     }
 
-    /// An address the Catalog tab can open: http or https with a site name ("https://" alone is not).
+    /// What the web view loads for a catalog setting.
+    static func page(for site: URL) -> URL {
+        site.absoluteString == genericAddress ? CatalogPage.url : site
+    }
+
+    /// An address the Catalog tab can open: http or https with a site name ("https://" alone is not),
+    /// or the generic search.
     static func valid(_ text: String?) -> URL? {
+        if text?.trimmingCharacters(in: .whitespacesAndNewlines) == genericAddress { return URL(string: genericAddress) }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), let url = URL(string: text),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               let host = url.host, !host.isEmpty else { return nil }
@@ -42,6 +51,8 @@ enum CatalogSite {
 /// - A site we download from: outside links open in the Browser tab too, and a downloadable page
 ///   gets a floating Download button that adds it to the cart.
 /// - Any other site: every link that leaves it goes to the cart (setting on) and reads "Download".
+/// - The generic search (the default): the desktop's page, served by the app. Its requests go through
+///   the app's transport; its Download button queues the book, and Login opens the Browser tab.
 @MainActor
 final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let webView: WKWebView
@@ -71,9 +82,10 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     override init() {
         let start = CatalogSite.current
         site = start
-        tracker = CatalogPageTracker(pageURL: start)
+        tracker = CatalogPageTracker(pageURL: CatalogSite.page(for: start))
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.setURLSchemeHandler(CatalogPage.server(), forURLScheme: CatalogPage.scheme)
         let controller = WKUserContentController()
         controller.addUserScript(WKUserScript(source: CatalogBridge.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController = controller
@@ -84,6 +96,13 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
         webView.scrollView.refreshControl = refresh
         controller.add(WeakMessageHandler(self), name: CatalogBridge.handlerName)
+        controller.addScriptMessageHandler(
+            CatalogPage.transport(store: configuration.websiteDataStore) { [weak self] json in
+                guard let context = await self?.transportContext() else { return "{\"error\":\"The catalog is closed.\"}" }
+                return await CatalogTransport.handle(json, context: context)
+            },
+            contentWorld: .page, name: CatalogPage.transportName
+        )
         webView.navigationDelegate = self
         webView.uiDelegate = self
         observations = [
@@ -92,16 +111,22 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             // Every address change, same-document ones included (single-page sites push a new address without loading).
             webView.observe(\.url) { [weak self] _, _ in Task { @MainActor in self?.navigated() } },
         ]
-        webView.load(URLRequest(url: site))
+        webView.load(URLRequest(url: CatalogSite.page(for: site)))
     }
 
     /// Opens another catalog site (from Settings).
     func load(_ url: URL) {
         guard url != site else { return }
         site = url
-        tracker.reset(to: url)
+        let page = CatalogSite.page(for: url)
+        tracker.reset(to: page)
         error = nil
-        webView.load(URLRequest(url: url))
+        webView.load(URLRequest(url: page))
+    }
+
+    /// The context the generic search page's requests are made in (the app's HTTP client and web engine).
+    func transportContext() -> SourceContext? {
+        model?.catalogContext()
     }
 
     /// The view moved to another address: classify it again. A Download button made for the old
@@ -138,7 +163,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
 
     func reload() {
         error = nil
-        if webView.url == nil { webView.load(URLRequest(url: site)) } else { webView.reload() }
+        if webView.url == nil { webView.load(URLRequest(url: CatalogSite.page(for: site))) } else { webView.reload() }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
@@ -196,6 +221,16 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             model?.cart.remove(field("url"))
         case "open":
             if let url = URL(string: field("url")) { leave(url, title: field("title")) }
+        // The generic search page's own buttons.
+        case "genericDownload":
+            if CatalogPage.isPage(webView.url), let url = URL(string: field("url")), url.scheme?.hasPrefix("http") == true {
+                let settings = model?.settings ?? AppSettings()
+                model?.enqueue([url]) { _ in settings }
+            }
+        case "genericLogin":
+            if CatalogPage.isPage(webView.url), let url = URL(string: field("url")), url.scheme?.hasPrefix("http") == true {
+                model?.pendingBrowserURL = url
+            }
         default:
             break
         }
@@ -247,7 +282,7 @@ private struct CatalogWebView: UIViewRepresentable {
 struct CatalogView: View {
     @Environment(AppModel.self) private var model
     @ObservedObject var state: CatalogState
-    @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.defaultAddress
+    @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.genericAddress
     @AppStorage(CatalogSite.cartLinksKey) private var cartLinks = true
 
     var body: some View {

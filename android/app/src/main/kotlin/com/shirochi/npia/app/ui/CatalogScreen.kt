@@ -12,6 +12,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -43,16 +44,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.CatalogKind
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
+import com.shirochi.npia.app.catalogPage
+import com.shirochi.npia.app.isGenericPage
 import com.shirochi.npia.app.catalogPageMode
 import com.shirochi.npia.app.cleanPageTitle
 import com.shirochi.npia.app.model.CartItem
 import com.shirochi.npia.app.sameAddress
 import com.shirochi.npia.sources.SourceCatalog
+import com.shirochi.npia.sources.reader.CatalogTransport
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -82,6 +91,9 @@ private fun origin(url: String): String = Uri.parse(url).let { "${it.scheme}://$
  * - A site we download from: outside links open in the Browser tab too, and a downloadable page gets
  *   a floating Download button that adds it to the cart.
  * - Any other site: every link that leaves it goes to the cart (setting on) and reads "Download".
+ * - The generic search (the default): the desktop's page, from the app's assets. Its requests go
+ *   through the app's transport (`NovelDBCatalogTransport`, answered only while that page is shown);
+ *   its Download button queues the book, and Login opens the Browser tab.
  */
 class CatalogWeb(context: Context, private val model: AppViewModel) {
     var progress by mutableIntStateOf(0)
@@ -97,7 +109,16 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     var site = model.manager.preferences.catalogUrl
         private set
     /** The page on screen: follows the site's own navigation, so it differs from [site] after the first tap. */
-    private var pageUrl = site
+    private var pageUrl = catalogPage(site)
+
+    /** Serves the generic search page from the assets, on an https origin of its own. */
+    private val assets = WebViewAssetLoader.Builder()
+        .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+        .build()
+
+    /** The generic search page is on screen: only then does its transport answer. */
+    @Volatile private var onGenericPage = isGenericPage(pageUrl)
+    private val transportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** The address and title the page's bridge last reported; the Download button is made for these. */
     private var reported: Pair<String, String>? = null
@@ -118,8 +139,12 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         @Suppress("DEPRECATION")
         settings.databaseEnabled = true
         addJavascriptInterface(Bridge(), "NovelDBAndroid")
+        addJavascriptInterface(Transport(), "NovelDBCatalogTransport")
         if (documentStart) WebViewCompat.addDocumentStartJavaScript(this, bridge, setOf("*"))
         webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                assets.shouldInterceptRequest(request.url)
+
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
                 if (request.url.scheme != "http" && request.url.scheme != "https") return true
@@ -162,23 +187,25 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                 this@CatalogWeb.progress = newProgress
             }
         }
-        loadUrl(site)
+        loadUrl(catalogPage(site))
     }
 
     /** Opens another catalog site (from Settings). */
     fun load(url: String) {
         if (url == site) return
         site = url
-        pageUrl = url
+        pageUrl = catalogPage(url)
+        onGenericPage = isGenericPage(pageUrl)
         reported = null
         error = null
-        view.loadUrl(url)
+        view.loadUrl(pageUrl)
     }
 
     /** The view moved to `url`: classify it again. A Download button made for the old address goes away until the page reports the new one. */
     private fun navigated(url: String?) {
         if (url.isNullOrEmpty() || url == "about:blank") return
         pageUrl = url
+        onGenericPage = isGenericPage(url)
         if (reported?.first?.let { sameAddress(it, url) } != true) reported = null
         showMode()
     }
@@ -227,10 +254,30 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
 
     fun reload() {
         error = null
-        if (view.url.isNullOrEmpty() || view.url == "about:blank") view.loadUrl(site) else view.reload()
+        if (view.url.isNullOrEmpty() || view.url == "about:blank") view.loadUrl(catalogPage(site)) else view.reload()
     }
 
     fun destroy() = view.destroy()
+
+    /** `window.NovelDBTransport` of the generic search page; the reply goes to `__noveldbTransportReply(id, json)`. */
+    private inner class Transport {
+        @JavascriptInterface
+        fun request(id: String, json: String) {
+            if (!onGenericPage) return
+            transportScope.launch {
+                val context = model.manager.sourceContext()
+                val reply = CatalogTransport.handle(json, context.http, context.web)
+                main.post {
+                    if (onGenericPage) {
+                        view.evaluateJavascript(
+                            "window.__noveldbTransportReply && window.__noveldbTransportReply(${JsonPrimitive(id)}, ${JsonPrimitive(reply)})",
+                            null,
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     private inner class Bridge {
         @JavascriptInterface
@@ -250,6 +297,12 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                     }
                     "cartRemove" -> model.cart.remove(field("url"))
                     "open" -> field("url").takeIf { it.startsWith("http") }?.let { leave(it, field("title")) }
+                    // The generic search page's own buttons.
+                    "genericDownload" -> if (onGenericPage) field("url").takeIf { it.startsWith("http") }?.let { url ->
+                        model.manager.enqueue(listOf(url)) { model.manager.settings.value }
+                        model.manager.message("Added to the queue: ${field("title").ifBlank { url }}")
+                    }
+                    "genericLogin" -> if (onGenericPage) field("url").takeIf { it.startsWith("http") }?.let { model.openInBrowser(it) }
                 }
             }
         }

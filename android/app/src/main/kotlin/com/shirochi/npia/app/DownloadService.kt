@@ -41,6 +41,21 @@ import kotlinx.coroutines.launch
 /** The NovelDB catalog website, hosted on GitHub Pages. */
 const val DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 
+/**
+ * The Catalog's generic search (the desktop's page, answered inside the page; see
+ * scripts/generic/catalog-app.js): the default catalog. It is served from the app's assets.
+ */
+const val GENERIC_CATALOG_URL = "noveldb://generic/"
+
+/** Where the generic search page is served from (`WebViewAssetLoader`'s own https origin). */
+const val GENERIC_PAGE_URL = "https://appassets.androidplatform.net/assets/catalog/index.html"
+
+/** The address the Catalog tab loads for a catalog setting. */
+fun catalogPage(site: String): String = if (site == GENERIC_CATALOG_URL) GENERIC_PAGE_URL else site
+
+/** The generic search page itself (not a site it links to). */
+fun isGenericPage(url: String?): Boolean = url != null && url.startsWith(GENERIC_PAGE_URL.substringBefore("index.html"))
+
 /** NovelDB Next, offered as a suggestion; its cards get link-cart buttons too. */
 const val NOVELDB_NEXT_URL = "https://noveldb.pages.dev/"
 
@@ -49,6 +64,7 @@ const val NOVELDB_NEXT_URL = "https://noveldb.pages.dev/"
  * links open in the Browser tab and are never renamed or sent to the cart.
  */
 fun isNovelDbSite(url: String): Boolean {
+    if (isGenericPage(url)) return true
     val uri = runCatching { java.net.URI(url.trim()) }.getOrNull() ?: return false
     val host = uri.host?.lowercase() ?: return false
     val next = java.net.URI(NOVELDB_NEXT_URL).host
@@ -65,6 +81,7 @@ fun isNovelDbSite(url: String): Boolean {
  */
 fun validCatalogUrl(text: String?): String? {
     val value = text?.trim().orEmpty()
+    if (value == GENERIC_CATALOG_URL) return value
     val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return null
     if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
     if (uri.host.isNullOrBlank()) return null
@@ -96,8 +113,8 @@ class AppPreferences(context: Context) {
 
     /** Address the Catalog tab opens; the NovelDB website unless the user picked another site. */
     var catalogUrl: String
-        get() = validCatalogUrl(prefs.getString("catalogUrl", null)) ?: DEFAULT_CATALOG_URL
-        set(value) = prefs.edit().putString("catalogUrl", validCatalogUrl(value) ?: DEFAULT_CATALOG_URL).apply()
+        get() = validCatalogUrl(prefs.getString("catalogUrl", null)) ?: GENERIC_CATALOG_URL
+        set(value) = prefs.edit().putString("catalogUrl", validCatalogUrl(value) ?: GENERIC_CATALOG_URL).apply()
 
     /**
      * On catalog sites other than NovelDB, links to other sites go to the link cart (and read

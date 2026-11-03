@@ -565,7 +565,7 @@ struct TextSettingsForm: View {
 // MARK: - Catalog site
 
 struct CatalogSiteForm: View {
-    @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.defaultAddress
+    @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.genericAddress
     @AppStorage(CatalogSite.cartLinksKey) private var cartLinks = true
     @State private var address = ""
 
@@ -584,6 +584,11 @@ struct CatalogSiteForm: View {
                 }
                 Button("Save", action: save)
                     .disabled(candidate == nil || candidate?.absoluteString == site)
+                Button("Use Generic search") {
+                    site = CatalogSite.genericAddress
+                    address = site
+                }
+                .disabled(site == CatalogSite.genericAddress)
                 Button("Use NovelDB") {
                     site = CatalogSite.defaultAddress
                     address = site
@@ -595,7 +600,7 @@ struct CatalogSiteForm: View {
                 }
                 .disabled(site == CatalogSite.nextAddress)
             } footer: {
-                Text("On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. NovelDB Next cards have a link-cart button too, at the bottom right of the cover. On the sites NovelDB downloads from, links to other sites open in the Browser tab, and a page it can download gets a floating \"Download\" button (bottom right) that adds the page to the cart.")
+                Text("Generic search (the default) searches 1,000+ sites by title, tag or novel ID, shows the top lists, and reads or downloads a book from its details. On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. NovelDB Next cards have a link-cart button too, at the bottom right of the cover. On the sites NovelDB downloads from, links to other sites open in the Browser tab, and a page it can download gets a floating \"Download\" button (bottom right) that adds the page to the cart.")
             }
             Section {
                 Toggle("Send outside links to the link cart", isOn: $cartLinks)

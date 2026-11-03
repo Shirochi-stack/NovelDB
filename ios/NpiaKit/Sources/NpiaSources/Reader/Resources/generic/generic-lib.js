@@ -150,11 +150,22 @@ async function load(url, referer) {
             ? base64ToBytes(result.responseBase64)
             : new TextEncoder().encode(result.responseText || "");
     }
+    let html = decode(bytes, headers);
+    if ((REFUSED.includes(status) || (status < 400 && CHALLENGE.test(html.slice(0, 3000)))) && carrier != null) {
+        // A bot check or a refusal: the page as a browser shows it, from a hidden page of the app.
+        let shown = await carrier({ op: "window", url: url, script: "document.documentElement.outerHTML", delay: 1200 });
+        if (shown && typeof shown.value === "string" && shown.value) {
+            return { html: shown.value, url: url };
+        }
+    }
     if (status >= 400) {
         throw new Error("could not load " + url + " (" + status + ")");
     }
-    return { html: decode(bytes, headers), url: finalUrl };
+    return { html: html, url: finalUrl };
 }
+
+const REFUSED = [401, 403, 418, 429, 503];
+const CHALLENGE = /just a moment|attention required|security check|verify you are human/i;
 
 function parse(html) {
     return new DOMParser().parseFromString(html, "text/html");
@@ -1361,10 +1372,13 @@ window.__GEN_parseChapter = async function (itemJson) {
     }
 };
 
-window.__GEN_test = {
+// The helpers the mobile Catalog's search (scripts/generic/catalog-app.js) shares with this engine.
+window.__GEN_lib = {
     shape, cleanName, chapterNumber, readingOrder, numberedPages, findChapters, metadata, extractContent,
-    repair, siteOf, parentAddresses, isChapterAddress, decode
+    repair, siteOf, hostOf, cleanUrl, textOf, parse, cleanPageTitle, parentAddresses, isChapterAddress, decode,
+    CHAPTER_WORDS
 };
+window.__GEN_test = window.__GEN_lib;
 window.__GEN_API = GEN_API;
 window.__GEN_READY = true;
 } catch (error) {

@@ -33,6 +33,15 @@ VERBATIM = {
     'gallerydl/gallerydl.zip', 'gallerydl/manifest.json',
     # The generic search's site list: the most visited sites any engine knows, by their addresses.
     'noveldb/core/catalog/generic_sites.json',
+    # The mobile apps' copies of the generic search page's bundles (scripts/build_mobile_catalog.py).
+    'android/app/src/main/assets/catalog/generic_sites.json',
+    'android/app/src/main/assets/catalog/haruneko-lib.js',
+    'android/app/src/main/assets/catalog/haruneko-manifest.json',
+    'android/app/src/main/assets/catalog/lnreader-lib.js',
+    'ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog/generic_sites.json',
+    'ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog/haruneko-lib.js',
+    'ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog/haruneko-manifest.json',
+    'ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog/lnreader-lib.js',
 }
 
 

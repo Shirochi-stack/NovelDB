@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generic search</title>
+<style>
+    :root {
+        --bg: #f6f6f8; --panel: #ffffff; --ink: #1d1d22; --ink-2: #5b5b66; --line: #e2e2e8;
+        --accent: #c2185b; --accent-ink: #ffffff; --chip: #eeeef3; --shadow: 0 1px 3px rgba(0,0,0,.08);
+        --shimmer: linear-gradient(90deg, var(--chip) 0%, var(--line) 50%, var(--chip) 100%);
+    }
+    @media (prefers-color-scheme: dark) {
+        :root { --bg: #16161a; --panel: #212127; --ink: #ececf1; --ink-2: #a2a2ad; --line: #34343c;
+                --accent: #f06292; --accent-ink: #16161a; --chip: #2c2c33; --shadow: 0 1px 3px rgba(0,0,0,.4); }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
+    header { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+    form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .searchbox { flex: 1 1 300px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px;
+                 border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
+    .searchbox:focus-within { border-color: var(--accent); }
+    .searchbox input { flex: 1 1 160px; min-width: 80px; border: none; outline: none; background: transparent; color: var(--ink);
+                       font-size: 15px; padding: 5px 4px; }
+    select, button { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+                     color: var(--ink); font-size: 14px; cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+    button:disabled { opacity: .5; cursor: default; }
+    button.on { border-color: var(--accent); color: var(--accent); }
+    .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--accent);
+             color: var(--accent-ink); font-size: 11px; line-height: 18px; text-align: center; }
+    .statusline { margin-top: 8px; color: var(--ink-2); font-size: 13px; min-height: 18px; display: flex; gap: 8px; align-items: center; }
+    .statusline a { color: var(--accent); cursor: pointer; margin-left: auto; }
+    .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
+               animation: spin .8s linear infinite; display: none; flex: none; }
+    .spinner.on { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #progressbar { height: 3px; margin-top: 6px; background: var(--line); border-radius: 2px; overflow: hidden; visibility: hidden; }
+    #progressbar.on { visibility: visible; }
+    #progressbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+    .popover { position: absolute; right: 16px; top: 100%; margin-top: 4px; width: min(440px, calc(100% - 32px)); max-height: min(70vh, 560px);
+               overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+               box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: 12px 14px; display: none; z-index: 4; }
+    .popover.open { display: block; }
+    .popover h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin: 4px 0 8px; }
+    .popover p { color: var(--ink-2); font-size: 12px; }
+    .popover label { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 13px; }
+    .popover label.range input, .popover label.range select { flex: 1; accent-color: var(--accent); }
+    .popover label.range span { width: 38px; text-align: right; color: var(--ink-2); }
+    .siterow { display: flex; gap: 8px; font-size: 13px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+    .siterow span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .siterow .ms { color: var(--ink-2); width: 56px; text-align: right; }
+    .siterow .n { width: 70px; text-align: right; }
+    .siterow.failed .n, .siterow.refused .n { color: var(--ink-2); }
+    .cover canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+    main { padding: 14px 16px 40px; }
+    h1#heading { font-size: 16px; margin: 0 0 12px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+    h1#heading a { font-size: 13px; font-weight: 400; color: var(--accent); cursor: pointer; }
+    #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 14px; }
+    .card { background: var(--panel); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; display: flex;
+            flex-direction: column; cursor: pointer; position: relative; }
+    .card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.18); }
+    /* Halgakos stands in while a cover loads, and for a book without one (or one that won't load). */
+    .cover { aspect-ratio: 2 / 3; background: var(--chip) url(halgakos-loading.webp) center / cover no-repeat; display: flex; align-items: center; justify-content: center;
+             color: var(--ink-2); font-size: 12px; text-align: center; padding: 8px; overflow: hidden; position: relative; }
+    .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+    .rank { position: absolute; bottom: 6px; left: 6px; background: var(--accent); color: var(--accent-ink); font-weight: 700;
+            font-size: 12px; padding: 1px 7px; border-radius: 6px; }
+    .body { padding: 8px 9px 10px; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+    .title { font-weight: 600; font-size: 13px; line-height: 1.25; max-height: 32.5px; overflow: hidden; word-break: break-word; }
+    .title.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .meta { color: var(--ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .figures { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tags { display: flex; gap: 4px; overflow: hidden; height: 18px; flex-wrap: wrap; }
+    .tags span { background: var(--chip); border-radius: 8px; padding: 0 6px; font-size: 11px; line-height: 18px; white-space: nowrap; }
+    .synopsis { color: var(--ink-2); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+    .loading { display: flex; flex-direction: column; gap: 5px; padding-top: 2px; }
+    .loading i { display: block; height: 8px; border-radius: 4px; background: var(--shimmer); background-size: 200% 100%;
+                 animation: shimmer 1.2s linear infinite; }
+    .loading i:nth-child(2) { width: 85%; } .loading i:nth-child(3) { width: 60%; }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    .site { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,.65); color: #fff; font-size: 11px;
+            padding: 2px 6px; border-radius: 6px; max-width: calc(100% - 46px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 1; }
+    .add { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; border-radius: 16px; border: none; z-index: 1;
+           background: var(--accent); color: var(--accent-ink); font-size: 18px; line-height: 1; padding: 0; }
+    .add.in { background: #2e7d32; color: #fff; }
+    .add.art { background-color: transparent; background-position: center; background-size: contain; background-repeat: no-repeat;
+               width: 40px; height: 40px; top: 2px; right: 2px; filter: grayscale(1) opacity(.65) drop-shadow(0 1px 3px rgba(0,0,0,.5));
+               transition: filter .15s; }
+    .add.art:hover, .add.art.in { filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+    .add.art.in { background-color: transparent; }
+    /* A cover loading: a purple border running round it (and never the browser's broken-image outline). */
+    .cover img { border: 0; }
+    .cover.loading::after { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 3px; pointer-events: none;
+                            background: conic-gradient(from var(--spin, 0deg), #7c3aed, #c084fc, #4c1d95, #a855f7, #7c3aed);
+                            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                            -webkit-mask-composite: xor; mask-composite: exclude; animation: cover-spin 1.6s linear infinite; }
+    @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+    @keyframes cover-spin { to { --spin: 360deg; } }
+    .sources h4 { margin: 0 0 4px; font-size: 12px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .03em; }
+    #reader.comic #flow { max-width: 900px !important; padding: 0 0 80px !important; }
+    #reader.comic #flow img { width: 100%; max-height: none !important; margin: 0 auto !important; }
+    #reader.comic #flow p { text-align: center; }
+    #empty { color: var(--ink-2); text-align: center; margin-top: 60px; }
+    /* the tag menu */
+    #tagmenu { position: absolute; left: 16px; right: 16px; top: 100%; margin-top: 4px; max-height: min(70vh, 560px); overflow: auto;
+               background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+               padding: 12px 14px; display: none; }
+    #tagmenu.open { display: block; }
+    #tagmenu .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    #tagmenu input { flex: 1; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+    #tagmenu h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin: 10px 0 6px; }
+    #tagmenu p { color: var(--ink-2); font-size: 12px; margin: 0 0 6px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
+    .chip { background: var(--chip); border: 1px solid transparent; border-radius: 12px; padding: 2px 9px; font-size: 12px; cursor: pointer; user-select: none; }
+    .chip:hover { border-color: var(--accent); }
+    .chip.on { background: var(--accent); color: var(--accent-ink); }
+    .chip small { opacity: .7; margin-left: 3px; }
+    .picked { background: var(--accent); color: var(--accent-ink); border-radius: 12px; padding: 2px 4px 2px 9px; font-size: 12px; display: inline-flex; gap: 4px; align-items: center; }
+    .picked b { cursor: pointer; font-weight: 400; padding: 0 4px; }
+    /* details */
+    dialog { border: none; border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 820px; width: calc(100% - 32px);
+             padding: 0; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+    dialog::backdrop { background: rgba(0,0,0,.45); }
+    .details { display: flex; gap: 18px; padding: 18px; }
+    .details .cover { width: 190px; flex: none; border-radius: 8px; }
+    .details h2 { margin: 0 0 4px; font-size: 19px; }
+    .details .info { min-width: 0; flex: 1; }
+    .details .desc { white-space: pre-line; max-height: 240px; overflow: auto; color: var(--ink); margin: 8px 0; }
+    .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px 14px; margin: 8px 0; font-size: 13px; }
+    .facts div span { color: var(--ink-2); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+    .sources { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+    .sources div { display: flex; gap: 6px; align-items: center; padding: 3px 0; font-size: 13px; }
+    .sources div > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sources button { padding: 3px 9px; font-size: 12px; }
+    .actions { display: flex; gap: 8px; justify-content: flex-end; padding: 0 18px 16px; flex-wrap: wrap; }
+    @media (max-width: 600px) { .details { flex-direction: column; } .details .cover { width: 130px; } }
+    /* the reader */
+    #reader { position: fixed; inset: 0; z-index: 10; display: none; --r-bg: #fbfbf8; --r-ink: #1f1f24; --r-ink-2: #6b6b75; --r-line: #e4e4e8;
+              --r-size: 19px; --r-leading: 1.75; --r-font: Georgia, "Noto Serif", "Noto Serif CJK KR", "Noto Serif CJK JP", serif;
+              background: var(--r-bg); color: var(--r-ink); }
+    #reader.open { display: block; }
+    #reader.sepia { --r-bg: #f4ecd8; --r-ink: #5b4636; --r-ink-2: #8a7360; --r-line: #e1d4b7; }
+    #reader.dark { --r-bg: #141417; --r-ink: #d8d8de; --r-ink-2: #8a8a95; --r-line: #2c2c33; }
+    #reader.sans { --r-font: "Segoe UI", system-ui, "Noto Sans CJK KR", "Noto Sans CJK JP", sans-serif; }
+    #reader .bar { position: absolute; left: 0; right: 0; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+                   color: var(--r-ink-2); font-size: 13px; background: var(--r-bg); z-index: 2; }
+    #reader .bar.top { top: 0; border-bottom: 1px solid var(--r-line); }
+    #reader .bar.bottom { bottom: 0; border-top: 1px solid var(--r-line); }
+    #reader .bar button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    #reader .bar button { background: transparent; border: 1px solid var(--r-line); color: var(--r-ink); padding: 5px 10px; }
+    #reader .bar .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+    #reader .bar b { color: var(--r-ink); font-weight: 600; }
+    #reader input[type=range] { flex: 1; min-width: 60px; accent-color: var(--accent); }
+    #viewport { position: absolute; top: 52px; bottom: 52px; left: 0; right: 0; overflow: hidden; }
+    #flow { height: 100%; padding: 28px 0; font: var(--r-size)/var(--r-leading) var(--r-font); color: var(--r-ink);
+            column-fill: auto; transition: transform .18s ease-out; }
+    #reader.scroll #viewport { overflow-y: auto; }
+    #reader.scroll #flow { height: auto; columns: auto !important; max-width: 760px; margin: 0 auto; padding: 28px 24px 80px; transform: none !important; }
+    #flow h2.chapter { font-size: 1.35em; margin: 0 0 1.2em; line-height: 1.3; }
+    #flow p { margin: 0 0 .9em; text-align: justify; }
+    #flow img { max-width: 100%; max-height: calc(100vh - 170px); display: block; margin: .6em auto; break-inside: avoid; }
+    #flow .note { color: var(--r-ink-2); text-align: center; margin-top: 30vh; font-style: italic; }
+    #flow .note .clock { font-style: normal; opacity: .7; margin-left: .4em; }
+    #flow .note .detail { font-size: .75em; font-style: normal; opacity: .75; }
+    /* An image of the chapter not here yet: Halgakos holds its place. */
+    #flow img.slot { display: block; width: 100%; max-width: 900px; min-height: 320px; margin: 0 auto 6px;
+                     background: url(halgakos-loading.webp) center / 180px auto no-repeat, var(--r-line); object-fit: contain; }
+    #flow img.slot.ready { min-height: 0; background: none; }
+    .rprogress { display: none; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
+    .rprogress.on { display: inline-flex; }
+    .rprogress i { display: block; width: 140px; height: 6px; border-radius: 3px; background: var(--r-line); position: relative; overflow: hidden; }
+    .rprogress i::before { content: ""; position: absolute; inset: 0; width: var(--w, 0); background: var(--accent); }
+    #flow .next-chapter { text-align: center; margin: 2em 0; }
+    .zone { position: absolute; top: 52px; bottom: 52px; width: 22%; z-index: 1; cursor: pointer; }
+    .zone.left { left: 0; } .zone.right { right: 0; }
+    #reader.scroll .zone { display: none; }
+    #toc { position: absolute; top: 52px; bottom: 52px; left: 0; width: min(380px, 90vw); background: var(--r-bg); border-right: 1px solid var(--r-line);
+           z-index: 3; display: none; flex-direction: column; box-shadow: 6px 0 20px rgba(0,0,0,.15); }
+    #toc.open { display: flex; }
+    #toc .tabs { display: flex; border-bottom: 1px solid var(--r-line); }
+    #toc .tabs button { flex: 1; border: none; border-radius: 0; background: transparent; color: var(--r-ink-2); padding: 10px; }
+    #toc .tabs button.on { color: var(--r-ink); border-bottom: 2px solid var(--accent); }
+    #toc input { margin: 8px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--r-line); background: transparent; color: var(--r-ink); }
+    #toc .list { overflow: auto; flex: 1; }
+    #toc .list a { display: block; padding: 7px 14px; color: var(--r-ink); text-decoration: none; font-size: 14px; cursor: pointer;
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #toc .list a:hover { background: var(--r-line); }
+    #toc .list a.on { color: var(--accent); font-weight: 600; }
+    #toc .list .section { padding: 10px 14px 4px; font-size: 11px; text-transform: uppercase; color: var(--r-ink-2); }
+    #toc .pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; padding: 10px; }
+    #toc .pages a { text-align: center; border: 1px solid var(--r-line); border-radius: 6px; padding: 6px 0; }
+    #look { position: absolute; top: 56px; right: 12px; z-index: 3; background: var(--r-bg); border: 1px solid var(--r-line); border-radius: 10px;
+            padding: 12px; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.2); min-width: 250px; color: var(--r-ink); }
+    #look.open { display: block; }
+    #look .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+    #look .row span { flex: 1; font-size: 13px; color: var(--r-ink-2); }
+    #look button { background: transparent; border: 1px solid var(--r-line); color: var(--r-ink); padding: 4px 10px; }
+    #look button.on { border-color: var(--accent); color: var(--accent); }
+</style>
+<style>
+    @media (max-width: 520px) {
+        #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        header { padding: 10px 10px 8px; }
+    }
+</style>
+</head>
+<body>
+<header>
+    <form id="form">
+        <div class="searchbox" id="searchbox">
+            <span id="picked"></span>
+            <input id="query" type="search" placeholder="Search titles, tags or a novel ID on 1,000+ sites" autocomplete="off" autofocus>
+        </div>
+        <button id="tagsButton" type="button" title="Pick tags to search">Tags<span id="tagCount"></span></button>
+        <select id="kind" title="Show">
+            <option value="all">All</option>
+            <option value="webnovel">Web Novels</option>
+            <option value="lightnovel">Light Novels</option>
+            <option value="manga">Manga</option>
+            <option value="manhwa">Manhwa</option>
+            <option value="comic">Comics</option>
+        </select>
+        <button id="go" class="primary" type="submit">Search</button>
+        <button id="stop" type="button" disabled>Stop</button>
+        <button id="settingsButton" type="button" title="Cover preview quality">⚙</button>
+    </form>
+    <div class="statusline"><span id="spinner" class="spinner"></span><span id="status">Searches each site's own search and its genre and tag pages, then reads each book's page for its details.</span>
+        <a id="sitesButton" style="display:none">Sites</a></div>
+    <div id="progressbar"><i></i></div>
+    <div id="sitespanel" class="popover"></div>
+    <div id="settingspanel" class="popover">
+        <h3>Top lists</h3>
+        <label class="range">Language <select id="language">
+            <option value="en">English</option><option value="all">All languages</option>
+            <option value="ja">日本語</option><option value="ko">한국어</option><option value="zh">中文</option>
+            <option value="ru">Русский</option><option value="es">Español</option><option value="pt">Português</option>
+            <option value="fr">Français</option><option value="id">Bahasa Indonesia</option><option value="th">ไทย</option>
+            <option value="vi">Tiếng Việt</option><option value="de">Deutsch</option><option value="tr">Türkçe</option>
+            <option value="ar">العربية</option></select></label>
+        <p>The Top 100 lists show books in this language. Searches look everywhere.</p>
+        <h3>Cover previews</h3>
+        <label class="check"><input type="checkbox" id="imgLow"> Show covers at lower quality (uses less memory, like NovelDB)</label>
+        <label class="range">Quality <input type="range" id="imgQuality" min="20" max="100" step="1"><span id="imgQualityValue"></span></label>
+        <label class="range">Resolution <input type="range" id="imgResolution" min="20" max="100" step="1"><span id="imgResolutionValue"></span></label>
+        <p>Covers are decoded once, then kept as small WebP images. Changes apply to the covers shown next.</p>
+    </div>
+    <div id="tagmenu">
+        <div class="row"><input id="tagFilter" type="search" placeholder="Filter tags, or type your own and press Enter" autocomplete="off">
+            <button id="tagClear" type="button">Clear</button><button id="tagSearch" type="button" class="primary">Search</button></div>
+        <p>Picked tags are searched together with the title. With a title, tag results must match the title too.</p>
+        <div id="tagLists"></div>
+    </div>
+</header>
+<main>
+    <h1 id="heading"></h1>
+    <div id="grid"></div>
+    <div id="empty"></div>
+</main>
+<dialog id="dialog"></dialog>
+<div id="reader">
+    <div class="bar top">
+        <button id="rClose" type="button" title="Close the reader (Esc)">✕</button>
+        <button id="rToc" type="button" title="Chapters and pages">☰ Contents</button>
+        <div class="grow"><b id="rBook"></b> <span id="rChapter"></span></div>
+        <button id="rLook" type="button" title="Text and layout">Aa</button>
+    </div>
+    <div id="viewport"><div id="flow"></div></div>
+    <div class="zone left" id="zoneLeft" title="Previous page"></div>
+    <div class="zone right" id="zoneRight" title="Next page"></div>
+    <div id="toc">
+        <div class="tabs"><button id="tabChapters" class="on" type="button">Chapters</button><button id="tabPages" type="button">Pages</button></div>
+        <input id="tocFilter" type="search" placeholder="Find a chapter" autocomplete="off">
+        <div class="list" id="tocList"></div>
+    </div>
+    <div id="look">
+        <div class="row"><span>Text size</span><button data-look="smaller" type="button">A−</button><button data-look="larger" type="button">A+</button></div>
+        <div class="row"><span>Line spacing</span><button data-look="tighter" type="button">−</button><button data-look="looser" type="button">+</button></div>
+        <div class="row"><span>Font</span><button data-look="serif" type="button">Serif</button><button data-look="sans" type="button">Sans</button></div>
+        <div class="row"><span>Theme</span><button data-look="auto" type="button" title="The same as the page">Auto</button><button data-look="light" type="button">Light</button><button data-look="sepia" type="button">Sepia</button><button data-look="dark" type="button">Dark</button></div>
+        <div class="row"><span>Layout</span><button data-look="paged" type="button">Pages</button><button data-look="scroll" type="button">Scroll</button></div>
+    </div>
+    <div class="bar bottom">
+        <button id="rPrev" type="button" title="Previous page (←)">‹</button>
+        <span id="rWhere"></span>
+        <input id="rSlider" type="range" min="1" max="1" value="1" title="Page">
+        <span id="rProgress" class="rprogress"><i></i><span></span></span>
+        <span id="rChapterNo"></span>
+        <button id="rNext" type="button" title="Next page (→)">›</button>
+    </div>
+</div>
+<script src="catalog-host.js"></script>
+<script src="download-icon.js"></script>
+<script src="generic-lib.js"></script>
+<script src="catalog-app.js"></script>
+<script src="lnreader-lib.js"></script>
+<script src="generic.js"></script>
+</body>
+</html>

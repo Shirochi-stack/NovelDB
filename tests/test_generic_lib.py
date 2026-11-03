@@ -24,3 +24,16 @@ def test_the_script_has_the_entry_points_the_apps_call():
         assert name in text, name
     # A page with nothing to read says so as a miss, so the apps call the link unsupported.
     assert "noParser: true" in text
+
+
+def test_the_apps_ship_the_current_generic_search_page():
+    # The page and its scripts; the bundles and site lists the daily jobs rebuild are left to them.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("build_mobile_catalog", ROOT / "scripts" / "build_mobile_catalog.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    files = build.expected()
+    for name in ("index.html", "generic.js", "generic-lib.js", "catalog-app.js", "catalog-host.js", "download-icon.js"):
+        for target in build.TARGETS:
+            assert (target / name).read_bytes() == files[name],                 f"{target / name} is out of date; run python scripts/build_mobile_catalog.py"

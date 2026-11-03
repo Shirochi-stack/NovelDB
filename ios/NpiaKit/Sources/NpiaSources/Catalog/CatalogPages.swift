@@ -45,6 +45,10 @@ public enum CatalogPages {
     public static let defaultAddress = "https://shirochi-stack.github.io/NovelDB/"
     /// NovelDB Next, offered as a suggestion; its cards get link-cart buttons too.
     public static let nextAddress = "https://noveldb.pages.dev/"
+    /// The generic search (the default catalog): the desktop's page, served from the app.
+    public static let genericAddress = "noveldb://generic/"
+    /// The scheme the generic search page is served on (`NpiaWebEngine.CatalogPage`).
+    public static let genericScheme = "noveldb-catalog"
 
     private static let nextHost = URL(string: nextAddress)?.host ?? "noveldb.pages.dev"
     private static let pagesHost = URL(string: defaultAddress)?.host ?? "shirochi-stack.github.io"
@@ -56,6 +60,7 @@ public enum CatalogPages {
     /// A page of NovelDB (the GitHub Pages site) or NovelDB Next (and its preview deployments):
     /// outside links open in the Browser tab and are never renamed or sent to the cart.
     public static func isNovelDB(_ url: URL) -> Bool {
+        if url.scheme == genericScheme { return true }
         guard let host = url.host?.lowercased(), !host.isEmpty else { return false }
         if host == nextHost || host.hasSuffix("." + nextHost) { return true }
         return host == pagesHost && (url.path == pagesRoot || url.path.hasPrefix(pagesRoot + "/"))

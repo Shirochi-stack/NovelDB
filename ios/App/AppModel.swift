@@ -575,6 +575,15 @@ final class AppModel {
         historyStore.save(uploadHistory)
     }
 
+    // MARK: - Catalog
+
+    /// The context of the Catalog's generic search page requests: the app's HTTP client (with the
+    /// web views' cookies) and web engine, for its hidden pages.
+    func catalogContext() -> SourceContext {
+        let http = URLSessionHTTPClient(maxRetries: 1, minTimeout: TimeInterval(settings.shared.requestTimeoutSeconds))
+        return SourceContext(http: http, web: web, secrets: secrets, settings: settings)
+    }
+
     // MARK: - npia account
 
     /// Signs in with the saved email and password; on success the session key is stored in the

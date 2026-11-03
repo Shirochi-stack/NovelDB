@@ -20,6 +20,17 @@ class CatalogSiteTest {
         assertNull(validCatalogUrl(null))
     }
 
+    @Test
+    fun theGenericSearchIsAPageOfTheApp() {
+        assertEquals(GENERIC_CATALOG_URL, validCatalogUrl(GENERIC_CATALOG_URL))
+        assertEquals(GENERIC_PAGE_URL, catalogPage(GENERIC_CATALOG_URL))
+        assertEquals("https://example.com/", catalogPage("https://example.com/"))
+        assertTrue(isGenericPage(GENERIC_PAGE_URL))
+        assertFalse(isGenericPage("https://example.com/assets/catalog/index.html"))
+        // Its links open in the Browser tab and are never renamed, as on NovelDB.
+        assertEquals(CatalogKind.NOVELDB, catalogKind(GENERIC_PAGE_URL, engines))
+    }
+
     // The classes of page the Catalog tab tells apart. Source domains are kept as escapes.
 
     private val npia = "\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"

@@ -53,6 +53,7 @@ import com.shirochi.npia.app.BrowserTranslate
 import com.shirochi.npia.app.BuildConfig
 import com.shirochi.npia.app.FileActions
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
+import com.shirochi.npia.app.GENERIC_CATALOG_URL
 import com.shirochi.npia.app.NOVELDB_NEXT_URL
 import com.shirochi.npia.app.validCatalogUrl
 import com.shirochi.npia.app.Route
@@ -691,6 +692,15 @@ fun CatalogSiteSettingsScreen(model: AppViewModel) {
             TextButton(onClick = ::save, enabled = candidate != null && candidate != current) { Text("Save") }
             TextButton(
                 onClick = {
+                    manager.setCatalogUrl(GENERIC_CATALOG_URL)
+                    address = GENERIC_CATALOG_URL
+                },
+                enabled = current != GENERIC_CATALOG_URL,
+            ) { Text("Use Generic search") }
+        }
+        Row(Modifier.padding(horizontal = 8.dp)) {
+            TextButton(
+                onClick = {
                     manager.setCatalogUrl(DEFAULT_CATALOG_URL)
                     address = DEFAULT_CATALOG_URL
                 },
@@ -711,7 +721,8 @@ fun CatalogSiteSettingsScreen(model: AppViewModel) {
             subtitle = "Applies only to sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from. There, links to other sites read \"Download\" and add the link to the cart. Off: they open in the Browser tab.",
         )
         Footnote(
-            "On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. " +
+            "Generic search (the default) searches 1,000+ sites by title, tag or novel ID, shows the top lists, and reads or downloads a book from its details. " +
+                "On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. " +
                 "NovelDB Next cards have a link-cart button too, at the bottom right of the cover. " +
                 "On the sites NovelDB downloads from, links to other sites open in the Browser tab, and a page it can download gets a floating " +
                 "\"Download\" button (bottom right) that adds the page to the cart.",
