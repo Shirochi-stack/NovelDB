@@ -480,11 +480,23 @@
         if (!some(group.views)) group.views = '';
         if (!some(group.ratings)) group.ratings = '';
         if (!some(group.chapters)) group.chapters = '';
-        if (group.rating) out.push('★ ' + group.rating + (group.ratings ? ' (' + group.ratings + ')' : ''));
-        if (group.likes) out.push('♥ ' + group.likes);
-        if (group.views) out.push('👁 ' + group.views);
-        if (group.chapters) out.push(group.chapters + ' ch');
+        if (group.rating) out.push('★ ' + group.rating + (group.ratings ? ' (' + shortCount(group.ratings) + ')' : ''));
+        if (group.likes) out.push('♥ ' + shortCount(group.likes));
+        if (group.views) out.push('👁 ' + shortCount(group.views));
+        if (group.chapters) out.push(shortCount(group.chapters) + ' ch');
         return out;
+    }
+    // A count as a card shows it: 3,429,619 is "3.4M", 120,856 "121K" (the details panel keeps every digit).
+    function shortCount(value) {
+        var text = String(value || '').trim();
+        if (!/^[\d,.\s]+$/.test(text)) return text;  // already short ("1.2M"), or not a plain number
+        var n = Number(text.replace(/[,\s]/g, ''));
+        if (!isFinite(n)) return text;
+        var unit = function (size, letter) {
+            var v = n / size;
+            return (v < 10 ? Math.round(v * 10) / 10 : Math.round(v)) + letter;
+        };
+        return n >= 1e9 ? unit(1e9, 'B') : n >= 1e6 ? unit(1e6, 'M') : n >= 1e4 ? unit(1e3, 'K') : n.toLocaleString();
     }
 
     function render(group) {
@@ -517,9 +529,10 @@
             + (config.downloadIcon ? ' style="background-image:url(' + config.downloadIcon + ')"' : '') + '>'
             + (config.downloadIcon ? '' : inCart ? '✓' : '+') + '</button>'
             + '<div class="body"><div class="title">' + esc(group.title) + '</div>'
-            + (group.rawTitle ? '<div class="raw" title="' + esc(group.rawTitle) + '">' + esc(group.rawTitle) + '</div>' : '')
-            + '<div class="meta">' + esc([group.author, KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
-            + (figures(group).length ? '<div class="figures">' + esc(figures(group).join('  ')) + '</div>' : '')
+            // Compact: the author and status on one line, the figures shortened on the next (the original
+            // title, the kind and every digit are in the details panel).
+            + (group.author || group.status ? '<div class="meta">' + esc([group.author, group.status].filter(Boolean).join(' · ')) + '</div>' : '')
+            + (figures(group).length ? '<div class="figures">' + esc(figures(group).join(' · ')) + '</div>' : '')
             + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 24).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
@@ -531,7 +544,7 @@
             image.removeAttribute('src');
             ask({type: 'genericCover', key: coverKey(wanted_)}).then(function (data) {
                 if (group.cover !== wanted_) return;
-                if (data && data.dataUrl) { group.cover = data.dataUrl; image.dataset.small = '1'; }
+                if (data && data.dataUrl) { group.original = wanted_; group.cover = data.dataUrl; image.dataset.small = '1'; }
                 image.src = group.cover;
             });
         }
@@ -605,6 +618,7 @@
                 var reader = new FileReader();
                 reader.onload = function () {
                     image.dataset.small = '1';
+                    if (!/^data:/.test(original)) group.original = original;  // for compression turned off later
                     group.cover = reader.result;  // later renders reuse the small copy
                     image.src = reader.result;
                     if (!/^data:/.test(original)) send({type: 'genericCoverPut', key: coverKey(original), dataUrl: reader.result});
@@ -629,8 +643,9 @@
         store(LANG_KEY, language);
         if (view === 'top') showTop();
     });
-    ['imgLow', 'imgQuality', 'imgResolution'].forEach(function (id) {
-        $(id).addEventListener('input', function () {
+    // "change" too: some phones' web views send no "input" for a checkbox.
+    ['imgLow', 'imgQuality', 'imgResolution'].forEach(function (id) { ['input', 'change'].forEach(function (type) {
+        $(id).addEventListener(type, function () {
             imaging.low = $('imgLow').checked;
             imaging.quality = Number($('imgQuality').value);
             imaging.resolution = Number($('imgResolution').value);
@@ -641,13 +656,14 @@
                 order.forEach(function (group) {
                     // Back to each book's own cover, to be made again with the new settings.
                     if (group.covers && group.covers.length) group.cover = group.covers[0];
+                    else if (group.original) group.cover = group.original;
                     group.cacheAsked = false;
                     group.coverTried = false;
                     if (group.element) render(group);
                 });
             }, 400);
         });
-    });
+    }); });
     $('settingsButton').addEventListener('click', function (event) {
         event.stopPropagation();
         $('sitespanel').classList.remove('open');

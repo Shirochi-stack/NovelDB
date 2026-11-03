@@ -75,11 +75,16 @@ def download_icon() -> str:
     return "window.NovelDBDownloadIcon = " + json.dumps(found.group(1) if found else "") + ";\n"
 
 
+TEXT = (".js", ".html", ".json", ".css", ".txt")
+
+
 def expected() -> dict:
     out = {"index.html": page_html().encode("utf-8"), "download-icon.js": download_icon().encode("utf-8")}
     for name, source in FILES.items():
         out[name] = source.read_bytes()
-    return out
+    # Text with Unix line endings, whatever the checkout wrote (core.autocrlf on Windows): the iOS copy
+    # is stored byte for byte, so a Windows checkout would otherwise change every line of it.
+    return {name: data.replace(b"\r\n", b"\n") if name.endswith(TEXT) else data for name, data in out.items()}
 
 
 def main() -> int:
