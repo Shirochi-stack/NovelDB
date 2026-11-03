@@ -201,6 +201,7 @@
     // -- cards -------------------------------------------------------------------------------------
     function reset(nextView) {
         view = nextView;
+        clearTimeout(top.timer);  // a top list still loading draws nothing more
         groups.clear(); byUrl.clear(); order = []; resultTags.clear();
         $('grid').innerHTML = '';
         queue.length = 0;
@@ -743,6 +744,7 @@
         topRedrawSoon();  // the next book in line takes its place
     }
     function topCollect(card, weight, position, length) {
+        if (view !== 'top') return;  // a search started meanwhile: its results own the page
         if (!card.title || JUNK.test(card.title) || NO_RESULTS.test(card.title) || !inLanguage(card) || notInTop(card)) return;
         var k = groupKey(card);
         var entry = top.scores.get(k) || {key: k, score: 0, first: top.first++, cards: []};
@@ -753,6 +755,7 @@
     // The list as books arrive: a new book goes at the end and stays where it is (no reshuffling as more
     // sites answer); a book another site lists too just gains that site. It stops at 100 books.
     function topRedraw() {
+        if (view !== 'top') return;
         var entries = Array.from(top.scores.values()).sort(function (a, b) { return a.first - b.first; });
         entries.forEach(function (entry) {
             if (entry.excluded) return;

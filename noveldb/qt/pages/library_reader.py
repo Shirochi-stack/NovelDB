@@ -10,18 +10,23 @@ from __future__ import annotations
 
 import json
 import posixpath
+import re
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QFont, QImage, QPixmap, QTextDocument
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTextBrowser,
     QVBoxLayout,
@@ -29,6 +34,9 @@ from PySide6.QtWidgets import (
 )
 
 from noveldb.core import library, paths
+from noveldb.core.engines.generic import clean_name
+from noveldb.qt import icons
+from noveldb.qt.scale import bind_title, on_scale
 from noveldb.qt.widgets import hint
 
 THEMES = {
@@ -60,13 +68,17 @@ def _save_place(key: str, chapter: int, at: float) -> None:
 
 
 class BookView(QWidget):
-    """A Library book's page: its cover, title, author, synopsis, files and chapters."""
+    """A Library book's page, laid out like the Catalog's details panel: the cover with Open and
+    Show in folder under it; the title, what the book is, Read and Delete; its synopsis; then its
+    chapters, with a box to find one."""
 
     back = Signal()
     readRequested = Signal(object, int)  # the book, the chapter to start at (-1: where it was left)
     openRequested = Signal(object)
     revealRequested = Signal(object)
     deleteRequested = Signal(object)
+
+    COVER = QSize(220, 320)
 
     def __init__(self) -> None:
         super().__init__()
@@ -75,63 +87,110 @@ class BookView(QWidget):
         back = QPushButton("‹ Library")
         back.clicked.connect(self.back.emit)
         self.cover = QLabel()
-        self.cover.setFixedSize(QSize(210, 300))
+        self.cover.setFixedSize(self.COVER)
         self.cover.setAlignment(Qt.AlignCenter)
-        self.title = QLabel()
-        self.title.setWordWrap(True)
-        font = self.title.font()
-        font.setPointSizeF(font.pointSizeF() * 1.6)
-        font.setBold(True)
-        self.title.setFont(font)
-        self.meta = hint("")
-        self.synopsis = QLabel()
-        self.synopsis.setWordWrap(True)
-        self.synopsis.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.synopsis.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.read = QPushButton("Read")
-        self.read.setProperty("primary", True)
-        self.read.clicked.connect(lambda: self.readRequested.emit(self.book, -1))
         opener = QPushButton("Open")
         opener.setToolTip("Open it with the app your system uses for it")
         opener.clicked.connect(lambda: self.openRequested.emit(self.book))
         reveal = QPushButton("Show in folder")
         reveal.clicked.connect(lambda: self.revealRequested.emit(self.book))
+        side = QVBoxLayout()
+        side.setSpacing(8)
+        side.addWidget(self.cover)
+        side.addWidget(opener)
+        side.addWidget(reveal)
+        side.addStretch(1)
+
+        self.title = bind_title(QLabel(), 24, 700)
+        self.title.setWordWrap(True)
+        self.title.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.meta = hint("")
+        self.read = QPushButton("Read")
+        self.read.setProperty("primary", True)
+        icons.set_icon(self.read, icons.MINING, 24)
+        self.read.clicked.connect(lambda: self.readRequested.emit(self.book, -1))
         delete = QPushButton("Delete")
+        delete.setToolTip("Move the book's files to the Recycle Bin")
         delete.clicked.connect(lambda: self.deleteRequested.emit(self.book))
         buttons = QHBoxLayout()
-        for button in (self.read, opener, reveal, delete):
-            buttons.addWidget(button)
+        buttons.addWidget(self.read)
         buttons.addStretch(1)
-        self.chapters = QListWidget()
-        self.chapters.itemActivated.connect(lambda item: self.readRequested.emit(self.book, self.chapters.row(item)))
-
+        buttons.addWidget(delete)
+        self.synopsis = QLabel()
+        self.synopsis.setWordWrap(True)
+        self.synopsis.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.synopsis.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        synopsis = QScrollArea()
+        synopsis.setWidget(self.synopsis)
+        synopsis.setWidgetResizable(True)
+        synopsis.setFrameShape(QFrame.NoFrame)
+        synopsis.setMinimumHeight(120)
         info = QVBoxLayout()
+        info.setSpacing(8)
         info.addWidget(self.title)
         info.addWidget(self.meta)
         info.addLayout(buttons)
-        info.addWidget(self.synopsis, 1)
-        top = QHBoxLayout()
-        top.addWidget(self.cover, 0, Qt.AlignTop)
+        info.addWidget(synopsis, 1)
+        card = QFrame()
+        card.setObjectName("bookCard")
+        card.setStyleSheet("#bookCard { border: 1px solid rgba(128, 128, 128, 0.25); border-radius: 12px; }")
+        top = QHBoxLayout(card)
+        top.setContentsMargins(16, 16, 16, 16)
+        top.setSpacing(20)
+        top.addLayout(side)
         top.addLayout(info, 1)
+
+        self.count = hint("")
+        self.find = QLineEdit()
+        self.find.setPlaceholderText("Find a chapter")
+        self.find.setClearButtonEnabled(True)
+        self.find.setMaximumWidth(320)
+        self.find.textChanged.connect(self._filter)
+        heading = QHBoxLayout()
+        heading.addWidget(self.count, 1)
+        heading.addWidget(self.find)
+        self.chapters = QListWidget()
+        self.chapters.setAlternatingRowColors(True)
+        self.chapters.setStyleSheet("QListWidget::item { padding: 6px 10px; }")
+        # List views get the platform's smaller font on Windows: the app's, as everywhere else.
+        on_scale(self.chapters, lambda: self.chapters.setFont(QApplication.font()))
+        self.chapters.itemActivated.connect(self._activated)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
         layout.addWidget(back, 0, Qt.AlignLeft)
-        layout.addLayout(top)
-        layout.addWidget(hint("Chapters (double-click one to read from it)"))
+        layout.addWidget(card)
+        layout.addLayout(heading)
         layout.addWidget(self.chapters, 1)
+
+    def _activated(self, item: QListWidgetItem) -> None:
+        index = item.data(Qt.UserRole)
+        if isinstance(index, int):
+            self.readRequested.emit(self.book, index)
+
+    def _filter(self, text: str) -> None:
+        words = text.strip().lower()
+        for row in range(self.chapters.count()):
+            item = self.chapters.item(row)
+            item.setHidden(bool(words) and words not in item.text().lower())
+
+    @staticmethod
+    def _size(size: int) -> str:
+        if size <= 0:
+            return ""
+        return f"{size / 1048576:.1f} MB" if size >= 1048576 else f"{max(1, round(size / 1024))} KB"
 
     def show_book(self, book, cover: Optional[QImage]) -> None:
         self.book = book
         self.title.setText(book.title)
-        formats = " · ".join(dict.fromkeys(f.format for f in book.files))
-        size = sum(f.size for f in book.files) / 1048576
-        self.meta.setText(" · ".join(filter(None, [book.author, formats, f"{size:.1f} MB"])))
-        self.synopsis.setText(library.description(book) or "")
-        if cover is not None and not cover.isNull():
-            self.cover.setPixmap(QPixmap.fromImage(cover).scaled(self.cover.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
+        picture = QPixmap.fromImage(cover) if cover is not None and not cover.isNull() else QPixmap(icons.path("halgakos-cover.png"))
+        if picture.isNull():
             self.cover.clear()
+        else:
+            self.cover.setPixmap(picture.scaled(self.cover.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self.chapters.clear()
+        self.find.clear()
         epub = next((f for f in book.files if f.format == "EPUB"), None)
         self.read.setEnabled(epub is not None)
         self.contents = None
@@ -140,10 +199,33 @@ class BookView(QWidget):
                 self.contents = library.epub_contents(epub.path)
             except Exception:
                 self.contents = None
-        for index, chapter in enumerate((self.contents or {}).get("chapters", []), 1):
-            self.chapters.addItem(QListWidgetItem(f"{index}. {chapter['name']}"))
+        shown = 0
+        for index, chapter in enumerate((self.contents or {}).get("chapters", [])):
+            name = clean_name(chapter["name"]) or chapter["name"]
+            if not shown and _FRONT_MATTER.match(name):
+                continue  # the EPUB's cover or title page, not a chapter
+            shown += 1
+            item = QListWidgetItem(f"{shown}.  {name}")
+            item.setData(Qt.UserRole, index)
+            self.chapters.addItem(item)
         if self.contents is None:
             self.chapters.addItem("No EPUB: this book opens with your system's app.")
+        formats = " · ".join(dict.fromkeys(f.format for f in book.files))
+        count = f"{shown} chapter{'s' if shown != 1 else ''}" if self.contents is not None else ""
+        self.meta.setText(" · ".join(filter(None, [book.author, formats, self._size(book.size), count])))
+        self.count.setText(f"Chapters ({shown}) · double-click one to read from it" if shown else "Chapters")
+        self.synopsis.setText(_synopsis(library.description(book) or "") or "No synopsis in the EPUB.")
+
+
+# The EPUB's own pages before the first chapter.
+_FRONT_MATTER = re.compile(r"^(cover|title( page)?|table of contents|contents|toc|nav|copyright)$", re.I)
+_LEAD = re.compile(r"^\s*(summary|synopsis|description|introduction)\s*[:：]?\s*", re.I)
+_TAIL = re.compile(r"\s*(show (more|less)|read more)\s*$", re.I)
+
+
+def _synopsis(text: str) -> str:
+    """The synopsis without the words a site's page put around it ("Summary …", "… Show More")."""
+    return _TAIL.sub("", _LEAD.sub("", text.strip())).strip()
 
 
 class _Page(QTextBrowser):

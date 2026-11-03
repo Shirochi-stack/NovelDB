@@ -1,4 +1,4 @@
-"""The app's artwork icons (`assets/`): Halgakos in the link cart, and Halgakos with a download arrow.
+"""The app's artwork icons (`assets/`): Halgakos in the link cart, with a download arrow, and mining (Read).
 
 The cart marks the link cart itself (its buttons, dialog and messages); the download arrow is what
 the Catalog cards' buttons and Download labels show (the catalog bridge carries its own copy).
@@ -18,6 +18,7 @@ from noveldb.qt.scale import on_scale, ui_scale
 
 CART = "cart-icon.png"
 DOWNLOAD = "download-icon.png"
+MINING = "mining-icon.png"  # Halgakos with her pickaxe: reading a book
 
 
 def path(name: str) -> str:
