@@ -119,7 +119,7 @@ final class WebToEpubTests: XCTestCase {
     /// Only the WebToEpub parsers are on.
     private var parsersOnly: AppSettings {
         var settings = AppSettings()
-        settings.engines = EngineSettings(order: [.webtoepub, .native, .novelDownloader], disabled: [.native, .novelDownloader])
+        settings.engines = EngineSettings(order: [.webtoepub, .native, .novelDownloader], disabled: [.native, .novelDownloader, .lnreader, .generic])
         return settings
     }
 
