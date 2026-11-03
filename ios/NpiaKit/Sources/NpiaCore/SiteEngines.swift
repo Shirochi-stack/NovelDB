@@ -2,13 +2,14 @@ import Foundation
 
 /// The engines a book link can go through. Each link tries them in the user's order until one
 /// finds chapters: the app's own scrapers, the novel-downloader rules, the WebToEpub parsers, the
-/// LNReader plugins, then the generic fallback (any site, without site rules).
+/// LNReader plugins, the HaruNeko websites (manga), then the generic fallback (any site, without site rules).
 /// Raw values are the names the desktop config uses.
 public enum SiteEngine: String, Codable, CaseIterable, Sendable {
     case native
     case novelDownloader = "novel_downloader"
     case webtoepub
     case lnreader
+    case haruneko
     case generic
 
     public var title: String {
@@ -17,6 +18,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .novelDownloader: return "novel-downloader rules"
         case .webtoepub: return "WebToEpub parsers"
         case .lnreader: return "LNReader plugins"
+        case .haruneko: return "HaruNeko websites"
         case .generic: return "Generic fallback"
         }
     }
@@ -27,6 +29,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .novelDownloader: return "Rules for mostly Chinese and Japanese sites."
         case .webtoepub: return "Parsers for 650+ sites, mostly English translations."
         case .lnreader: return "Plugins for 320+ novel sites in many languages."
+        case .haruneko: return "800+ manga, manhwa and comic sites."
         case .generic: return "Any other site: reads the chapter list and text without site rules."
         }
     }
@@ -54,13 +57,15 @@ public struct EngineSettings: Codable, Sendable, Equatable {
     public var novelDownloaderAutoUpdate: Bool
     public var webtoepubAutoUpdate: Bool
     public var lnreaderAutoUpdate: Bool
+    public var harunekoAutoUpdate: Bool
 
     public init(
         order: [SiteEngine] = SiteEngine.allCases,
         disabled: [SiteEngine] = [],
         novelDownloaderAutoUpdate: Bool = true,
         webtoepubAutoUpdate: Bool = true,
-        lnreaderAutoUpdate: Bool = true
+        lnreaderAutoUpdate: Bool = true,
+        harunekoAutoUpdate: Bool = true
     ) {
         let full = SiteEngine.ordered(order.map { $0.rawValue })
         let off = full.filter { disabled.contains($0) }
@@ -70,10 +75,11 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         self.novelDownloaderAutoUpdate = novelDownloaderAutoUpdate
         self.webtoepubAutoUpdate = webtoepubAutoUpdate
         self.lnreaderAutoUpdate = lnreaderAutoUpdate
+        self.harunekoAutoUpdate = harunekoAutoUpdate
     }
 
     private enum CodingKeys: String, CodingKey {
-        case order, disabled, novelDownloaderAutoUpdate, webtoepubAutoUpdate, lnreaderAutoUpdate
+        case order, disabled, novelDownloaderAutoUpdate, webtoepubAutoUpdate, lnreaderAutoUpdate, harunekoAutoUpdate
     }
 
     /// Every key is optional and unknown engine names are dropped, so hand-edited files still load.
@@ -84,12 +90,14 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         let novelDownloader = try container.decodeIfPresent(Bool.self, forKey: .novelDownloaderAutoUpdate) ?? true
         let webtoepub = try container.decodeIfPresent(Bool.self, forKey: .webtoepubAutoUpdate) ?? true
         let lnreader = try container.decodeIfPresent(Bool.self, forKey: .lnreaderAutoUpdate) ?? true
+        let haruneko = try container.decodeIfPresent(Bool.self, forKey: .harunekoAutoUpdate) ?? true
         self.init(
             order: SiteEngine.ordered(names),
             disabled: off.compactMap { SiteEngine(rawValue: $0) },
             novelDownloaderAutoUpdate: novelDownloader,
             webtoepubAutoUpdate: webtoepub,
-            lnreaderAutoUpdate: lnreader
+            lnreaderAutoUpdate: lnreader,
+            harunekoAutoUpdate: haruneko
         )
     }
 
@@ -126,6 +134,7 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         case .novelDownloader: return novelDownloaderAutoUpdate
         case .webtoepub: return webtoepubAutoUpdate
         case .lnreader: return lnreaderAutoUpdate
+        case .haruneko: return harunekoAutoUpdate
         }
     }
 

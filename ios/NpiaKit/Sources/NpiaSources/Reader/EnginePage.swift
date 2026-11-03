@@ -40,8 +40,9 @@ actor EnginePage {
         do {
             let opened = try await context.web.newPage(profile: Self.profile)
             let http = context.http
+            let web = context.web
             await opened.addMessageHandler(Self.transportName) { json in
-                await EngineTransport.handle(json, http: http)
+                await EngineTransport.handle(json, http: http, web: web)
             }
             do {
                 do {
@@ -91,12 +92,15 @@ actor EnginePage {
 /// The request is `{url, method, headers, data? | dataBase64?, responseType, timeout}`; the reply
 /// is `{status, statusText, responseHeaders, finalUrl, responseBase64}` or `{error}`.
 enum EngineTransport {
-    static func handle(_ json: String, http: any HTTPFetching) async -> String {
+    static func handle(_ json: String, http: any HTTPFetching, web: (any WebEngineProviding)? = nil) async -> String {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else {
             return encode(["error": "invalid request"])
         }
         if object["op"] as? String == "cookie" {
             return cookieReply(object)
+        }
+        if object["op"] as? String == "window" {
+            return await windowScript(object, web: web)
         }
         guard let text = object["url"] as? String, let url = URL(string: text),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
@@ -145,6 +149,41 @@ enum EngineTransport {
             return encode(["cookie": NSNull()])
         }
         return encode(["cookie": ["name": cookie.name, "value": cookie.value, "domain": cookie.domain]])
+    }
+
+    /// HaruNeko's FetchWindowScript (op "window"): opens `url` in a hidden page of its own, runs
+    /// `preload` before the site's scripts, waits out a bot check and `delay` ms, then evaluates
+    /// `script` like Electron's executeJavaScript (statements allowed, the last value returned,
+    /// promises awaited). Replies `{value}` or `{error}`. An empty script is a warm-up visit: the
+    /// app's pages already carry the site's cookies.
+    static func windowScript(_ object: [String: Any], web: (any WebEngineProviding)?) async -> String {
+        guard let text = object["url"] as? String, let url = URL(string: text) else {
+            return encode(["error": "no address"])
+        }
+        let script = object["script"] as? String ?? ""
+        if script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return encode(["value": NSNull()]) }
+        guard let web else { return encode(["error": "no web view for a page script"]) }
+        do {
+            let page = try await web.newPage(profile: EnginePage.profile)
+            defer { Task { await page.close() } }
+            if let preload = object["preload"] as? String, !preload.isEmpty { await page.addInitScript(preload) }
+            try await page.load(url, until: .domContentLoaded, timeout: 25)
+            let deadline = Date().addingTimeInterval(25)
+            while Date() < deadline {
+                let data = (try? await page.evaluateJSON("return document.title || '';")) ?? Data()
+                let title = (String(data: data, encoding: .utf8) ?? "").lowercased()
+                if !title.contains("just a moment") && !title.contains("attention required") { break }
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            let wait = min((object["delay"] as? NSNumber)?.doubleValue ?? 0, 30000)
+            if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000)) }
+            let literal = String(decoding: try JSONSerialization.data(withJSONObject: [script]), as: UTF8.self)
+            let data = try await page.evaluateJSON("return await (0, eval)(\(literal)[0]);")
+            let value = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) ?? NSNull()
+            return encode(["value": value])
+        } catch {
+            return encode(["error": String(error.localizedDescription.prefix(300))])
+        }
     }
 
     static func reply(status: Int, url: URL, headers: [String: String], body: Data) -> String {

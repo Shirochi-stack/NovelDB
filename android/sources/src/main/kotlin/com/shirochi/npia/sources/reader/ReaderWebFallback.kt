@@ -119,14 +119,19 @@ internal class ReaderWebFallback private constructor(
 internal object WebChapterBlocks {
     suspend fun blocks(result: JsonObject, chapterUrl: String, pageUrl: String): List<RuleBlock> {
         val attachments = HashMap<String, String>()
+        val bytes = HashMap<String, ByteArray>()
         for (image in result["images"] as? JsonArray ?: JsonArray(emptyList())) {
             val obj = image as? JsonObject ?: continue
             val name = obj.string("name")
             val url = obj.string("url")
             if (name != null && url != null) attachments[name] = url
+            if (url != null) dataUrlBytes(obj.string("data"))?.let { bytes[url] = it }
         }
         val base = if (chapterUrl.isEmpty()) pageUrl else resolveUrl(pageUrl, chapterUrl)
-        val blocks = ReaderRules.blocks(result.string("contentHtml") ?: "", base, attachments)
+        var blocks = ReaderRules.blocks(result.string("contentHtml") ?: "", base, attachments)
+        if (bytes.isNotEmpty()) {
+            blocks = blocks.map { block -> if (block is RuleBlock.Image) bytes[block.url]?.let { RuleBlock.Image(block.url, it) } ?: block else block }
+        }
         val text = result.string("contentText")
         if (blocks.isEmpty() && text != null) {
             return text.lines()
@@ -136,6 +141,14 @@ internal object WebChapterBlocks {
         }
         return blocks
     }
+}
+
+/** The bytes of a `data:...;base64,` URL, else null. */
+internal fun dataUrlBytes(url: String?): ByteArray? {
+    if (url == null || !url.startsWith("data:", ignoreCase = true)) return null
+    val comma = url.indexOf(";base64,")
+    if (comma < 0) return null
+    return runCatching { java.util.Base64.getDecoder().decode(url.substring(comma + 8)) }.getOrNull()
 }
 
 internal fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull

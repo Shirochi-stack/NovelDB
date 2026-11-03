@@ -20,6 +20,8 @@ struct PageScript: Sendable {
     let parseChapter: String
     /// The bundled script (folder, file name) for an engine without a rule bundle.
     var resource: (folder: String, name: String)? = nil
+    /// Runs in the page before the bundle: hooks the bundle's own names up to the transport.
+    var setup: String = ""
 
     var title: String { engine?.title ?? siteEngine.title }
 
@@ -29,6 +31,19 @@ struct PageScript: Sendable {
     static let lnreader = PageScript(
         siteEngine: .lnreader, engine: .lnreader, prefix: "__LNR_", transport: "__LNR_transport",
         parseBook: "await window.__LNR_parseBook(location.href)", parseChapter: "window.__LNR_parseChapter"
+    )
+
+    /// HaruNeko calls the desktop's bindings: `__noveldb_engine_transport` for requests (defined by
+    /// `loadScript` as the transport) and `__noveldb_window_script` to run a script in a page of
+    /// another address, which goes to the same transport tagged `op: "window"`.
+    static let haruneko = PageScript(
+        siteEngine: .haruneko, engine: .haruneko, prefix: "__HN_", transport: "__noveldb_engine_transport",
+        parseBook: "await window.__HN_parseBook(location.href)", parseChapter: "window.__HN_parseChapter",
+        setup: """
+        if (typeof window.__noveldb_window_script !== "function" && typeof window.__noveldb_engine_transport === "function") {
+          window.__noveldb_window_script = (request) => window.__noveldb_engine_transport(Object.assign({}, request, { op: "window" }));
+        }
+        """
     )
 
     /// `scripts/generic/generic-lib.js`, a port of the desktop's generic engine.
@@ -147,6 +162,7 @@ final class PageScriptSession: @unchecked Sendable {
             return JSON.parse(reply);
           };
         }
+        \(script.setup)
         if (!(window.\(p)READY === true && window.\(p)API === \(api))) {
           try {
             (0, eval)(\(ReaderWebFallback.jsonLiteral(source)));
@@ -177,13 +193,13 @@ final class PageScriptSession: @unchecked Sendable {
     }
 
     /// One chapter's text and image blocks, in the shape the novel-downloader engines produce.
-    func chapter(_ info: ReaderBookSession.ChapterInfo) async throws -> [RuleBlock] {
+    func chapter(_ info: ReaderBookSession.ChapterInfo) async throws -> (blocks: [RuleBlock], images: [URL: Data]) {
         let item = WebToEpubSession.itemJSON(info)
         let data = try await Self.evaluate(page, script, "return JSON.parse(await \(script.parseChapter)(\(ReaderWebFallback.jsonLiteral(item))));")
         let result = try JSONDecoder().decode(ReaderWebChapter.self, from: data)
         if let error = result.error { throw SourceError.parse("\(script.title): \(error)") }
         let base = URL(string: info.url, relativeTo: pageURL)?.absoluteURL ?? pageURL
-        return try result.blocks(base: base)
+        return (try result.blocks(base: base), result.imageData)
     }
 
     func close() async {

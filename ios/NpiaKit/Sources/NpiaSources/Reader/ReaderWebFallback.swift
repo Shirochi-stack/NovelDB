@@ -126,6 +126,21 @@ struct ReaderWebChapter: Decodable {
     struct Image: Decodable {
         var name: String?
         var url: String?
+        /// A `data:` URL of the image's bytes, when the engine fetched it itself (HaruNeko).
+        var data: String?
+    }
+
+    /// The images that came with their bytes, by address.
+    var imageData: [URL: Data] {
+        var out: [URL: Data] = [:]
+        for image in images ?? [] {
+            guard let text = image.url, let url = URL(string: text), let data = image.data,
+                  data.hasPrefix("data:"), let comma = data.range(of: ";base64,"),
+                  let bytes = Data(base64Encoded: String(data[comma.upperBound...]))
+            else { continue }
+            out[url] = bytes
+        }
+        return out
     }
 
     var error: String?

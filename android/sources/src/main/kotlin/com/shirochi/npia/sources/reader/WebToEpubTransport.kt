@@ -3,7 +3,12 @@ package com.shirochi.npia.sources.reader
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.SharedCookies
+import com.shirochi.npia.core.WebEngineProviding
+import com.shirochi.npia.core.WebLoadState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -24,10 +29,11 @@ import java.util.Base64
  * Out: `{status, statusText, responseHeaders, finalUrl, responseBase64}` or `{error}`.
  */
 internal object WebToEpubTransport {
-    suspend fun handle(requestJson: String, http: HttpFetching): String {
+    suspend fun handle(requestJson: String, http: HttpFetching, web: WebEngineProviding? = null): String {
         val reply = try {
             val details = Json.parseToJsonElement(requestJson) as? JsonObject ?: return error("the request is not an object")
             if (details.string("op") == "cookie") return cookieReply(details)
+            if (details.string("op") == "window") return windowScript(details, web)
             val request = request(details) ?: return error("invalid URL ${details.string("url").orEmpty()}")
             val response = http.send(request)
             buildJsonObject {
@@ -46,6 +52,46 @@ internal object WebToEpubTransport {
     }
 
     private fun error(message: String) = buildJsonObject { put("error", message) }.toString()
+
+    /**
+     * HaruNeko's FetchWindowScript (tagged op "window"): opens `url` in a hidden page of its own, runs
+     * `preload` before the site's scripts, waits out a bot check and `delay` ms, then evaluates
+     * `script` like Electron's executeJavaScript (statements allowed, the last value returned,
+     * promises awaited). Replies `{value}` or `{error}`. An empty script is a warm-up visit: the
+     * app's pages already carry the site's cookies.
+     */
+    private suspend fun windowScript(details: JsonObject, web: WebEngineProviding?): String {
+        val url = details.string("url").orEmpty()
+        val script = details.string("script").orEmpty()
+        if (url.isEmpty()) return error("no address")
+        if (script.isBlank()) return buildJsonObject { put("value", JsonNull) }.toString()
+        if (web == null) return error("no web view for a page script")
+        val page = web.newPage(ReaderWebFallback.PROFILE)
+        return try {
+            details.string("preload")?.takeIf { it.isNotBlank() }?.let { page.addInitScript(it) }
+            page.load(url, WebLoadState.DOM_CONTENT_LOADED, WINDOW_SECONDS)
+            val deadline = System.currentTimeMillis() + WINDOW_SECONDS * 1000
+            while (System.currentTimeMillis() < deadline) {
+                val title = runCatching { page.evaluateJson("return document.title || '';") }.getOrDefault("").lowercase()
+                if ("just a moment" !in title && "attention required" !in title) break
+                delay(1000)
+            }
+            val wait = (details["delay"] as? JsonPrimitive)?.doubleOrNull?.toLong() ?: 0L
+            if (wait > 0) delay(wait.coerceAtMost(30_000))
+            val value = page.evaluateJson("return await (0, eval)(${literal(script)});")
+            buildJsonObject { put("value", Json.parseToJsonElement(value.ifEmpty { "null" })) }.toString()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error((e.message ?: e.toString()).lineSequence().first().take(300))
+        } finally {
+            withContext(NonCancellable) { runCatching { page.close() } }
+        }
+    }
+
+    private fun literal(text: String) = Json.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(text))
+
+    private const val WINDOW_SECONDS = 25L
 
     /**
      * Answers a `chrome.cookies.get` read (tagged op "cookie") from the shared cookie store, so a

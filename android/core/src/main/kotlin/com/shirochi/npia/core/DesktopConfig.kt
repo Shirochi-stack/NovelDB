@@ -132,6 +132,7 @@ object DesktopConfig {
             novelDownloaderAutoUpdate = c.bool("novel_downloader_auto_update") ?: e.novelDownloaderAutoUpdate,
             webtoepubAutoUpdate = c.bool("webtoepub_auto_update") ?: e.webtoepubAutoUpdate,
             lnreaderAutoUpdate = c.bool("lnreader_auto_update") ?: e.lnreaderAutoUpdate,
+            harunekoAutoUpdate = c.bool("haruneko_auto_update") ?: e.harunekoAutoUpdate,
         )
         // Never leave every engine off.
         if (SiteEngine.order(engines.order, engines.disabled).isEmpty()) engines = engines.copy(disabled = emptyList())
@@ -257,6 +258,7 @@ object DesktopConfig {
         put("novel_downloader_auto_update", s.engines.novelDownloaderAutoUpdate)
         put("webtoepub_auto_update", s.engines.webtoepubAutoUpdate)
         put("lnreader_auto_update", s.engines.lnreaderAutoUpdate)
+        put("haruneko_auto_update", s.engines.harunekoAutoUpdate)
         put("app_update_check", s.appUpdateCheck)
         put("upload_zip_bundle", s.upload.zipBundle)
         put("upload_zip_max_mb", s.upload.zipMaxMb.coerceIn(UploadSettings.MIN_ZIP_MAX_MB, UploadSettings.MAX_ZIP_MAX_MB))

@@ -35,7 +35,7 @@ internal class SharedBookPage(private val url: String, private val context: Sour
             val opened = context.web.newPage(ReaderWebFallback.PROFILE)
             try {
                 // Lets WebToEpub fetch sites the page cannot (CORS) through the app's HTTP client.
-                opened.exposeTransport { request -> WebToEpubTransport.handle(request, context.http) }
+                opened.exposeTransport { request -> WebToEpubTransport.handle(request, context.http, context.web) }
                 try {
                     opened.load(url, WebLoadState.DOM_CONTENT_LOADED, LOAD_SECONDS)
                 } catch (e: WebLoadTimeoutException) {

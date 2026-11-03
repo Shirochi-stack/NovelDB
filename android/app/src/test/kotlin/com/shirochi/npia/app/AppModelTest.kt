@@ -230,13 +230,13 @@ class AppModelTest {
         """.trimIndent()
         val imported = ConfigTransfer.import(desktop, AppSettings(), InMemorySecretStore()) as ConfigTransfer.Imported.Desktop
         val engines = imported.settings.engines
-        assertEquals(listOf("webtoepub", "native", "novel_downloader", "lnreader", "generic"), engines.order)
+        assertEquals(listOf("webtoepub", "native", "novel_downloader", "lnreader", "haruneko", "generic"), engines.order)
         assertEquals(listOf("native"), engines.disabled)
         assertTrue(engines.novelDownloaderAutoUpdate)
         assertFalse(engines.webtoepubAutoUpdate)
 
         val exported = Json.parseToJsonElement(ConfigTransfer.exportDesktop(imported.settings, imported.base)).jsonObject
-        assertEquals(listOf("webtoepub", "native", "novel_downloader", "lnreader", "generic"), exported.getValue("source_engine_order").jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(listOf("webtoepub", "native", "novel_downloader", "lnreader", "haruneko", "generic"), exported.getValue("source_engine_order").jsonArray.map { it.jsonPrimitive.content })
         assertEquals(listOf("native"), exported.getValue("source_engines_off").jsonArray.map { it.jsonPrimitive.content })
         assertEquals(true, exported.getValue("novel_downloader_auto_update").jsonPrimitive.boolean)
         assertEquals(false, exported.getValue("webtoepub_auto_update").jsonPrimitive.boolean)

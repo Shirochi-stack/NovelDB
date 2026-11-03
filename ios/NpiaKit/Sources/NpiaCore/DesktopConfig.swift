@@ -121,6 +121,7 @@ public enum DesktopConfig {
         engines.novelDownloaderAutoUpdate = bool(c["novel_downloader_auto_update"]) ?? engines.novelDownloaderAutoUpdate
         engines.webtoepubAutoUpdate = bool(c["webtoepub_auto_update"]) ?? engines.webtoepubAutoUpdate
         engines.lnreaderAutoUpdate = bool(c["lnreader_auto_update"]) ?? engines.lnreaderAutoUpdate
+        engines.harunekoAutoUpdate = bool(c["haruneko_auto_update"]) ?? engines.harunekoAutoUpdate
         if engines.enabled().isEmpty { engines.disabled = [] }  // never leave every engine off
         s.engines = engines
 
@@ -227,6 +228,7 @@ public enum DesktopConfig {
         c["novel_downloader_auto_update"] = s.engines.novelDownloaderAutoUpdate
         c["webtoepub_auto_update"] = s.engines.webtoepubAutoUpdate
         c["lnreader_auto_update"] = s.engines.lnreaderAutoUpdate
+        c["haruneko_auto_update"] = s.engines.harunekoAutoUpdate
 
         c["app_update_check"] = s.appUpdateCheck
 

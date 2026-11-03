@@ -427,7 +427,12 @@ internal class ReaderChapterPayload(val chapterName: String?, val blocks: List<R
 /** One `('text'|'img', value)` pair from `reader_host.js`. */
 internal sealed class RuleBlock {
     data class Text(val text: String) : RuleBlock()
-    data class Image(val url: String) : RuleBlock()
+    /** `data`: the image's bytes when the engine fetched it itself (HaruNeko's pages). */
+    class Image(val url: String, val data: ByteArray? = null) : RuleBlock() {
+        override fun equals(other: Any?) = other is Image && other.url == url && (other.data?.contentEquals(data) ?: (data == null))
+        override fun hashCode() = url.hashCode()
+        override fun toString() = "Image($url)"
+    }
 
     companion object {
         fun decodeList(json: String): List<RuleBlock> = decodeList(payloadJson.parseToJsonElement(json))
@@ -464,7 +469,7 @@ internal object ReaderChapterBuilder {
                 }
                 is RuleBlock.Image -> {
                     val filename = filenames.getOrPut(block.url) {
-                        imageFilename(block.url, ref.index, images.size + 1).also { images += ImageRef(block.url, it) }
+                        imageFilename(block.url, ref.index, images.size + 1).also { images += ImageRef(block.url, it, block.data) }
                     }
                     parts += "<p class=\"img\"><img src=\"${escape(filename)}\" alt=\"\"/></p>"
                 }

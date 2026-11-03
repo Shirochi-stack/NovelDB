@@ -45,7 +45,11 @@ class RuleEngine(
             SiteEngine.LNREADER, "LNReader plugins", 1, "lnreader-lib.js",
             ROOT + "lnreader/lnreader-lib.js", ROOT + "lnreader/manifest.json", "lnreader-manifest.json", true,
         )
-        val ALL = listOf(NOVEL_DOWNLOADER, WEBTOEPUB, LNREADER)
+        val HARUNEKO = RuleEngine(
+            SiteEngine.HARUNEKO, "HaruNeko websites", 1, "haruneko-lib.js",
+            ROOT + "haruneko/haruneko-lib.js", ROOT + "haruneko/manifest.json", "haruneko-manifest.json", true,
+        )
+        val ALL = listOf(NOVEL_DOWNLOADER, WEBTOEPUB, LNREADER, HARUNEKO)
 
         fun of(engine: SiteEngine): RuleEngine? = ALL.firstOrNull { it.engine == engine }
     }

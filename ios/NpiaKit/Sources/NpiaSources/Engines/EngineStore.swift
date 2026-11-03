@@ -9,17 +9,19 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
     case novelDownloader = "novel_downloader"
     case webtoepub
     case lnreader
+    case haruneko
 
     public var siteEngine: SiteEngine {
         switch self {
         case .novelDownloader: return .novelDownloader
         case .webtoepub: return .webtoepub
         case .lnreader: return .lnreader
+        case .haruneko: return .haruneko
         }
     }
 
-    /// The manifest's `sites` (addresses) list the sites the engine knows (LNReader); otherwise the script says.
-    var sitesInManifest: Bool { self == .lnreader }
+    /// The manifest's `sites` (addresses) list the sites the engine knows (LNReader, HaruNeko); otherwise the script says.
+    var sitesInManifest: Bool { self == .lnreader || self == .haruneko }
 
     /// The name shown to the user.
     public var title: String { siteEngine.title }
@@ -33,6 +35,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         case .novelDownloader: return "rules-lib.js"
         case .webtoepub: return "webtoepub-lib.js"
         case .lnreader: return "lnreader-lib.js"
+        case .haruneko: return "haruneko-lib.js"
         }
     }
 
@@ -42,6 +45,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         case .novelDownloader: return "novel-downloader-manifest.json"
         case .webtoepub: return "webtoepub-manifest.json"
         case .lnreader: return "lnreader-manifest.json"
+        case .haruneko: return "haruneko-manifest.json"
         }
     }
 
@@ -49,7 +53,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
     var shippedManifest: String? {
         switch self {
         case .novelDownloader: return nil
-        case .webtoepub, .lnreader: return EngineStore.manifestName
+        case .webtoepub, .lnreader, .haruneko: return EngineStore.manifestName
         }
     }
 
@@ -59,6 +63,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         case .novelDownloader: return ["Resources", ""]
         case .webtoepub: return ["Resources/webtoepub", "webtoepub"]
         case .lnreader: return ["Resources/lnreader", "lnreader"]
+        case .haruneko: return ["Resources/haruneko", "haruneko"]
         }
     }
 }
@@ -72,6 +77,7 @@ public extension SiteEngine {
         case .novelDownloader: return .novelDownloader
         case .webtoepub: return .webtoepub
         case .lnreader: return .lnreader
+        case .haruneko: return .haruneko
         }
     }
 }

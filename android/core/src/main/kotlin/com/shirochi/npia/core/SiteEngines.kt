@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 /**
  * The ways a book page can be read, tried in the user's order until one returns chapters (the
  * desktop's `SITE_ENGINES`): the app's own scrapers, the novel-downloader rules, the WebToEpub
- * parsers, the LNReader plugins, then the generic fallback (any site, without site rules). `raw` is
+ * parsers, the LNReader plugins, the HaruNeko websites (manga), then the generic fallback (any site, without site rules). `raw` is
  * the name the desktop settings file uses.
  */
 enum class SiteEngine(val raw: String, val label: String) {
@@ -13,6 +13,7 @@ enum class SiteEngine(val raw: String, val label: String) {
     NOVEL_DOWNLOADER("novel_downloader", "novel-downloader rules"),
     WEBTOEPUB("webtoepub", "WebToEpub parsers"),
     LNREADER("lnreader", "LNReader plugins"),
+    HARUNEKO("haruneko", "HaruNeko websites"),
     GENERIC("generic", "Generic fallback");
 
     /** True for the engines that run a JavaScript bundle (everything but the built-in scrapers). */
@@ -41,6 +42,7 @@ data class EngineSettings(
     val novelDownloaderAutoUpdate: Boolean = true,
     val webtoepubAutoUpdate: Boolean = true,
     val lnreaderAutoUpdate: Boolean = true,
+    val harunekoAutoUpdate: Boolean = true,
 ) {
     /** Every engine in the user's order, switched off or not. */
     fun fullOrder(): List<SiteEngine> = SiteEngine.order(order)
@@ -54,6 +56,7 @@ data class EngineSettings(
         SiteEngine.NOVEL_DOWNLOADER -> novelDownloaderAutoUpdate
         SiteEngine.WEBTOEPUB -> webtoepubAutoUpdate
         SiteEngine.LNREADER -> lnreaderAutoUpdate
+        SiteEngine.HARUNEKO -> harunekoAutoUpdate
         SiteEngine.NATIVE, SiteEngine.GENERIC -> false
     }
 
@@ -61,6 +64,7 @@ data class EngineSettings(
         SiteEngine.NOVEL_DOWNLOADER -> copy(novelDownloaderAutoUpdate = on)
         SiteEngine.WEBTOEPUB -> copy(webtoepubAutoUpdate = on)
         SiteEngine.LNREADER -> copy(lnreaderAutoUpdate = on)
+        SiteEngine.HARUNEKO -> copy(harunekoAutoUpdate = on)
         SiteEngine.NATIVE, SiteEngine.GENERIC -> this
     }
 

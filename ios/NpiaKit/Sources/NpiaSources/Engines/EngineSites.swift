@@ -32,7 +32,7 @@ enum EngineSites {
     static func lists(_ bundle: EngineBundle, _ url: URL) -> Bool {
         guard let index = index(for: bundle) else { return false }
         switch bundle.engine {
-        case .webtoepub, .lnreader:
+        case .webtoepub, .lnreader, .haruneko:
             return index.hosts.contains(stripWWW((url.host ?? "").lowercased()))
         case .novelDownloader:
             return index.matches(hostAndPort: hostAndPort(url))
@@ -50,7 +50,7 @@ enum EngineSites {
     /// WebToEpub lists only hosts, so any page of a listed site counts except the site's home page.
     static func listsPage(_ bundle: EngineBundle, _ url: URL) -> Bool {
         switch bundle.engine {
-        case .webtoepub, .lnreader:
+        case .webtoepub, .lnreader, .haruneko:
             return lists(bundle, url) && !isHomePage(url)
         case .novelDownloader:
             return pagePatterns(for: bundle)?.accepts(url) ?? false
@@ -118,7 +118,7 @@ enum EngineSites {
         } else {
             guard let data = try? Data(contentsOf: bundle.path) else { return nil }
             switch bundle.engine {
-            case .webtoepub, .lnreader: built = parseWebToEpub(data)
+            case .webtoepub, .lnreader, .haruneko: built = parseWebToEpub(data)
             case .novelDownloader: built = parseNovelDownloader(data)
             }
         }

@@ -37,6 +37,8 @@ internal class PageScript(
     val parseChapter: String,
     /** The bundled script, under this package's resources, for an engine without a rule bundle. */
     val resource: String? = null,
+    /** Runs in the page before the bundle: hooks the bundle's own names up to the app's transport. */
+    val setup: String = "",
 ) {
     val title: String get() = rule?.title ?: engine.label
 
@@ -45,6 +47,24 @@ internal class PageScript(
             SiteEngine.LNREADER, RuleEngine.LNREADER, "__LNR_",
             "await window.__LNR_parseBook(location.href)",
             "window.__LNR_parseChapter",
+        )
+
+        /**
+         * HaruNeko calls the desktop's bindings: `__noveldb_engine_transport` for requests and
+         * `__noveldb_window_script` to run a script in a page of another address. Both go to the
+         * app's transport (`WebToEpubTransport`), the second tagged `op: "window"`.
+         */
+        val HARUNEKO = PageScript(
+            SiteEngine.HARUNEKO, RuleEngine.HARUNEKO, "__HN_",
+            "await window.__HN_parseBook(location.href)",
+            "window.__HN_parseChapter",
+            setup = """
+                if (window.__npia_gm_xmlhttp_request) {
+                  window.__noveldb_engine_transport = window.__noveldb_engine_transport || window.__npia_gm_xmlhttp_request;
+                  window.__noveldb_window_script = window.__noveldb_window_script
+                    || ((request) => window.__npia_gm_xmlhttp_request(Object.assign({}, request, { op: "window" })));
+                }
+            """.trimIndent(),
         )
 
         /** `scripts/generic/generic-lib.js`, a port of the desktop's generic engine. */
@@ -58,7 +78,7 @@ internal class PageScript(
         /** The API number a bundled script without a manifest reports. */
         const val BUNDLED_API = 1
 
-        fun of(engine: SiteEngine): PageScript? = listOf(LNREADER, GENERIC).firstOrNull { it.engine == engine }
+        fun of(engine: SiteEngine): PageScript? = listOf(LNREADER, HARUNEKO, GENERIC).firstOrNull { it.engine == engine }
     }
 }
 
@@ -166,6 +186,7 @@ internal class PageBundleEngine private constructor(
         private suspend fun inject(page: WebPageDriving, script: PageScript, source: String, api: Int): String? {
             val p = script.prefix
             val body = """
+                ${script.setup}
                 if (!(window.${p}READY === true && window.${p}API === $api)) (0, eval)(${ReaderRuntime.jsLiteral(source)});
                 return {
                   ready: window.${p}READY === true && window.${p}API === $api,

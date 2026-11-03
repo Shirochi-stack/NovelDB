@@ -204,6 +204,7 @@ final class ReaderBookSession: @unchecked Sendable {
                 case .novelDownloader: return try await openNovelDownloader(url, context: context, page: shared)
                 case .webtoepub: return try await openWebToEpub(url, context: context, page: shared)
                 case .lnreader: return try await openPageScript(url, script: .lnreader, context: context, page: shared)
+                case .haruneko: return try await openPageScript(url, script: .haruneko, context: context, page: shared)
                 case .generic: return try await openPageScript(url, script: .generic, context: context, page: shared)
                 case .native: continue
                 }
@@ -323,6 +324,7 @@ final class ReaderBookSession: @unchecked Sendable {
             return .failed(ref, message: "Chapter \(ref.index) is not in the book's chapter list.")
         }
         let blocks: [RuleBlock]
+        var imageData: [URL: Data] = [:]
         do {
             switch engine {
             case .script(let runtime):
@@ -334,7 +336,9 @@ final class ReaderBookSession: @unchecked Sendable {
             case .webtoepub(let session):
                 blocks = try await session.chapter(info)
             case .page(let session):
-                blocks = try await session.chapter(info)
+                let read = try await session.chapter(info)
+                blocks = read.blocks
+                imageData = read.images
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -344,7 +348,7 @@ final class ReaderBookSession: @unchecked Sendable {
             }
             throw Self.sourceError(error)
         }
-        if let content = ReaderChapterBuilder.content(ref, blocks: blocks) {
+        if let content = ReaderChapterBuilder.content(ref, blocks: blocks, imageData: imageData) {
             return .content(content)
         }
         if ref.isPaid {
@@ -443,7 +447,8 @@ enum RuleBlock: Decodable, Equatable {
 enum ReaderChapterBuilder {
     static let cssClass = "reader-content"
 
-    static func content(_ ref: ChapterRef, blocks: [RuleBlock]) -> ChapterContent? {
+    /// `imageData`: images the engine fetched itself (HaruNeko's pages), by address.
+    static func content(_ ref: ChapterRef, blocks: [RuleBlock], imageData: [URL: Data] = [:]) -> ChapterContent? {
         var blocks = blocks
         if case .text(let first)? = blocks.first, normalizedTitle(first) == normalizedTitle(ref.title) {
             blocks.removeFirst()
@@ -464,7 +469,7 @@ enum ReaderChapterBuilder {
                 } else {
                     filename = imageFilename(url, chapter: ref.index, number: images.count + 1)
                     filenames[url] = filename
-                    images.append(ImageRef(url: url, filename: filename))
+                    images.append(ImageRef(url: url, filename: filename, data: imageData[url]))
                 }
                 parts.append("<p class=\"img\"><img src=\"\(escape(filename))\" alt=\"\"/></p>")
             }

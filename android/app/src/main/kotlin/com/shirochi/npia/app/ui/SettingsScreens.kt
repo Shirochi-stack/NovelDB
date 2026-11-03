@@ -239,6 +239,7 @@ private val ENGINE_CREDITS = listOf(
     Triple("novel-downloader", "the 404 Novel Project (AGPL-3.0)", NOVEL_DOWNLOADER_URL),
     Triple("WebToEpub", "David Teviotdale and contributors (GPL-3.0)", WEBTOEPUB_URL),
     Triple("LNReader plugins", "the LNReader team (MIT)", "https://github.com/LNReader/lnreader-plugins"),
+    Triple("HaruNeko", "the HaruNeko team (Unlicense)", "https://github.com/manga-download/haruneko"),
 )
 
 private fun engineHint(engine: SiteEngine): String = when (engine) {
@@ -246,6 +247,7 @@ private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.NOVEL_DOWNLOADER -> "novel-downloader's rules, mostly Chinese and Japanese sites."
     SiteEngine.WEBTOEPUB -> "WebToEpub's parsers for 650+ sites, mostly English translations."
     SiteEngine.LNREADER -> "LNReader's plugins for 320+ novel sites in many languages."
+    SiteEngine.HARUNEKO -> "HaruNeko's websites: 800+ manga, manhwa and comic sites."
     SiteEngine.GENERIC -> "Any other site: reads the chapter list and text without site rules."
 }
 
