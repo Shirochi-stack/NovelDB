@@ -30,7 +30,7 @@
         'Xuanhuan', 'Yaoi', 'Yuri'];
     // A site's "nothing matched your search" page (the app drops these too; see generic_search.NO_RESULTS).
     var NO_RESULTS = /(no (items?|results?|books?|novels?|titles?|matches|products?)( were)? (found|matching|match)|nothing (was )?found|did not match any|didn't match any|(found|returned) (0|no) (results?|items?|matches)|\b0 results\b|no results for|見つかりませんでした|該当する.{0,6}(ありません|見つかりません)|検索結果は?0件|검색\s*결과가\s*없|결과가\s*없습니다|일치하는.{0,10}없|没有找到|未找到|沒有找到|找不到相关|暂无(结果|数据|相关)|無結果|无结果|查無|no se encontraron|sin resultados|aucun résultat|ничего не найдено|не найдено|keine (ergebnisse|treffer)|nenhum resultado)/i;
-    var JUNK = /^(request|requests|リクエスト|login|log in|sign in|ログイン|search|検索|more|もっと見る|home|top|next|prev(ious)?|menu)$/i;
+    var JUNK = /^(request|requests|リクエスト|login|log in|sign in|ログイン|search|検索|more|もっと見る|home|top|next|prev(ious)?|menu|contact( us)?|about( us)?|privacy( policy)?|terms( of (service|use))?|dmca|faq|feedback|support|donate)$/i;
 
     function send(message) { window.NovelDBQt && window.NovelDBQt.postMessage(JSON.stringify(message)); }
     function key(url) { return String(url || '').replace(/\/+$/, ''); }
@@ -183,6 +183,14 @@
     function groupKey(card) {
         var title = String(card.title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
         return (isComic(card) ? 'c:' : 'n:') + (title || key(card.url));
+    }
+    // Tags that only say a book's status or format: shown after its genres, which say what it is about.
+    var PLAIN_TAGS = new Set(['completed', 'complete', 'ongoing', 'on going', 'hiatus', 'dropped', 'cancelled', 'manga',
+        'manhwa', 'manhua', 'manhuwa', 'comic', 'comics', 'webtoon', 'webtoons', 'novel', 'novels', 'web novel', 'webnovel',
+        'light novel', 'lightnovel', 'full color', 'colored', 'english', 'raw', 'korean', 'japanese', 'chinese', 'new', 'hot']);
+    function shownTags(tags) {
+        var plain = function (tag) { return PLAIN_TAGS.has(String(tag).trim().toLowerCase()); };
+        return tags.filter(function (t) { return !plain(t); }).concat(tags.filter(plain));
     }
     function wanted(group) {
         var kind = $('kind').value;
@@ -342,7 +350,7 @@
             + '<div class="body"><div class="title">' + esc(group.title) + '</div>'
             + '<div class="meta">' + esc([group.author, KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
             + (figures(group).length ? '<div class="figures">' + esc(figures(group).join('  ')) + '</div>' : '')
-            + (group.tags.length ? '<div class="tags">' + group.tags.slice(0, 6).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
+            + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 6).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
         var image = element.querySelector('img');
@@ -592,7 +600,7 @@
                 + '<div class="facts">' + fact('Rating', rating) + fact('Likes', group.likes) + fact('Views', group.views)
                 + fact('Chapters', group.chapters) + fact('Published', group.published) + fact('Updated', group.updated)
                 + fact('Status', group.status) + '</div>'
-                + '<div class="chips">' + group.tags.map(function (tag) { return '<span class="chip">' + esc(tag) + '</span>'; }).join('') + '</div>'
+                + '<div class="chips">' + shownTags(group.tags).map(function (tag) { return '<span class="chip">' + esc(tag) + '</span>'; }).join('') + '</div>'
                 + (group.description ? '<div class="desc">' + esc(group.description) + '</div>'
                     : group.loaded ? '<div class="desc">No description on the book page.</div>'
                     : '<div class="loading" style="margin:10px 0"><i></i><i></i><i></i><i></i></div>')
@@ -726,7 +734,7 @@
         loadTop(searchId);
     }
     // Kept out of the top lists (a search still finds them): a book whose tags or title say so.
-    var NOT_IN_TOP = /(yaoi|smut)/i;
+    var NOT_IN_TOP = /\b(yaoi|smut)\b/i;
     function notInTop(item) {
         return NOT_IN_TOP.test(item.title || '') || (item.tags || []).some(function (tag) { return NOT_IN_TOP.test(tag); });
     }

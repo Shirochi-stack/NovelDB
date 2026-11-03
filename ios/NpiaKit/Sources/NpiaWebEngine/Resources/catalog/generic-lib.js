@@ -486,6 +486,20 @@ function figures(doc, book) {
 const BOOK_KINDS = ["Book", "CreativeWork", "CreativeWorkSeries", "BookSeries", "ComicSeries", "Article",
     "Product", "Novel", "WebPage"];
 
+// Where a book page keeps its synopsis, the most specific first: Madara's ".summary__content" before its
+// ".summary_content" stats box, which "[class*=summary]" matches too.
+const SYNOPSIS = ".summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, " +
+    "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], " +
+    "[class*=summary], [class*=intro], #intro";
+const STATS_WORDS = /(\brating\b|\baverage\b|\bout of\b|alternative|author\(s\)|artist\(s\)|genre\(s\)|\brelease\b|\bstatus\b|\bcomments?\b|bookmarked|read first|read last|التقييم|التصنيف|الحالة|평점|评分|評価)/gi;
+
+/** A block of a book page's figures (rating, alternative names, genres, status, bookmarks), not a synopsis. */
+function statsBox(text) {
+    let head = text.slice(0, 600);
+    let found = new Set((head.match(STATS_WORDS) || []).map(word => word.toLowerCase()));
+    return found.size >= 3 || /\d(?:\.\d)?\s*\/\s*(5|10)\b.{0,20}\bout of\b/i.test(head);
+}
+
 /** {title, author, cover, description, tags, status, figures...} of any book page. */
 function metadata(doc, url) {
     let book = {};
@@ -537,12 +551,11 @@ function metadata(doc, url) {
     }
     cover = cover ? cleanUrl(cover, url) : "";
     let description = ldText(book.description) || meta(doc, "og:description", "description", "twitter:description");
-    let block = doc.querySelector("[class*=summary], [class*=synopsis], [class*=description], [id*=description], " +
-        "[class*=desc], [itemprop=description], [class*=intro], #intro");
-    if (block) {
+    for (let block of doc.querySelectorAll(SYNOPSIS)) {
         let longer = textOf(block);
-        if (longer.length > description.length) {
+        if (longer.length > description.length && !statsBox(longer)) {
             description = longer;
+            break;
         }
     }
     let tags = [];

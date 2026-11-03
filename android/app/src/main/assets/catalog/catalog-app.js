@@ -194,7 +194,7 @@
         for (var i = 0; i < arguments.length; i++) if (NO_RESULTS.test(arguments[i] || '')) return true;
         return false;
     }
-    var LISTING = /^(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|forums?|login|register|latest|popular|ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page)$/i;
+    var LISTING = /^(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|forums?|login|register|latest|popular|ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page|contact|contact-us|about|about-us|privacy|privacy-policy|terms|terms-of-service|dmca|faq|feedback|support|donate)$/i;
 
     /** A book's page rather than a chapter, a list, a profile or the home page. */
     function looksLikeBook(url, title) {

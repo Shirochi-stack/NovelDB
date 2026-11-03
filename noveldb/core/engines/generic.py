@@ -262,6 +262,22 @@ def _figures(soup, book: dict) -> dict:
     }
 
 
+# Where a book page keeps its synopsis, the most specific first: Madara's ".summary__content" before its
+# ".summary_content" stats box, which "[class*=summary]" matches too.
+_SYNOPSIS = (".summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, "
+             "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], "
+             "[class*=summary], [class*=intro], #intro")
+_STATS_WORDS = re.compile(r"(\brating\b|\baverage\b|\bout of\b|alternative|author\(s\)|artist\(s\)|genre\(s\)|"
+                          r"\brelease\b|\bstatus\b|\bcomments?\b|bookmarked|read first|read last|"
+                          r"التقييم|التصنيف|الحالة|평점|评分|評価)", re.I)
+
+
+def _stats_box(text: str) -> bool:
+    """A block of a book page's figures (rating, alternative names, genres, status, bookmarks), not a synopsis."""
+    found = {match.group(1).lower() for match in _STATS_WORDS.finditer(text[:600])}
+    return len(found) >= 3 or bool(re.search(r"\d(?:\.\d)?\s*/\s*(5|10)\b.{0,20}\bout of\b", text[:600], re.I))
+
+
 def extract_metadata(html: str, url: str, soup=None) -> dict:
     """{title, author, cover, description, tags, status, published, updated, rating, ratings, likes, views,
     chapters} read from any book (or search result) page; a figure the page doesn't show is ""."""
@@ -304,12 +320,11 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
             cover = image.get("data-src") or image.get("data-original") or image.get("src") or ""
     cover = clean_url(cover, url) if cover else ""
     description = _ld_text(book.get("description")) or _meta(soup, "og:description", "description", "twitter:description")
-    block = soup.select_one("[class*=summary], [class*=synopsis], [class*=description], [id*=description], "
-                            "[class*=desc], [itemprop=description], [class*=intro], #intro")
-    if block is not None:
+    for block in soup.select(_SYNOPSIS):
         longer = text_of(block)
-        if len(longer) > len(description):
+        if len(longer) > len(description) and not _stats_box(longer):
             description = longer
+            break
     tags = []
     genre = book.get("genre") or book.get("keywords")
     if genre:

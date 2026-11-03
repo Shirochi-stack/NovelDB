@@ -150,7 +150,7 @@ def looks_like_book(url: str, title: str = "") -> bool:
         segments = segments[1:]
     if not segments:
         return False
-    listing = r"(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|forums?|login|register|latest|popular|"               r"ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page)"
+    listing = r"(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|forums?|login|register|latest|popular|"               r"ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page|contact|contact-us|about|about-us|privacy|privacy-policy|terms|terms-of-service|dmca|faq|feedback|support|donate)"
     has_id = re.search(r"(^|&)(title_no|id|book_?id|novel_?id|bid|no)=", parts.query, re.I)
     if re.fullmatch(listing, segments[0], re.I) and not has_id and not re.search(
             r"^(novel|book|series|story|fiction|manga|comic|webtoon|title|works?)$", segments[0], re.I):
