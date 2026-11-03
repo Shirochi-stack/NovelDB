@@ -123,6 +123,16 @@ class NovelDBIndex:
                 pass
         return self._keep(found)
 
+    def _forget(self) -> None:
+        with self._lock:
+            self._manifest = None
+            self._pieces.clear()
+        if self.cache_dir is not None:
+            try:
+                (self.cache_dir / MANIFEST).unlink()
+            except OSError:
+                pass
+
     def _keep(self, found: dict) -> dict:
         found["_read"] = time.time()
         with self._lock:
@@ -130,7 +140,7 @@ class NovelDBIndex:
             self._pieces.clear()
         return found
 
-    def _piece(self, kind: str, index: int):
+    def _piece(self, kind: str, index: int, retry: bool = True):
         manifest = self.manifest()
         if manifest is None:
             return None
@@ -143,6 +153,10 @@ class NovelDBIndex:
         result = self.fetch(self.base + manifest["bin"], binary=True,
                             headers={"Range": f"bytes={offset}-{offset + length - 1}"})
         data = (result or {}).get("content") or b""
+        if result and result.get("status") == 404 and retry:
+            # A table of contents kept from an earlier build points at data a newer build replaced.
+            self._forget()
+            return self._piece(kind, index, retry=False)
         # A server that ignores the range sends the whole file: not something to read here.
         if not result or result.get("status") not in (200, 206) or len(data) != length:
             return None

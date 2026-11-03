@@ -99,3 +99,20 @@ def test_the_client_tokenizes_like_the_builder():
     out = subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True)
     expected = json.loads(out.stdout)
     assert [[tokens(t), [bucket_of(k, BUCKETS) for k in tokens(t)]] for t in titles] == expected
+
+
+def test_a_kept_table_of_contents_whose_data_is_gone_is_read_again(tmp_path):
+    manifest, data = build(BOOKS)
+    old = dict(manifest, bin="old.bin")
+    (tmp_path / "noveldb-search.json").write_text(json.dumps(old), encoding="utf-8")  # kept from yesterday
+    reads = []
+
+    def fetch(url, binary=False, headers=None, **kwargs):
+        if url.endswith("old.bin"):
+            reads.append("old")
+            return {"status": 404, "content": b""}
+        return fetcher(manifest, data, reads)(url, binary=binary, headers=headers, **kwargs)
+
+    index = NovelDBIndex(fetch, cache_dir=tmp_path)
+    assert [card["title"] for card in index.search("omniscient")] == ["Omniscient Reader's Viewpoint"]
+    assert reads[0] == "old" and json.loads((tmp_path / "noveldb-search.json").read_text())["bin"] == "x.bin"

@@ -192,6 +192,24 @@
         var plain = function (tag) { return PLAIN_TAGS.has(String(tag).trim().toLowerCase()); };
         return tags.filter(function (t) { return !plain(t); }).concat(tags.filter(plain));
     }
+    // The card's tags in two rows; the ones that don't fit become "+N" (the details panel lists them all).
+    function fitTags(box) {
+        if (!box || !box.offsetParent || !box.children.length) return;
+        var limit = box.firstElementChild.offsetTop + box.clientHeight + 1;
+        var over = function (chip) { return chip.offsetTop + chip.offsetHeight > limit; };
+        var hidden = Array.prototype.filter.call(box.children, over);
+        if (!hidden.length) return;
+        hidden.forEach(function (chip) { chip.remove(); });
+        var more = document.createElement('span');
+        more.className = 'more';
+        var count = hidden.length;
+        more.textContent = '+' + count;
+        box.appendChild(more);
+        while (over(more) && more.previousElementSibling) {
+            more.previousElementSibling.remove();
+            more.textContent = '+' + (++count);
+        }
+    }
     function wanted(group) {
         var kind = $('kind').value;
         if (view === 'top') return true;  // each category has its own top list
@@ -202,7 +220,7 @@
     function reset(nextView) {
         view = nextView;
         clearTimeout(top.timer);  // a top list still loading draws nothing more
-        groups.clear(); byUrl.clear(); order = []; resultTags.clear();
+        groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear();
         $('grid').innerHTML = '';
         queue.length = 0;
     }
@@ -222,23 +240,44 @@
         var first = parts.indexOf(hits[0]);
         return parts.slice(first).filter(function (part) { return !(label.length > 2 && part.toLowerCase().indexOf(label) >= 0); }).join(' - ');
     }
+    // A book's original (untranslated) title, for finding it again under another site's name for it.
+    var rawTitles = new Map();
+    function rawKey(title) {
+        var text = String(title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+        return /[^\x00-\x7f]/.test(text) ? text : '';
+    }
+    // NovelDB's novelpia books lead their group: their cover and title are the ones shown, whoever answered first.
+    function leads(card) { return !!(card.noveldb && card.noveldb.source === 'npia'); }
     function merge(card, rank) {
         if (card && card.title) card.title = bookTitle(card.title, card.site);
         if (!card || !card.url || !card.title || JUNK.test(String(card.title).trim())) return null;
         if (NO_RESULTS.test(card.title) || NO_RESULTS.test(String(card.description || '').slice(0, 400))) return null;
-        var group = byUrl.get(key(card.url)) || groups.get(groupKey(card));
+        // The same book under its original title: another site's raw title, or NovelDB's for its English one.
+        var raws = [rawKey(card.originalTitle), rawKey(card.title)].filter(Boolean);
+        var group = byUrl.get(key(card.url)) || groups.get(groupKey(card))
+            || raws.map(function (k) { return rawTitles.get(k); }).filter(function (g) { return g && groups.has(g.key); })[0];
         if (!group) {
             group = {key: groupKey(card), title: card.title, author: '', cover: '', description: '', tags: [], status: '',
                      comic: isComic(card), sources: [], rank: rank, loaded: false};
             groups.set(group.key, group);
             order.push(group);
         }
+        raws.forEach(function (k) { if (!rawTitles.has(k)) rawTitles.set(k, group); });
+        if (card.originalTitle && !group.rawTitle && card.originalTitle !== group.title) group.rawTitle = card.originalTitle;
         var source = group.sources.find(function (s) { return key(s.url) === key(card.url); });
         if (!source) {
             // `noveldb`: a NovelDB book's source and id, for its synopsis from NovelDB's own files.
             source = {url: card.url, site: card.site || hostOf(card.url), source: card.source || '', plugin: card.plugin || '', path: card.path,
                       ms: card.ms, noveldb: card.noveldb};
-            group.sources.push(source);
+            if (leads(card) && !(group.sources[0] && group.sources[0].noveldb && group.sources[0].noveldb.source === 'npia')) {
+                group.sources.unshift(source);
+                group.title = card.title;
+                if (card.originalTitle) group.rawTitle = card.originalTitle;
+                if (card.cover) group.cover = card.cover;
+                group.loaded = false;
+            } else {
+                group.sources.push(source);
+            }
             byUrl.set(key(card.url), group);
         }
         ['author', 'status', 'published', 'updated', 'rating', 'ratings', 'likes', 'views', 'chapters'].forEach(function (name) {
@@ -350,9 +389,10 @@
             + (config.downloadIcon ? ' style="background-image:url(' + config.downloadIcon + ')"' : '') + '>'
             + (config.downloadIcon ? '' : inCart ? '✓' : '+') + '</button>'
             + '<div class="body"><div class="title">' + esc(group.title) + '</div>'
+            + (group.rawTitle ? '<div class="raw" title="' + esc(group.rawTitle) + '">' + esc(group.rawTitle) + '</div>' : '')
             + '<div class="meta">' + esc([group.author, KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
             + (figures(group).length ? '<div class="figures">' + esc(figures(group).join('  ')) + '</div>' : '')
-            + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 6).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
+            + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 24).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
         var image = element.querySelector('img');
@@ -376,6 +416,7 @@
         }
         element.style.display = wanted(group) && !(group.held && !group.verified) ? '' : 'none';
         fit(element.querySelector('.title'));
+        fitTags(element.querySelector('.tags'));
         empty();
     }
 
@@ -598,6 +639,7 @@
                 + (full ? '<img referrerpolicy="no-referrer" alt="" src="' + esc(full) + '">' : '') + '</div>'
                 + '<button type="button" data-act="open">Source page</button></div>'
                 + '<div class="info"><h2>' + esc(group.title) + '</h2>'
+                + (group.rawTitle ? '<div class="rawtitle">' + esc(group.rawTitle) + '</div>' : '')
                 + '<div class="meta">' + esc([group.author, KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
                 + '<div class="facts">' + fact('Rating', rating) + fact('Likes', group.likes) + fact('Views', group.views)
                 + fact('Chapters', group.chapters) + fact('Published', group.published) + fact('Updated', group.updated)

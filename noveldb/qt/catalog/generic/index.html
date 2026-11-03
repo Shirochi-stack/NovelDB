@@ -75,8 +75,13 @@
     .title.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .meta { color: var(--ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .figures { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .tags { display: flex; gap: 4px; overflow: hidden; height: 18px; flex-wrap: wrap; }
-    .tags span { background: var(--chip); border-radius: 8px; padding: 0 6px; font-size: 11px; line-height: 18px; white-space: nowrap; }
+    /* Two rows of tags; "+N" stands for the rest (fitTags in generic.js). */
+    .tags { display: flex; gap: 3px; overflow: hidden; height: 33px; flex-wrap: wrap; align-content: flex-start; }
+    .tags span { background: var(--chip); border-radius: 7px; padding: 0 5px; font-size: 10px; line-height: 15px; white-space: nowrap; }
+    .tags span.more { background: transparent; color: var(--ink-2); font-weight: 600; }
+    /* A book's original title under its English one (NovelDB's books). */
+    .raw { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -2px; }
+    .details .rawtitle { color: var(--ink-2); font-size: 14px; margin: -2px 0 4px; }
     .synopsis { color: var(--ink-2); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
     .loading { display: flex; flex-direction: column; gap: 5px; padding-top: 2px; }
     .loading i { display: block; height: 8px; border-radius: 4px; background: var(--shimmer); background-size: 200% 100%;

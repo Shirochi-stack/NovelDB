@@ -311,12 +311,19 @@
         });
         return ndb.loading;
     }
-    function ndbPiece(manifest, kind, index) {
+    function ndbPiece(manifest, kind, index, retried) {
         var key = manifest.built + '|' + kind + '|' + index;
         if (ndb.pieces.has(key)) return ndb.pieces.get(key);
         var at = (kind === 'bucket' ? manifest.bucketAt : manifest.blockAt)[index];
         var asked = fetchUrl(NDB_INDEX + manifest.bin, {binary: true, priority: true, headers: {Range: 'bytes=' + at[0] + '-' + (at[0] + at[1] - 1)}})
             .then(function (result) {
+                if (result && result.status === 404 && !retried) {
+                    // A table of contents kept from an earlier build points at data a newer build replaced.
+                    ndb.pieces.delete(key);
+                    ndb.manifest = null;
+                    store(NDB_KEY, null);
+                    return ndbManifest().then(function (fresh) { return fresh ? ndbPiece(fresh, kind, index, true) : null; });
+                }
                 // A server that ignores the range sends the whole file: not something to read here.
                 if (!result || (result.status !== 200 && result.status !== 206) || result.bytes.length !== at[1]) return null;
                 return gunzip(result.bytes).then(JSON.parse);
