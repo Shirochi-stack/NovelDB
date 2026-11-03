@@ -500,6 +500,26 @@ function statsBox(text) {
     return found.size >= 3 || /\d(?:\.\d)?\s*\/\s*(5|10)\b.{0,20}\bout of\b/i.test(head);
 }
 
+/** A tag as words: a link to a genre page becomes the genre it names ("...?genre=summoned_hero" gives "Summoned Hero"). */
+function tagText(tag) {
+    tag = String(tag || "").trim();
+    if (/^https?:\/\//.test(tag)) {
+        let parts;
+        try { parts = new URL(tag); } catch (e) { return ""; }
+        let named = /(?:^|&)(?:genre|tag|tags|category)=([^&]+)/.exec(parts.search.replace(/^\?/, ""));
+        tag = named ? decodeURIComponent(named[1]) : (parts.pathname.replace(/\/+$/, "").split("/").pop() || "");
+        tag = tag.replace(/[_\-+]+/g, " ").trim().replace(/\b\w/g, c => c.toUpperCase());
+    }
+    return tag.length > 1 && tag.length <= 40 ? tag : "";
+}
+
+/** A synopsis that came as HTML (in a page's structured data) as plain text, its paragraphs kept. */
+function htmlText(text) {
+    if (!/<(p|br|div|span|em|strong|i|b)\b[^>]*>/i.test(text)) return text;
+    let root = parse("<div>" + text + "</div>").body.firstElementChild;
+    return root ? plain(root) : text;
+}
+
 /** {title, author, cover, description, tags, status, figures...} of any book page. */
 function metadata(doc, url) {
     let book = {};
@@ -561,7 +581,7 @@ function metadata(doc, url) {
     let tags = [];
     let genre = book.genre || book.keywords;
     if (genre) {
-        tags.push(...ldText(genre).split(/[,;|]/).map(t => t.trim()).filter(t => t));
+        tags.push(...ldText(genre).split(/[,;|]/).map(tagText).filter(t => t));
     }
     let tagLinks = Array.from(doc.querySelectorAll("a[href]"))
         .filter(a => /\/(genres?|tags?|categor(y|ies)|keywords?)\//i.test(a.getAttribute("href"))).slice(0, 40);
@@ -581,7 +601,7 @@ function metadata(doc, url) {
         title: stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url).slice(0, 300),
         author: String(author || "").replace(/\s+/g, " ").trim().slice(0, 200),
         cover: cover,
-        description: String(description || "").replace(/[ \t]+/g, " ").trim().slice(0, 4000),
+        description: htmlText(String(description || "")).replace(/[ \t]+/g, " ").trim().slice(0, 4000),
         tags: Array.from(new Set(tags)).slice(0, 30),
         status: status,
         site: siteName

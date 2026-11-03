@@ -72,6 +72,9 @@ public struct EngineSettings: Codable, Sendable, Equatable {
     public var lncrawlAutoUpdate: Bool
     public var fanficfareAutoUpdate: Bool
     public var gallerydlAutoUpdate: Bool
+    /// Dynamic priority (the desktop's): a link no built-in scraper owns goes only to the engines that
+    /// list its site, then the generic fallback, instead of to every engine that is on.
+    public var dynamicPriority: Bool
 
     public init(
         order: [SiteEngine] = SiteEngine.allCases,
@@ -82,7 +85,8 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         harunekoAutoUpdate: Bool = true,
         lncrawlAutoUpdate: Bool = true,
         fanficfareAutoUpdate: Bool = true,
-        gallerydlAutoUpdate: Bool = true
+        gallerydlAutoUpdate: Bool = true,
+        dynamicPriority: Bool = true
     ) {
         let full = SiteEngine.ordered(order.map { $0.rawValue })
         let off = full.filter { disabled.contains($0) }
@@ -96,11 +100,12 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         self.lncrawlAutoUpdate = lncrawlAutoUpdate
         self.fanficfareAutoUpdate = fanficfareAutoUpdate
         self.gallerydlAutoUpdate = gallerydlAutoUpdate
+        self.dynamicPriority = dynamicPriority
     }
 
     private enum CodingKeys: String, CodingKey {
         case order, disabled, novelDownloaderAutoUpdate, webtoepubAutoUpdate, lnreaderAutoUpdate, harunekoAutoUpdate,
-             lncrawlAutoUpdate, fanficfareAutoUpdate, gallerydlAutoUpdate
+             lncrawlAutoUpdate, fanficfareAutoUpdate, gallerydlAutoUpdate, dynamicPriority
     }
 
     /// Every key is optional and unknown engine names are dropped, so hand-edited files still load.
@@ -115,6 +120,7 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         let lncrawl = try container.decodeIfPresent(Bool.self, forKey: .lncrawlAutoUpdate) ?? true
         let fanficfare = try container.decodeIfPresent(Bool.self, forKey: .fanficfareAutoUpdate) ?? true
         let gallerydl = try container.decodeIfPresent(Bool.self, forKey: .gallerydlAutoUpdate) ?? true
+        let dynamic = try container.decodeIfPresent(Bool.self, forKey: .dynamicPriority) ?? true
         self.init(
             order: SiteEngine.ordered(names),
             disabled: off.compactMap { SiteEngine(rawValue: $0) },
@@ -124,7 +130,8 @@ public struct EngineSettings: Codable, Sendable, Equatable {
             harunekoAutoUpdate: haruneko,
             lncrawlAutoUpdate: lncrawl,
             fanficfareAutoUpdate: fanficfare,
-            gallerydlAutoUpdate: gallerydl
+            gallerydlAutoUpdate: gallerydl,
+            dynamicPriority: dynamic
         )
     }
 

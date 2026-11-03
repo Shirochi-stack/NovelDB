@@ -288,7 +288,13 @@ fun EngineSettingsScreen(model: AppViewModel) {
             enabled = !engines.isDefaultOrder || engines.enabled().size != order.size,
             modifier = Modifier.padding(start = 8.dp),
         ) { Text("Default order") }
-        Footnote("A built-in scraper hands over to the other engines only on sites they list. A link no built-in scraper owns tries every engine that is on.")
+        SwitchRow(
+            "Dynamic priority",
+            engines.dynamicPriority,
+            { v -> set { it.copy(dynamicPriority = v) } },
+            subtitle = "A link no built-in scraper owns goes only to the engines that list its site, then the generic fallback. Off: it tries every engine that is on, in order.",
+        )
+        Footnote("A built-in scraper hands over to the other engines only on sites they list.")
 
         SectionHeader("Updates")
         bundles.forEach { (engine, bundle) ->

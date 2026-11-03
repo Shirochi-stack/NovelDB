@@ -327,7 +327,7 @@ final class WebToEpubTests: XCTestCase {
     func testTheOrderDecidesWhichEngineRunsFirst() async throws {
         // WebToEpub first: novel-downloader is never asked.
         var settings = AppSettings()
-        settings.engines = EngineSettings(order: [.webtoepub, .novelDownloader, .native])
+        settings.engines = EngineSettings(order: [.webtoepub, .novelDownloader, .native], dynamicPriority: false)  // a made-up site no engine lists
         let page = ScriptedPage(ScriptedParsers.handler())
         let ctx = context(page, settings: settings)
         let url = URL(string: "https://www.novel.test/order-\(UUID().uuidString.prefix(6))")!

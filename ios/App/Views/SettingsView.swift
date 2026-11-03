@@ -240,6 +240,11 @@ struct SiteEnginesForm: View {
                 Text("Each link tries these in order until one finds chapters. Tap Edit to drag them into a new order, and switch an engine off to skip it; one engine always stays on. When a built-in scraper owns a site, the other engines only follow it for sites they list.")
             }
             Section {
+                Toggle("Dynamic priority", isOn: $model.settings.engines.dynamicPriority)
+            } footer: {
+                Text("A link no built-in scraper owns goes only to the engines that list its site, then the generic fallback. Off: it tries every engine that is on, in order.")
+            }
+            Section {
                 Toggle("Update the novel-downloader rules automatically", isOn: $model.settings.engines.novelDownloaderAutoUpdate)
                 Toggle("Update the WebToEpub parsers automatically", isOn: $model.settings.engines.webtoepubAutoUpdate)
                 Toggle("Update the LNReader plugins automatically", isOn: $model.settings.engines.lnreaderAutoUpdate)

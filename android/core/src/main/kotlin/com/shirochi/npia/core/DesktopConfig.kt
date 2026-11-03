@@ -136,6 +136,7 @@ object DesktopConfig {
             lncrawlAutoUpdate = c.bool("lncrawl_auto_update") ?: e.lncrawlAutoUpdate,
             fanficfareAutoUpdate = c.bool("fanficfare_auto_update") ?: e.fanficfareAutoUpdate,
             gallerydlAutoUpdate = c.bool("gallerydl_auto_update") ?: e.gallerydlAutoUpdate,
+            dynamicPriority = c.bool("source_engines_dynamic") ?: e.dynamicPriority,
         )
         // Never leave every engine off.
         if (SiteEngine.order(engines.order, engines.disabled).isEmpty()) engines = engines.copy(disabled = emptyList())
@@ -265,6 +266,7 @@ object DesktopConfig {
         put("lncrawl_auto_update", s.engines.lncrawlAutoUpdate)
         put("fanficfare_auto_update", s.engines.fanficfareAutoUpdate)
         put("gallerydl_auto_update", s.engines.gallerydlAutoUpdate)
+        put("source_engines_dynamic", s.engines.dynamicPriority)
         put("app_update_check", s.appUpdateCheck)
         put("upload_zip_bundle", s.upload.zipBundle)
         put("upload_zip_max_mb", s.upload.zipMaxMb.coerceIn(UploadSettings.MIN_ZIP_MAX_MB, UploadSettings.MAX_ZIP_MAX_MB))

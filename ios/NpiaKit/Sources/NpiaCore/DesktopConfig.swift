@@ -125,6 +125,7 @@ public enum DesktopConfig {
         engines.lncrawlAutoUpdate = bool(c["lncrawl_auto_update"]) ?? engines.lncrawlAutoUpdate
         engines.fanficfareAutoUpdate = bool(c["fanficfare_auto_update"]) ?? engines.fanficfareAutoUpdate
         engines.gallerydlAutoUpdate = bool(c["gallerydl_auto_update"]) ?? engines.gallerydlAutoUpdate
+        engines.dynamicPriority = bool(c["source_engines_dynamic"]) ?? engines.dynamicPriority
         if engines.enabled().isEmpty { engines.disabled = [] }  // never leave every engine off
         s.engines = engines
 
@@ -235,6 +236,7 @@ public enum DesktopConfig {
         c["lncrawl_auto_update"] = s.engines.lncrawlAutoUpdate
         c["fanficfare_auto_update"] = s.engines.fanficfareAutoUpdate
         c["gallerydl_auto_update"] = s.engines.gallerydlAutoUpdate
+        c["source_engines_dynamic"] = s.engines.dynamicPriority
 
         c["app_update_check"] = s.appUpdateCheck
 

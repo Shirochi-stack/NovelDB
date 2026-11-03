@@ -51,6 +51,11 @@ data class EngineSettings(
     val lncrawlAutoUpdate: Boolean = true,
     val fanficfareAutoUpdate: Boolean = true,
     val gallerydlAutoUpdate: Boolean = true,
+    /**
+     * Dynamic priority (the desktop's): a link no built-in scraper owns goes only to the engines that
+     * list its site, then the generic fallback, instead of to every engine that is on.
+     */
+    val dynamicPriority: Boolean = true,
 ) {
     /** Every engine in the user's order, switched off or not. */
     fun fullOrder(): List<SiteEngine> = SiteEngine.order(order)

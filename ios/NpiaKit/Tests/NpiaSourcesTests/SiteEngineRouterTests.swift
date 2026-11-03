@@ -168,7 +168,9 @@ final class SiteEngineRouterTests: XCTestCase {
         // WebToEpub also recognises some sites by their page, so an unlisted page is still worth a try.
         let url = URL(string: "https://unlisted.example/book/1")!
         XCTAssertNil(SourceCatalog.adapterType(for: url))
-        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: EngineSettings()), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: EngineSettings(dynamicPriority: false)), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        // Dynamic priority (the default): nothing lists the site, so only the generic fallback.
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: EngineSettings()), [.generic])
         XCTAssertTrue(SiteEngineRouter.canTry(url, engines: EngineSettings()))
         XCTAssertFalse(SiteEngineRouter.canTry(URL(string: "ftp://unlisted.example/book/1")!, engines: EngineSettings()))
     }
@@ -179,7 +181,7 @@ final class SiteEngineRouterTests: XCTestCase {
         let listed = URL(string: "https://www.fictionpress.com/s/1")!
         XCTAssertFalse(SiteEngineRouter.canTry(listed, engines: nativeOnly))
         XCTAssertFalse(SiteEngineRouter.canTry(URL(string: "https://unlisted.example/book/1")!, engines: nativeOnly))
-        XCTAssertEqual(SiteEngineRouter.plan(for: listed, engines: EngineSettings(disabled: [.novelDownloader])), [.webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        XCTAssertEqual(SiteEngineRouter.plan(for: listed, engines: EngineSettings(disabled: [.novelDownloader], dynamicPriority: false)), [.webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
 
         // A site a built-in scraper owns.
         let owned = URL(string: "https://xiyuwx.com/book/123/")!
@@ -187,7 +189,7 @@ final class SiteEngineRouterTests: XCTestCase {
         XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: nativeOnly), [.native])
         XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings()).first, .native)
         // With the built-in scrapers off, the script engines try it like any other web page.
-        XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings(disabled: [.native])), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings(disabled: [.native], dynamicPriority: false)), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
     }
 
     func testALinkNoEngineCanTryIsUnsupported() async {

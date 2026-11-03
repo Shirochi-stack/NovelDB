@@ -229,6 +229,8 @@ class GenericCatalog(QObject):
     _reader_images = Signal(int, dict)
 
     DETAILS_DAYS = 3
+    # The details cache's name: a new one drops details read by older code (link tags, HTML synopses).
+    DETAILS = "details-v2"
 
     def __init__(self, run_js: Callable[[str], None], profile, known_site: Callable[[str], bool], parent: QObject,
                  cache_mb: Callable[[], int] = lambda: 300):
@@ -535,7 +537,7 @@ class GenericCatalog(QObject):
 
     def _details(self, card: dict) -> None:
         """A book's details: from the offline cache when read in the last few days, else its page."""
-        cached = self.cache.get_json("details", card["url"], max_age=self.DETAILS_DAYS * 86400)
+        cached = self.cache.get_json(self.DETAILS, card["url"], max_age=self.DETAILS_DAYS * 86400)
         if cached:
             self._detailed.emit(dict(card, **cached, complete=True))
             return
@@ -547,7 +549,7 @@ class GenericCatalog(QObject):
             return
         keep = {k: v for k, v in found.items() if k not in ("url", "site", "source", "via", "complete", "ms") and v}
         if keep:
-            self.cache.put_json("details", card["url"], keep)
+            self.cache.put_json(self.DETAILS, card["url"], keep)
         self._detailed.emit(found)
 
     def _cover(self, fetch_id: int, key: str) -> None:

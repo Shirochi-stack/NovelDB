@@ -278,6 +278,25 @@ def _stats_box(text: str) -> bool:
     return len(found) >= 3 or bool(re.search(r"\d(?:\.\d)?\s*/\s*(5|10)\b.{0,20}\bout of\b", text[:600], re.I))
 
 
+def _tag_text(tag: str) -> str:
+    """A tag as words: a link to a genre page (some sites' structured data give their genres as links)
+    becomes the genre it names ("...?genre=summoned_hero" gives "Summoned Hero")."""
+    tag = (tag or "").strip()
+    if re.match(r"https?://", tag):
+        parts = urlsplit(tag)
+        named = re.search(r"(?:^|&)(?:genre|tag|tags|category)=([^&]+)", parts.query)
+        tag = named.group(1) if named else parts.path.rstrip("/").split("/")[-1]
+        tag = re.sub(r"[_\-+]+|%20", " ", tag).strip().title()
+    return tag if 1 < len(tag) <= 40 else ""
+
+
+def _html_text(text: str) -> str:
+    """A synopsis that came as HTML (in a page's structured data) as plain text, its paragraphs kept."""
+    if not re.search(r"<(p|br|div|span|em|strong|i|b)\b[^>]*>", text or "", re.I):
+        return text
+    return _plain(soup_of(text))
+
+
 def extract_metadata(html: str, url: str, soup=None) -> dict:
     """{title, author, cover, description, tags, status, published, updated, rating, ratings, likes, views,
     chapters} read from any book (or search result) page; a figure the page doesn't show is ""."""
@@ -328,7 +347,7 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     tags = []
     genre = book.get("genre") or book.get("keywords")
     if genre:
-        tags.extend(t.strip() for t in re.split(r"[,;|]", _ld_text(genre)) if t.strip())
+        tags.extend(_tag_text(t) for t in re.split(r"[,;|]", _ld_text(genre)) if _tag_text(t))
     for link in soup.find_all("a", href=re.compile(r"/(genres?|tags?|categor(y|ies)|keywords?)/", re.I))[:40]:
         word = text_of(link)
         if 1 < len(word) <= 40:
@@ -343,7 +362,7 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         "title": _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url)[:300],
         "author": re.sub(r"\s+", " ", author or "").strip()[:200],
         "cover": cover,
-        "description": re.sub(r"[ \t]+", " ", description or "").strip()[:4000],
+        "description": re.sub(r"[ \t]+", " ", _html_text(description or "")).strip()[:4000],
         "tags": list(dict.fromkeys(tags))[:30],
         "status": status,
         "site": site_name,

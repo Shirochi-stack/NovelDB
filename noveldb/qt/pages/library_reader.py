@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QFont, QImage, QPixmap, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
@@ -285,6 +285,9 @@ class EpubReader(QWidget):
         self.toc.currentRowChanged.connect(lambda row: self.open_chapter(row) if row >= 0 and row != self.index else None)
         self.page = _Page()
         self.page.verticalScrollBar().valueChanged.connect(lambda _v: self._remember_soon())
+        # The text view would take the arrow keys for itself: the reader turns the pages with them.
+        self.page.installEventFilter(self)
+        self.page.viewport().installEventFilter(self)
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.toc)
         splitter.addWidget(self.page)
@@ -348,6 +351,14 @@ class EpubReader(QWidget):
         bar = self.page.verticalScrollBar()
         QTimer.singleShot(0, lambda: bar.setValue(int(at * bar.maximum())))
         self._remember_soon()
+
+    TURN_KEYS = (Qt.Key_Right, Qt.Key_Left, Qt.Key_PageDown, Qt.Key_PageUp, Qt.Key_Space)
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.KeyPress and event.key() in self.TURN_KEYS:
+            self.keyPressEvent(event)
+            return True
+        return super().eventFilter(watched, event)
 
     def keyPressEvent(self, event) -> None:
         bar = self.page.verticalScrollBar()

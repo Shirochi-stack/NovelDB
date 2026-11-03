@@ -996,7 +996,7 @@
 
     // -- the details cache and covers --------------------------------------------------------------
 
-    var DETAILS_KEY = 'noveldb.generic.details', DETAILS_DAYS = 3;
+    var DETAILS_KEY = 'noveldb.generic.details.v2', DETAILS_DAYS = 3;  // v2: no details read by older code
     function cachedDetails(url) {
         var all = store(DETAILS_KEY) || {};
         var found = all[url];

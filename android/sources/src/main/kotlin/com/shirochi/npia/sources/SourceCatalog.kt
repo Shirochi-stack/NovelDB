@@ -63,7 +63,8 @@ object SourceCatalog {
      *   (novel-downloader rules, WebToEpub) only follow it for sites they list, so a clear failure such
      *   as a sign-in is not followed by browser attempts that cannot work.
      * - A URL no built-in scraper owns (or with the scrapers switched off) tries every enabled script
-     *   engine, since WebToEpub also matches some sites by their page.
+     *   engine, since WebToEpub also matches some sites by their page; with dynamic priority on (the
+     *   default), only the engines that list its site, then the generic fallback.
      */
     fun resolve(url: String, engines: EngineSettings = EngineSettings()): SourceAdapter? {
         val order = engines.enabled()
@@ -72,7 +73,8 @@ object SourceCatalog {
         val steps = order.filter { engine ->
             when {
                 engine == SiteEngine.NATIVE -> native != null
-                native == null -> isWebUrl(url)
+                native == null && !engines.dynamicPriority -> isWebUrl(url)
+                native == null -> isWebUrl(url) && (engine == SiteEngine.GENERIC || lists(engine, url))
                 else -> lists(engine, url)
             }
         }

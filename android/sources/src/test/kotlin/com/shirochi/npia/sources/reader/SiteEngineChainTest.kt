@@ -356,7 +356,8 @@ class SiteEngineChainTest {
 
     // Choosing the engines for a URL
 
-    private fun steps(url: String, engines: EngineSettings = EngineSettings()): List<SiteEngine>? =
+    // Every engine that is on, in order (dynamic priority off): what the tests below check.
+    private fun steps(url: String, engines: EngineSettings = EngineSettings(dynamicPriority = false)): List<SiteEngine>? =
         (SourceCatalog.resolve(url, engines) as? SiteEngineChain)?.steps
 
     // A site with a built-in scraper that both script engines list (the escapes spell a provider name).
@@ -393,7 +394,7 @@ class SiteEngineChainTest {
 
     @Test
     fun withTheBuiltInScrapersOffEveryScriptEngineIsTried() {
-        val noNative = EngineSettings(disabled = listOf("native"))
+        val noNative = EngineSettings(disabled = listOf("native"), dynamicPriority = false)
         // Even a site no engine lists is tried: there is no scraper to fall back to.
         assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(builtInOnly, noNative))
         assertEquals(SourceId.READER, SourceCatalog.resolve(both, noNative)!!.id)
@@ -403,11 +404,21 @@ class SiteEngineChainTest {
     fun aSiteWithNoBuiltInScraperTriesEveryEnabledScriptEngine() {
         val novelfull = "https://novelfull.com/the-legendary-mechanic.html"
         assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull))
-        val order = EngineSettings(order = listOf("webtoepub", "native", "novel_downloader"))
+        val order = EngineSettings(order = listOf("webtoepub", "native", "novel_downloader"), dynamicPriority = false)
         assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull, order))
         // Sites no bundle lists are still tried: WebToEpub also recognises some pages, and the generic fallback tries any.
         assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps("https://unlisted.example/book/1"))
-        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull, EngineSettings(disabled = listOf("native", "novel_downloader"))))
+        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull, EngineSettings(disabled = listOf("native", "novel_downloader"), dynamicPriority = false)))
+    }
+
+    @Test
+    fun dynamicPriorityTriesOnlyTheEnginesThatListTheSiteThenTheGenericFallback() {
+        assertEquals(listOf(SiteEngine.GENERIC), SourceCatalog.resolve("https://unlisted.example/book/1").let { (it as SiteEngineChain).steps })
+        val novelfull = (SourceCatalog.resolve("https://novelfull.com/the-legendary-mechanic.html") as SiteEngineChain).steps
+        assertTrue(novelfull.toString(), SiteEngine.WEBTOEPUB in novelfull && novelfull.last() == SiteEngine.GENERIC)
+        assertFalse(novelfull.toString(), SiteEngine.HARUNEKO in novelfull || SiteEngine.GALLERYDL in novelfull)
+        // With the generic fallback off too, a site nothing lists cannot be tried.
+        assertNull(SourceCatalog.resolve("https://unlisted.example/book/1", EngineSettings(disabled = listOf("generic"))))
     }
 
     @Test

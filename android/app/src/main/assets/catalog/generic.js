@@ -235,8 +235,9 @@
         }
         var source = group.sources.find(function (s) { return key(s.url) === key(card.url); });
         if (!source) {
+            // `noveldb`: a NovelDB book's source and id, for its synopsis from NovelDB's own files.
             source = {url: card.url, site: card.site || hostOf(card.url), source: card.source || '', plugin: card.plugin || '', path: card.path,
-                      ms: card.ms};
+                      ms: card.ms, noveldb: card.noveldb};
             group.sources.push(source);
             byUrl.set(key(card.url), group);
         }
@@ -580,7 +581,7 @@
     }
     function strip(group, source) {
         return {url: source.url, title: group.title, author: group.author, cover: group.cover, description: group.description,
-                tags: group.tags, site: source.site, comic: group.comic, source: source.source, complete: false};
+                tags: group.tags, site: source.site, comic: group.comic, source: source.source, noveldb: source.noveldb, complete: false};
     }
 
     // -- the details panel -------------------------------------------------------------------------
@@ -1440,8 +1441,8 @@
     $('rClose').onclick = closeReader;
     $('rPrev').onclick = function () { turn(-1); };
     $('rNext').onclick = function () { turn(1); };
-    $('zoneLeft').onclick = function () { turn(-1); };
-    $('zoneRight').onclick = function () { turn(1); };
+    $('zoneLeft').onclick = function () { if (Date.now() - (R.swiped || 0) > 400) turn(-1); };
+    $('zoneRight').onclick = function () { if (Date.now() - (R.swiped || 0) > 400) turn(1); };
     $('rSlider').addEventListener('input', function () { R.page = Number($('rSlider').value) - 1; place(); });
     $('viewport').addEventListener('click', function () { $('toc').classList.remove('open'); $('look').classList.remove('open'); });
     $('viewport').addEventListener('scroll', function () { if (layout() === 'scroll') place(); });
@@ -1453,6 +1454,26 @@
         setTimeout(function () { R.wheelLock = false; }, 300);
         turn(event.deltaY > 0 ? 1 : -1);
     }, {passive: false});
+    // A finger swipe turns the page (left: next, right: previous); in the scrolling layout a sideways
+    // swipe changes the chapter. Short or mostly vertical moves are taps and scrolls, left alone.
+    var swipe = null;
+    $('reader').addEventListener('touchstart', function (event) {
+        var touch = event.touches.length === 1 ? event.touches[0] : null;
+        swipe = touch && !event.target.closest('.bar, #toc, #look') ? {x: touch.clientX, y: touch.clientY, at: Date.now()} : null;
+    }, {passive: true});
+    $('reader').addEventListener('touchend', function (event) {
+        if (!swipe || !event.changedTouches.length) return;
+        var touch = event.changedTouches[0], dx = touch.clientX - swipe.x, dy = touch.clientY - swipe.y, quick = Date.now() - swipe.at < 800;
+        swipe = null;
+        if (!quick || Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        if (layout() === 'scroll') {
+            var next = R.index + (dx < 0 ? 1 : -1);
+            if (next >= 0 && next < R.chapters.length) openChapter(next, 0);
+        } else {
+            turn(dx < 0 ? 1 : -1);
+        }
+        R.swiped = Date.now();  // the tap zones ignore the click this swipe ends with
+    }, {passive: true});
     function closeReader() {
         R.token++;
         $('reader').classList.remove('open');
@@ -1461,9 +1482,11 @@
         document.body.style.overflow = '';
     }
     document.addEventListener('keydown', function (event) {
-        if (!$('reader').classList.contains('open') || event.target.matches('input')) return;
-        if (event.key === 'ArrowRight' || event.key === 'PageDown' || (event.key === ' ' && !event.shiftKey)) { event.preventDefault(); turn(1); }
-        else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (event.key === ' ' && event.shiftKey)) { event.preventDefault(); turn(-1); }
+        // Typing in a box keeps its keys; the page slider (a range input) does not take the arrows.
+        if (!$('reader').classList.contains('open') || event.target.matches('input:not([type=range]), textarea, select')) return;
+        var paged = layout() !== 'scroll';
+        if (event.key === 'ArrowRight' || event.key === 'PageDown' || (paged && event.key === 'ArrowDown') || (event.key === ' ' && !event.shiftKey)) { event.preventDefault(); turn(1); }
+        else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (paged && event.key === 'ArrowUp') || (event.key === ' ' && event.shiftKey)) { event.preventDefault(); turn(-1); }
         else if (event.key === 'Escape') closeReader();
         else if (event.key === 'Home') { R.page = 0; place(); }
         else if (event.key === 'End') { R.page = R.pages - 1; place(); }

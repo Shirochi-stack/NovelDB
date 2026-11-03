@@ -60,7 +60,8 @@ public enum SiteEngineRouter {
     /// recognises some sites by their page.
     public static func plan(for url: URL, engines: EngineSettings) -> [SiteEngine] {
         let isWebPage = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
-        let steps = plan(order: engines.enabled(), nativeOwnsURL: SourceCatalog.nativeAdapterType(for: url) != nil) { engine in
+        let steps = plan(order: engines.enabled(), nativeOwnsURL: SourceCatalog.nativeAdapterType(for: url) != nil,
+                         dynamic: engines.dynamicPriority) { engine in
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.lists(rules, url)
         }
@@ -75,13 +76,16 @@ public enum SiteEngineRouter {
     /// The engines to try, in order. Without a built-in scraper for the link (or with the
     /// built-in scrapers switched off) the native step is dropped and every JavaScript engine
     /// stays; with one, the JavaScript engines stay only when `lists` says they list the site.
-    static func plan(order: [SiteEngine], nativeOwnsURL: Bool, lists: (SiteEngine) -> Bool) -> [SiteEngine] {
+    /// With `dynamic` (dynamic priority), a link without a built-in scraper keeps only the engines
+    /// that list its site, then the generic fallback.
+    static func plan(order: [SiteEngine], nativeOwnsURL: Bool, dynamic: Bool = false, lists: (SiteEngine) -> Bool) -> [SiteEngine] {
         var seen: [SiteEngine] = []
         for engine in order where !seen.contains(engine) { seen.append(engine) }
         let nativeOwner = nativeOwnsURL && seen.contains(.native)
         return seen.filter { engine in
             if engine == .native { return nativeOwner }
-            return !nativeOwner || lists(engine)
+            if nativeOwner { return lists(engine) }
+            return !dynamic || engine == .generic || lists(engine)
         }
     }
 
