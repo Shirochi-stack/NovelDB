@@ -54,7 +54,7 @@ class ReaderAdapter : SourceAdapter {
     override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
         val steps = context.settings.engines.enabled().filter { it.runsScripts }
         if (steps.isEmpty()) {
-            throw SourceException.Parse("The novel-downloader rules and the WebToEpub parsers are both switched off in Settings > Site engines.")
+            throw SourceException.Parse("Every site engine that runs scripts is switched off in Settings > Site engines.")
         }
         return SiteEngineChain(null, steps).parseBook(url, context)
     }
@@ -304,13 +304,11 @@ internal class ReaderBookSession(
             return make(payload, url, Engine.WebToEpub(web))
         }
 
-        /** A page-script engine (the LNReader plugins): its bundle in the book's web view page. */
+        /** A page-script engine (the LNReader plugins, the generic fallback): its bundle in the book's web view page. */
         private suspend fun openPageScript(url: String, context: SourceContext, shared: SharedBookPage, engine: SiteEngine): ReaderBookSession {
-            val rule = com.shirochi.npia.sources.engines.RuleEngine.of(engine)
-                ?: throw EngineMissException("${engine.label} are not in this build.")
-            val script = PageScript.of(rule) ?: throw EngineMissException("${engine.label} are not in this build.")
+            val script = PageScript.of(engine) ?: throw EngineMissException("${engine.label} are not in this build.")
             val (payload, web) = PageBundleEngine.openBook(shared.page(), url, script, context)
-            if (payload.chapters.isEmpty()) throw SourceException.Parse("The ${rule.title} found no chapters on $url.")
+            if (payload.chapters.isEmpty()) throw SourceException.Parse("The ${script.title} found no chapters on $url.")
             shared.adopt()
             return make(payload, url, Engine.Page(web))
         }

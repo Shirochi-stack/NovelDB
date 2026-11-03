@@ -246,6 +246,7 @@ private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.NOVEL_DOWNLOADER -> "novel-downloader's rules, mostly Chinese and Japanese sites."
     SiteEngine.WEBTOEPUB -> "WebToEpub's parsers for 650+ sites, mostly English translations."
     SiteEngine.LNREADER -> "LNReader's plugins for 320+ novel sites in many languages."
+    SiteEngine.GENERIC -> "Any other site: reads the chapter list and text without site rules."
 }
 
 @Composable

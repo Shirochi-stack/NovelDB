@@ -48,7 +48,7 @@ class DownloadPipelineTest {
     @Test
     fun unknownUrlFailsFast() = runTest {
         // With the script engines off, no engine can try an unknown site: no page is loaded, nothing is fetched.
-        val settings = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub")))
+        val settings = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lnreader", "generic")))
         val pipeline = DownloadPipeline(InMemorySecretStore(), File("build/tmp"), httpFactory = { error("no network for an unsupported site") })
         val error = runCatching { pipeline.run("https://example.com/none", settings) }.exceptionOrNull()
         assertEquals(SourceException.UnsupportedUrl::class, error!!::class)
@@ -227,6 +227,9 @@ class DownloadPipelineTest {
         override suspend fun evaluateJson(functionBody: String): String = when {
             functionBody.contains("window.__W2E_READY") -> """{"ready":true,"error":null}"""
             functionBody.contains("__W2E_parseBook") -> book
+            // The generic fallback, which finds no chapter list on these pages.
+            functionBody.contains("window.__GEN_READY") -> """{"ready":true,"error":null}"""
+            functionBody.contains("__GEN_parseBook") -> """{"error":"The generic engine found no chapter list on this page.","noParser":true}"""
             else -> chapters.entries.firstOrNull { functionBody.contains(it.key) }?.value ?: """{"error":"no such chapter"}"""
         }
 

@@ -372,10 +372,10 @@ class SiteEngineChainTest {
     fun aBuiltInScraperIsFollowedOnlyByTheEnginesThatListTheSite() {
         assertEquals(SourceId.FLOO, SourceCatalog.resolve(both)!!.id)
         assertEquals(listOf(SiteEngine.NATIVE, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB), steps(both))
-        assertEquals(listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB), steps(parsersOnly))
+        assertEquals(listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB, SiteEngine.LNREADER), steps(parsersOnly))
         val reordered = EngineSettings(order = listOf("webtoepub", "novel_downloader", "native"))
         assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.NATIVE), steps(both, reordered))
-        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NATIVE), steps(parsersOnly, reordered))
+        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NATIVE, SiteEngine.LNREADER), steps(parsersOnly, reordered))
         assertEquals(listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB), steps(both, EngineSettings(disabled = listOf("novel_downloader"))))
     }
 
@@ -395,25 +395,25 @@ class SiteEngineChainTest {
     fun withTheBuiltInScrapersOffEveryScriptEngineIsTried() {
         val noNative = EngineSettings(disabled = listOf("native"))
         // Even a site no engine lists is tried: there is no scraper to fall back to.
-        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB), steps(builtInOnly, noNative))
+        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNREADER, SiteEngine.GENERIC), steps(builtInOnly, noNative))
         assertEquals(SourceId.READER, SourceCatalog.resolve(both, noNative)!!.id)
     }
 
     @Test
     fun aSiteWithNoBuiltInScraperTriesEveryEnabledScriptEngine() {
         val novelfull = "https://novelfull.com/the-legendary-mechanic.html"
-        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB), steps(novelfull))
+        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNREADER, SiteEngine.GENERIC), steps(novelfull))
         val order = EngineSettings(order = listOf("webtoepub", "native", "novel_downloader"))
-        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER), steps(novelfull, order))
-        // Sites neither bundle lists are still tried, since WebToEpub also recognises some pages.
-        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB), steps("https://unlisted.example/book/1"))
-        assertEquals(listOf(SiteEngine.WEBTOEPUB), steps(novelfull, EngineSettings(disabled = listOf("native", "novel_downloader"))))
+        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNREADER, SiteEngine.GENERIC), steps(novelfull, order))
+        // Sites no bundle lists are still tried: WebToEpub also recognises some pages, and the generic fallback tries any.
+        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNREADER, SiteEngine.GENERIC), steps("https://unlisted.example/book/1"))
+        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.LNREADER, SiteEngine.GENERIC), steps(novelfull, EngineSettings(disabled = listOf("native", "novel_downloader"))))
     }
 
     @Test
     fun nothingIsResolvedWhenNoEngineCanTryTheUrl() {
         assertNull(SourceCatalog.resolve("ftp://site.test/book"))
-        assertNull(SourceCatalog.resolve("https://unlisted.example/book", EngineSettings(disabled = listOf("novel_downloader", "webtoepub"))))
+        assertNull(SourceCatalog.resolve("https://unlisted.example/book", EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lnreader", "generic"))))
         assertNotNull(SourceCatalog.resolve(both, EngineSettings(disabled = listOf("novel_downloader", "webtoepub"))))
     }
 
@@ -427,9 +427,9 @@ class SiteEngineChainTest {
 
     @Test
     fun theReaderAdapterNeedsAScriptEngine() = runTest {
-        val noScripts = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub")))
+        val noScripts = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lnreader", "generic")))
         val withNone = SourceContext(NoHttp, CountingWeb(), InMemorySecretStore(), noScripts)
-        // Two engines off is allowed while the built-in scrapers stay on, but the reader has nothing to run.
+        // Every script engine off is allowed while the built-in scrapers stay on, but the reader has nothing to run.
         try {
             ReaderAdapter().parseBook("https://novelfull.com/x.html", withNone)
             fail("should throw")

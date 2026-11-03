@@ -204,6 +204,7 @@ final class ReaderBookSession: @unchecked Sendable {
                 case .novelDownloader: return try await openNovelDownloader(url, context: context, page: shared)
                 case .webtoepub: return try await openWebToEpub(url, context: context, page: shared)
                 case .lnreader: return try await openPageScript(url, script: .lnreader, context: context, page: shared)
+                case .generic: return try await openPageScript(url, script: .generic, context: context, page: shared)
                 case .native: continue
                 }
             } catch is CancellationError {
@@ -253,11 +254,11 @@ final class ReaderBookSession: @unchecked Sendable {
         throw engineError(scriptError)
     }
 
-    /// A page-script engine (the LNReader plugins) in the book's page.
+    /// A page-script engine (the LNReader plugins, the generic fallback) in the book's page.
     private static func openPageScript(_ url: URL, script: PageScript, context: SourceContext, page shared: EnginePage) async throws -> ReaderBookSession {
         let (payload, session) = try await PageScriptSession.openBook(url, script: script, context: context, page: shared)
         guard !payload.chapters.isEmpty else {
-            throw SourceError.parse("The \(script.engine.title) found no chapters on \(url.absoluteString).")
+            throw SourceError.parse("The \(script.title) found no chapters on \(url.absoluteString).")
         }
         await shared.handOff()
         return try make(payload, requested: url, engine: .page(session))

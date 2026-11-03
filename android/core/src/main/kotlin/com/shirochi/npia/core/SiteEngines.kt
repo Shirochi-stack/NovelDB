@@ -5,13 +5,15 @@ import kotlinx.serialization.Serializable
 /**
  * The ways a book page can be read, tried in the user's order until one returns chapters (the
  * desktop's `SITE_ENGINES`): the app's own scrapers, the novel-downloader rules, the WebToEpub
- * parsers, then the LNReader plugins. `raw` is the name the desktop settings file uses.
+ * parsers, the LNReader plugins, then the generic fallback (any site, without site rules). `raw` is
+ * the name the desktop settings file uses.
  */
 enum class SiteEngine(val raw: String, val label: String) {
     NATIVE("native", "Built-in scrapers"),
     NOVEL_DOWNLOADER("novel_downloader", "novel-downloader rules"),
     WEBTOEPUB("webtoepub", "WebToEpub parsers"),
-    LNREADER("lnreader", "LNReader plugins");
+    LNREADER("lnreader", "LNReader plugins"),
+    GENERIC("generic", "Generic fallback");
 
     /** True for the engines that run a JavaScript bundle (everything but the built-in scrapers). */
     val runsScripts: Boolean get() = this != NATIVE
@@ -52,14 +54,14 @@ data class EngineSettings(
         SiteEngine.NOVEL_DOWNLOADER -> novelDownloaderAutoUpdate
         SiteEngine.WEBTOEPUB -> webtoepubAutoUpdate
         SiteEngine.LNREADER -> lnreaderAutoUpdate
-        SiteEngine.NATIVE -> false
+        SiteEngine.NATIVE, SiteEngine.GENERIC -> false
     }
 
     fun withAutoUpdate(engine: SiteEngine, on: Boolean): EngineSettings = when (engine) {
         SiteEngine.NOVEL_DOWNLOADER -> copy(novelDownloaderAutoUpdate = on)
         SiteEngine.WEBTOEPUB -> copy(webtoepubAutoUpdate = on)
         SiteEngine.LNREADER -> copy(lnreaderAutoUpdate = on)
-        SiteEngine.NATIVE -> this
+        SiteEngine.NATIVE, SiteEngine.GENERIC -> this
     }
 
     /** Switches `engine` on or off. The last engine that is on cannot be switched off. */

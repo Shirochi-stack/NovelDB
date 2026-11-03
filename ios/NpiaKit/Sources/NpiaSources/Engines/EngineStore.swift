@@ -64,10 +64,11 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
 }
 
 public extension SiteEngine {
-    /// The rule engine behind this choice; nil for the built-in scrapers.
+    /// The rule engine behind this choice; nil for the built-in scrapers and the generic fallback
+    /// (a script shipped with the app that tries any site).
     var ruleEngine: RuleEngine? {
         switch self {
-        case .native: return nil
+        case .native, .generic: return nil
         case .novelDownloader: return .novelDownloader
         case .webtoepub: return .webtoepub
         case .lnreader: return .lnreader

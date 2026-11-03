@@ -1,14 +1,15 @@
 import Foundation
 
 /// The engines a book link can go through. Each link tries them in the user's order until one
-/// finds chapters: the app's own scrapers, the novel-downloader rules, the WebToEpub parsers, then
-/// the LNReader plugins.
+/// finds chapters: the app's own scrapers, the novel-downloader rules, the WebToEpub parsers, the
+/// LNReader plugins, then the generic fallback (any site, without site rules).
 /// Raw values are the names the desktop config uses.
 public enum SiteEngine: String, Codable, CaseIterable, Sendable {
     case native
     case novelDownloader = "novel_downloader"
     case webtoepub
     case lnreader
+    case generic
 
     public var title: String {
         switch self {
@@ -16,6 +17,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .novelDownloader: return "novel-downloader rules"
         case .webtoepub: return "WebToEpub parsers"
         case .lnreader: return "LNReader plugins"
+        case .generic: return "Generic fallback"
         }
     }
 
@@ -25,6 +27,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .novelDownloader: return "Rules for mostly Chinese and Japanese sites."
         case .webtoepub: return "Parsers for 650+ sites, mostly English translations."
         case .lnreader: return "Plugins for 320+ novel sites in many languages."
+        case .generic: return "Any other site: reads the chapter list and text without site rules."
         }
     }
 
@@ -119,7 +122,7 @@ public struct EngineSettings: Codable, Sendable, Equatable {
 
     public func autoUpdate(_ engine: SiteEngine) -> Bool {
         switch engine {
-        case .native: return false
+        case .native, .generic: return false
         case .novelDownloader: return novelDownloaderAutoUpdate
         case .webtoepub: return webtoepubAutoUpdate
         case .lnreader: return lnreaderAutoUpdate
