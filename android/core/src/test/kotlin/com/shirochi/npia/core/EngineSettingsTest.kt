@@ -111,7 +111,7 @@ class EngineSettingsTest {
         )
         assertEquals(
             EngineSettings(
-                order = listOf("webtoepub", "native", "novel_downloader"),
+                order = listOf("webtoepub", "native", "novel_downloader", "lnreader"),
                 disabled = listOf("novel_downloader"),
                 novelDownloaderAutoUpdate = false,
             ),
@@ -119,7 +119,7 @@ class EngineSettingsTest {
         )
         val exported = DesktopConfig.export(settings)
         assertEquals(
-            listOf("webtoepub", "native", "novel_downloader"),
+            listOf("webtoepub", "native", "novel_downloader", "lnreader"),
             exported["source_engine_order"]!!.jsonArray.map { it.jsonPrimitive.content },
         )
         assertEquals(listOf("novel_downloader"), exported["source_engines_off"]!!.jsonArray.map { it.jsonPrimitive.content })
