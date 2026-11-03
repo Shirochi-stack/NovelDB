@@ -479,15 +479,19 @@
         if (!event.target.closest('.popover')) { $('sitespanel').classList.remove('open'); $('settingspanel').classList.remove('open'); }
     });
 
-    // The title at the largest size (13px down to 7px) that shows all of it in two lines.
+    // The title at the largest size (13px down to 7px) that shows all of it in its box: the box is two
+    // lines of 13px text tall, and smaller text gets more lines in it, so it shrinks only as far as needed.
+    var TITLE_BOX = 2 * 13 * 1.25;
     function fit(title) {
         if (!title || !title.offsetParent) return;
         title.classList.remove('clamp');
+        title.style.webkitLineClamp = '';
         for (var size = 13; size >= 7; size -= 0.5) {
             title.style.fontSize = size + 'px';
-            if (title.scrollHeight <= title.clientHeight + 1) return;
+            if (title.scrollHeight <= TITLE_BOX + 1) return;
         }
         title.classList.add('clamp');
+        title.style.webkitLineClamp = String(Math.max(2, Math.floor(TITLE_BOX / (7 * 1.25))));
     }
 
     function empty() {
