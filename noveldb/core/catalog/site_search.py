@@ -298,7 +298,7 @@ class SiteSearch:
             if result and result["status"] < 400:
                 cards = extract_cards(decode(result), result.get("url") or url)
                 if cards:
-                    return cards[:limit]
+                    return [dict(card, verified=True) for card in cards[:limit]]  # the site's own page for the tag
         cards = []
         for way in plan["ways"][:3]:
             try:

@@ -360,11 +360,12 @@ window.__LNR_popular = async function (id, page, latest) {
 window.__LNR_genre = async function (id, tag) {
     try {
         let instance = __lnr_instance(id);
-        let want = String(tag || "").trim().toLowerCase();
+        let words = text => String(text || "").trim().toLowerCase().replace(/[\s_\-]+/g, " ");
+        let want = words(tag);
         let filters = {}, matched = false;
         for (let [key, filter] of Object.entries(instance.filters || {})) {
             let value = filter.value;
-            let option = (filter.options || []).find(o => String(o.label).trim().toLowerCase() === want);
+            let option = (filter.options || []).find(o => words(o.label) === want);
             if (option && !matched) {
                 matched = true;
                 if (filter.type === __lnr_FilterTypes.Picker) {
@@ -382,7 +383,8 @@ window.__LNR_genre = async function (id, tag) {
         let found = matched
             ? await instance.popularNovels(1, { showLatestNovels: false, filters: filters })
             : await instance.searchNovels(String(tag || ""), 1);
-        return JSON.stringify(__lnr_items(id, found));
+        // "verified": the plugin's own filter for the tag (a search for its words may find anything).
+        return JSON.stringify(__lnr_items(id, found).map(item => Object.assign(item, { verified: matched })));
     } catch (error) {
         return JSON.stringify(__lnr_error(error));
     }

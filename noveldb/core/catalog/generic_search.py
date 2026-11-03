@@ -399,7 +399,8 @@ class GenericSearch:
                 report(site["site"], started, 0, "failed")
                 return
             ms = int((time.monotonic() - started) * 1000)
-            cards = [dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")), ms=ms)
+            cards = [dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")), ms=ms,
+                          verified=bool(hit.get("verified")))
                      for hit in hits]
             summary["site"] = summary.get("site", 0) + len(cards)
             fresh = offer(cards)

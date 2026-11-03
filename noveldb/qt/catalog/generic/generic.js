@@ -115,7 +115,7 @@
         if (view !== 'search') return;
         var seconds = Math.round((Date.now() - progress.started) / 1000);
         status('Searching… ' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered · ' + seconds + ' s · '
-               + order.length + ' book' + (order.length === 1 ? '' : 's') + ' so far');
+               + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far');
     }
     function seconds(ms) { return ms == null ? '' : (ms < 10000 ? (ms / 1000).toFixed(1) : Math.round(ms / 1000)) + ' s'; }
     function drawSites() {
@@ -262,9 +262,24 @@
             if (group.element) group.element.remove();
             if ($('dialog').open && group.onDetails) $('dialog').close();
         }
-        if (view === 'search') status(order.length + ' books found' + (running ? '…' : '.'));
+        if (view === 'search') status(shownCount() + ' books found' + (running ? '…' : '.'));
         empty();
         pump();
+    }
+    // A tag search (tags picked, no title): only books shown to have the tag appear. A book from a site's own
+    // page for the tag is shown at once; one a search for the tag's words found waits, hidden, for its page.
+    function tagOnly() { return view === 'search' && current.tags.length > 0 && !current.text; }
+    function holdForTag(group) {
+        if (group.held) return;
+        group.held = true;
+        if (!group.loaded && !group.asked) { group.asked = true; queue.push(group); pump(); }
+    }
+    function hasTag(group, card) {
+        var listed = (card.tags || []).concat(group.tags || []).map(tagWords);
+        return current.tags.some(function (tag) {
+            var want = tagWords(tag);
+            return listed.some(function (have) { return have === want || have.indexOf(want) >= 0; });
+        });
     }
     // A book found by a tag search whose page lists tags, none of them a picked tag: not what was asked for.
     function tagWords(tag) { return String(tag || '').toLowerCase().replace(/[\s_\-]+/g, ' ').trim(); }
@@ -349,7 +364,7 @@
                 shrink(group, image);
             }, {once: true});
         }
-        element.style.display = wanted(group) ? '' : 'none';
+        element.style.display = wanted(group) && !(group.held && !group.verified) ? '' : 'none';
         fit(element.querySelector('.title'));
         empty();
     }
@@ -513,11 +528,14 @@
             var group = merge(card);
             if (group) {
                 (card.tags || []).forEach(function (tag) { resultTags.set(tag, (resultTags.get(tag) || 0) + 1); });
+                if (card.verified) group.verified = true;
+                if (tagOnly() && card.via === 'tag' && !group.verified && !group.confirmed) holdForTag(group);
                 render(group);
             }
         });
-        if (view === 'search') status(order.length + ' books found' + (running ? '…' : '.'));
+        if (view === 'search') status(shownCount() + ' books found' + (running ? '…' : '.'));
     }
+    function shownCount() { return order.filter(function (g) { return !(g.held && !g.verified); }).length; }
 
     // -- details for the cards in view -------------------------------------------------------------
     var queue = [], loading = 0;
@@ -533,7 +551,7 @@
         pump();
     }, {rootMargin: '200px'}) : null;
     function pump() {
-        while (loading < 4 && queue.length) {
+        while (loading < (tagOnly() ? 8 : 4) && queue.length) {
             var group = queue.shift();
             if (!groups.has(group.key)) continue;
             loading++;
@@ -647,7 +665,8 @@
     }
     function lnreaderCard(plugin, item, via) {
         return {url: item.url, title: item.name, cover: item.cover || '', site: plugin.site, comic: !!plugin.comic,
-                source: 'lnreader', plugin: item.plugin || plugin.id, path: item.path, via: via, complete: false, ms: item.ms};
+                source: 'lnreader', plugin: item.plugin || plugin.id, path: item.path, via: via, complete: false, ms: item.ms,
+                verified: !!item.verified};
     }
     function lnreaderSearch(id, queries) {
         var every = plugins();
@@ -811,7 +830,7 @@
     }
     function finishedSearch(id) {
         if (id !== searchId || running) return;
-        status(order.length + ' books found in ' + seconds(Date.now() - progress.started) + '.');
+        status(shownCount() + ' books found in ' + seconds(Date.now() - progress.started) + '.');
         empty();
     }
 
@@ -889,7 +908,7 @@
         searchId++;
         running = 0;
         setRunning(0);
-        status(order.length + ' books found (stopped).');
+        status(shownCount() + ' books found (stopped).');
     });
     $('kind').addEventListener('change', function () {
         if (view === 'top' && topKind() !== top.kind) { showTop(); return; }
@@ -1443,7 +1462,7 @@
             }
             var slow = summary && (summary.failed || summary.timed_out);
             if (!running) {
-                status(order.length + ' books found in ' + seconds(Date.now() - progress.started)
+                status(shownCount() + ' books found in ' + seconds(Date.now() - progress.started)
                        + (slow ? ' (some sites did not answer in time)' : '') + '.');
                 empty();
             }
@@ -1452,6 +1471,12 @@
             var group = byUrl.get(key(card.url));
             if (!group) return;
             if (offTag(group, card)) { drop(group, card.url); return; }
+            if (group.held && !group.verified) {
+                // Its page is in: it stays only if the page lists the tag.
+                if (!hasTag(group, card)) { drop(group, card.url); return; }
+                group.held = false;
+                group.confirmed = true;
+            }
             if (card.empty || NO_RESULTS.test(card.title || '') || NO_RESULTS.test(String(card.description || '').slice(0, 400))) {
                 drop(group, card.url);
                 return;
