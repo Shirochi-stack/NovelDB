@@ -88,7 +88,7 @@ def parse_message(data: dict) -> Optional[dict]:
             query = item.get("query") if isinstance(item, dict) else None
             if isinstance(query, str) and query.strip() and len(query) <= 300:
                 queries.append({"query": query.strip(),
-                                "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id") else "name"})
+                                "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id", "author") else "name"})
         if not queries:
             return None
         data["queries"] = queries
@@ -422,7 +422,7 @@ class GenericCatalog(QObject):
         """The search's next results, as the page is scrolled: NovelDB's page `page` and each site's next
         results page. The page hears `moreDone` with {"more"} once every query has answered."""
         stop = self._stop
-        queries = [q for q in queries if q["mode"] in ("name", "tag")]
+        queries = [q for q in queries if q["mode"] in ("name", "tag", "author")]
         left, more, lock = [len(queries)], [False], threading.Lock()
         if not queries:
             self._more_done.emit(search_id, {"more": False})

@@ -40,7 +40,7 @@ _learned_lock = threading.Lock()
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/130.0.0.0 Safari/537.36")
 SITES_PER_QUERY = 8
-MODES = ("name", "tag")
+MODES = ("name", "tag", "author")  # "author": NovelDB's books by that author
 # A site's "nothing matched your search" page, which some search pages give a book-like card or title.
 NO_RESULTS = re.compile(
     r"(no (items?|results?|books?|novels?|titles?|matches|products?)( were)? (found|matching|match)|nothing (was )?found|"
@@ -425,12 +425,19 @@ class GenericSearch:
                 report("NovelDB", started, 0, "failed")
                 return
             ms = int((time.monotonic() - started) * 1000)
-            fresh = offer([dict(card, ms=ms, verified=mode == "tag") for card in cards])
+            fresh = offer([dict(card, ms=ms, verified=mode != "name") for card in cards])
             summary["noveldb"] = len(fresh)
             report("NovelDB", started, len(fresh))
 
         if self.noveldb is not None:
             futures.append(pool.submit(from_noveldb))
+        if mode == "author":  # NovelDB knows books by author; the sites' searches are by title
+            progress({"total": len(futures)})
+            for future in futures:
+                future.result()
+            pool.shutdown(wait=False)
+            done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=False))
+            return
         for site in self.sites:
             if not (self.skip_lnreader and site.get("lnreader")):
                 futures.append(pool.submit(from_site, site))
@@ -464,7 +471,7 @@ class GenericSearch:
         the next page of each site whose results page had one. `done` hears {"more": whether any source
         has more after these}."""
         text = (text or "").strip()
-        mode = mode if mode in ("name", "tag") else "name"
+        mode = mode if mode in MODES else "name"
         kind = "tag" if mode == "tag" else "search"
         lock = threading.Lock()
         seen: set = set()
@@ -484,7 +491,7 @@ class GenericSearch:
 
         def from_noveldb():
             cards, more = self.noveldb.search_page(text, mode, page)
-            offer([dict(card, verified=mode == "tag") for card in cards])
+            offer([dict(card, verified=mode != "name") for card in cards])
             if more:
                 state["more"] = True
 

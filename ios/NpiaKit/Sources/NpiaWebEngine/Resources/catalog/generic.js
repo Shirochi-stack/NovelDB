@@ -149,7 +149,8 @@
     var picking = null;
     function topCandidates() {
         var names = [];
-        var add = function (site) { if (site && names.indexOf(site) < 0) names.push(site); };
+        // Only real addresses: a plugin whose site is a placeholder ("url") is no site to pick.
+        var add = function (site) { if (site && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(site) && names.indexOf(site) < 0) names.push(site); };
         top.only.forEach(add);
         if (!isComicKind(top.kind)) Object.keys(NOVELDB_SITES).forEach(add);
         BUILTIN_SITES.forEach(add);
@@ -529,13 +530,16 @@
             + (config.downloadIcon ? ' style="background-image:url(' + config.downloadIcon + ')"' : '') + '>'
             + (config.downloadIcon ? '' : inCart ? '✓' : '+') + '</button>'
             + '<div class="body"><div class="title">' + esc(group.title) + '</div>'
-            // Compact: the author and status on one line, the figures shortened on the next (the original
-            // title, the kind and every digit are in the details panel).
-            + (group.author || group.status ? '<div class="meta">' + esc([group.author, group.status].filter(Boolean).join(' · ')) + '</div>' : '')
-            + (figures(group).length ? '<div class="figures">' + esc(figures(group).join(' · ')) + '</div>' : '')
+            // Compact: the author on a row of their own (a tap searches their books), then the status and
+            // the figures shortened (the original title, the kind and every digit are in the details panel).
+            + (group.author ? '<div class="meta"><a class="author" data-author>' + esc(group.author) + '</a></div>' : '')
+            + ([group.status].concat(figures(group)).filter(Boolean).length
+                ? '<div class="figures">' + esc([group.status].concat(figures(group)).filter(Boolean).join(' · ')) + '</div>' : '')
             + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 24).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
+        var authorLink = element.querySelector('[data-author]');
+        if (authorLink) authorLink.addEventListener('click', function (event) { event.stopPropagation(); searchAuthor(group.author); });
         var image = element.querySelector('img');
         if (image && imaging.low && !/^data:/.test(group.cover) && !group.cacheAsked) {
             // The small copy made before with these settings, from the offline cache; else the cover itself.
@@ -830,7 +834,8 @@
                 + '<button type="button" data-act="open">Source page</button></div>'
                 + '<div class="info"><h2>' + esc(group.title) + '</h2>'
                 + (group.rawTitle ? '<div class="rawtitle">' + esc(group.rawTitle) + '</div>' : '')
-                + '<div class="meta">' + esc([group.author, KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
+                + (group.author ? '<div class="meta"><a class="author" data-author>' + esc(group.author) + '</a></div>' : '')
+                + '<div class="meta">' + esc([KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
                 + '<div class="facts">' + fact('Rating', rating) + fact('Likes', group.likes) + fact('Views', group.views)
                 + fact('Chapters', group.chapters) + fact('Published', group.published) + fact('Updated', group.updated)
                 + fact('Status', group.status) + '</div>'
@@ -876,6 +881,8 @@
             dialog.querySelectorAll('[data-open]').forEach(function (button) {
                 button.onclick = function () { var s = group.sources[Number(button.dataset.open)]; send({type: 'open', url: s.url, title: group.title}); };
             });
+            var byAuthor = dialog.querySelector('[data-author]');
+            if (byAuthor) byAuthor.onclick = function () { dialog.close(); searchAuthor(group.author); };
             dialog.querySelectorAll('.chip').forEach(function (chip) {
                 chip.onclick = function () { dialog.close(); picked = [chip.textContent]; $('query').value = ''; showPicked(); search(); };
             });
@@ -1055,7 +1062,7 @@
     function topPlugins(kind, all) {
         var wantLn = kind === 'lightnovel';
         var chosen = plugins().filter(function (p) {
-            return !p.comic && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language)
+            return !p.comic && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language)
                 && (allPlugins.length ? !!p.ln === wantLn : true);
         }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); });
         return all ? chosen : chosen.slice(0, 60);
@@ -1155,6 +1162,9 @@
         if (!keepMenu) closeTags();
         var text = $('query').value.trim();
         if (!text && !picked.length) { showTop(); return; }
+        // "author:Name" or "@Name": that author's books.
+        var byAuthor = !picked.length && text.match(/^(?:author\s*:|@)\s*(.+)$/i);
+        if (byAuthor) { searchAuthor(byAuthor[1]); $('query').value = text; return; }
         var queries = [];
         var byId = !picked.length && /^\s*(\d{3,12}|n\d{4}[a-z]{1,3})\s*$/i.test(text);
         if (byId) {
@@ -1177,6 +1187,30 @@
         empty();
         send({type: 'genericSearch', id: searchId, queries: queries});
         if (!byId) lnreaderSearch(searchId, queries);
+    }
+    // An author's books (a tap on an author's name): NovelDB lists books by author. A name of several
+    // ("Shen Jian, 神见") searches each of them.
+    function searchAuthor(name) {
+        name = String(name || '').trim();
+        if (!name) return;
+        closeTags();
+        picked = [];
+        showPicked();
+        $('query').value = '';
+        var names = name.split(/\s*[,，、]\s*/).filter(Boolean).slice(0, 3);
+        var queries = names.map(function (one) { return {query: one, mode: 'author'}; });
+        searchId++;
+        reset('search');
+        current = {text: '', tags: [], queries: queries, byId: false, author: name};
+        running = 0;
+        setRunning(1);
+        $('heading').innerHTML = 'Books by ' + esc(name) + ' <a id="backTop">Top 100</a>';
+        $('backTop').onclick = function () { showTop(); };
+        startProgress(0);
+        status('Searching NovelDB for books by ' + name + '…');
+        empty();
+        window.scrollTo(0, 0);
+        send({type: 'genericSearch', id: searchId, queries: queries});
     }
     function finishedSearch(id) {
         if (id !== searchId || running) return;

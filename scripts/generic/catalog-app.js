@@ -477,7 +477,8 @@
         });
     }
     function ndbSearch(text, mode, limit, offset, each, onTotal) {
-        var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)] : ndbTokens(text);
+        var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)]
+            : mode === 'author' ? ['@' + ndbNormal(text).replace(/\s+/g, ' ').trim()] : ndbTokens(text);
         limit = limit || NDB_MORE;
         if (!wanted.length) return Promise.resolve({cards: [], more: false});
         var more = false;
@@ -1082,7 +1083,7 @@
         sources.unshift(function () {
             var started = Date.now();
             var shown = 0;
-            var mark = function (c) { return Object.assign(c, {ms: Date.now() - started, verified: mode === 'tag'}); };
+            var mark = function (c) { return Object.assign(c, {ms: Date.now() - started, verified: mode === 'tag' || mode === 'author'}); };
             // Each card goes to the page as soon as it is read, not after the whole page of them.
             return ndbSearch(text, mode, NDB_FIRST, 0, function (c) { shown += offer([mark(c)]).length; }, function (total) {
                 call('progress', id, {noveldbTotal: total});
@@ -1105,6 +1106,8 @@
                 enrich(fresh);
             });
         });
+        // An author's books: NovelDB knows them by author; the sites' searches are by title.
+        if (mode === 'author') sources = sources.slice(0, 1);
         call('progress', id, {total: sources.length});
         var all = each(sources, 12, function (source) { return source(); }, token).then(function () {
             return Promise.all(details);
@@ -1219,7 +1222,8 @@
         ready.then(function () {
             var totals = {};
             return Promise.all(queries.slice(0, 6).map(function (item) {
-                var run = item.mode === 'id' ? runById(id, item.query, token) : runSearch(id, item.query, item.mode === 'tag' ? 'tag' : 'name', token);
+                var mode = item.mode === 'tag' || item.mode === 'author' ? item.mode : 'name';
+                var run = item.mode === 'id' ? runById(id, item.query, token) : runSearch(id, item.query, mode, token);
                 return run.catch(function () { return {failed: 1}; }).then(function (summary) {
                     Object.keys(summary).forEach(function (name) {
                         var value = summary[name];
@@ -1235,13 +1239,13 @@
         var token = current.token || newToken(), state = {more: false};
         ready.then(function () {
             return Promise.all(queries.filter(function (q) { return q.mode !== 'id'; }).slice(0, 6).map(function (item) {
-                var mode = item.mode === 'tag' ? 'tag' : 'name', kind = mode === 'tag' ? 'tag' : 'search', text = item.query, seen = {};
+                var mode = item.mode === 'tag' || item.mode === 'author' ? item.mode : 'name', kind = mode === 'tag' ? 'tag' : 'search', text = item.query, seen = {};
                 function offer(cards) {
                     var fresh = cards.filter(function (c) { var k = c.url.replace(/\/+$/, ''); if (seen[k]) return false; seen[k] = true; return true; });
                     if (fresh.length && !stopped(token)) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
                 }
                 var jobs = [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (page - 1) * NDB_MORE).then(function (found) {
-                    offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode === 'tag'}); }));
+                    offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode !== 'name'}); }));
                     if (found.more) state.more = true;
                 }, function () {})];
                 SITES.forEach(function (site) {

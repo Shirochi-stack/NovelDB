@@ -81,6 +81,9 @@
     .title.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .meta { color: var(--ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .figures { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* An author's name: a tap searches their books. */
+    a.author { color: var(--accent); cursor: pointer; text-decoration: none; }
+    a.author:hover { text-decoration: underline; }
     /* Two rows of tags; "+N" stands for the rest (fitTags in generic.js). */
     .tags { display: flex; gap: 3px; overflow: hidden; height: 33px; flex-wrap: wrap; align-content: flex-start; }
     .tags span { background: var(--chip); border-radius: 7px; padding: 0 5px; font-size: 10px; line-height: 15px; white-space: nowrap; }

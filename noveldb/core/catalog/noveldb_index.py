@@ -280,7 +280,8 @@ class NovelDBIndex:
                 return [], False
             streams = {name: lst for name in names for source, lst in self._lists("!" + name).items() if source == name}
         else:
-            wanted = [tag_token(text)] if mode == "tag" else tokens(text)
+            wanted = ([tag_token(text)] if mode == "tag" else ["@" + re.sub(r"\s+", " ", normal(text)).strip()]
+                      if mode == "author" else tokens(text))
             if not wanted or self.manifest() is None:
                 return [], False
             streams = self._tag_lists(text) if mode == "tag" else self._streams(wanted)
