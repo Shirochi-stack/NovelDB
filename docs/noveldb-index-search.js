@@ -10,7 +10,12 @@
  * of the whole catalog. Results take each selected source's next book in turn, npia's first. The
  * tokens are the builder's; keep them in step.
  *
- * window.NovelIndexSearch.eligible(query) -> true for a plain text search
+ * A search may have words, picked tags (each must match; "or" tags: any of them) and an author: each
+ * is a token of the index ("#tag", "@author"). A tag's spellings (its English name and the sources' own)
+ * are tried in each source, and the one listing the most books there stands for the tag.
+ *
+ * window.NovelIndexSearch.eligible(query) -> true for a search the index can answer (no excluded tags,
+ *     any status and audience)
  * window.NovelIndexSearch.search(query)   -> Promise of {rows, total, page} (rows as metadata-core's parseRows gives them)
  */
 (function () {
@@ -81,8 +86,22 @@
     }
 
     function eligible(query) {
-        return !!(query && query.text && !query.author && query.status === "all" && query.audience === "all"
-            && !query.and.length && !query.or.length && !query.exclude.length);
+        return !!(query && (query.text || query.author || query.and.length || query.or.length)
+            && query.status === "all" && query.audience === "all" && !query.exclude.length);
+    }
+
+    const normal = (text) => String(text || "").normalize("NFKC").toLowerCase();
+    const tagToken = (tag) => "#" + normal(tag).replace(/[\s_\-]+/g, " ").trim();
+    const authorToken = (author) => "@" + normal(author).replace(/\s+/g, " ").trim();
+
+    // What a search must match, as groups of tokens: a book matches a group through any one of its tokens.
+    function groups(query) {
+        const out = tokens(query.text).map((token) => [token]);
+        const spelled = (tags, names) => [...new Set([...(names || []), ...tags.flat()].map(tagToken))].filter((t) => t.length > 1);
+        (query.and || []).forEach((spellings, i) => out.push(spelled([spellings], [(query.andNames || [])[i]].filter(Boolean))));
+        if ((query.or || []).length) out.push(spelled(query.or, query.orNames));
+        if (query.author) out.push([authorToken(query.author)]);
+        return out.filter((group) => group.length);
     }
 
     const undelta = (values) => { let total = 0; return (values || []).map((value) => (total += value)); };
@@ -115,10 +134,20 @@
         return out;
     }
 
-    // Each source's books with every token: one token's lists, or for several the books in all of them
-    // (among their first pages).
+    // A group's lists: in each source, the list of whichever of its tokens has the most books there.
+    async function groupLists(index, group) {
+        const found = await Promise.all(group.map((token) => lists(index, token)));
+        const out = {};
+        for (const each of found) {
+            for (const [name, one] of Object.entries(each)) if (!out[name] || one.total > out[name].total) out[name] = one;
+        }
+        return out;
+    }
+
+    // Each source's books matching every group: one group's lists, or for several the books in all of
+    // them (among their first pages).
     async function streams(index, wanted, sources) {
-        const perToken = await Promise.all(wanted.map((token) => lists(index, token)));
+        const perToken = await Promise.all(wanted.map((group) => groupLists(index, group)));
         const keep = (name) => !sources.size || sources.has(name);
         if (perToken.some((found) => !Object.keys(found).length)) return {};
         if (perToken.length === 1) return Object.fromEntries(Object.entries(perToken[0]).filter(([name]) => keep(name)));
@@ -137,7 +166,7 @@
     }
 
     async function search(query) {
-        const wanted = tokens(query.text);
+        const wanted = groups(query);
         if (!wanted.length) return null;
         const index = await table();
         const found = await streams(index, wanted, new Set(query.sources || []));
@@ -164,5 +193,5 @@
         return {rows: rows.filter(Boolean), total, page};
     }
 
-    window.NovelIndexSearch = {eligible, search, tokens, bucketOf};
+    window.NovelIndexSearch = {eligible, search, tokens, bucketOf, groups};
 })();

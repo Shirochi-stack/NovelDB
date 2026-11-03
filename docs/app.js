@@ -7504,6 +7504,7 @@ const worker = new Worker("catalog-worker.js?v=15");
         return { sources:selectedSources, text:activeAuthorFilter ? "" : searchInput.value.trim().toLowerCase(),
             author:activeAuthorFilter, status:statusSelect.value, audience:audienceSelect.value,
             and:spellings(andTags), or:spellings(orTags), exclude:spellings(excludeTags),
+            andNames:[...andTags], orNames:[...orTags],
             sort:sortOptions(), page:currentPage, size:catalogPageSize(), focus:diskFocus };
     }
     function diskQueryKey() { return JSON.stringify(diskQuery()); }
@@ -7516,9 +7517,9 @@ const worker = new Worker("catalog-worker.js?v=15");
         const cached = resultPages.get(key);
         let immediate=cached?.result || previewResult(query);
         let fromIndex = false;
-        if (!immediate && document.body.dataset.catalogReady!=='true' && window.NovelIndexSearch?.eligible(query)) {
-            // A text search from NovelDB's search index, at once: a few small files, not the catalog's chunks.
-            // Not kept: once the catalog is ready the same search runs again against all of it.
+        if (!immediate && window.NovelIndexSearch?.eligible(query)) {
+            // A search (words, tags, an author) from NovelDB's search index, at once: a few small files, not
+            // the catalog's chunks. Not kept: the full catalog's answer replaces it when ready.
             const found = await window.NovelIndexSearch.search(query).catch(() => null);
             if (seq!==diskQuerySequence || key!==diskQueryKey()) return;
             if (found && found.rows.length) { immediate = found; fromIndex = true; }
@@ -7536,7 +7537,9 @@ const worker = new Worker("catalog-worker.js?v=15");
         if (immediate) {
             if (!fromIndex) rememberPage(key,immediate,cached?.preview ?? true);
             diskTotal = immediate.total; currentPage = immediate.page; filtered = immediate.rows; allNovels = [];
-            diskPageKey = diskQueryKey(); render(false); warmSourcePreviews(); return;
+            diskPageKey = diskQueryKey(); render(false); warmSourcePreviews();
+            // The index's quick answer stays until the loaded catalog has its own (or until it loads).
+            if (!fromIndex || document.body.dataset.catalogReady!=='true') return;
         }
         const partial=!!activeCatalogController;
         if (partial) {
