@@ -28,6 +28,9 @@
     button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
     button:disabled { opacity: .5; cursor: default; }
     button.on { border-color: var(--accent); color: var(--accent); }
+    /* The tag icon, as on NovelDB; the picked-tag count sits on it. */
+    #tagsButton { display: inline-flex; align-items: center; gap: 4px; }
+    #tagsButton svg { display: block; }
     .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--accent);
              color: var(--accent-ink); font-size: 11px; line-height: 18px; text-align: center; }
     .statusline { margin-top: 8px; color: var(--ink-2); font-size: 13px; min-height: 18px; display: flex; gap: 8px; align-items: center; }
@@ -203,6 +206,12 @@
     @media (max-width: 520px) {
         #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         header { padding: 10px 10px 8px; }
+        /* The search box on its own row, then every control on one row below it: the type menu
+           takes what the buttons leave. */
+        #form { gap: 6px; }
+        #searchbox { flex-basis: 100%; }
+        #form > button { flex: 0 0 auto; padding: 7px 10px; }
+        #kind { flex: 1 1 0; min-width: 0; padding: 7px 6px; }
     }
 </style>
 </head>
@@ -213,7 +222,10 @@
             <span id="picked"></span>
             <input id="query" type="search" placeholder="Search titles, tags or a novel ID on 1,000+ sites" autocomplete="off" autofocus>
         </div>
-        <button id="tagsButton" type="button" title="Pick tags to search">Tags<span id="tagCount"></span></button>
+        <button id="tagsButton" type="button" title="Pick tags to search" aria-label="Tags"><svg viewBox="0 0 24 24" width="18" height="18"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+            focusable="false"><path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19" /><path d="M9.586 5.586A2 2 0 0 0 8.172 5H3a1 1 0 0 0-1 1v5.172a2 2 0 0 0 .586 1.414L8.29 18.29a2.426 2.426 0 0 0 3.42 0l3.58-3.58a2.426 2.426 0 0 0 0-3.42z" /><circle
+            cx="6.5" cy="9.5" r=".5" fill="currentColor" /></svg><span id="tagCount"></span></button>
         <select id="kind" title="Show">
             <option value="all">All</option>
             <option value="webnovel">Web Novels</option>

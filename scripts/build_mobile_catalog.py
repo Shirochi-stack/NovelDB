@@ -44,6 +44,12 @@ PHONE_CSS = """<style>
     @media (max-width: 520px) {
         #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         header { padding: 10px 10px 8px; }
+        /* The search box on its own row, then every control on one row below it: the type menu
+           takes what the buttons leave. */
+        #form { gap: 6px; }
+        #searchbox { flex-basis: 100%; }
+        #form > button { flex: 0 0 auto; padding: 7px 10px; }
+        #kind { flex: 1 1 0; min-width: 0; padding: 7px 6px; }
     }
 </style>
 """
