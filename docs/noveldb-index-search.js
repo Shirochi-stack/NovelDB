@@ -93,12 +93,20 @@
         if (lists.some((list) => !list.length)) return {rows: [], total: 0, page: 1};
         const others = lists.slice(1).map((list) => new Set(list));
         const numbers = lists[0].filter((n) => others.every((set) => set.has(n))).sort((a, b) => a - b).slice(0, LIMIT);
-        const blocks = [...new Set(numbers.map((n) => Math.floor(n / index.block)))];
-        const loaded = new Map(await Promise.all(blocks.map(async (b) => [b, await gzJson(`c/${b}.json.gz`)])));
-        const sources = new Set(query.sources || []);
-        const rows = numbers.map((n) => loaded.get(Math.floor(n / index.block))[n % index.block])
-            .filter(Boolean).map(row).filter((r) => !sources.size || sources.has(r.source));
-        return {rows: rows.slice(0, query.size || 60), total: rows.length, page: 1};
+        // Only the blocks of the first page's books, a page's worth at a time while the source filter drops some.
+        const size = query.size || 60, sources = new Set(query.sources || []);
+        const rows = [];
+        let next = 0;
+        while (rows.length < size && next < numbers.length) {
+            const part = numbers.slice(next, next += size);
+            const blocks = [...new Set(part.map((n) => Math.floor(n / index.block)))];
+            const loaded = new Map(await Promise.all(blocks.map(async (b) => [b, await gzJson(`c/${b}.json.gz`)])));
+            rows.push(...part.map((n) => loaded.get(Math.floor(n / index.block))[n % index.block])
+                .filter(Boolean).map(row).filter((r) => !sources.size || sources.has(r.source)));
+        }
+        // The count of the books not read is an estimate at most: they may be from sources not selected.
+        const total = next >= numbers.length ? rows.length : numbers.length;
+        return {rows: rows.slice(0, size), total, page: 1};
     }
 
     window.NovelIndexSearch = {eligible, search, tokens, bucketOf};
