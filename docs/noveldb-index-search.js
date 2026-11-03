@@ -13,7 +13,8 @@
  *
  * A search may have words, picked tags (each must match; "or" tags: any of them) and an author: each
  * is a token of the index ("#tag", "@author"). A tag's spellings (its English name and the sources' own)
- * are tried in each source, and the one listing the most books there stands for the tag.
+ * are searched together with the tags sharing their alias key (the builder's tagConcept: "Gender
+ * Bender" also finds "Genderbend (TS)"), each source's books of any of them merged.
  *
  * window.NovelIndexSearch.eligible(query) -> true for a search the index can answer (no excluded tags,
  *     any status and audience)
@@ -112,7 +113,7 @@
         const page = index.page || 500;
         const pageOf = async (n) => (n === 0 ? first : more && n <= more[2].length ? undelta(await gzJson(`p/${more[1] + n - 1}.json.gz`)) : []);
         return {
-            total: more ? more[0] : first.length, first: first.length ? first[0] : Infinity, page, pageOf,
+            head: first, total: more ? more[0] : first.length, first: first.length ? first[0] : Infinity, page, pageOf,
             async numbers(start, end) {
                 end = Math.min(end, this.total);
                 if (end <= start) return [];
@@ -123,8 +124,22 @@
             },
         };
     }
-    const fixed = (numbers) => ({total: numbers.length, first: numbers.length ? numbers[0] : Infinity, page: Math.max(1, numbers.length),
+    const fixed = (numbers) => ({head: numbers, total: numbers.length, first: numbers.length ? numbers[0] : Infinity, page: Math.max(1, numbers.length),
                                  pageOf: async () => numbers, numbers: async (start, end) => numbers.slice(start, end)});
+
+    // Merged lists: `head` (merged up to where every list was read), then `rest`'s books after its first `skip`.
+    function chain(head, rest, skip) {
+        const size = head.length, page = rest.page;
+        const out = {head, page, total: size + Math.max(0, rest.total - skip), first: size ? head[0] : rest.first};
+        out.numbers = async (start, end) => {
+            end = Math.min(end, out.total);
+            if (end <= start) return [];
+            const own = head.slice(start, Math.min(end, size));
+            return end <= size ? own : own.concat(await rest.numbers(skip + Math.max(0, start - size), skip + end - size));
+        };
+        out.pageOf = (n) => out.numbers(n * page, n * page + page);
+        return out;
+    }
 
     async function lists(index, token) {
         const entry = (await gzJson(`b/${bucketOf(token, index.buckets)}.json.gz`))[token] || {};
@@ -135,13 +150,46 @@
         return out;
     }
 
-    // A group's lists: in each source, the list of whichever of its tokens has the most books there.
+    // A tag's alias key (the builder's tagConcept): "Gender Bender" and "Genderbend (TS)" share "=genderbend".
+    const BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g, UNION_PAGES = 10;
+    function concept(tag) {
+        const text = normal(tag);
+        const letters = (value) => value.replace(/[^\p{L}\p{N}]+/gu, "");
+        let key = letters(text.replace(BRACKETED, " ")) || letters(text);
+        if (key.length > 5 && !CJK.test(key)) key = key.replace(/(ing|er|s)$/, "");
+        return key ? "=" + key : "";
+    }
+    // The tag tokens sharing a tag token's alias key (its bucket lists them).
+    async function aliases(index, token) {
+        const key = concept(token.slice(1));
+        if (!key) return [];
+        const found = (await gzJson(`b/${bucketOf(key, index.buckets)}.json.gz`))[key];
+        return Array.isArray(found) ? found.filter((t) => typeof t === "string") : [];
+    }
+
+    // A group's lists: in each source, the books of any of its tokens (a tag's spellings and aliases), merged.
     async function groupLists(index, group) {
-        const found = await Promise.all(group.map((token) => lists(index, token)));
+        const more = await Promise.all(group.filter((token) => token.startsWith("#")).map((token) => aliases(index, token)));
+        const tokens = [...new Set([...group, ...more.flat()])];
+        const found = await Promise.all(tokens.map((token) => lists(index, token)));
+        const bySource = {};
+        for (const each of found) for (const [name, one] of Object.entries(each)) (bySource[name] = bySource[name] || []).push(one);
         const out = {};
-        for (const each of found) {
-            for (const [name, one] of Object.entries(each)) if (!out[name] || one.total > out[name].total) out[name] = one;
-        }
+        // A tag and its translation list the same books: read them once.
+        const same = (a, b) => a.total === b.total && a.head.length === b.head.length && a.head.every((n, i) => n === b.head[i]);
+        await Promise.all(Object.entries(bySource).map(async ([name, every]) => {
+            const all = every.filter((one, i) => !every.slice(0, i).some((other) => same(one, other)));
+            if (all.length === 1) { out[name] = all[0]; return; }
+            const read = await Promise.all(all.map((one) => one.numbers(0, UNION_PAGES * one.page)));
+            // A list read only in part says nothing of the books after its last one read: the merge stops
+            // there, and the longest list's own books follow.
+            let cutoff = Infinity;
+            read.forEach((numbers, i) => { if (numbers.length && numbers.length < all[i].total) cutoff = Math.min(cutoff, numbers[numbers.length - 1]); });
+            const numbers = [...new Set(read.flat().filter((n) => n <= cutoff))].sort((a, b) => a - b);
+            if (cutoff === Infinity) { if (numbers.length) out[name] = fixed(numbers); return; }
+            const longest = all.reduce((best, one, i) => (one.total > all[best].total ? i : best), 0);
+            out[name] = chain(numbers, all[longest], read[longest].filter((n) => n <= cutoff).length);
+        }));
         return out;
     }
 

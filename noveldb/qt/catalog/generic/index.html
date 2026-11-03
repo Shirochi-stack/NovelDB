@@ -33,7 +33,8 @@
     #tagsButton svg { display: block; }
     .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--accent);
              color: var(--accent-ink); font-size: 11px; line-height: 18px; text-align: center; }
-    .statusline { margin-top: 8px; color: var(--ink-2); font-size: 13px; min-height: 18px; display: flex; gap: 8px; align-items: center; }
+    .statusline { margin-top: 8px; color: var(--ink-2); font-size: 12px; min-height: 16px; display: flex; gap: 8px; align-items: center; }
+    @media (max-width: 600px) { .statusline { font-size: 11px; margin-top: 6px; } }
     .statusline a { color: var(--accent); cursor: pointer; margin-left: auto; }
     .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
                animation: spin .8s linear infinite; display: none; flex: none; }

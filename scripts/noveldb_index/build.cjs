@@ -92,6 +92,23 @@ function tagToken(tag) {
     return "#" + normal(tag).replace(/[\s_\-]+/g, " ").trim();
 }
 
+/**
+ * A tag's alias key: "=" and its letters and digits, without a bracketed note when anything is left
+ * without it, and without an ending -ing, -er or -s (a word of 6+ letters, not Chinese, Japanese or
+ * Korean). "Gender Bender", "Genderbend (TS)" and "Genderbending" share "=genderbend". The bucket of
+ * a key lists the tag tokens that share it (ALIASES of them, the most used first), and a tag search
+ * reads all of them. The clients compute the same key: keep them in step.
+ */
+const BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g;
+const ALIASES = 30, ALIAS_BOOKS = 3;
+function tagConcept(tag) {
+    const text = normal(tag);
+    const letters = (value) => value.replace(/[^\p{L}\p{N}]+/gu, "");
+    let key = letters(text.replace(BRACKETED, " ")) || letters(text);
+    if (key.length > 5 && !CJK.test(key)) key = key.replace(/(ing|er|s)$/, "");
+    return key ? "=" + key : "";
+}
+
 function authorToken(author) {
     return "@" + normal(author).replace(/\s+/g, " ").trim();
 }
@@ -168,9 +185,23 @@ function main() {
 
     // token -> {source: [book number, ...]} in each bucket, every book of the token, in number order.
     const buckets = Array.from({length: BUCKETS}, () => new Map());
+    // alias key -> {tag token: books}: a tag's English name and its original share the English name's key.
+    const aliases = new Map();
+    const alias = (key, token) => {
+        if (!key) return;
+        let counts = aliases.get(key);
+        if (!counts) aliases.set(key, counts = new Map());
+        counts.set(token, (counts.get(token) || 0) + 1);
+    };
     books.forEach((book, number) => {
         const own = new Set([...tokens(book.titleEn), ...tokens(book.title)]);
         if (book.author) own.add(authorToken(book.author));
+        book.tags.forEach((tag, i) => {
+            const original = book.originalTags[i];
+            if (tag) alias(tagConcept(tag), tagToken(tag));
+            if (tag && original && original !== tag) alias(tagConcept(tag), tagToken(original));
+            if (original && original !== tag) alias(tagConcept(original), tagToken(original));
+        });
         for (const tag of new Set([...book.tags, ...book.originalTags])) if (tag) own.add(tagToken(tag));
         for (const token of own) {
             const bucket = buckets[bucketOf(token)];
@@ -179,6 +210,16 @@ function main() {
             (lists[book.source] || (lists[book.source] = [])).push(number);
         }
     });
+    // A key with two tags or more (each on ALIAS_BOOKS books or more) goes into its bucket as a list of them.
+    let aliasKeys = 0;
+    for (const [key, counts] of aliases) {
+        const used = [...counts].filter(([, n]) => n >= ALIAS_BOOKS).sort((a, b) => b[1] - a[1]).slice(0, ALIASES).map(([token]) => token);
+        if (used.length < 2) continue;
+        buckets[bucketOf(key)].set(key, used);
+        aliasKeys++;
+    }
+    aliases.clear();
+    console.log(`${aliasKeys} tag alias keys`);
 
     fs.mkdirSync(OUT, {recursive: true});
     const built = new Date().toISOString();
@@ -204,6 +245,7 @@ function main() {
     const bucketAt = buckets.map((bucket, index) => {
         const value = {};
         for (const [token, lists] of bucket) {
+            if (Array.isArray(lists)) { value[token] = lists; continue; }  // an alias key's tag tokens
             const entry = value[token] = {};
             for (const [source, list] of Object.entries(lists)) {
                 entry[source] = deltas(list.slice(0, PAGE));
@@ -237,4 +279,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = {tokens, tagToken, authorToken, bucketOf, BUCKETS, PAGE};
+module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, BUCKETS, PAGE};

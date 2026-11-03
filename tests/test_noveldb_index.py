@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from noveldb.core.catalog.noveldb_index import NovelDBIndex, bucket_of, tag_token, tokens
+from noveldb.core.catalog.noveldb_index import NovelDBIndex, bucket_of, tag_concept, tag_token, tokens
 
 ROOT = Path(__file__).resolve().parents[1]
 BUCKETS = 4096
@@ -18,14 +18,18 @@ def deltas(numbers):
     return [n - numbers[i - 1] if i else n for i, n in enumerate(numbers)]
 
 
-def build(books, page=500):
-    """An index in the builder's format (2): per-source lists of each token in pages, then card blocks."""
+def build(books, page=500, aliases=None):
+    """An index in the builder's format (2): per-source lists of each token in pages, then card blocks;
+    `aliases`: {alias key: [tag token, ...]} as the builder writes them into the buckets."""
     lists = [dict() for _ in range(BUCKETS)]
     for number, book in enumerate(books):
         own = set(tokens(book["titleEn"])) | set(tokens(book["title"])) | {tag_token(t) for t in book["tags"]}
         for token in own:
             lists[bucket_of(token, BUCKETS)].setdefault(token, {}).setdefault(book["source"], []).append(number)
     data, bucket_at, block_at, pages = b"", [], [], 0
+    keys = {}
+    for key, tags in (aliases or {}).items():
+        keys.setdefault(bucket_of(key, BUCKETS), {})[key] = tags
 
     def write(value):
         nonlocal data
@@ -34,8 +38,8 @@ def build(books, page=500):
         data += piece
         return at
 
-    for bucket in lists:
-        value = {}
+    for number, bucket in enumerate(lists):
+        value = dict(keys.get(number, {}))
         for token, by_source in bucket.items():
             entry = value[token] = {}
             for source, numbers in by_source.items():
@@ -120,6 +124,25 @@ def test_the_client_tokenizes_like_the_builder():
     out = subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True)
     expected = json.loads(out.stdout)
     assert [[tokens(t), [bucket_of(k, BUCKETS) for k in tokens(t)]] for t in titles] == expected
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node")
+def test_tag_alias_keys_are_the_builders():
+    tags = ["Gender Bender", "Genderbend (TS)", "Genderbending", "[Gender Bender]", "TS", "Harems", "性转", "회귀", "(TS)"]
+    script = ("const b=require('./scripts/noveldb_index/build.cjs');"
+              f"console.log(JSON.stringify({json.dumps(tags)}.map(b.tagConcept)))")
+    out = subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True)
+    assert [tag_concept(t) for t in tags] == json.loads(out.stdout)
+    assert len({tag_concept(t) for t in tags[:4]}) == 1  # one key for the spellings of one tag
+
+
+def test_a_tag_search_merges_the_tags_sharing_its_alias_key():
+    books = [{"source": "npia", "id": str(n), "title": f"책 {n}", "titleEn": f"Book {n}", "url": f"https://example.test/novel/{n}",
+              "tags": [["Genderbend (TS)"], ["Gender Bender"], ["Romance"], ["Genderbend (TS)", "Gender Bender"]][n % 4]}
+             for n in range(12)]
+    manifest, data = build(books, aliases={"=genderbend": ["#genderbend (ts)", "#gender bender"]})
+    found = NovelDBIndex(fetcher(manifest, data, [])).search("Gender Bender", "tag", limit=50)
+    assert sorted(int(card["noveldb"]["id"]) for card in found) == [n for n in range(12) if n % 4 != 2]
 
 
 def test_a_kept_table_of_contents_whose_data_is_gone_is_read_again(tmp_path):

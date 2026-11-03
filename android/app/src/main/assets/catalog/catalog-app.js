@@ -287,6 +287,15 @@
         return out;
     }
     function ndbTag(tag) { return '#' + ndbNormal(tag).replace(/[\s_\-]+/g, ' ').trim(); }
+    /** A tag's alias key (the builder's tagConcept): "Gender Bender" and "Genderbend (TS)" share "=genderbend". */
+    var NDB_BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g, NDB_UNION_PAGES = 10;
+    function ndbConcept(tag) {
+        var text = ndbNormal(tag);
+        var letters = function (value) { return value.replace(/[^\p{L}\p{N}]+/gu, ''); };
+        var key = letters(text.replace(NDB_BRACKETED, ' ')) || letters(text);
+        if (key.length > 5 && !NDB_CJK.test(key)) key = key.replace(/(ing|er|s)$/, '');
+        return key ? '=' + key : '';
+    }
     function ndbBucket(token, buckets) {
         var hash = 0x811c9dc5;
         new TextEncoder().encode(token).forEach(function (byte) { hash = Math.imul(hash ^ byte, 0x01000193) >>> 0; });
@@ -375,6 +384,53 @@
             return out;
         });
     }
+    /** Merged lists: `head` (merged up to where every list was read), then `rest`'s books after its first `skip`. */
+    function ndbChain(head, rest, skip) {
+        var size = head.length, page = rest.page;
+        var chain = {head: head, page: page, total: size + Math.max(0, rest.total - skip), first: size ? head[0] : rest.first};
+        chain.numbers = function (start, end) {
+            end = Math.min(end, chain.total);
+            if (end <= start) return Promise.resolve([]);
+            var own = head.slice(start, Math.min(end, size));
+            if (end <= size) return Promise.resolve(own);
+            return rest.numbers(skip + Math.max(0, start - size), skip + end - size).then(function (more) { return own.concat(more); });
+        };
+        chain.pageOf = function (number) { return chain.numbers(number * page, number * page + page); };
+        return chain;
+    }
+    /** A tag's books in each source: its own token's and those of the tags sharing its alias key, merged. */
+    function ndbTagLists(manifest, tag) {
+        var key = ndbConcept(tag), first = ndbTag(tag);
+        var aliases = key ? ndbPiece(manifest, 'bucket', ndbBucket(key, manifest.buckets)).then(function (bucket) {
+            var found = bucket && bucket[key];
+            return Array.isArray(found) ? found : [];
+        }) : Promise.resolve([]);
+        return aliases.then(function (more) {
+            var wanted = [first].concat(more.filter(function (token) { return typeof token === 'string' && token !== first; }));
+            return Promise.all(wanted.map(function (token) { return ndbLists(manifest, token); }));
+        }).then(function (found) {
+            var out = {}, sources = {};
+            found.forEach(function (lists) { Object.keys(lists).forEach(function (source) { (sources[source] = sources[source] || []).push(lists[source]); }); });
+            // A tag and its translation list the same books: read them once.
+            var same = function (a, b) { return a.total === b.total && a.head.length === b.head.length && a.head.every(function (n, i) { return n === b.head[i]; }); };
+            return Promise.all(Object.keys(sources).map(function (source) {
+                var lists = sources[source].filter(function (list, i, all) { return !all.slice(0, i).some(function (other) { return same(list, other); }); });
+                if (lists.length === 1) { out[source] = lists[0]; return null; }
+                return Promise.all(lists.map(function (list) { return list.numbers(0, NDB_UNION_PAGES * list.page); })).then(function (read) {
+                    // A list read only in part says nothing of the books after its last one read: the merge
+                    // stops there, and the longest list's own books follow.
+                    var cutoff = Infinity, seen = new Set();
+                    read.forEach(function (numbers, i) { if (numbers.length && numbers.length < lists[i].total) cutoff = Math.min(cutoff, numbers[numbers.length - 1]); });
+                    read.forEach(function (numbers) { numbers.forEach(function (n) { if (n <= cutoff) seen.add(n); }); });
+                    var numbers = Array.from(seen).sort(function (a, b) { return a - b; });
+                    if (cutoff === Infinity) { if (numbers.length) out[source] = ndbFixed(numbers); return; }
+                    var longest = 0;
+                    lists.forEach(function (list, i) { if (list.total > lists[longest].total) longest = i; });
+                    out[source] = ndbChain(numbers, lists[longest], read[longest].filter(function (n) { return n <= cutoff; }).length);
+                });
+            })).then(function () { return out; });
+        });
+    }
     /** Each source's books with every token (for several: those in all of them, among their first pages). */
     function ndbStreams(manifest, wanted) {
         return Promise.all(wanted.map(function (token) { return ndbLists(manifest, token); })).then(function (perToken) {
@@ -416,7 +472,7 @@
         var more = false;
         return ndbManifest().then(function (manifest) {
             if (!manifest) return [];
-            return ndbStreams(manifest, wanted).then(function (streams) {
+            return (mode === 'tag' ? ndbTagLists(manifest, text) : ndbStreams(manifest, wanted)).then(function (streams) {
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
                 });

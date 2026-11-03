@@ -35,6 +35,7 @@ PIECES = 512  # word buckets, list pages and card blocks kept in memory
 FORMAT = 2
 LEAD = "npia"  # its books come first in each round of results
 MULTI_PAGES = 40  # list pages of each word read to match a search of several words (per source)
+UNION_PAGES = 10  # list pages of each alias of a tag read to merge them (per source)
 
 _STOP = {"the", "a", "an", "of", "to", "in", "and", "is", "on", "at", "for", "with"}
 _CJK = re.compile("[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿]")
@@ -61,6 +62,22 @@ def tokens(text: str) -> List[str]:
 
 def tag_token(tag: str) -> str:
     return "#" + re.sub(r"[\s_\-]+", " ", normal(tag)).strip()
+
+
+_BRACKETED = re.compile(r"[(\[{（【][^)\]}）】]*[)\]}）】]")
+
+
+def tag_concept(tag: str) -> str:
+    """A tag's alias key (the builder's tagConcept): its letters and digits without a bracketed note
+    and an ending -ing, -er or -s. "Gender Bender" and "Genderbend (TS)" share "=genderbend"."""
+    def letters(value: str) -> str:
+        return "".join(ch for ch in value if unicodedata.category(ch)[0] in "LN")
+
+    text = normal(tag)
+    key = letters(_BRACKETED.sub(" ", text)) or letters(text)
+    if len(key) > 5 and not _CJK.search(key):
+        key = re.sub(r"(ing|er|s)$", "", key)
+    return "=" + key if key else ""
 
 
 def bucket_of(token: str, buckets: int) -> int:
@@ -190,6 +207,40 @@ class NovelDBIndex:
         return {source: _List(self, _undelta(first), entry.get("+" + source), manifest.get("page") or 500)
                 for source, first in entry.items() if not source.startswith("+") and first}
 
+    def _tag_lists(self, tag: str) -> Dict[str, "_List"]:
+        """A tag's books in each source: its own token's and those of the tags sharing its alias key
+        ("Genderbend (TS)" for "Gender Bender"), merged."""
+        manifest = self.manifest()
+        if manifest is None:
+            return {}
+        wanted = [tag_token(tag)]
+        key = tag_concept(tag)
+        if key:
+            aliases = (self._piece("bucket", bucket_of(key, manifest["buckets"])) or {}).get(key)
+            if isinstance(aliases, list):
+                wanted += [token for token in aliases if isinstance(token, str) and token not in wanted]
+        found = [lists for lists in (self._lists(token) for token in wanted) if lists]
+        out = {}
+        for source in set().union(*found) if found else ():
+            lists, every = [], [lists[source] for lists in found if source in lists]
+            for lst in every:  # a tag and its translation list the same books: read them once
+                if not any(lst.total == other.total and lst.head == other.head for other in lists):
+                    lists.append(lst)
+            if len(lists) == 1:
+                out[source] = lists[0]
+                continue
+            read = [lst.numbers(0, UNION_PAGES * lst.page) for lst in lists]
+            # A list read only in part says nothing of the books after its last one read: the merge stops
+            # there, and the longest list's own books follow.
+            cutoff = min((nums[-1] for nums, lst in zip(read, lists) if nums and len(nums) < lst.total), default=None)
+            numbers = sorted({n for nums in read for n in nums if cutoff is None or n <= cutoff})
+            if cutoff is None:
+                out[source] = _List.of(numbers)
+            else:
+                longest = max(range(len(lists)), key=lambda i: lists[i].total)
+                out[source] = _Chain(numbers, lists[longest], sum(1 for n in read[longest] if n <= cutoff))
+        return out
+
     def _streams(self, wanted: List[str]) -> Dict[str, "_List"]:
         """Each source's books with every token: a token's own list, or for several the books in all
         of them (among the first MULTI_PAGES pages of each)."""
@@ -223,7 +274,7 @@ class NovelDBIndex:
         wanted = [tag_token(text)] if mode == "tag" else tokens(text)
         if not wanted or self.manifest() is None:
             return [], False
-        streams = self._streams(wanted)
+        streams = self._tag_lists(text) if mode == "tag" else self._streams(wanted)
         if sources:
             streams = {name: stream for name, stream in streams.items() if name in sources}
         order = sorted(streams, key=lambda name: (name != LEAD, streams[name].first))
@@ -332,6 +383,32 @@ class _List:
             out.extend(self._page(number))
         skip = start - (start // self.page) * self.page
         return out[skip:skip + end - start]
+
+
+class _Chain:
+    """Merged lists of a tag: their books merged up to where every list was read (`head`), then the
+    longest list's own books after its first `skip`."""
+
+    def __init__(self, head: List[int], rest: _List, skip: int):
+        self.head, self.rest, self.skip = head, rest, skip
+        self.page = rest.page
+        self.total = len(head) + max(0, rest.total - skip)
+
+    @property
+    def first(self) -> int:
+        return self.head[0] if self.head else self.rest.first
+
+    def number(self, at: int) -> Optional[int]:
+        if at < len(self.head):
+            return self.head[at]
+        return self.rest.number(self.skip + at - len(self.head)) if at < self.total else None
+
+    def numbers(self, start: int, end: int) -> List[int]:
+        end = min(end, self.total)
+        out = self.head[start:min(end, len(self.head))]
+        if end > len(self.head):
+            out += self.rest.numbers(self.skip + max(0, start - len(self.head)), self.skip + end - len(self.head))
+        return out
 
 
 def _count(value) -> str:

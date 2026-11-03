@@ -428,8 +428,9 @@
     }
     // A book found by a tag search whose page lists tags, none of them a picked tag: not what was asked for.
     function tagWords(tag) { return String(tag || '').toLowerCase().replace(/[\s_\-]+/g, ' ').trim(); }
+    // A book NovelDB found by the tag stays: its tags may spell it another way ("Genderbend (TS)").
     function offTag(group, card) {
-        if (view !== 'search' || !current.tags.length || current.text) return false;
+        if (view !== 'search' || !current.tags.length || current.text || group.verified) return false;
         var listed = (card.tags || []).map(tagWords).filter(Boolean);
         if (listed.length < 2) return false;  // too few to tell
         return !current.tags.some(function (tag) {
@@ -1110,12 +1111,18 @@
     function drawTags() {
         var filter = $('tagFilter').value.trim().toLowerCase();
         var match = function (tag) { return !filter || tag.toLowerCase().indexOf(filter) >= 0; };
-        var common = TAGS.filter(match);
+        // The picked tags lead the list (also ones typed in that no list has), the rest follow.
+        var isPicked = new Set(picked.map(function (t) { return t.toLowerCase(); }));
+        var listed = function (tag) {
+            return TAGS.concat(Array.from(resultTags.keys())).some(function (t) { return t.toLowerCase() === tag.toLowerCase(); });
+        };
+        var common = picked.filter(function (tag) {
+            return match(tag) && (TAGS.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); }) || !listed(tag));
+        }).concat(TAGS.filter(function (tag) { return match(tag) && !isPicked.has(tag.toLowerCase()); }));
         var found = Array.from(resultTags.keys()).filter(function (tag) {
             return match(tag) && !TAGS.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); });
-        }).sort(function (a, b) { return resultTags.get(b) - resultTags.get(a); }).slice(0, 60);
+        }).sort(function (a, b) { return (isPicked.has(b.toLowerCase()) - isPicked.has(a.toLowerCase())) || resultTags.get(b) - resultTags.get(a); }).slice(0, 60);
         var html = '';
-        if (picked.length) html += '<h3>Picked</h3>' + chipList(picked);
         if (common.length) html += '<h3>Genres and tags</h3>' + chipList(common);
         if (found.length) html += '<h3>In these results</h3>' + chipList(found, resultTags);
         if (!common.length && !found.length && filter) html += '<p>Press Enter to pick “' + esc($('tagFilter').value.trim()) + '”.</p>';
@@ -1140,11 +1147,11 @@
     });
     $('tagClear').addEventListener('click', function () { picked = []; showPicked(); drawTags(); searchSoon(); });
     $('tagSearch').addEventListener('click', function () { search(); });
-    document.addEventListener('click', function (event) {
-        // A chip that was just picked is redrawn, so its click no longer sits in the menu: not an outside click.
-        if (!event.target.isConnected) return;
+    // A tap anywhere outside the menu closes it: on a touch down, which every part of the page sends (a
+    // phone sends no click for a tap on plain text or an empty area), before the tap does anything else.
+    document.addEventListener('pointerdown', function (event) {
         if (!event.target.closest('#tagmenu') && !event.target.closest('#tagsButton') && !event.target.closest('[data-unpick]')) closeTags();
-    });
+    }, true);
 
     $('form').addEventListener('submit', search);
     // Clearing the search box (and with no tags picked) goes back to the Top 100.
