@@ -835,9 +835,10 @@
         resultTags.forEach(function (_n, tag) { if (!names.has(tag.toLowerCase())) names.set(tag.toLowerCase(), tag); });
         return names;
     }
-    function search(event) {
-        if (event) event.preventDefault();
-        closeTags();
+    function search(event, keepMenu) {
+        if (event && event.preventDefault) event.preventDefault();
+        clearTimeout(searchTimer);
+        if (!keepMenu) closeTags();
         var text = $('query').value.trim();
         if (!text && !picked.length) { showTop(); return; }
         var queries = [];
@@ -875,7 +876,7 @@
             return '<span class="picked">' + esc(tag) + '<b data-unpick="' + index + '" title="Remove">×</b></span>';
         }).join('');
         $('picked').querySelectorAll('[data-unpick]').forEach(function (x) {
-            x.onclick = function () { picked.splice(Number(x.dataset.unpick), 1); showPicked(); drawTags(); };
+            x.onclick = function () { picked.splice(Number(x.dataset.unpick), 1); showPicked(); drawTags(); searchSoon(); };
         });
         $('tagCount').innerHTML = picked.length ? '<span class="badge">' + picked.length + '</span>' : '';
         $('tagsButton').classList.toggle('on', picked.length > 0);
@@ -885,6 +886,14 @@
         if (at >= 0) picked.splice(at, 1); else picked.push(tag);
         showPicked();
         drawTags();
+        searchSoon();
+    }
+    // A change of the picked tags searches by itself, once the picking pauses (one search for several
+    // tags picked in a row); the tag menu stays open meanwhile.
+    var searchTimer = 0;
+    function searchSoon() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () { search(null, true); }, 700);
     }
     function chipList(tags, counts) {
         var on = new Set(picked.map(function (t) { return t.toLowerCase(); }));
@@ -924,9 +933,11 @@
             if (text) { togglePick(allTags().get(text.toLowerCase()) || text); $('tagFilter').value = ''; drawTags(); }
         } else if (event.key === 'Escape') closeTags();
     });
-    $('tagClear').addEventListener('click', function () { picked = []; showPicked(); drawTags(); });
+    $('tagClear').addEventListener('click', function () { picked = []; showPicked(); drawTags(); searchSoon(); });
     $('tagSearch').addEventListener('click', function () { search(); });
     document.addEventListener('click', function (event) {
+        // A chip that was just picked is redrawn, so its click no longer sits in the menu: not an outside click.
+        if (!event.target.isConnected) return;
         if (!event.target.closest('#tagmenu') && !event.target.closest('#tagsButton') && !event.target.closest('[data-unpick]')) closeTags();
     });
 
