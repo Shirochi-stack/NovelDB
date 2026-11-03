@@ -23,6 +23,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from noveldb.core import paths
 from noveldb.core.catalog.generic_search import GenericSearch, default_fetch, load_learned, save_learned, top_sites
 from noveldb.core.catalog.live_reader import LiveReader
+from noveldb.core.catalog.noveldb_index import NovelDBIndex
 from noveldb.core.catalog.offline_cache import OfflineCache
 from noveldb.core.catalog.site_search import SiteSearch
 
@@ -242,6 +243,8 @@ class GenericCatalog(QObject):
         self.site_search = SiteSearch(self.fetch, cache_file=cache)
         self.site_search.render = self.browser.fetch
         self.reader = LiveReader(self.fetch, render=self._render)
+        # NovelDB's own 1.1 million books, read from its search index a few pieces at a time.
+        self.noveldb = NovelDBIndex(default_fetch, cache_dir=paths.cache_dir())
         self._learned_file = paths.cache_dir() / "generic-id-templates.json"
         load_learned(self._learned_file)
         self._cards.connect(lambda sid, cards: self._call("add", cards, sid))
@@ -331,7 +334,8 @@ class GenericCatalog(QObject):
                 self._done.emit(search_id, totals)
 
         def run(query: str, mode: str):
-            engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
+            engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
+                                   noveldb=self.noveldb)
             if mode == "id":
                 try:
                     engine.by_id(query, lambda cards: self._cards.emit(search_id, [dict(c, via="id") for c in cards]), stop,
@@ -535,7 +539,7 @@ class GenericCatalog(QObject):
         if cached:
             self._detailed.emit(dict(card, **cached, complete=True))
             return
-        engine = GenericSearch(fetch=self.fetch, site_search=self.site_search)
+        engine = GenericSearch(fetch=self.fetch, site_search=self.site_search, noveldb=self.noveldb)
         try:
             found = engine.details(card)
         except Exception:

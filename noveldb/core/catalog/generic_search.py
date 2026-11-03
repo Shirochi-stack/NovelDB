@@ -243,7 +243,7 @@ def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
 class GenericSearch:
     def __init__(self, fetch: Callable = default_fetch, sites: Optional[List[dict]] = None,
                  known_site: Optional[Callable[[str], bool]] = None, workers: int = 32, site_search=None,
-                 skip_lnreader: bool = True):
+                 skip_lnreader: bool = True, noveldb=None):
         from noveldb.core.catalog.site_search import SiteSearch
 
         self.fetch = fetch
@@ -252,6 +252,7 @@ class GenericSearch:
         self.workers = workers
         self.site_search = site_search or SiteSearch(fetch)
         self.skip_lnreader = skip_lnreader  # the page searches those sites with their LNReader plugin
+        self.noveldb = noveldb  # NovelDB's own books (noveldb_index.NovelDBIndex), when given
         self._site_hosts = {host: site for site in self.sites for host in site.get("hosts", [site["host"]])}
 
     def site_for(self, url: str) -> Optional[dict]:
@@ -270,7 +271,10 @@ class GenericSearch:
                 "source": source, "complete": False}
 
     def details(self, card: dict) -> dict:
-        """The card with what the book's page says: title, author, cover, description, tags."""
+        """The card with what the book's page says: title, author, cover, description, tags. A NovelDB
+        card has all of that but its synopsis, which comes from NovelDB's synopsis file for it."""
+        if card.get("source") == "noveldb" and self.noveldb is not None:
+            return dict(card, complete=True, description=self.noveldb.description(card) or card.get("description", ""))
         result = self.fetch(card["url"])
         if not result or result["status"] >= 400:
             return dict(card, complete=True)
@@ -409,6 +413,23 @@ class GenericSearch:
             report(site["site"], started, len(fresh), "refused" if refused else "ok")
             enrich([card for card in fresh if not card["cover"]])
 
+        def from_noveldb():
+            if stop.is_set():
+                return
+            started = time.monotonic()
+            try:
+                cards = self.noveldb.search(text, mode)
+            except Exception:
+                summary["failed"] += 1
+                report("NovelDB", started, 0, "failed")
+                return
+            ms = int((time.monotonic() - started) * 1000)
+            fresh = offer([dict(card, ms=ms, verified=mode == "tag") for card in cards])
+            summary["noveldb"] = len(fresh)
+            report("NovelDB", started, len(fresh))
+
+        if self.noveldb is not None:
+            futures.append(pool.submit(from_noveldb))
         for site in self.sites:
             if not (self.skip_lnreader and site.get("lnreader")):
                 futures.append(pool.submit(from_site, site))

@@ -1,0 +1,61 @@
+name: NovelDB search index
+run-name: NovelDB search index — ${{ github.event_name }}
+
+# The index the Catalog's generic search reads NovelDB's books from (scripts/noveldb_index/build.cjs):
+# rebuilt when the site's data changes, and published as assets of the `engines` release (next to the
+# engines' bundles the apps download), so its daily rebuilds never grow the repository's history.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/data/*_chunk_manifest.json'
+      - 'docs/data/*titles_en.txt'
+      - 'docs/data/tags_en.txt'
+      - 'docs/metadata-core.js'
+      - 'scripts/noveldb_index/**'
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: noveldb-index
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: engines
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docs/data
+            docs/metadata-core.js
+            scripts/noveldb_index
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build the index
+        run: node --max-old-space-size=8192 scripts/noveldb_index/build.cjs docs/data out
+
+      - name: Publish it
+        run: |
+          set -euo pipefail
+          bin=$(ls out/noveldb-search-*.bin)
+          # The data first, under this build's own name; then the table of contents that points at it.
+          gh release upload "$TAG" "$bin" --clobber
+          gh release upload "$TAG" out/noveldb-search.json --clobber
+          # Older builds' data: kept a few minutes for searches that read the old table, then removed.
+          sleep 300
+          keep=$(basename "$bin")
+          gh release view "$TAG" --json assets -q '.assets[].name' | grep '^noveldb-search-.*\.bin$' | grep -vx "$keep" |
+            while read -r old; do gh release delete-asset "$TAG" "$old" --yes; done

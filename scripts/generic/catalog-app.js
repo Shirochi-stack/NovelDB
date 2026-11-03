@@ -87,17 +87,20 @@
                        responseType: 'arraybuffer', timeout: options.quick ? 8000 : 15000};
         if (options.data != null) details.dataBase64 = base64Of(String(options.data));
         if (stopped(options.stop)) return Promise.resolve(null);
-        return take(slots).then(function () {
-            return transport(details);
+        // `priority`: a few small reads (NovelDB's index) that never wait behind the sites' pages.
+        var pool = options.priority ? {free: 1, waiting: []} : slots;
+        return take(pool).then(function () {
+            // A search or top list stopped while this waited for a slot: its request is not sent.
+            return stopped(options.stop) ? {error: 'stopped'} : transport(details);
         }).then(function (reply) {
-            give(slots);
+            give(pool);
             var result = reply && !reply.error ? wrap(reply, url) : null;
             if (details.method === 'GET' && !options.binary && !options.quick && refused(result) && !stopped(options.stop)) {
                 note('Loading ' + short(url) + ' in a browser page…');
                 return render(url).then(function (rendered) { return rendered || result; });
             }
             return result;
-        }, function () { give(slots); return null; });
+        }, function () { give(pool); return null; });
     }
     function wrap(reply, url) {
         var bytes = reply.responseBase64 ? bytesOf(reply.responseBase64) : new TextEncoder().encode(reply.responseText || '');
@@ -254,8 +257,131 @@
                 complete: false};
     }
 
+    // -- NovelDB's own books (noveldb/core/catalog/noveldb_index.py; scripts/noveldb_index/build.cjs) --
+    // The index's table of contents is read once a day; a search reads one word bucket per query word
+    // and the card blocks of the books found, with Range requests. A synopsis comes from NovelDB's
+    // synopsis shard for the book when its card is opened.
+
+    var NDB_INDEX = 'https://github.com/Shirochi-stack/NovelDB/releases/download/engines/';
+    var NDB_PAGES = 'https://shirochi-stack.github.io/NovelDB/data/';
+    var NDB_KEY = 'noveldb.generic.ndbIndex', NDB_HOURS = 24;
+    var NDB_STOP = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'and', 'is', 'on', 'at', 'for', 'with']);
+    var NDB_CJK = /[\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/;
+    var ndb = {manifest: null, pieces: new Map(), loading: null};
+
+    function ndbNormal(text) { return String(text || '').normalize('NFKC').toLowerCase(); }
+    function ndbTokens(text) {
+        var out = [];
+        (ndbNormal(text).match(/[\p{L}\p{N}]+/gu) || []).forEach(function (word) {
+            var add = function (token) { if (out.indexOf(token) < 0) out.push(token); };
+            if (NDB_CJK.test(word)) {
+                if (word.length <= 2) add(word);
+                for (var i = 0; i + 2 <= word.length; i++) add(word.slice(i, i + 2));
+            } else if (word.length >= 2 && !NDB_STOP.has(word)) {
+                add(word);
+            }
+        });
+        return out;
+    }
+    function ndbTag(tag) { return '#' + ndbNormal(tag).replace(/[\s_\-]+/g, ' ').trim(); }
+    function ndbBucket(token, buckets) {
+        var hash = 0x811c9dc5;
+        new TextEncoder().encode(token).forEach(function (byte) { hash = Math.imul(hash ^ byte, 0x01000193) >>> 0; });
+        return hash % buckets;
+    }
+    function gunzip(bytes) {
+        return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    }
+    function ndbManifest() {
+        if (ndb.manifest && Date.now() - ndb.manifest._read < NDB_HOURS * 3600e3) return Promise.resolve(ndb.manifest);
+        var kept = store(NDB_KEY);
+        if (kept && kept._read && Date.now() - kept._read < NDB_HOURS * 3600e3) { ndb.manifest = kept; return Promise.resolve(kept); }
+        if (ndb.loading) return ndb.loading;
+        ndb.loading = fetchUrl(NDB_INDEX + 'noveldb-search.json', {binary: true, priority: true}).then(function (result) {
+            ndb.loading = null;
+            if (!result || result.status >= 400) return ndb.manifest;
+            var found;
+            try { found = JSON.parse(new TextDecoder().decode(result.bytes)); } catch (e) { return ndb.manifest; }
+            if (found.format !== 1) return null;  // an index for a newer app
+            found._read = Date.now();
+            ndb.manifest = found;
+            ndb.pieces.clear();
+            store(NDB_KEY, found);
+            return found;
+        });
+        return ndb.loading;
+    }
+    function ndbPiece(manifest, kind, index) {
+        var key = manifest.built + '|' + kind + '|' + index;
+        if (ndb.pieces.has(key)) return ndb.pieces.get(key);
+        var at = (kind === 'bucket' ? manifest.bucketAt : manifest.blockAt)[index];
+        var asked = fetchUrl(NDB_INDEX + manifest.bin, {binary: true, priority: true, headers: {Range: 'bytes=' + at[0] + '-' + (at[0] + at[1] - 1)}})
+            .then(function (result) {
+                // A server that ignores the range sends the whole file: not something to read here.
+                if (!result || (result.status !== 200 && result.status !== 206) || result.bytes.length !== at[1]) return null;
+                return gunzip(result.bytes).then(JSON.parse);
+            }).catch(function () { return null; });
+        ndb.pieces.set(key, asked);
+        if (ndb.pieces.size > 256) ndb.pieces.delete(ndb.pieces.keys().next().value);
+        return asked;
+    }
+    function ndbCount(value) { var n = Number(value) || 0; return n > 0 ? n.toLocaleString('en-US') : ''; }
+    /** Cards of NovelDB's books for a title or tag search, the most read first. */
+    function ndbSearch(text, mode, limit) {
+        var wanted = mode === 'tag' ? [ndbTag(text)] : ndbTokens(text);
+        if (!wanted.length) return Promise.resolve([]);
+        return ndbManifest().then(function (manifest) {
+            if (!manifest) return [];
+            return Promise.all(wanted.map(function (token) {
+                return ndbPiece(manifest, 'bucket', ndbBucket(token, manifest.buckets)).then(function (bucket) { return (bucket && bucket[token]) || []; });
+            })).then(function (lists) {
+                if (lists.some(function (list) { return !list.length; })) return [];
+                var numbers = lists[0].filter(function (n) { return lists.every(function (list) { return list.indexOf(n) >= 0; }); })
+                    .sort(function (a, b) { return a - b; }).slice(0, limit || 40);
+                return Promise.all(numbers.map(function (number) {
+                    return ndbPiece(manifest, 'block', Math.floor(number / manifest.block)).then(function (block) {
+                        var row = block && block[number % manifest.block];
+                        if (!row) return null;
+                        var url = row[11];
+                        return {url: url, title: row[3] || row[2], originalTitle: row[3] ? row[2] : '', author: row[4] || '',
+                                cover: row[5] || '', description: '', tags: row[6] || [], site: G().siteOf(host(url)), comic: false,
+                                source: 'noveldb', noveldb: {source: row[0], id: row[1]}, complete: false,
+                                views: ndbCount(row[7]), likes: ndbCount(row[8]), chapters: ndbCount(row[9]),
+                                status: row[10] === 1 ? 'Completed' : row[10] === 0 ? 'Ongoing' : '', updated: String(row[12] || '').slice(0, 10)};
+                    });
+                }));
+            });
+        }).then(function (cards) { return (cards || []).filter(Boolean); });
+    }
+    function ndbShard(id, count) {
+        var text = String(id || '');
+        if (/^-?\d+$/.test(text) && Number.isSafeInteger(Number(text))) return Math.abs(Number(text)) % count;
+        var value = 0;
+        for (var i = 0; i < text.length; i++) value = ((value * 31) + text.charCodeAt(i)) >>> 0;
+        return value % count;
+    }
+    /** A NovelDB book's synopsis, from the site's synopsis shard for it. */
+    function ndbDescription(card) {
+        var ref = card.noveldb || {};
+        return ndbManifest().then(function (manifest) {
+            var info = manifest && manifest.sources && manifest.sources[ref.source] && manifest.sources[ref.source].descriptions;
+            if (!info || !ref.id) return '';
+            var shard = String(ndbShard(ref.id, info.count || 128)).padStart(3, '0');
+            return fetchUrl(NDB_PAGES + info.prefix + shard + '.json.gz', {binary: true, priority: true}).then(function (result) {
+                if (!result || result.status >= 400) return '';
+                var bytes = result.bytes;
+                var text = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzip(bytes) : Promise.resolve(new TextDecoder().decode(bytes));
+                return text.then(function (json) { return String(JSON.parse(json)[String(ref.id)] || '').replace(/\\n/g, '\n').trim(); });
+            });
+        }).catch(function () { return ''; });
+    }
+
     /** The card with what the book's page says. */
     function details(item) {
+        if (item.source === 'noveldb') {
+            // NovelDB's card has everything but its synopsis.
+            return ndbDescription(item).then(function (text) { return Object.assign({}, item, {complete: true, description: text || item.description}); });
+        }
         return fetchUrl(item.url).then(function (result) {
             if (!result || result.status >= 400) return Object.assign({}, item, {complete: true});
             var meta = G().metadata(G().parse(result.text()), result.url || item.url);
@@ -723,6 +849,13 @@
                 }, function () { summary.failed++; report(site.site, started, 0, 'failed'); });
             };
         });
+        sources.unshift(function () {
+            var started = Date.now();
+            return ndbSearch(text, mode, 40).then(function (cards) {
+                var fresh = offer(cards.map(function (c) { return Object.assign(c, {ms: Date.now() - started, verified: mode === 'tag'}); }));
+                report('NovelDB', started, fresh.length);
+            }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); });
+        });
         sources.push(function () {
             var started = Date.now();
             var words_ = mode === 'tag' ? '"' + text + '" (novel OR manga OR webtoon)' : '"' + text + '" (novel OR manga OR webtoon OR manhwa)';
@@ -1110,5 +1243,5 @@
     };
     window.__noveldb_window_script = function (request) { return transport(Object.assign({}, request, {op: 'window'})); };
     window.NovelDBCatalogApp = {plan: plan, extractCards: extractCards, looksLikeBook: looksLikeBook, relevant: relevant,
-                                cleanTitle: cleanTitle, cardShape: cardShape};
+                                cleanTitle: cleanTitle, cardShape: cardShape, ndbSearch: ndbSearch, ndbDescription: ndbDescription};
 })();
