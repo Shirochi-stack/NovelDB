@@ -246,7 +246,7 @@
         var text = String(title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
         return /[^\x00-\x7f]/.test(text) ? text : '';
     }
-    // NovelDB's novelpia books lead their group: their cover and title are the ones shown, whoever answered first.
+    // NovelDB's npia books lead their group: their cover and title are the ones shown, whoever answered first.
     function leads(card) { return !!(card.noveldb && card.noveldb.source === 'npia'); }
     function merge(card, rank) {
         if (card && card.title) card.title = bookTitle(card.title, card.site);
