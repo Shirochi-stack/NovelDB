@@ -127,7 +127,9 @@
              padding: 0; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
     dialog::backdrop { background: rgba(0,0,0,.45); }
     .details { display: flex; gap: 18px; padding: 18px; }
-    .details .cover { width: 190px; flex: none; border-radius: 8px; }
+    .details .side { width: 190px; flex: none; display: flex; flex-direction: column; gap: 8px; }
+    .details .side .cover { width: 100%; border-radius: 8px; }
+    .details .side button { width: 100%; }
     .details h2 { margin: 0 0 4px; font-size: 19px; }
     .details .info { min-width: 0; flex: 1; }
     .details .desc { white-space: pre-line; max-height: 240px; overflow: auto; color: var(--ink); margin: 8px 0; }
@@ -138,7 +140,17 @@
     .sources div > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sources button { padding: 3px 9px; font-size: 12px; }
     .actions { display: flex; gap: 8px; justify-content: flex-end; padding: 0 18px 16px; flex-wrap: wrap; }
-    @media (max-width: 600px) { .details { flex-direction: column; } .details .cover { width: 130px; } }
+    .actions button.icon { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+    .actions button.icon img { width: 24px; height: 24px; object-fit: contain; margin: -5px 0 -5px -3px; }
+    /* A phone: the cover and its Source page button centred on top, the actions two by two. */
+    @media (max-width: 600px) {
+        dialog { width: calc(100% - 16px); }
+        .details { flex-direction: column; gap: 12px; padding: 14px; }
+        .details .side { width: 150px; align-self: center; }
+        .details h2 { font-size: 17px; }
+        .details .desc { max-height: 180px; }
+        .actions { display: grid; grid-template-columns: 1fr 1fr; padding: 0 14px 14px; }
+    }
     /* the reader */
     #reader { position: fixed; inset: 0; z-index: 10; display: none; --r-bg: #fbfbf8; --r-ink: #1f1f24; --r-ink-2: #6b6b75; --r-line: #e4e4e8;
               --r-size: 19px; --r-leading: 1.75; --r-font: Georgia, "Noto Serif", "Noto Serif CJK KR", "Noto Serif CJK JP", serif;

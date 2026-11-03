@@ -78,8 +78,39 @@ def runtime() -> Optional[dict]:
                 sys.path.remove(_runtime["folder"])
         if str(folder) not in sys.path:
             sys.path.insert(0, str(folder))
-        _runtime = {"folder": str(folder), "key": key, "hosts": hosts}
+        bs4_compat()
+        _runtime ={"folder": str(folder), "key": key, "hosts": hosts}
         return _runtime
+
+
+def bs4_compat() -> None:
+    """lightnovel-crawler's soup layer is written for BeautifulSoup 4.13: `new_tag` takes the tag's
+    text (`string`, passed by position) and tags have `copy_self`. With 4.12 (a source install, or
+    the mobile apps' Python) the first fails every chapter with a positional-argument error and the
+    second silently skips text replacements. Both are added when missing; 4.13 is left alone."""
+    import copy
+    import inspect
+
+    import bs4
+
+    if not hasattr(bs4.Tag, "copy_self"):
+        def copy_self(tag):
+            clone = copy.copy(tag)
+            clone.clear()
+            return clone
+
+        bs4.Tag.copy_self = copy_self
+    if "string" not in inspect.signature(bs4.BeautifulSoup.new_tag).parameters:
+        original = bs4.BeautifulSoup.new_tag
+
+        def new_tag(self, name, namespace=None, nsprefix=None, attrs=None, sourceline=None, sourcepos=None,
+                    string=None, **kwattrs):
+            tag = original(self, name, namespace, nsprefix, attrs or {}, sourceline, sourcepos, **kwattrs)
+            if string is not None:
+                tag.string = string
+            return tag
+
+        bs4.BeautifulSoup.new_tag = new_tag
 
 
 def knows(url: str) -> bool:

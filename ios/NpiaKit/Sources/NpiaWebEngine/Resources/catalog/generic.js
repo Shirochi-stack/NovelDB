@@ -21,7 +21,7 @@
     var cart = new Set(), pending = {}, nextId = 0, searchId = 0, running = 0;
     var view = 'top', current = {text: '', tags: []}, picked = [], resultTags = new Map();
     // TOP_KEY's version: a new one drops the top lists saved by older code.
-    var TOP_KEY = 'noveldb.generic.top.v4', TOP_HOURS = 12, TOP_SIZE = 100;
+    var TOP_KEY = 'noveldb.generic.top.v5', TOP_HOURS = 12, TOP_SIZE = 100;
     var TAGS = ['Action', 'Adventure', 'Apocalypse', 'BL', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
@@ -581,8 +581,12 @@
         var show = function () {
             var inCart = group.sources.some(function (s) { return cart.has(s.url); });
             var rating = group.rating ? '★ ' + group.rating + (group.ratings ? ' (' + group.ratings + ' ratings)' : '') : '';
-            dialog.innerHTML = '<div class="details"><div class="cover">'
-                + (group.cover ? '<img referrerpolicy="no-referrer" alt="" src="' + esc(group.cover) + '">' : '') + '</div>'
+            // The panel shows the cover as the site sent it: the card's copy is made small for the card.
+            var full = (group.covers || []).filter(function (c) { return !(group.failedCovers || []).includes(c); })[0] || group.cover;
+            // The cover with the book's own page under it; the actions show the app's artwork.
+            dialog.innerHTML = '<div class="details"><div class="side"><div class="cover">'
+                + (full ? '<img referrerpolicy="no-referrer" alt="" src="' + esc(full) + '">' : '') + '</div>'
+                + '<button type="button" data-act="open">Source page</button></div>'
                 + '<div class="info"><h2>' + esc(group.title) + '</h2>'
                 + '<div class="meta">' + esc([group.author, KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
                 + '<div class="facts">' + fact('Rating', rating) + fact('Likes', group.likes) + fact('Views', group.views)
@@ -597,15 +601,19 @@
                         + (index === 0 ? ' (first to answer)' : '') + '</span>'
                         + '<button type="button" data-read="' + index + '">Read</button>'
                         + '<button type="button" data-download="' + index + '">Download</button>'
-                        + '<button type="button" data-open="' + index + '">Open</button></div>';
+                        + '<button type="button" data-open="' + index + '">Source</button></div>';
                 }).join('') + '</div>') + '</div></div>'
-                + '<div class="actions">' + (group.sources.length < 2 ? '<button type="button" data-act="open">Open page</button>' : '')
-                + '<button type="button" class="primary" data-act="read">Read now</button>'
-                + '<button type="button" class="primary" data-act="download">Download</button>'
-                + '<button type="button" data-act="cart">' + (inCart ? 'Remove from cart' : 'Add to cart') + '</button>'
+                + '<div class="actions">'
+                + '<button type="button" class="primary icon" data-act="read"><img src="icon-mining.webp" alt="">Read now</button>'
+                + '<button type="button" class="primary icon" data-act="download">'
+                + (config.downloadIcon ? '<img src="' + config.downloadIcon + '" alt="">' : '') + 'Download</button>'
+                + '<button type="button" class="icon' + (inCart ? ' on' : '') + '" data-act="cart"><img src="icon-cart.webp" alt="">'
+                + (inCart ? 'In cart' : 'Add to cart') + '</button>'
                 + '<button type="button" data-act="close">Close</button></div>';
             var image = dialog.querySelector('img');
             if (image) image.addEventListener('error', function () {
+                // The site refuses its cover to this page: the card's copy, which the card did load.
+                if (full !== group.cover && /^data:/.test(group.cover || '')) { image.src = group.cover; return; }
                 // The same way back as the card's cover: the app, then the book's other sites.
                 var cardImage = group.element && group.element.querySelector('.cover img');
                 if (cardImage) coverFailed(group, cardImage); else image.remove();
@@ -708,6 +716,7 @@
         var cached = store(TOP_KEY + '.' + top.kind + '.' + language);
         if (cached && cached.items && cached.items.length) {
             cached.items.forEach(function (item, index) {
+                if (notInTop(item)) return;
                 var group = merge(item, index + 1);
                 if (group) { (item.more || []).forEach(function (m) { merge(m); }); render(group); }
             });
@@ -716,8 +725,17 @@
         }
         loadTop(searchId);
     }
+    // Kept out of the top lists (a search still finds them): a book whose tags or title say so.
+    var NOT_IN_TOP = /(yaoi|smut)/i;
+    function notInTop(item) {
+        return NOT_IN_TOP.test(item.title || '') || (item.tags || []).some(function (tag) { return NOT_IN_TOP.test(tag); });
+    }
+    function dropFromTop(group) {
+        group.sources.slice().forEach(function (source) { drop(group, source.url); });
+        topRedrawSoon();  // the next book in line takes its place
+    }
     function topCollect(card, weight, position, length) {
-        if (!card.title || JUNK.test(card.title) || NO_RESULTS.test(card.title) || !inLanguage(card)) return;
+        if (!card.title || JUNK.test(card.title) || NO_RESULTS.test(card.title) || !inLanguage(card) || notInTop(card)) return;
         var k = groupKey(card);
         var entry = top.scores.get(k) || {key: k, score: 0, first: top.first++, cards: []};
         entry.score += weight * (1 - 0.7 * position / Math.max(1, length));
@@ -729,6 +747,8 @@
     function topRedraw() {
         var entries = Array.from(top.scores.values()).sort(function (a, b) { return a.first - b.first; });
         entries.forEach(function (entry) {
+            if (entry.excluded) return;
+            if (entry.group && !groups.has(entry.group.key)) { entry.excluded = true; return; }  // dropped from the list
             if (!entry.group) {
                 if (order.length >= TOP_SIZE) return;
                 var group = merge(entry.cards[0]);
@@ -1487,6 +1507,8 @@
             }
             card.complete = true;
             merge(card);
+            // Its page shows tags the list card lacked.
+            if (view === 'top' && notInTop(group)) { dropFromTop(group); return; }
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
         },

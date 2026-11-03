@@ -28,6 +28,8 @@ SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app
 FILES = {
     "generic.js": PAGE / "generic.js",
     "halgakos-loading.webp": PAGE / "halgakos-loading.webp",
+    "icon-cart.webp": PAGE / "icon-cart.webp",
+    "icon-mining.webp": PAGE / "icon-mining.webp",
     "generic-lib.js": ROOT / "scripts" / "generic" / "generic-lib.js",
     "catalog-app.js": ROOT / "scripts" / "generic" / "catalog-app.js",
     "catalog-host.js": ROOT / "scripts" / "generic" / "catalog-host.js",
