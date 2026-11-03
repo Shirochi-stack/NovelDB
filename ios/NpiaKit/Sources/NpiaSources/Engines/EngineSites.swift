@@ -32,7 +32,7 @@ enum EngineSites {
     static func lists(_ bundle: EngineBundle, _ url: URL) -> Bool {
         guard let index = index(for: bundle) else { return false }
         switch bundle.engine {
-        case .webtoepub:
+        case .webtoepub, .lnreader:
             return index.hosts.contains(stripWWW((url.host ?? "").lowercased()))
         case .novelDownloader:
             return index.matches(hostAndPort: hostAndPort(url))
@@ -50,7 +50,7 @@ enum EngineSites {
     /// WebToEpub lists only hosts, so any page of a listed site counts except the site's home page.
     static func listsPage(_ bundle: EngineBundle, _ url: URL) -> Bool {
         switch bundle.engine {
-        case .webtoepub:
+        case .webtoepub, .lnreader:
             return lists(bundle, url) && !isHomePage(url)
         case .novelDownloader:
             return pagePatterns(for: bundle)?.accepts(url) ?? false
@@ -112,11 +112,15 @@ enum EngineSites {
             return known
         }
         lock.unlock()
-        guard let data = try? Data(contentsOf: bundle.path) else { return nil }
         let built: EngineSiteIndex
-        switch bundle.engine {
-        case .webtoepub: built = parseWebToEpub(data)
-        case .novelDownloader: built = parseNovelDownloader(data)
+        if bundle.engine.sitesInManifest {
+            built = parseManifestSites(bundle.manifest.raw["sites"] as? [String] ?? [])
+        } else {
+            guard let data = try? Data(contentsOf: bundle.path) else { return nil }
+            switch bundle.engine {
+            case .webtoepub, .lnreader: built = parseWebToEpub(data)
+            case .novelDownloader: built = parseNovelDownloader(data)
+            }
         }
         lock.lock()
         cache[key] = built
@@ -125,6 +129,17 @@ enum EngineSites {
     }
 
     // MARK: - Parsing
+
+    /// The hosts of a manifest's `sites` addresses (bare hosts count too), without `www.`.
+    static func parseManifestSites(_ sites: [String]) -> EngineSiteIndex {
+        var hosts = Set<String>()
+        for site in sites {
+            let text = site.trimmingCharacters(in: .whitespaces)
+            let address = text.contains("//") ? text : "http://" + text
+            if let host = URL(string: address)?.host?.lowercased() { hosts.insert(stripWWW(host)) }
+        }
+        return EngineSiteIndex(hosts: hosts)
+    }
 
     static func parseWebToEpub(_ data: Data) -> EngineSiteIndex {
         let bytes = [UInt8](data)

@@ -8,13 +8,18 @@ import NpiaCore
 public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
     case novelDownloader = "novel_downloader"
     case webtoepub
+    case lnreader
 
     public var siteEngine: SiteEngine {
         switch self {
         case .novelDownloader: return .novelDownloader
         case .webtoepub: return .webtoepub
+        case .lnreader: return .lnreader
         }
     }
+
+    /// The manifest's `sites` (addresses) list the sites the engine knows (LNReader); otherwise the script says.
+    var sitesInManifest: Bool { self == .lnreader }
 
     /// The name shown to the user.
     public var title: String { siteEngine.title }
@@ -27,6 +32,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         switch self {
         case .novelDownloader: return "rules-lib.js"
         case .webtoepub: return "webtoepub-lib.js"
+        case .lnreader: return "lnreader-lib.js"
         }
     }
 
@@ -35,6 +41,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         switch self {
         case .novelDownloader: return "novel-downloader-manifest.json"
         case .webtoepub: return "webtoepub-manifest.json"
+        case .lnreader: return "lnreader-manifest.json"
         }
     }
 
@@ -42,7 +49,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
     var shippedManifest: String? {
         switch self {
         case .novelDownloader: return nil
-        case .webtoepub: return EngineStore.manifestName
+        case .webtoepub, .lnreader: return EngineStore.manifestName
         }
     }
 
@@ -51,6 +58,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         switch self {
         case .novelDownloader: return ["Resources", ""]
         case .webtoepub: return ["Resources/webtoepub", "webtoepub"]
+        case .lnreader: return ["Resources/lnreader", "lnreader"]
         }
     }
 }
@@ -62,6 +70,7 @@ public extension SiteEngine {
         case .native: return nil
         case .novelDownloader: return .novelDownloader
         case .webtoepub: return .webtoepub
+        case .lnreader: return .lnreader
         }
     }
 }

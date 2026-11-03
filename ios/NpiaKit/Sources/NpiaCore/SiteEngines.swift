@@ -1,18 +1,21 @@
 import Foundation
 
 /// The engines a book link can go through. Each link tries them in the user's order until one
-/// finds chapters: the app's own scrapers, the novel-downloader rules, then the WebToEpub parsers.
+/// finds chapters: the app's own scrapers, the novel-downloader rules, the WebToEpub parsers, then
+/// the LNReader plugins.
 /// Raw values are the names the desktop config uses.
 public enum SiteEngine: String, Codable, CaseIterable, Sendable {
     case native
     case novelDownloader = "novel_downloader"
     case webtoepub
+    case lnreader
 
     public var title: String {
         switch self {
         case .native: return "Built-in scrapers"
         case .novelDownloader: return "novel-downloader rules"
         case .webtoepub: return "WebToEpub parsers"
+        case .lnreader: return "LNReader plugins"
         }
     }
 
@@ -21,6 +24,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .native: return "The app's own scrapers for the sites it knows best."
         case .novelDownloader: return "Rules for mostly Chinese and Japanese sites."
         case .webtoepub: return "Parsers for 650+ sites, mostly English translations."
+        case .lnreader: return "Plugins for 320+ novel sites in many languages."
         }
     }
 
@@ -46,12 +50,14 @@ public struct EngineSettings: Codable, Sendable, Equatable {
     public var disabled: [SiteEngine]
     public var novelDownloaderAutoUpdate: Bool
     public var webtoepubAutoUpdate: Bool
+    public var lnreaderAutoUpdate: Bool
 
     public init(
         order: [SiteEngine] = SiteEngine.allCases,
         disabled: [SiteEngine] = [],
         novelDownloaderAutoUpdate: Bool = true,
-        webtoepubAutoUpdate: Bool = true
+        webtoepubAutoUpdate: Bool = true,
+        lnreaderAutoUpdate: Bool = true
     ) {
         let full = SiteEngine.ordered(order.map { $0.rawValue })
         let off = full.filter { disabled.contains($0) }
@@ -60,10 +66,11 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         self.disabled = off.count == full.count ? [] : off
         self.novelDownloaderAutoUpdate = novelDownloaderAutoUpdate
         self.webtoepubAutoUpdate = webtoepubAutoUpdate
+        self.lnreaderAutoUpdate = lnreaderAutoUpdate
     }
 
     private enum CodingKeys: String, CodingKey {
-        case order, disabled, novelDownloaderAutoUpdate, webtoepubAutoUpdate
+        case order, disabled, novelDownloaderAutoUpdate, webtoepubAutoUpdate, lnreaderAutoUpdate
     }
 
     /// Every key is optional and unknown engine names are dropped, so hand-edited files still load.
@@ -73,11 +80,13 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         let off = try container.decodeIfPresent([String].self, forKey: .disabled) ?? []
         let novelDownloader = try container.decodeIfPresent(Bool.self, forKey: .novelDownloaderAutoUpdate) ?? true
         let webtoepub = try container.decodeIfPresent(Bool.self, forKey: .webtoepubAutoUpdate) ?? true
+        let lnreader = try container.decodeIfPresent(Bool.self, forKey: .lnreaderAutoUpdate) ?? true
         self.init(
             order: SiteEngine.ordered(names),
             disabled: off.compactMap { SiteEngine(rawValue: $0) },
             novelDownloaderAutoUpdate: novelDownloader,
-            webtoepubAutoUpdate: webtoepub
+            webtoepubAutoUpdate: webtoepub,
+            lnreaderAutoUpdate: lnreader
         )
     }
 
@@ -113,6 +122,7 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         case .native: return false
         case .novelDownloader: return novelDownloaderAutoUpdate
         case .webtoepub: return webtoepubAutoUpdate
+        case .lnreader: return lnreaderAutoUpdate
         }
     }
 

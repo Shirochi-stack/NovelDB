@@ -172,6 +172,7 @@ final class ReaderBookSession: @unchecked Sendable {
         case script(ReaderRuntime)
         case web(ReaderWebFallback)
         case webtoepub(WebToEpubSession)
+        case page(PageScriptSession)
     }
 
     struct ChapterInfo {
@@ -202,6 +203,7 @@ final class ReaderBookSession: @unchecked Sendable {
                 switch engine {
                 case .novelDownloader: return try await openNovelDownloader(url, context: context, page: shared)
                 case .webtoepub: return try await openWebToEpub(url, context: context, page: shared)
+                case .lnreader: return try await openPageScript(url, script: .lnreader, context: context, page: shared)
                 case .native: continue
                 }
             } catch is CancellationError {
@@ -249,6 +251,16 @@ final class ReaderBookSession: @unchecked Sendable {
             context.logger.log(.debug, "[Reader] Web view fallback failed: \(error.localizedDescription)")
         }
         throw engineError(scriptError)
+    }
+
+    /// A page-script engine (the LNReader plugins) in the book's page.
+    private static func openPageScript(_ url: URL, script: PageScript, context: SourceContext, page shared: EnginePage) async throws -> ReaderBookSession {
+        let (payload, session) = try await PageScriptSession.openBook(url, script: script, context: context, page: shared)
+        guard !payload.chapters.isEmpty else {
+            throw SourceError.parse("The \(script.engine.title) found no chapters on \(url.absoluteString).")
+        }
+        await shared.handOff()
+        return try make(payload, requested: url, engine: .page(session))
     }
 
     /// The WebToEpub parsers in the book's page.
@@ -320,6 +332,8 @@ final class ReaderBookSession: @unchecked Sendable {
                 blocks = try await web.chapter(info)
             case .webtoepub(let session):
                 blocks = try await session.chapter(info)
+            case .page(let session):
+                blocks = try await session.chapter(info)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -343,6 +357,7 @@ final class ReaderBookSession: @unchecked Sendable {
         case .script(let runtime): runtime.close()
         case .web(let web): Task { await web.close() }
         case .webtoepub(let session): Task { await session.close() }
+        case .page(let session): Task { await session.close() }
         }
     }
 

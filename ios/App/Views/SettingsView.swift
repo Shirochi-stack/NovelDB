@@ -242,6 +242,7 @@ struct SiteEnginesForm: View {
             Section {
                 Toggle("Update the novel-downloader rules automatically", isOn: $model.settings.engines.novelDownloaderAutoUpdate)
                 Toggle("Update the WebToEpub parsers automatically", isOn: $model.settings.engines.webtoepubAutoUpdate)
+                Toggle("Update the LNReader plugins automatically", isOn: $model.settings.engines.lnreaderAutoUpdate)
                 Button {
                     Task { await model.checkEngineUpdates(automatic: false) }
                 } label: {
