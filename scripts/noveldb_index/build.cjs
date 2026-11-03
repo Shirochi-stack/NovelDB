@@ -16,7 +16,11 @@
  *   and its own), two-character pieces of Chinese, Japanese and Korean words, "#tag" and "@author".
  *   A token's list keeps its most read books (POSTINGS), as book numbers count up from the most read.
  * - Card blocks of BLOCK books, in book-number order: [source, id, title, English title, author,
- *   cover, tags, views, likes, chapters, complete, address, updated].
+ *   cover, tags, views, likes, chapters, complete, address, updated, age rating, original tags].
+ *
+ * It also writes the same pieces as separate files (split/: manifest.json, b/<bucket>.json.gz,
+ * c/<block>.json.gz) for the NovelDB site, which reads them from the `noveldb-index` branch: a web page
+ * cannot read release assets (no CORS), and the branch's files can be fetched one by one.
  *
  * The clients (noveldb/core/catalog/noveldb_index.py, scripts/generic/catalog-app.js) tokenize a
  * query the same way (tokens() below); keep the three in step.
@@ -131,6 +135,7 @@ function sourceBooks(source, cfg, tagNames) {
                 originalTags: novel.tags,
                 views: Number(novel.views) || 0, likes: Number(novel.likes) || 0, chapters: Number(novel.chapters) || 0,
                 complete: novel.complete == null ? null : (novel.complete ? 1 : 0), url, updated: novel.updated || "",
+                age: novel.age == null ? null : Number(novel.age) || 0,
             });
         }
     }
@@ -174,19 +179,27 @@ function main() {
     const binPath = path.join(OUT, binName);
     const out = fs.openSync(binPath, "w");
     let offset = 0;
-    const write = (value) => {
+    const split = path.join(OUT, "split");
+    fs.rmSync(split, {recursive: true, force: true});
+    fs.mkdirSync(path.join(split, "b"), {recursive: true});
+    fs.mkdirSync(path.join(split, "c"), {recursive: true});
+    let pieces = 0;
+    const write = (value, file) => {
         const data = zlib.gzipSync(Buffer.from(JSON.stringify(value), "utf8"), {level: 9});
         fs.writeSync(out, data);
+        fs.writeFileSync(path.join(split, file), data);
+        pieces++;
         const at = [offset, data.length];
         offset += data.length;
         return at;
     };
-    const bucketAt = buckets.map((bucket) => write(Object.fromEntries(bucket)));
+    const bucketAt = buckets.map((bucket, index) => write(Object.fromEntries(bucket), `b/${index}.json.gz`));
     const blockAt = [];
     for (let start = 0; start < books.length; start += BLOCK) {
         blockAt.push(write(books.slice(start, start + BLOCK).map((b) => [
             b.source, b.id, b.title, b.titleEn, b.author, b.cover, b.tags.slice(0, TAGS_PER_CARD),
-            b.views, b.likes, b.chapters, b.complete, b.url, b.updated])));
+            b.views, b.likes, b.chapters, b.complete, b.url, b.updated, b.age, b.originalTags.slice(0, TAGS_PER_CARD)]),
+            `c/${blockAt.length}.json.gz`));
     }
     fs.closeSync(out);
     const manifest = {
@@ -194,6 +207,10 @@ function main() {
         postings: POSTINGS, bin: binName, binSize: offset, bucketAt, blockAt, sources,
     };
     fs.writeFileSync(path.join(OUT, "noveldb-search.json"), JSON.stringify(manifest));
+    // The split copy's table: no offsets, a file per piece.
+    fs.writeFileSync(path.join(split, "manifest.json"), JSON.stringify({
+        format: 1, built, books: books.length, buckets: BUCKETS, block: BLOCK, blocks: blockAt.length, sources,
+    }));
     console.log(`${books.length} books, ${(offset / 1048576).toFixed(1)} MB in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 

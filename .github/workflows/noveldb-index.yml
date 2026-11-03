@@ -59,3 +59,17 @@ jobs:
           keep=$(basename "$bin")
           old=$(gh release view "$TAG" --json assets -q '.assets[].name' | grep '^noveldb-search-.*\.bin$' | grep -vx "$keep" || true)
           for name in $old; do gh release delete-asset "$TAG" "$name" --yes; done
+
+      - name: Publish the site's copy
+        # The NovelDB site reads the index file by file from the `noveldb-index` branch (a page cannot
+        # read release assets: no CORS). The branch holds one commit, replaced on each build, so the
+        # index never collects history.
+        run: |
+          set -euo pipefail
+          cd out/split
+          git init -q -b noveldb-index
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "NovelDB search index, $(date -u +%F)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:noveldb-index

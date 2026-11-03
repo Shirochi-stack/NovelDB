@@ -7515,6 +7515,14 @@ const worker = new Worker("catalog-worker.js?v=15");
         const seq = ++diskQuerySequence;
         const cached = resultPages.get(key);
         let immediate=cached?.result || previewResult(query);
+        let fromIndex = false;
+        if (!immediate && document.body.dataset.catalogReady!=='true' && window.NovelIndexSearch?.eligible(query)) {
+            // A text search from NovelDB's search index, at once: a few small files, not the catalog's chunks.
+            // Not kept: once the catalog is ready the same search runs again against all of it.
+            const found = await window.NovelIndexSearch.search(query).catch(() => null);
+            if (seq!==diskQuerySequence || key!==diskQueryKey()) return;
+            if (found && found.rows.length) { immediate = found; fromIndex = true; }
+        }
         if (!immediate && shouldLoadQueryPreview(query)) {
             if (!activeCatalogController) {
                 catalogLoadStatus.hidden=false;catalogLoadStatus.textContent='Loading preview…';
@@ -7526,7 +7534,7 @@ const worker = new Worker("catalog-worker.js?v=15");
             immediate=previewResult(query);
         }
         if (immediate) {
-            rememberPage(key,immediate,cached?.preview ?? true);
+            if (!fromIndex) rememberPage(key,immediate,cached?.preview ?? true);
             diskTotal = immediate.total; currentPage = immediate.page; filtered = immediate.rows; allNovels = [];
             diskPageKey = diskQueryKey(); render(false); warmSourcePreviews(); return;
         }
