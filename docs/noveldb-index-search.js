@@ -151,7 +151,7 @@
     }
 
     // A tag's alias key (the builder's tagConcept): "Gender Bender" and "Genderbend (TS)" share "=genderbend".
-    const BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g, UNION_PAGES = 10;
+    const BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g, UNION_PAGES = 1;  // the first page of each alias, already in its bucket
     function concept(tag) {
         const text = normal(tag);
         const letters = (value) => value.replace(/[^\p{L}\p{N}]+/gu, "");

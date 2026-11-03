@@ -109,6 +109,26 @@ function tagConcept(tag) {
     return key ? "=" + key : "";
 }
 
+// Tags meaning the same under different words ("Gender Swap" for "Gender Bender"): each group's alias
+// keys share one list of tags, so a search for any of its names finds the books of all of them.
+const SYNONYMS = JSON.parse(fs.readFileSync(path.join(__dirname, "tag-synonyms.json"), "utf8")).groups;
+const SYNONYM_ALIASES = 48;
+function mergeSynonyms(aliases) {
+    let keys = 0;
+    for (const names of SYNONYMS) {
+        const group = [...new Set(names.map(tagConcept).filter(Boolean))];
+        const merged = new Map();
+        merged.synonyms = true;
+        for (const key of group) {
+            for (const [token, n] of aliases.get(key) || []) merged.set(token, (merged.get(token) || 0) + n);
+        }
+        // Every key of the group answers with it, also one that no book's tag has.
+        for (const key of group) aliases.set(key, merged);
+        keys += group.length;
+    }
+    return keys;
+}
+
 function authorToken(author) {
     return "@" + normal(author).replace(/\s+/g, " ").trim();
 }
@@ -210,16 +230,19 @@ function main() {
             (lists[book.source] || (lists[book.source] = [])).push(number);
         }
     });
+    // Synonyms (tag-synonyms.json): every key of a group lists the tags of all of them.
+    const synonymKeys = mergeSynonyms(aliases);
     // A key with two tags or more (each on ALIAS_BOOKS books or more) goes into its bucket as a list of them.
     let aliasKeys = 0;
     for (const [key, counts] of aliases) {
-        const used = [...counts].filter(([, n]) => n >= ALIAS_BOOKS).sort((a, b) => b[1] - a[1]).slice(0, ALIASES).map(([token]) => token);
-        if (used.length < 2) continue;
+        const limit = counts.synonyms ? SYNONYM_ALIASES : ALIASES;
+        const used = [...counts].filter(([, n]) => n >= ALIAS_BOOKS).sort((a, b) => b[1] - a[1]).slice(0, limit).map(([token]) => token);
+        if (used.length < (counts.synonyms ? 1 : 2)) continue;  // a synonym's key may stand for one other tag
         buckets[bucketOf(key)].set(key, used);
         aliasKeys++;
     }
     aliases.clear();
-    console.log(`${aliasKeys} tag alias keys`);
+    console.log(`${aliasKeys} tag alias keys, ${synonymKeys} of them synonyms`);
 
     fs.mkdirSync(OUT, {recursive: true});
     const built = new Date().toISOString();

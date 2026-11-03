@@ -288,7 +288,7 @@
     }
     function ndbTag(tag) { return '#' + ndbNormal(tag).replace(/[\s_\-]+/g, ' ').trim(); }
     /** A tag's alias key (the builder's tagConcept): "Gender Bender" and "Genderbend (TS)" share "=genderbend". */
-    var NDB_BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g, NDB_UNION_PAGES = 10;
+    var NDB_BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g, NDB_UNION_PAGES = 1;  // the first page of each alias, already in its bucket
     function ndbConcept(tag) {
         var text = ndbNormal(tag);
         var letters = function (value) { return value.replace(/[^\p{L}\p{N}]+/gu, ''); };
@@ -464,10 +464,13 @@
         return {picks: out, more: offset + out.length < sum};
     }
     function ndbCount(value) { var n = Number(value) || 0; return n > 0 ? n.toLocaleString('en-US') : ''; }
-    /** {cards, more}: page `page` of NovelDB's books for a title or tag search, `limit` cards a page. */
-    function ndbSearch(text, mode, limit, page) {
+    /** {cards, more}: `limit` of NovelDB's books for a title or tag search, from place `offset` of its
+     *  results. `each(card)`: each card as soon as its block is read; `onTotal(n)`: how many books
+     *  match, as soon as that is known (before any card is read). */
+    var NDB_FIRST = 12, NDB_MORE = 40;  // the first batch is small, to show quickly; scrolling reads the rest
+    function ndbSearch(text, mode, limit, offset, each, onTotal) {
         var wanted = mode === 'tag' ? [ndbTag(text)] : ndbTokens(text);
-        limit = limit || 40;
+        limit = limit || NDB_MORE;
         if (!wanted.length) return Promise.resolve({cards: [], more: false});
         var more = false;
         return ndbManifest().then(function (manifest) {
@@ -476,7 +479,8 @@
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
                 });
-                var merged = ndbRoundRobin(order.map(function (name) { return [name, streams[name].total]; }), (page || 0) * limit, limit);
+                if (onTotal) onTotal(order.reduce(function (sum, name) { return sum + streams[name].total; }, 0));
+                var merged = ndbRoundRobin(order.map(function (name) { return [name, streams[name].total]; }), offset || 0, limit);
                 more = merged.more;
                 return Promise.all(merged.picks.map(function (pick) {
                     var list = streams[pick[0]];
@@ -494,7 +498,7 @@
                                 source: 'noveldb', noveldb: {source: row[0], id: row[1]}, complete: false,
                                 views: ndbCount(row[7]), likes: ndbCount(row[8]), chapters: ndbCount(row[9]),
                                 status: row[10] === 1 ? 'Completed' : row[10] === 0 ? 'Ongoing' : '', updated: String(row[12] || '').slice(0, 10)};
-                    });
+                    }).then(function (card) { if (card && each) each(card); return card; });
                 }));
             });
         }).then(function (cards) { return {cards: (cards || []).filter(Boolean), more: more}; });
@@ -1056,10 +1060,14 @@
         });
         sources.unshift(function () {
             var started = Date.now();
-            return ndbSearch(text, mode, 40).then(function (found) {
-                var cards = found.cards;
-                var fresh = offer(cards.map(function (c) { return Object.assign(c, {ms: Date.now() - started, verified: mode === 'tag'}); }));
-                report('NovelDB', started, fresh.length);
+            var shown = 0;
+            var mark = function (c) { return Object.assign(c, {ms: Date.now() - started, verified: mode === 'tag'}); };
+            // Each card goes to the page as soon as it is read, not after the whole page of them.
+            return ndbSearch(text, mode, NDB_FIRST, 0, function (c) { shown += offer([mark(c)]).length; }, function (total) {
+                call('progress', id, {noveldbTotal: total});
+            }).then(function (found) {
+                shown += offer(found.cards.map(mark)).length;
+                report('NovelDB', started, shown);
             }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); });
         });
         sources.push(function () {
@@ -1211,7 +1219,7 @@
                     var fresh = cards.filter(function (c) { var k = c.url.replace(/\/+$/, ''); if (seen[k]) return false; seen[k] = true; return true; });
                     if (fresh.length && !stopped(token)) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
                 }
-                var jobs = [ndbSearch(text, mode, 40, page).then(function (found) {
+                var jobs = [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (page - 1) * NDB_MORE).then(function (found) {
                     offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode === 'tag'}); }));
                     if (found.more) state.more = true;
                 }, function () {})];

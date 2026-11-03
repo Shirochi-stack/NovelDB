@@ -136,7 +136,10 @@
         if (view !== 'search') return;
         var seconds = Math.round((Date.now() - progress.started) / 1000);
         status('Searching… ' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered · ' + seconds + ' s · '
-               + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far');
+               + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far' + noveldbCount());
+    }
+    function noveldbCount() {
+        return progress.noveldb ? ' · ' + progress.noveldb.toLocaleString() + ' in NovelDB' : '';
     }
     function seconds(ms) { return ms == null ? '' : (ms < 10000 ? (ms / 1000).toFixed(1) : Math.round(ms / 1000)) + ' s'; }
     function siteState(item) {
@@ -299,10 +302,29 @@
         return kind === 'all' || kindOf(group) === kind;
     }
 
-    // A synopsis as shown: without a leading "Summary" label, and without a teaser cut off with "[…]"
-    // that the full text after it repeats (pages that show both).
+    // A synopsis as shown: without what a book page puts before it (its title, a rating "3.7 / 5 (647
+    // votes)", "Rate this novel", share buttons, then a "Summary" label), without a teaser cut off with
+    // "[…]" that the full text after it repeats (pages that show both), and nothing for a text that is
+    // only the page's figures ("5.0 English Novel Ecchi, Fantasy 33 Chapters").
+    var SHARE_WORDS = /\b(facebook|twitter|whatsapp|pinterest|reddit|telegram|tumblr|share|tweet|copy link)\b[\s,|·]*/gi;
+    var RATING = /\b\d(\.\d+)?\s*\/\s*(5|10)\s*(\(\s*[\d,.]+\s*votes?\s*\))?|\(\s*[\d,.]+\s*(votes?|ratings?)\s*\)|rate this (novel|book|series|story)/gi;
+    var SYNOPSIS_LABEL = /\b(summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé)\b\s*[:：-]?\s*/i;
     function synopsisText(text) {
-        text = String(text || '').replace(/^\s*(summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé|story)\s*[:：-]?\s*/i, '');
+        text = String(text || '');
+        // Junk before a label: everything up to the label goes (a rating or share buttons say it is junk).
+        var label = text.slice(0, 400).search(SYNOPSIS_LABEL);
+        if (label > 0) {
+            var before = text.slice(0, label);
+            if (before.search(RATING) >= 0 || (before.match(SHARE_WORDS) || []).length >= 2 || /^[A-Z\s]+$/.test(text.slice(label).match(SYNOPSIS_LABEL)[1])) {
+                text = text.slice(label);
+            }
+        }
+        text = text.replace(/^\s*(summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé|story)\s*[:：-]?\s*/i, '');
+        // A run of share buttons, and ratings, anywhere at the start.
+        text = text.replace(/^((\s*(facebook|twitter|whatsapp|pinterest|reddit|telegram|tumblr|share|tweet)\b[\s,|·]*){2,})/i, '');
+        // Only the page's figures: a rating, a language, genres and a chapter count, no sentence.
+        var plain = text.replace(RATING, ' ').replace(SHARE_WORDS, ' ').trim();
+        if (plain.length < 160 && !/[.!?。！？]\s/.test(plain + ' ') && /\b\d+\s*(chapters?|ch|episodes?)\b/i.test(plain)) return '';
         var cut = text.search(/\s*(\[(…|\.\.\.)\]|…\s*(read more|more)?)\s*/i);
         if (cut > 40) {
             var rest = text.slice(cut).replace(/^\s*(\[(…|\.\.\.)\]|…\s*(read more|more)?)\s*/i, '');
@@ -381,7 +403,8 @@
         });
         if (card.cover && !group.cover) group.cover = card.cover;  // the first site's cover stays
         if (card.cover && (group.covers || (group.covers = [])).indexOf(card.cover) < 0) group.covers.push(card.cover);
-        if (card.description && card.description.length > (group.description || '').length) group.description = card.description;
+        // The longest synopsis once cleaned (a page's rating and share buttons do not count).
+        if (card.description && synopsisText(card.description).length > synopsisText(group.description).length) group.description = card.description;
         if (card.tags && card.tags.length) {
             var seen = new Set(group.tags.map(function (t) { return t.toLowerCase(); }));
             card.tags.forEach(function (tag) {
@@ -473,7 +496,7 @@
         var inCart = group.sources.some(function (s) { return cart.has(s.url); });
         var more = group.sources.length > 1 ? ' +' + (group.sources.length - 1) : '';
         var synopsis = group.description
-            ? '<div class="synopsis">' + esc(synopsisText(group.description)) + '</div>'
+            ? (synopsisText(group.description) ? '<div class="synopsis">' + esc(synopsisText(group.description)) + '</div>' : '')
             : (group.loaded ? '' : '<div class="loading"><i></i><i></i><i></i></div>');
         element.innerHTML = '<div class="cover' + (group.cover ? ' loading' : '') + '">'
             + (group.cover ? '<img loading="lazy" referrerpolicy="no-referrer" alt="" src="' + esc(group.cover) + '">' : '')
@@ -769,8 +792,8 @@
                 + fact('Chapters', group.chapters) + fact('Published', group.published) + fact('Updated', group.updated)
                 + fact('Status', group.status) + '</div>'
                 + '<div class="chips">' + shownTags(group.tags).map(function (tag) { return '<span class="chip">' + esc(tag) + '</span>'; }).join('') + '</div>'
-                + (group.description ? '<div class="desc">' + esc(synopsisText(group.description)) + '</div>'
-                    : group.loaded ? '<div class="desc">No description on the book page.</div>'
+                + (synopsisText(group.description) ? '<div class="desc">' + esc(synopsisText(group.description)) + '</div>'
+                    : group.loaded || group.description ? '<div class="desc">No description on the book page.</div>'
                     : '<div class="loading" style="margin:10px 0"><i></i><i></i><i></i><i></i></div>')
                 + (group.sources.length < 2 ? '' : '<div class="sources"><h4>On ' + group.sources.length + ' sites</h4>' + group.sources.map(function (source, index) {
                     return '<div><span>' + esc(source.site) + (source.ms != null ? ' · ' + seconds(source.ms) : '')
@@ -1145,7 +1168,14 @@
             if (text) { togglePick(allTags().get(text.toLowerCase()) || text); $('tagFilter').value = ''; drawTags(); }
         } else if (event.key === 'Escape') closeTags();
     });
-    $('tagClear').addEventListener('click', function () { picked = []; showPicked(); drawTags(); searchSoon(); });
+    // Clear unpicks every tag, empties the filter and searches again at once (the Top list, with no title).
+    $('tagClear').addEventListener('click', function () {
+        picked = [];
+        $('tagFilter').value = '';
+        showPicked();
+        drawTags();
+        search(null, true);
+    });
     $('tagSearch').addEventListener('click', function () { search(); });
     // A tap anywhere outside the menu closes it: on a touch down, which every part of the page sends (a
     // phone sends no click for a tap on plain text or an empty area), before the tap does anything else.
@@ -1818,13 +1848,15 @@
             more.page++;
             more.has = !!(state && state.more);
             if (view === 'top') { top.limit = order.length + TOP_STEP; topRedraw(); topSave(); }
-            status(shownCount() + (more.has ? ' books so far; scroll for more.' : ' books; that is all the sites have.'));
+            status(shownCount() + (more.has ? ' books so far' + noveldbCount() + '; scroll for more.' : ' books; that is all the sites have.'));
             empty();
             setTimeout(moreSoon, 300);  // still at the end (few new books): the next page
         },
         progress: function (id, item) {
             if (id !== searchId || !item) return;
             if (item.total) { progress.expected += item.total; showProgress(); return; }
+            // NovelDB's count of matching books, before its cards arrive (scrolling reads the rest).
+            if (item.noveldbTotal != null) { progress.noveldb = (progress.noveldb || 0) + item.noveldbTotal; showProgress(); return; }
             siteAnswered(item);
         },
         done: function (id, summary) {
@@ -1841,7 +1873,8 @@
             var slow = summary && (summary.failed || summary.timed_out);
             if (!running) {
                 status(shownCount() + ' books found in ' + seconds(Date.now() - progress.started)
-                       + (slow ? ' (some sites did not answer in time)' : '') + '.');
+                       + (slow ? ' (some sites did not answer in time)' : '') + noveldbCount()
+                       + (progress.noveldb > shownCount() ? '; scroll for more.' : '.'));
                 empty();
             }
         },

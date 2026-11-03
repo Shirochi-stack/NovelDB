@@ -418,7 +418,8 @@ class GenericSearch:
                 return
             started = time.monotonic()
             try:
-                cards = self.noveldb.search(text, mode)
+                # How many books match, as soon as that is known: the page shows it while the cards load.
+                cards = self.noveldb.search(text, mode, on_total=lambda total: progress({"noveldbTotal": total}))
             except Exception:
                 summary["failed"] += 1
                 report("NovelDB", started, 0, "failed")

@@ -73,6 +73,9 @@ class OkHttpFetcher(
         this(cookieJar, null, settings.maxRetries, logger = logger, minTimeoutSeconds = settings.requestTimeoutSeconds.toLong())
 
     private val client = client ?: OkHttpClient.Builder()
+        // OkHttp's own limit is 5 requests at a time per host: the Catalog's NovelDB index reads (all
+        // from one host) and a download's image workers would queue behind it. The callers set the pace.
+        .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 128; maxRequestsPerHost = 24 })
         .cookieJar(cookieJar)
         .connectTimeout(20, TimeUnit.SECONDS)
         // OkHttp replaces a caller's `Cookie` header with the jar's cookies; keep both instead.
