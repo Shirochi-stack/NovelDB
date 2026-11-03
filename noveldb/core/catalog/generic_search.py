@@ -457,6 +457,93 @@ class GenericSearch:
         pool.shutdown(wait=False, cancel_futures=True)
         done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=timed_out or bool(summary.get("late"))))
 
+    def more(self, text: str, mode: str, page: int, emit: Callable[[List[dict]], None], stop: threading.Event,
+             done: Callable[[dict], None] = lambda _s: None, deadline: float = 30.0) -> None:
+        """The next results of a search, as it is scrolled: NovelDB's page `page` (1 is the second), and
+        the next page of each site whose results page had one. `done` hears {"more": whether any source
+        has more after these}."""
+        text = (text or "").strip()
+        mode = mode if mode in ("name", "tag") else "name"
+        kind = "tag" if mode == "tag" else "search"
+        lock = threading.Lock()
+        seen: set = set()
+        state = {"more": False, "results": 0}
+
+        def offer(cards: List[dict]) -> None:
+            fresh = []
+            with lock:
+                for card in cards:
+                    key = card["url"].rstrip("/")
+                    if key not in seen and not stop.is_set():
+                        seen.add(key)
+                        fresh.append(card)
+                state["results"] += len(fresh)
+            if fresh:
+                emit(fresh)
+
+        def from_noveldb():
+            cards, more = self.noveldb.search_page(text, mode, page)
+            offer([dict(card, verified=mode == "tag") for card in cards])
+            if more:
+                state["more"] = True
+
+        def from_site(home: str):
+            if stop.is_set():
+                return
+            hits = self.site_search.more(home, kind, text)
+            offer([dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")),
+                        verified=bool(hit.get("verified"))) for hit in hits])
+            if self.site_search.has_more(home, kind, text):
+                state["more"] = True
+
+        jobs = [from_noveldb] if self.noveldb is not None else []
+        for site in self.sites:
+            home = f"https://{site['host']}/"
+            if self.site_search.has_more(home, kind, text):
+                jobs.append(lambda home=home: from_site(home))
+        self._run_all(jobs, deadline)
+        done(dict(state, stopped=stop.is_set()))
+
+    def popular_more(self, sites: List[dict], emit: Callable[[List[dict]], None], stop: threading.Event,
+                     done: Callable[[dict], None] = lambda _s: None, deadline: float = 30.0) -> None:
+        """The next page of each of `sites`' popular lists read before (for the Top lists, as they are
+        scrolled); cards carry "siteRank" and "position" like `popular`'s."""
+        state = {"more": False, "results": 0}
+        lock = threading.Lock()
+
+        def one(index: int, site: dict):
+            home = f"https://{site['host']}/"
+            if stop.is_set() or not self.site_search.has_more(home, "popular", ""):
+                return
+            hits = self.site_search.more(home, "popular", "")
+            cards = [dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")),
+                          siteRank=index, position=position, listLength=len(hits))
+                     for position, hit in enumerate(hits) if looks_like_book(hit["url"], hit["title"])]
+            with lock:
+                state["results"] += len(cards)
+                if self.site_search.has_more(home, "popular", ""):
+                    state["more"] = True
+            if cards and not stop.is_set():
+                emit(cards)
+
+        self._run_all([lambda i=i, site=site: one(i, site) for i, site in enumerate(sites)], deadline)
+        done(state)
+
+    def _run_all(self, jobs: list, deadline: float) -> None:
+        if not jobs:
+            return
+        pool = ThreadPoolExecutor(min(self.workers, 16), thread_name_prefix="generic-more")
+        futures = [pool.submit(job) for job in jobs]
+        try:
+            for future in as_completed(futures, timeout=deadline):
+                try:
+                    future.result()
+                except Exception:
+                    pass
+        except TimeoutError:
+            pass
+        pool.shutdown(wait=False, cancel_futures=True)
+
     def by_id(self, text: str, emit: Callable[[List[dict]], None], stop: threading.Event,
               done: Callable[[dict], None] = lambda _s: None, progress: Callable[[dict], None] = lambda _i: None,
               deadline: float = 40.0) -> None:

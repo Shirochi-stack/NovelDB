@@ -33,7 +33,7 @@ PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
 MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
-                 "genericCover", "genericCoverPut")
+                 "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -75,7 +75,9 @@ def parse_message(data: dict) -> Optional[dict]:
     kind = data.get("type")
     if kind not in MESSAGE_TYPES:
         return None
-    if kind == "genericSearch":
+    if kind == "genericMore" and not (isinstance(data.get("page"), int) and data["page"] >= 1):
+        return None
+    if kind in ("genericSearch", "genericMore"):
         # A search is one or more queries run together: the title, and each tag picked in the tag menu.
         asked = data.get("queries")
         if not isinstance(asked, list):
@@ -225,6 +227,7 @@ class GenericCatalog(QObject):
     _detailed = Signal(dict)
     _fetched = Signal(int, object)
     _progress = Signal(int, dict)
+    _more_done = Signal(int, dict)
     _reader_status = Signal(int, str)
     _reader_images = Signal(int, dict)
 
@@ -254,6 +257,8 @@ class GenericCatalog(QObject):
         self._detailed.connect(lambda card: self._call("details", card))
         self._fetched.connect(lambda fid, result: self._call("fetched", fid, result))
         self._progress.connect(lambda sid, item: self._call("progress", sid, item))
+        self._more_done.connect(lambda sid, state: self._call("moreDone", sid, state))
+        self._top_sites: list = []  # the sites of the Top list shown, for its next pages
         self._reader_status.connect(lambda fid, text: self._call("readerStatus", fid, text))
         self._reader_images.connect(lambda fid, found: self._call("readerImages", fid, found))
         # The downloader's own browser worker (`context.browser.submit`), for books the quick engines
@@ -286,6 +291,10 @@ class GenericCatalog(QObject):
             self.init_page()
         elif kind == "genericSearch":
             self.search(int(data.get("id") or 0), data["queries"])
+        elif kind == "genericMore":
+            self.more(int(data.get("id") or 0), data["queries"], data["page"])
+        elif kind == "genericTopMore":
+            self.top_more(int(data.get("id") or 0))
         elif kind == "genericStop":
             self._stop.set()
         elif kind == "genericFetch":
@@ -378,6 +387,7 @@ class GenericCatalog(QObject):
                 return (country or "en") == language
             sites = [site for site in sites if fits(site)] + [site for site in sites if not fits(site)]
         sites = sites[:30]
+        self._top_sites = sites
         engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
 
         def run():
@@ -390,6 +400,51 @@ class GenericCatalog(QObject):
                 self._done.emit(search_id, {"failed": 1})
 
         threading.Thread(target=run, name="generic-top", daemon=True).start()
+
+    def more(self, search_id: int, queries: list, page: int) -> None:
+        """The search's next results, as the page is scrolled: NovelDB's page `page` and each site's next
+        results page. The page hears `moreDone` with {"more"} once every query has answered."""
+        stop = self._stop
+        queries = [q for q in queries if q["mode"] in ("name", "tag")]
+        left, more, lock = [len(queries)], [False], threading.Lock()
+        if not queries:
+            self._more_done.emit(search_id, {"more": False})
+            return
+
+        def run(query: str, mode: str):
+            engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
+                                   noveldb=self.noveldb)
+            state = {}
+            try:
+                engine.more(query, mode, page, lambda cards: self._cards.emit(search_id, [dict(c, via=mode) for c in cards]),
+                            stop, state.update)
+            except Exception as e:
+                log.warning("generic search (more) failed: %s", e)
+            with lock:
+                more[0] = more[0] or bool(state.get("more"))
+                left[0] -= 1
+                last = left[0] == 0
+            if last:
+                self._more_done.emit(search_id, {"more": more[0]})
+
+        for item in queries:
+            threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-more", daemon=True).start()
+
+    def top_more(self, search_id: int) -> None:
+        """The next page of the shown Top list's sites' popular lists."""
+        stop, sites = self._stop, list(self._top_sites)
+        engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
+
+        def run():
+            state = {}
+            try:
+                engine.popular_more(sites, lambda cards: self._cards.emit(search_id, [dict(c, via="top") for c in cards]),
+                                    stop, state.update)
+            except Exception as e:
+                log.warning("generic top list (more) failed: %s", e)
+            self._more_done.emit(search_id, {"more": bool(state.get("more"))})
+
+        threading.Thread(target=run, name="generic-top-more", daemon=True).start()
 
     def stop(self) -> None:
         self._stop.set()

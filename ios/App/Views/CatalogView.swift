@@ -60,6 +60,8 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     @Published private(set) var isLoading = false
     /// Why the catalog site failed to load; shown instead of a blank page.
     @Published private(set) var error: String?
+    /// The generic page's reader is full screen: the app hides its own bars and the status bar.
+    @Published var readerFullScreen = false
     private var observations: [NSKeyValueObservation] = []
     weak var model: AppModel?
     private(set) var site: URL
@@ -231,6 +233,8 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             if CatalogPage.isPage(webView.url), let url = URL(string: field("url")), url.scheme?.hasPrefix("http") == true {
                 model?.pendingBrowserURL = url
             }
+        case "genericFullscreen":
+            readerFullScreen = CatalogPage.isPage(webView.url) && (body["on"] as? Bool ?? false)
         default:
             break
         }
@@ -313,6 +317,10 @@ struct CatalogView: View {
         .navigationTitle("Catalog")
         // The catalog site has its own header; pull down to reload.
         .toolbar(.hidden, for: .navigationBar)
+        // The reader in full screen: no tab bar, no status bar.
+        .toolbar(state.readerFullScreen ? .hidden : .automatic, for: .tabBar)
+        .statusBarHidden(state.readerFullScreen)
+        .ignoresSafeArea(edges: state.readerFullScreen ? .all : [])
         .onAppear {
             state.model = model
             // The site may have changed in Settings before this tab was first shown.

@@ -4,7 +4,10 @@ The index (built daily by scripts/noveldb_index/build.cjs from the NovelDB site'
 assets of the `engines` release, next to the engines' bundles) holds every book of the site, 1.1 million, with its metadata:
 title and English title, author, cover, tags, views, likes, chapters, status and its page. A search
 reads the index's small table of contents once a day, then only the pieces it needs with HTTP Range
-requests: one word bucket per query word, then the card blocks of the books found. A book's synopsis
+requests: one word bucket per query word, then the card blocks of the books found. Each word's books
+are listed per source, every one of them, in pages: a search shows the first page of results (the
+lead source, npia, first, then each source in turn) and reads further pages as the results are
+scrolled (`search_page`). A book's synopsis
 comes from the site's own synopsis shard for it, when its card is opened. Nothing reads the site's
 whole catalog.
 
@@ -28,7 +31,10 @@ INDEX_URL = "https://github.com/Shirochi-stack/NovelDB/releases/download/engines
 PAGES_URL = "https://shirochi-stack.github.io/NovelDB/data/"
 MANIFEST = "noveldb-search.json"
 MANIFEST_HOURS = 24
-PIECES = 256  # word buckets and card blocks kept in memory
+PIECES = 512  # word buckets, list pages and card blocks kept in memory
+FORMAT = 2
+LEAD = "npia"  # its books come first in each round of results
+MULTI_PAGES = 40  # list pages of each word read to match a search of several words (per source)
 
 _STOP = {"the", "a", "an", "of", "to", "in", "and", "is", "on", "at", "for", "with"}
 _CJK = re.compile("[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿]")
@@ -103,7 +109,8 @@ class NovelDBIndex:
         if cached is not None and cached.is_file() and time.time() - cached.stat().st_mtime < MANIFEST_HOURS * 3600:
             try:
                 found = json.loads(cached.read_text(encoding="utf-8"))
-                return self._keep(found)
+                if found.get("format") == FORMAT:
+                    return self._keep(found)
             except (OSError, ValueError):
                 pass
         result = self.fetch(self.base + MANIFEST, binary=True)
@@ -113,8 +120,8 @@ class NovelDBIndex:
             found = json.loads(result["content"].decode("utf-8"))
         except ValueError:
             return self._manifest
-        if found.get("format") != 1:
-            return None  # an index for a newer app
+        if found.get("format") != FORMAT:
+            return None  # an index for another version of the app
         if cached is not None:
             try:
                 cached.parent.mkdir(parents=True, exist_ok=True)
@@ -140,7 +147,8 @@ class NovelDBIndex:
             self._pieces.clear()
         return found
 
-    def _piece(self, kind: str, index: int, retry: bool = True):
+    def _piece(self, kind: str, index: int, retry: bool = True, at: Optional[list] = None):
+        """A word bucket or card block by its number, or a list page (`at`: its [offset, length])."""
         manifest = self.manifest()
         if manifest is None:
             return None
@@ -149,14 +157,14 @@ class NovelDBIndex:
             if key in self._pieces:
                 self._pieces.move_to_end(key)
                 return self._pieces[key]
-        offset, length = manifest["bucketAt" if kind == "bucket" else "blockAt"][index]
+        offset, length = at or manifest["bucketAt" if kind == "bucket" else "blockAt"][index]
         result = self.fetch(self.base + manifest["bin"], binary=True,
                             headers={"Range": f"bytes={offset}-{offset + length - 1}"})
         data = (result or {}).get("content") or b""
         if result and result.get("status") == 404 and retry:
             # A table of contents kept from an earlier build points at data a newer build replaced.
             self._forget()
-            return self._piece(kind, index, retry=False)
+            return None if at else self._piece(kind, index, retry=False)
         # A server that ignores the range sends the whole file: not something to read here.
         if not result or result.get("status") not in (200, 206) or len(data) != length:
             return None
@@ -170,26 +178,58 @@ class NovelDBIndex:
                 self._pieces.popitem(last=False)
         return value
 
-    def _postings(self, token: str) -> List[int]:
+    def _lists(self, token: str) -> Dict[str, "_List"]:
+        """A token's book list in each source that has it."""
         manifest = self.manifest()
         if manifest is None:
-            return []
+            return {}
         bucket = self._piece("bucket", bucket_of(token, manifest["buckets"])) or {}
-        return list(bucket.get(token) or [])
+        entry = bucket.get(token) or {}
+        if not isinstance(entry, dict):
+            return {}
+        return {source: _List(self, _undelta(first), entry.get("+" + source), manifest.get("page") or 500)
+                for source, first in entry.items() if not source.startswith("+") and first}
+
+    def _streams(self, wanted: List[str]) -> Dict[str, "_List"]:
+        """Each source's books with every token: a token's own list, or for several the books in all
+        of them (among the first MULTI_PAGES pages of each)."""
+        per_token = [self._lists(token) for token in wanted]
+        if not per_token or not all(per_token):
+            return {}
+        if len(per_token) == 1:
+            return per_token[0]
+        out = {}
+        for source in set.intersection(*(set(lists) for lists in per_token)):
+            lists = [lists[source] for lists in per_token]
+            read = [lst.numbers(0, MULTI_PAGES * lst.page) for lst in lists]
+            # A list read only in part says nothing of the books after its last one read.
+            cutoff = min((nums[-1] for nums, lst in zip(read, lists) if nums and len(nums) < lst.total), default=None)
+            found = set(read[0]).intersection(*read[1:])
+            numbers = sorted(n for n in found if cutoff is None or n <= cutoff)
+            if numbers:
+                out[source] = _List.of(numbers)
+        return out
 
     # -- searching -------------------------------------------------------------------------------
 
     def search(self, text: str, mode: str = "name", limit: int = 40) -> List[dict]:
-        """Cards (the generic search's shape) for a title or tag search; the most read first."""
+        """The first page of cards (the generic search's shape) for a title or tag search."""
+        return self.search_page(text, mode, 0, limit)[0]
+
+    def search_page(self, text: str, mode: str = "name", page: int = 0, limit: int = 40,
+                    sources: Optional[List[str]] = None) -> tuple:
+        """(cards, more): page `page` of the results, `limit` cards each. Each round takes the next
+        most read book of every source, the lead source's first; `more` says whether pages follow."""
         wanted = [tag_token(text)] if mode == "tag" else tokens(text)
         if not wanted or self.manifest() is None:
-            return []
-        lists = [set(self._postings(token)) for token in wanted]
-        if not all(lists):
-            return []
-        found = set.intersection(*lists)
-        numbers = sorted(found)[:limit]
-        return [card for card in (self._card(number) for number in numbers) if card]
+            return [], False
+        streams = self._streams(wanted)
+        if sources:
+            streams = {name: stream for name, stream in streams.items() if name in sources}
+        order = sorted(streams, key=lambda name: (name != LEAD, streams[name].first))
+        picks, more = _round_robin([(name, streams[name].total) for name in order], page * limit, limit)
+        numbers = [number for number in (streams[name].number(at) for name, at in picks) if number is not None]
+        return [card for card in (self._card(number) for number in numbers) if card], more
 
     def _card(self, number: int) -> Optional[dict]:
         manifest = self.manifest()
@@ -197,7 +237,7 @@ class NovelDBIndex:
         if not block:
             return None
         row = block[number % manifest["block"]]
-        source, book_id, title, title_en, author, cover, tags, views, likes, chapters, complete, url, updated = row
+        source, book_id, title, title_en, author, cover, tags, views, likes, chapters, complete, url, updated = row[:13]
         return {
             "url": url, "title": title_en or title, "originalTitle": title if title_en else "", "author": author or "",
             "cover": cover or "", "description": "", "tags": list(tags or []), "site": _site(url), "comic": False,
@@ -223,6 +263,75 @@ class NovelDBIndex:
             return str(json.loads(text).get(str(ref["id"])) or "").replace("\\n", "\n").strip()
         except (OSError, ValueError):
             return ""
+
+
+def _undelta(values) -> List[int]:
+    """A list written as differences from the number before (the first as it is)."""
+    out, total = [], 0
+    for value in values or []:
+        total += int(value)
+        out.append(total)
+    return out
+
+
+def _round_robin(totals: List[tuple], offset: int, count: int) -> tuple:
+    """([(name, position), ...], more): places `offset` to `offset + count` of the merged order that
+    takes position 0 of each list in turn, then position 1, and so on (a list that runs out drops out)."""
+    out, place, round_ = [], 0, 0
+    longest = max((total for _name, total in totals), default=0)
+    while round_ < longest and len(out) < count:
+        active = [name for name, total in totals if total > round_]
+        if place + len(active) <= offset:
+            place += len(active)
+        else:
+            for name in active:
+                if place >= offset and len(out) < count:
+                    out.append((name, round_))
+                place += 1
+        round_ += 1
+    return out, offset + len(out) < sum(total for _name, total in totals)
+
+
+class _List:
+    """One source's books for a token: the first page from the bucket, the rest read as needed."""
+
+    def __init__(self, index: Optional[NovelDBIndex], first: List[int], more: Optional[list], page: int):
+        self.index = index
+        self.head = first
+        self.page = page
+        self.total = int(more[0]) if more else len(first)
+        self.first_page = int(more[1]) if more else 0
+        self.pages_at = list(more[2]) if more else []
+
+    @classmethod
+    def of(cls, numbers: List[int]) -> "_List":
+        return cls(None, numbers, None, max(1, len(numbers)))
+
+    @property
+    def first(self) -> int:
+        return self.head[0] if self.head else 1 << 40
+
+    def _page(self, number: int) -> List[int]:
+        if number == 0:
+            return self.head
+        if number > len(self.pages_at) or self.index is None:
+            return []
+        return _undelta(self.index._piece("page", self.first_page + number - 1, at=self.pages_at[number - 1]) or [])
+
+    def number(self, at: int) -> Optional[int]:
+        page = self._page(at // self.page)
+        return page[at % self.page] if at % self.page < len(page) else None
+
+    def numbers(self, start: int, end: int) -> List[int]:
+        """Positions `start` to `end` of the list (reading the pages they are on)."""
+        end = min(end, self.total)
+        if end <= start:
+            return []
+        out: List[int] = []
+        for number in range(start // self.page, (end - 1) // self.page + 1):
+            out.extend(self._page(number))
+        skip = start - (start // self.page) * self.page
+        return out[skip:skip + end - start]
 
 
 def _count(value) -> str:

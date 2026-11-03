@@ -12,9 +12,15 @@
  * - noveldb-search.json: where each piece is, and what the clients need to know about the sources.
  *
  * The pieces:
- * - 4096 word buckets: {token: [book number, ...]}. A token is a word of a title (its English title
- *   and its own), two-character pieces of Chinese, Japanese and Korean words, "#tag" and "@author".
- *   A token's list keeps its most read books (POSTINGS), as book numbers count up from the most read.
+ * - 4096 word buckets: {token: {source: [book number, ...], "+source": [count, first page, [[offset,
+ *   length], ...]]}}. A token is a word of a title (its English title and its own), two-character
+ *   pieces of Chinese, Japanese and Korean words, "#tag" and "@author". Each source's list of a token
+ *   has every one of its books, the most read first (book numbers count up from the most read), as
+ *   differences from the number before (the first one as it is). The bucket holds its first PAGE
+ *   books; a longer list's "+source" says how many it has and where its further pages are (pieces of
+ *   PAGE numbers each, written the same way: in the .bin at those offsets, and as p/<n>.json.gz from
+ *   n = first page on). So a search shows a source's first books from the bucket alone, and reads
+ *   further pages only as the results are scrolled.
  * - Card blocks of BLOCK books, in book-number order: [source, id, title, English title, author,
  *   cover, tags, views, likes, chapters, complete, address, updated, age rating, original tags].
  *
@@ -36,7 +42,7 @@ const DATA = path.resolve(process.argv[2] || path.join(ROOT, "docs", "data"));
 const OUT = path.resolve(process.argv[3] || path.join(ROOT, "build", "noveldb-index"));
 const BUCKETS = 4096;
 const BLOCK = 256;
-const POSTINGS = 200;
+const PAGE = 500;
 const TAGS_PER_CARD = 12;
 
 // The sources the site lists (docs/app.js SOURCES): where their links and covers point.
@@ -160,6 +166,7 @@ function main() {
     // Book numbers interleave the sources by their place in each, so a token's first books are the most read anywhere.
     books.sort((a, b) => a.rank - b.rank || b.views - a.views);
 
+    // token -> {source: [book number, ...]} in each bucket, every book of the token, in number order.
     const buckets = Array.from({length: BUCKETS}, () => new Map());
     books.forEach((book, number) => {
         const own = new Set([...tokens(book.titleEn), ...tokens(book.title)]);
@@ -167,9 +174,9 @@ function main() {
         for (const tag of new Set([...book.tags, ...book.originalTags])) if (tag) own.add(tagToken(tag));
         for (const token of own) {
             const bucket = buckets[bucketOf(token)];
-            const list = bucket.get(token);
-            if (!list) bucket.set(token, [number]);
-            else if (list.length < POSTINGS) list.push(number);
+            let lists = bucket.get(token);
+            if (!lists) bucket.set(token, lists = {});
+            (lists[book.source] || (lists[book.source] = [])).push(number);
         }
     });
 
@@ -183,17 +190,32 @@ function main() {
     fs.rmSync(split, {recursive: true, force: true});
     fs.mkdirSync(path.join(split, "b"), {recursive: true});
     fs.mkdirSync(path.join(split, "c"), {recursive: true});
-    let pieces = 0;
+    fs.mkdirSync(path.join(split, "p"), {recursive: true});
     const write = (value, file) => {
         const data = zlib.gzipSync(Buffer.from(JSON.stringify(value), "utf8"), {level: 9});
         fs.writeSync(out, data);
         fs.writeFileSync(path.join(split, file), data);
-        pieces++;
         const at = [offset, data.length];
         offset += data.length;
         return at;
     };
-    const bucketAt = buckets.map((bucket, index) => write(Object.fromEntries(bucket), `b/${index}.json.gz`));
+    const deltas = (list) => list.map((n, i) => (i ? n - list[i - 1] : n));
+    let pages = 0;
+    const bucketAt = buckets.map((bucket, index) => {
+        const value = {};
+        for (const [token, lists] of bucket) {
+            const entry = value[token] = {};
+            for (const [source, list] of Object.entries(lists)) {
+                entry[source] = deltas(list.slice(0, PAGE));
+                if (list.length <= PAGE) continue;
+                const first = pages, at = [];
+                for (let start = PAGE; start < list.length; start += PAGE) at.push(write(deltas(list.slice(start, start + PAGE)), `p/${pages++}.json.gz`));
+                entry["+" + source] = [list.length, first, at];
+            }
+        }
+        bucket.clear();
+        return write(value, `b/${index}.json.gz`);
+    });
     const blockAt = [];
     for (let start = 0; start < books.length; start += BLOCK) {
         blockAt.push(write(books.slice(start, start + BLOCK).map((b) => [
@@ -203,16 +225,16 @@ function main() {
     }
     fs.closeSync(out);
     const manifest = {
-        format: 1, built, books: books.length, buckets: BUCKETS, block: BLOCK,
-        postings: POSTINGS, bin: binName, binSize: offset, bucketAt, blockAt, sources,
+        format: 2, built, books: books.length, buckets: BUCKETS, block: BLOCK,
+        page: PAGE, bin: binName, binSize: offset, bucketAt, blockAt, sources,
     };
     fs.writeFileSync(path.join(OUT, "noveldb-search.json"), JSON.stringify(manifest));
     // The split copy's table: no offsets, a file per piece.
     fs.writeFileSync(path.join(split, "manifest.json"), JSON.stringify({
-        format: 1, built, books: books.length, buckets: BUCKETS, block: BLOCK, blocks: blockAt.length, sources,
+        format: 2, built, books: books.length, buckets: BUCKETS, block: BLOCK, page: PAGE, blocks: blockAt.length, pages, sources,
     }));
-    console.log(`${books.length} books, ${(offset / 1048576).toFixed(1)} MB in ${Math.round((Date.now() - started) / 1000)} s`);
+    console.log(`${books.length} books, ${pages} further pages, ${(offset / 1048576).toFixed(1)} MB in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
 if (require.main === module) main();
-module.exports = {tokens, tagToken, authorToken, bucketOf, BUCKETS};
+module.exports = {tokens, tagToken, authorToken, bucketOf, BUCKETS, PAGE};

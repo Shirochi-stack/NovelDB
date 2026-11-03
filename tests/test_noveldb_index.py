@@ -14,24 +14,45 @@ ROOT = Path(__file__).resolve().parents[1]
 BUCKETS = 4096
 
 
-def build(books):
-    """An index in the builder's format: buckets of postings, then card blocks."""
-    buckets = [dict() for _ in range(BUCKETS)]
+def deltas(numbers):
+    return [n - numbers[i - 1] if i else n for i, n in enumerate(numbers)]
+
+
+def build(books, page=500):
+    """An index in the builder's format (2): per-source lists of each token in pages, then card blocks."""
+    lists = [dict() for _ in range(BUCKETS)]
     for number, book in enumerate(books):
         own = set(tokens(book["titleEn"])) | set(tokens(book["title"])) | {tag_token(t) for t in book["tags"]}
         for token in own:
-            buckets[bucket_of(token, BUCKETS)].setdefault(token, []).append(number)
-    data, bucket_at, block_at = b"", [], []
-    for bucket in buckets:
-        piece = gzip.compress(json.dumps(bucket).encode())
-        bucket_at.append([len(data), len(piece)])
+            lists[bucket_of(token, BUCKETS)].setdefault(token, {}).setdefault(book["source"], []).append(number)
+    data, bucket_at, block_at, pages = b"", [], [], 0
+
+    def write(value):
+        nonlocal data
+        piece = gzip.compress(json.dumps(value).encode())
+        at = [len(data), len(piece)]
         data += piece
-    rows = [[b["source"], b["id"], b["title"], b["titleEn"], "", "", b["tags"], 10, 0, 3, 1, b["url"], ""] for b in books]
-    piece = gzip.compress(json.dumps(rows).encode())
-    block_at.append([len(data), len(piece)])
-    data += piece
-    manifest = {"format": 1, "built": "test", "books": len(books), "buckets": BUCKETS, "block": 256, "bin": "x.bin",
-                "bucketAt": bucket_at, "blockAt": block_at,
+        return at
+
+    for bucket in lists:
+        value = {}
+        for token, by_source in bucket.items():
+            entry = value[token] = {}
+            for source, numbers in by_source.items():
+                entry[source] = deltas(numbers[:page])
+                if len(numbers) > page:
+                    first, at = pages, []
+                    for start in range(page, len(numbers), page):
+                        at.append(write(deltas(numbers[start:start + page])))
+                        pages += 1
+                    entry["+" + source] = [len(numbers), first, at]
+        bucket_at.append(write(value))
+    # The builder's rows: 13 fields, then the age rating and the original tags.
+    rows = [[b["source"], b["id"], b["title"], b["titleEn"], "", "", b["tags"], 10, 0, 3, 1, b["url"], "", None, b["tags"]]
+            for b in books]
+    block_at.append(write(rows))
+    manifest = {"format": 2, "built": "test", "books": len(books), "buckets": BUCKETS, "block": 256, "page": page,
+                "bin": "x.bin", "bucketAt": bucket_at, "blockAt": block_at,
                 "sources": {"npia": {"descriptions": {"prefix": "descriptions_shard_", "count": 128}}}}
     return manifest, data
 
@@ -116,3 +137,53 @@ def test_a_kept_table_of_contents_whose_data_is_gone_is_read_again(tmp_path):
     index = NovelDBIndex(fetch, cache_dir=tmp_path)
     assert [card["title"] for card in index.search("omniscient")] == ["Omniscient Reader's Viewpoint"]
     assert reads[0] == "old" and json.loads((tmp_path / "noveldb-search.json").read_text())["bin"] == "x.bin"
+
+
+def many_books():
+    """Romance books of three sources, the big one first in number order (as the most read)."""
+    books = []
+    for i in range(30):
+        books.append({"source": "nweb", "id": f"w{i}", "title": "", "titleEn": f"Web romance {i}", "tags": ["Romance"],
+                      "url": f"https://example.test/w/{i}"})
+    for i in range(7):
+        books.append({"source": "npia", "id": f"n{i}", "title": "", "titleEn": f"Npia romance {i}", "tags": ["Romance"],
+                      "url": f"https://example.test/n/{i}"})
+    for i in range(5):
+        books.append({"source": "jara", "id": f"j{i}", "title": "", "titleEn": f"Jara romance {i}", "tags": ["Romance"],
+                      "url": f"https://example.test/j/{i}"})
+    return books
+
+
+def test_pages_take_each_source_in_turn_npia_first():
+    manifest, data = build(many_books(), page=4)  # small pages: most books are on further pages
+    index = NovelDBIndex(fetcher(manifest, data, []))
+    first, more = index.search_page("romance", "tag", 0, 6)
+    assert [c["noveldb"]["source"] for c in first] == ["npia", "nweb", "jara", "npia", "nweb", "jara"]
+    assert more
+    seen, page = [], 0
+    while True:
+        cards, more = index.search_page("romance", "tag", page, 6)
+        seen += [c["url"] for c in cards]
+        if not more:
+            break
+        page += 1
+    assert len(seen) == len(set(seen)) == 42  # every book once, through the further pages
+    # Once the smaller sources run out, the big one fills the pages.
+    assert all(url.startswith("https://example.test/w/") for url in seen[-10:])
+
+
+def test_a_search_of_several_words_matches_within_each_source():
+    manifest, data = build(many_books(), page=4)
+    index = NovelDBIndex(fetcher(manifest, data, []))
+    cards, more = index.search_page("npia romance", "name", 0, 40)
+    assert {c["noveldb"]["source"] for c in cards} == {"npia"} and len(cards) == 7 and not more
+
+
+def test_an_index_of_the_old_format_is_not_read(tmp_path):
+    manifest, data = build(BOOKS)
+    old = dict(manifest, format=1)
+    (tmp_path / "noveldb-search.json").write_text(json.dumps(old), encoding="utf-8")
+    reads = []
+    index = NovelDBIndex(fetcher(manifest, data, reads), cache_dir=tmp_path)
+    assert [c["title"] for c in index.search("omniscient")] == ["Omniscient Reader's Viewpoint"]
+    assert reads[0].endswith(".json")  # the kept old table was read again from the server

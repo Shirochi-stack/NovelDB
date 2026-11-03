@@ -267,6 +267,9 @@
     var NDB_KEY = 'noveldb.generic.ndbIndex', NDB_HOURS = 24;
     var NDB_STOP = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'and', 'is', 'on', 'at', 'for', 'with']);
     var NDB_CJK = /[\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/;
+    // Format 2: each token's books per source, in pages (scripts/noveldb_index/build.cjs). Results take
+    // the next book of each source in turn, the lead source's (npia) first; more pages as the user scrolls.
+    var NDB_FORMAT = 2, NDB_LEAD = 'npia', NDB_MULTI_PAGES = 40;
     var ndb = {manifest: null, pieces: new Map(), loading: null};
 
     function ndbNormal(text) { return String(text || '').normalize('NFKC').toLowerCase(); }
@@ -295,14 +298,14 @@
     function ndbManifest() {
         if (ndb.manifest && Date.now() - ndb.manifest._read < NDB_HOURS * 3600e3) return Promise.resolve(ndb.manifest);
         var kept = store(NDB_KEY);
-        if (kept && kept._read && Date.now() - kept._read < NDB_HOURS * 3600e3) { ndb.manifest = kept; return Promise.resolve(kept); }
+        if (kept && kept._read && kept.format === NDB_FORMAT && Date.now() - kept._read < NDB_HOURS * 3600e3) { ndb.manifest = kept; return Promise.resolve(kept); }
         if (ndb.loading) return ndb.loading;
         ndb.loading = fetchUrl(NDB_INDEX + 'noveldb-search.json', {binary: true, priority: true}).then(function (result) {
             ndb.loading = null;
             if (!result || result.status >= 400) return ndb.manifest;
             var found;
             try { found = JSON.parse(new TextDecoder().decode(result.bytes)); } catch (e) { return ndb.manifest; }
-            if (found.format !== 1) return null;  // an index for a newer app
+            if (found.format !== NDB_FORMAT) return null;  // an index for another version of the app
             found._read = Date.now();
             ndb.manifest = found;
             ndb.pieces.clear();
@@ -311,13 +314,14 @@
         });
         return ndb.loading;
     }
-    function ndbPiece(manifest, kind, index, retried) {
+    /** A word bucket or card block by its number, or a list page (`place`: its [offset, length]). */
+    function ndbPiece(manifest, kind, index, retried, place) {
         var key = manifest.built + '|' + kind + '|' + index;
         if (ndb.pieces.has(key)) return ndb.pieces.get(key);
-        var at = (kind === 'bucket' ? manifest.bucketAt : manifest.blockAt)[index];
+        var at = place || (kind === 'bucket' ? manifest.bucketAt : manifest.blockAt)[index];
         var asked = fetchUrl(NDB_INDEX + manifest.bin, {binary: true, priority: true, headers: {Range: 'bytes=' + at[0] + '-' + (at[0] + at[1] - 1)}})
             .then(function (result) {
-                if (result && result.status === 404 && !retried) {
+                if (result && result.status === 404 && !retried && !place) {
                     // A table of contents kept from an earlier build points at data a newer build replaced.
                     ndb.pieces.delete(key);
                     ndb.manifest = null;
@@ -329,22 +333,101 @@
                 return gunzip(result.bytes).then(JSON.parse);
             }).catch(function () { return null; });
         ndb.pieces.set(key, asked);
-        if (ndb.pieces.size > 256) ndb.pieces.delete(ndb.pieces.keys().next().value);
+        if (ndb.pieces.size > 512) ndb.pieces.delete(ndb.pieces.keys().next().value);
         return asked;
     }
+    function ndbUndelta(values) {
+        var total = 0;
+        return (values || []).map(function (value) { return (total += value); });
+    }
+    /** One source's books for a token: the first page from the bucket, further pages read as needed. */
+    function ndbList(manifest, first, more) {
+        var page = manifest.page || 500;
+        var list = {head: first, total: more ? more[0] : first.length, first: first.length ? first[0] : Infinity, page: page};
+        list.pageOf = function (number) {
+            if (number === 0) return Promise.resolve(list.head);
+            if (!more || number > more[2].length) return Promise.resolve([]);
+            return ndbPiece(manifest, 'page', more[1] + number - 1, false, more[2][number - 1]).then(ndbUndelta);
+        };
+        list.numbers = function (start, end) {
+            end = Math.min(end, list.total);
+            if (end <= start) return Promise.resolve([]);
+            var wanted = [];
+            for (var n = Math.floor(start / page); n <= Math.floor((end - 1) / page); n++) wanted.push(list.pageOf(n));
+            return Promise.all(wanted).then(function (pages) {
+                var skip = start - Math.floor(start / page) * page;
+                return [].concat.apply([], pages).slice(skip, skip + end - start);
+            });
+        };
+        return list;
+    }
+    function ndbFixed(numbers) {
+        return {head: numbers, total: numbers.length, first: numbers.length ? numbers[0] : Infinity, page: Math.max(1, numbers.length),
+                pageOf: function () { return Promise.resolve(numbers); },
+                numbers: function (start, end) { return Promise.resolve(numbers.slice(start, end)); }};
+    }
+    function ndbLists(manifest, token) {
+        return ndbPiece(manifest, 'bucket', ndbBucket(token, manifest.buckets)).then(function (bucket) {
+            var entry = (bucket && bucket[token]) || {}, out = {};
+            Object.keys(entry).forEach(function (source) {
+                if (source.charAt(0) !== '+' && entry[source].length) out[source] = ndbList(manifest, ndbUndelta(entry[source]), entry['+' + source]);
+            });
+            return out;
+        });
+    }
+    /** Each source's books with every token (for several: those in all of them, among their first pages). */
+    function ndbStreams(manifest, wanted) {
+        return Promise.all(wanted.map(function (token) { return ndbLists(manifest, token); })).then(function (perToken) {
+            if (perToken.some(function (lists) { return !Object.keys(lists).length; })) return {};
+            if (perToken.length === 1) return perToken[0];
+            var sources = Object.keys(perToken[0]).filter(function (source) { return perToken.every(function (lists) { return lists[source]; }); });
+            var out = {};
+            return Promise.all(sources.map(function (source) {
+                var lists = perToken.map(function (lists) { return lists[source]; });
+                return Promise.all(lists.map(function (list) { return list.numbers(0, NDB_MULTI_PAGES * list.page); })).then(function (read) {
+                    // A list read only in part says nothing of the books after its last one read.
+                    var cutoff = Infinity;
+                    read.forEach(function (numbers, i) { if (numbers.length && numbers.length < lists[i].total) cutoff = Math.min(cutoff, numbers[numbers.length - 1]); });
+                    var others = read.slice(1).map(function (numbers) { return new Set(numbers); });
+                    var numbers = read[0].filter(function (n) { return n <= cutoff && others.every(function (set) { return set.has(n); }); })
+                        .sort(function (a, b) { return a - b; });
+                    if (numbers.length) out[source] = ndbFixed(numbers);
+                });
+            })).then(function () { return out; });
+        });
+    }
+    /** Places `offset` to `offset + count` of the order that takes each list's next book in turn. */
+    function ndbRoundRobin(totals, offset, count) {
+        var out = [], place = 0, longest = 0, sum = 0;
+        totals.forEach(function (t) { longest = Math.max(longest, t[1]); sum += t[1]; });
+        for (var round = 0; round < longest && out.length < count; round++) {
+            var active = totals.filter(function (t) { return t[1] > round; });
+            if (place + active.length <= offset) { place += active.length; continue; }
+            active.forEach(function (t) { if (place >= offset && out.length < count) out.push([t[0], round]); place++; });
+        }
+        return {picks: out, more: offset + out.length < sum};
+    }
     function ndbCount(value) { var n = Number(value) || 0; return n > 0 ? n.toLocaleString('en-US') : ''; }
-    /** Cards of NovelDB's books for a title or tag search, the most read first. */
-    function ndbSearch(text, mode, limit) {
+    /** {cards, more}: page `page` of NovelDB's books for a title or tag search, `limit` cards a page. */
+    function ndbSearch(text, mode, limit, page) {
         var wanted = mode === 'tag' ? [ndbTag(text)] : ndbTokens(text);
-        if (!wanted.length) return Promise.resolve([]);
+        limit = limit || 40;
+        if (!wanted.length) return Promise.resolve({cards: [], more: false});
+        var more = false;
         return ndbManifest().then(function (manifest) {
             if (!manifest) return [];
-            return Promise.all(wanted.map(function (token) {
-                return ndbPiece(manifest, 'bucket', ndbBucket(token, manifest.buckets)).then(function (bucket) { return (bucket && bucket[token]) || []; });
-            })).then(function (lists) {
-                if (lists.some(function (list) { return !list.length; })) return [];
-                var numbers = lists[0].filter(function (n) { return lists.every(function (list) { return list.indexOf(n) >= 0; }); })
-                    .sort(function (a, b) { return a - b; }).slice(0, limit || 40);
+            return ndbStreams(manifest, wanted).then(function (streams) {
+                var order = Object.keys(streams).sort(function (a, b) {
+                    return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
+                });
+                var merged = ndbRoundRobin(order.map(function (name) { return [name, streams[name].total]; }), (page || 0) * limit, limit);
+                more = merged.more;
+                return Promise.all(merged.picks.map(function (pick) {
+                    var list = streams[pick[0]];
+                    return list.pageOf(Math.floor(pick[1] / list.page)).then(function (numbers) { return numbers[pick[1] % list.page]; });
+                }));
+            }).then(function (numbers) {
+                numbers = numbers.filter(function (n) { return n != null; });
                 return Promise.all(numbers.map(function (number) {
                     return ndbPiece(manifest, 'block', Math.floor(number / manifest.block)).then(function (block) {
                         var row = block && block[number % manifest.block];
@@ -358,7 +441,7 @@
                     });
                 }));
             });
-        }).then(function (cards) { return (cards || []).filter(Boolean); });
+        }).then(function (cards) { return {cards: (cards || []).filter(Boolean), more: more}; });
     }
     function ndbShard(id, count) {
         var text = String(id || '');
@@ -547,6 +630,59 @@
         return fetchUrl(way.action + (way.action.indexOf('?') >= 0 ? '&' : '?') + data.toString(), {stop: token});
     }
 
+    // -- next pages (site_search.py next_page): each results page's next one, read as the list is scrolled --
+    var NEXT_WORDS = /^\s*(next( page)?|older( posts| entries)?|more|›|»|>|>>|→|다음( 페이지)?|次へ|次のページ|下一页|下页|后页|siguiente|suivant|próxima|proxima|weiter|далее|следующая|التالي|selanjutnya|berikutnya|sonraki|tiếp)\s*[›»>→]*\s*$/i;
+    var PAGE_IN_URL = /([?&](?:page|p|pg|paged|pageno|page_no|pagenum)=)(\d+)|(\/page\/)(\d+)/i;
+    var nextPages = {};  // home|kind|query -> the next page of the list read last
+    function sameSite(a, b) {
+        try { return G().siteOf(new URL(a).hostname) === G().siteOf(new URL(b).hostname); } catch (e) { return false; }
+    }
+    function nextPage(html, url) {
+        var doc = G().parse(html), link = doc.querySelector('link[rel~=next][href], a[rel~=next][href]');
+        var href = link && G().cleanUrl(link.getAttribute('href'), url);
+        if (href && href !== url && sameSite(href, url)) return href;
+        var anchors = Array.prototype.slice.call(doc.querySelectorAll('a[href]'));
+        for (var i = 0; i < anchors.length; i++) {
+            var a = anchors[i], label = G().textOf(a) || a.getAttribute('aria-label') || a.getAttribute('title') || '';
+            if (NEXT_WORDS.test(label) || /(^|[\s_-])next([\s_-]|$)/i.test(a.getAttribute('class') || '')) {
+                href = G().cleanUrl(a.getAttribute('href'), url);
+                if (href && href.replace(/\/+$/, '') !== url.replace(/\/+$/, '') && sameSite(href, url) && !/^javascript/i.test(href)) return href;
+            }
+        }
+        var found = PAGE_IN_URL.exec(url);
+        if (found) {
+            // A page past the last one has no books: reading more stops there.
+            var digits = found[2] || found[4], start = found.index + (found[1] || found[3]).length;
+            return url.slice(0, start) + (Number(digits) + 1) + url.slice(start + digits.length);
+        }
+        var path = new URL(url).pathname.replace(/\/+$/, '');
+        for (var j = 0; j < anchors.length; j++) {
+            href = G().cleanUrl(anchors[j].getAttribute('href'), url);
+            if (href && sameSite(href, url) && /([?&](page|p|paged)=2(&|$))|\/page\/2\/?($|\?)/.test(href)
+                && new URL(href).pathname.split('/page/')[0].replace(/\/+$/, '') === path) return href;
+        }
+        return '';
+    }
+    function rememberNext(home, kind, text, result, url) {
+        var where = (result && result.url) || url, key = home + '|' + kind + '|' + text;
+        var found = result && where ? nextPage(result.text(), where) : '';
+        if (found) nextPages[key] = found; else delete nextPages[key];
+    }
+    function hasMore(home, kind, text) { return !!nextPages[home + '|' + kind + '|' + text]; }
+    /** The next page of the list a search, tag or popular list of `home` read last (its own next page is kept). */
+    function siteMore(home, kind, text, token) {
+        var key = home + '|' + kind + '|' + text, url = nextPages[key];
+        delete nextPages[key];
+        if (!url) return Promise.resolve([]);
+        return fetchUrl(url, {stop: token}).then(function (result) {
+            if (!result || result.status >= 400) return [];
+            var cards = extractCards(result.text(), result.url || url);
+            if (kind === 'search') cards = cards.filter(function (c) { return relevant(c.title, text); });
+            if (cards.length) rememberNext(home, kind, text, result, url);
+            return cards.slice(0, 40).map(function (c) { return kind === 'tag' ? Object.assign(c, {verified: true}) : c; });
+        }, function () { return []; });
+    }
+
     /** Cards from the site's own search for `text` (relevant ones only), within 20 seconds. */
     function siteSearch(home, text, token) {
         var started = Date.now();
@@ -566,6 +702,7 @@
                         made.ways.unshift(way);
                         savePlans();
                     }
+                    rememberNext(home, 'search', text, result);
                     return cards.slice(0, 20);
                 }, next);
             }
@@ -582,6 +719,7 @@
                 .map(function (n) { return names[n]; })[0]);
             var own = url ? fetchUrl(url, {stop: token}).then(function (result) {
                 if (!result || result.status >= 400) return [];
+                rememberNext(home, 'tag', tag, result, url);
                 return extractCards(result.text(), result.url || url).slice(0, 24).map(function (c) { return Object.assign(c, {verified: true}); });
             }) : Promise.resolve([]);
             return own.then(function (cards) {
@@ -593,6 +731,7 @@
                         if (!result || result.status >= 400 || !searched(result.url || '', made.home, tag)) return next();
                         var found = extractCards(result.text(), result.url || home);
                         if (homeAgain(found, made) || !found.length) return next();
+                        rememberNext(home, 'tag', tag, result);
                         return found.slice(0, 24);
                     }, next);
                 }
@@ -623,7 +762,9 @@
             function next() {
                 if (index >= tries.length || stopped(token)) {
                     return fetchUrl(made.home, {stop: token}).then(function (result) {
-                        return result && result.status < 400 ? extractCards(result.text(), result.url || made.home).slice(0, 30) : [];
+                        if (!result || result.status >= 400) return [];
+                        rememberNext(home, 'popular', '', result, made.home);
+                        return extractCards(result.text(), result.url || made.home).slice(0, 30);
                     });
                 }
                 var url = tries[index++];
@@ -632,6 +773,7 @@
                     var cards = extractCards(result.text(), result.url || url);
                     if (cards.length < 6) return next();
                     if (made.popular !== url) { made.popular = url; savePlans(); }
+                    rememberNext(home, 'popular', '', result, url);
                     return cards.slice(0, 30);
                 }, next);
             }
@@ -858,7 +1000,8 @@
         });
         sources.unshift(function () {
             var started = Date.now();
-            return ndbSearch(text, mode, 40).then(function (cards) {
+            return ndbSearch(text, mode, 40).then(function (found) {
+                var cards = found.cards;
                 var fresh = offer(cards.map(function (c) { return Object.assign(c, {ms: Date.now() - started, verified: mode === 'tag'}); }));
                 report('NovelDB', started, fresh.length);
             }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); });
@@ -959,6 +1102,7 @@
             sites = sites.filter(fits).concat(sites.filter(function (s) { return !fits(s); }));
         }
         sites = sites.slice(0, 30);
+        topSites = sites;
         call('progress', id, {total: sites.length});
         var seen = {};
         var all = each(sites, 12, function (site, index) {
@@ -993,6 +1137,51 @@
                 });
             })).then(function () { call('done', id, totals); });
         });
+    }
+    var topSites = [];  // the shown top list's sites, for their next pages
+    /** A search's next results as it is scrolled: NovelDB's page `page`, each site's next results page. */
+    function more(id, queries, page) {
+        var token = current.token || newToken(), state = {more: false};
+        ready.then(function () {
+            return Promise.all(queries.filter(function (q) { return q.mode !== 'id'; }).slice(0, 6).map(function (item) {
+                var mode = item.mode === 'tag' ? 'tag' : 'name', kind = mode === 'tag' ? 'tag' : 'search', text = item.query, seen = {};
+                function offer(cards) {
+                    var fresh = cards.filter(function (c) { var k = c.url.replace(/\/+$/, ''); if (seen[k]) return false; seen[k] = true; return true; });
+                    if (fresh.length && !stopped(token)) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
+                }
+                var jobs = [ndbSearch(text, mode, 40, page).then(function (found) {
+                    offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode === 'tag'}); }));
+                    if (found.more) state.more = true;
+                }, function () {})];
+                SITES.forEach(function (site) {
+                    var home = 'https://' + site.host + '/';
+                    if (!hasMore(home, kind, text)) return;
+                    jobs.push(siteMore(home, kind, text, token).then(function (hits) {
+                        offer(hits.map(function (hit) { return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover), {verified: !!hit.verified}); }));
+                        if (hasMore(home, kind, text)) state.more = true;
+                    }));
+                });
+                return within(Promise.all(jobs), 30000, token);
+            }));
+        }).catch(function () {}).then(function () { call('moreDone', id, state); });
+    }
+    /** The next page of the shown top list's sites' popular lists. */
+    function topMore(id) {
+        var token = current.token || newToken(), state = {more: false};
+        ready.then(function () {
+            return within(each(topSites, 12, function (site, index) {
+                var home = 'https://' + site.host + '/';
+                if (!hasMore(home, 'popular', '')) return Promise.resolve();
+                return siteMore(home, 'popular', '', token).then(function (hits) {
+                    var cards = hits.filter(function (hit) { return looksLikeBook(hit.url, hit.title); }).map(function (hit, position) {
+                        return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover),
+                                             {siteRank: index, position: position, listLength: hits.length, via: 'top'});
+                    });
+                    if (hasMore(home, 'popular', '')) state.more = true;
+                    if (cards.length && !stopped(token)) call('add', cards, id);
+                });
+            }, token), 30000, token);
+        }).catch(function () {}).then(function () { call('moreDone', id, state); });
     }
     function top(id, kind, language) {
         var token = newToken();
@@ -1214,6 +1403,8 @@
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
         case 'genericStop': if (current.token) current.token.stopped = true; break;
         case 'genericTop': top(message.id || 0, message.kind, String(message.language || 'all').slice(0, 5)); break;
+        case 'genericMore': if (message.page >= 1 && Array.isArray(message.queries)) more(message.id || 0, message.queries, message.page); break;
+        case 'genericTopMore': topMore(message.id || 0); break;
         case 'genericFetch':
             transport(message.request).then(function (reply) { call('fetched', message.id, reply); });
             break;

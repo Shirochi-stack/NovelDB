@@ -275,6 +275,7 @@ class CatalogPage(QWidget):
         self.run.setToolTip("Download every book in the link cart")
         self.run.clicked.connect(self.downloadCart.emit)
         bar = QHBoxLayout()
+        self._bar = bar  # hidden while the reader is full screen
         bar.setContentsMargins(8, 4, 8, 4)
         bar.setSpacing(2)
         for widget in (self.back, self.forward, self.reload, self.home):
@@ -540,6 +541,16 @@ class CatalogPage(QWidget):
         self._reported = (address, title)
         self._push_state()
 
+    def _reader_full_screen(self, on: bool) -> None:
+        """The generic page's reader in full screen: the Catalog's toolbar hidden, the window full screen."""
+        for index in range(self._bar.count()):
+            widget = self._bar.itemAt(index).widget()
+            if widget is not None:
+                widget.setVisible(not on)
+        window = self.window()
+        if hasattr(window, "set_reader_full_screen"):
+            window.set_reader_full_screen(on)
+
     def _message(self, data: dict) -> None:
         kind = data["type"]
         if kind.startswith("generic"):
@@ -552,6 +563,9 @@ class CatalogPage(QWidget):
             if kind == "genericLogin":
                 if self._on_generic_page():
                     self.loginRequested.emit(data["url"])
+                return
+            if kind == "genericFullscreen":
+                self._reader_full_screen(bool(data.get("on")) and self._on_generic_page())
                 return
             if kind == "genericDownload":
                 if self._on_generic_page():

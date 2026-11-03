@@ -21,7 +21,8 @@
     var cart = new Set(), pending = {}, nextId = 0, searchId = 0, running = 0;
     var view = 'top', current = {text: '', tags: []}, picked = [], resultTags = new Map();
     // TOP_KEY's version: a new one drops the top lists saved by older code.
-    var TOP_KEY = 'noveldb.generic.top.v5', TOP_HOURS = 12, TOP_SIZE = 100;
+    // A top list shows TOP_SIZE books at first, TOP_STEP more each time it is scrolled to its end.
+    var TOP_KEY = 'noveldb.generic.top.v6', TOP_HOURS = 12, TOP_SIZE = 100, TOP_STEP = 50;
     var TAGS = ['Action', 'Adventure', 'Apocalypse', 'BL', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
@@ -74,10 +75,30 @@
         var value = String(name || '').toLowerCase();
         return LANG_NAMES[value] || (value.length === 2 ? value : '');
     }
-    // A book's language: its LNReader plugin's, else the script of its title, else its site's country.
+    // The language a text's letters are mostly written in, by their script ('' for Latin letters or too few).
+    var SCRIPTS = [['ko', /[\uac00-\ud7af]/g], ['ja', /[\u3040-\u30ff]/g], ['zh', /[\u4e00-\u9fff]/g], ['ru', /[\u0400-\u04ff]/g],
+                   ['th', /[\u0e00-\u0e7f]/g], ['ar', /[\u0600-\u06ff]/g]];
+    function scriptLang(text) {
+        text = String(text || '').slice(0, 600);
+        var letters = (text.match(/\p{L}/gu) || []).length;
+        if (letters < 4) return '';  // a date with a month's name tells a site's language too
+        var best = '', most = 0;
+        SCRIPTS.forEach(function (entry) {
+            var count = (text.match(entry[1]) || []).length;
+            if (count > most) { most = count; best = entry[0]; }
+        });
+        if (best === 'zh' && /[\u3040-\u30ff]/.test(text)) best = 'ja';
+        return most > letters / 2 ? best : '';
+    }
+    // Sites whose books turned out to be in another language than their domain says (an Arabic site on
+    // .net): learned from their synopses, for their books that show none.
+    var siteLangs = new Map();
+    // A book's language: its LNReader plugin's, else the script of its title or synopsis, else its site's.
     function langOf(card) {
         var plugin = card.plugin && pluginLangs[card.plugin];
         if (plugin) return plugin;
+        var written = scriptLang(card.description);
+        if (written) { if (card.site) siteLangs.set(card.site, written); return written; }
         var title = String(card.title || '');
         if (/[\uac00-\ud7af]/.test(title)) return 'ko';
         if (/[\u3040-\u30ff]/.test(title)) return 'ja';
@@ -86,7 +107,7 @@
         if (/[\u0400-\u04ff]/.test(title)) return 'ru';
         if (/[\u0e00-\u0e7f]/.test(title)) return 'th';
         if (/[\u0600-\u06ff]/.test(title)) return 'ar';
-        return TLD_LANG[tld] || 'en';
+        return siteLangs.get(card.site) || TLD_LANG[tld] || 'en';
     }
     function inLanguage(card) { return language === 'all' || langOf(card) === language; }
 
@@ -216,9 +237,22 @@
         return kind === 'all' || kindOf(group) === kind;
     }
 
+    // A synopsis as shown: without a leading "Summary" label, and without a teaser cut off with "[…]"
+    // that the full text after it repeats (pages that show both).
+    function synopsisText(text) {
+        text = String(text || '').replace(/^\s*(summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé|story)\s*[:：-]?\s*/i, '');
+        var cut = text.search(/\s*(\[(…|\.\.\.)\]|…\s*(read more|more)?)\s*/i);
+        if (cut > 40) {
+            var rest = text.slice(cut).replace(/^\s*(\[(…|\.\.\.)\]|…\s*(read more|more)?)\s*/i, '');
+            if (rest.length > cut * 0.8 && rest.slice(0, 30) === text.slice(0, 30)) return rest.trim();
+        }
+        return text.trim();
+    }
+
     // -- cards -------------------------------------------------------------------------------------
     function reset(nextView) {
         view = nextView;
+        more = {page: 1, loading: false, has: true};
         clearTimeout(top.timer);  // a top list still loading draws nothing more
         groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear();
         $('grid').innerHTML = '';
@@ -376,7 +410,7 @@
         var inCart = group.sources.some(function (s) { return cart.has(s.url); });
         var more = group.sources.length > 1 ? ' +' + (group.sources.length - 1) : '';
         var synopsis = group.description
-            ? '<div class="synopsis">' + esc(group.description) + '</div>'
+            ? '<div class="synopsis">' + esc(synopsisText(group.description)) + '</div>'
             : (group.loaded ? '' : '<div class="loading"><i></i><i></i><i></i></div>');
         element.innerHTML = '<div class="cover' + (group.cover ? ' loading' : '') + '">'
             + (group.cover ? '<img loading="lazy" referrerpolicy="no-referrer" alt="" src="' + esc(group.cover) + '">' : '')
@@ -645,7 +679,7 @@
                 + fact('Chapters', group.chapters) + fact('Published', group.published) + fact('Updated', group.updated)
                 + fact('Status', group.status) + '</div>'
                 + '<div class="chips">' + shownTags(group.tags).map(function (tag) { return '<span class="chip">' + esc(tag) + '</span>'; }).join('') + '</div>'
-                + (group.description ? '<div class="desc">' + esc(group.description) + '</div>'
+                + (group.description ? '<div class="desc">' + esc(synopsisText(group.description)) + '</div>'
                     : group.loaded ? '<div class="desc">No description on the book page.</div>'
                     : '<div class="loading" style="margin:10px 0"><i></i><i></i><i></i><i></i></div>')
                 + (group.sources.length < 2 ? '' : '<div class="sources"><h4>On ' + group.sources.length + ' sites</h4>' + group.sources.map(function (source, index) {
@@ -756,15 +790,15 @@
     // ranking pages, read by the app. Each list is kept for 12 hours.
     var TOP_NAMES = {all: 'web novels', webnovel: 'web novels', lightnovel: 'light novels', manga: 'manga',
                      manhwa: 'manhwa', comic: 'comics'};
-    var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0};
+    var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE};
     function topKind() { var kind = $('kind').value; return kind === 'all' ? 'webnovel' : kind; }
     function showTop() {
         searchId++;
         reset('top');
         current = {text: '', tags: []};
-        top = {kind: topKind(), scores: new Map(), first: 0, timer: 0};
+        top = {kind: topKind(), scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE};
         var chosen = $('language').selectedOptions[0];
-        $('heading').textContent = 'Top 100 ' + TOP_NAMES[top.kind] + (language === 'all' ? '' : ' · ' + chosen.text);
+        $('heading').textContent = 'Top ' + TOP_NAMES[top.kind] + (language === 'all' ? '' : ' · ' + chosen.text);
         var cached = store(TOP_KEY + '.' + top.kind + '.' + language);
         if (cached && cached.items && cached.items.length) {
             cached.items.forEach(function (item, index) {
@@ -773,7 +807,8 @@
                 if (group) { (item.more || []).forEach(function (m) { merge(m); }); render(group); }
             });
             status('The most read ' + TOP_NAMES[top.kind] + ' on the top sites, as of ' + new Date(cached.time).toLocaleString() + '.');
-            if (Date.now() - cached.time < TOP_HOURS * 3600e3) { empty(); return; }
+            // A kept list: its sites are asked again only when it is scrolled past its end.
+            if (Date.now() - cached.time < TOP_HOURS * 3600e3) { top.cached = true; empty(); return; }
         }
         loadTop(searchId);
     }
@@ -802,9 +837,11 @@
         var entries = Array.from(top.scores.values()).sort(function (a, b) { return a.first - b.first; });
         entries.forEach(function (entry) {
             if (entry.excluded) return;
+            // A site found meanwhile to be in another language (its synopses): its books leave the list.
+            if (entry.group && !inLanguage(entry.cards[0])) { entry.excluded = true; dropFromTop(entry.group); return; }
             if (entry.group && !groups.has(entry.group.key)) { entry.excluded = true; return; }  // dropped from the list
             if (!entry.group) {
-                if (order.length >= TOP_SIZE) return;
+                if (order.length >= top.limit) return;
                 var group = merge(entry.cards[0]);
                 if (!group) return;
                 group.topKind = top.kind;
@@ -895,7 +932,7 @@
         picked.slice(0, 5).forEach(function (tag) { queries.push({query: tag, mode: 'tag'}); });
         searchId++;
         reset('search');
-        current = {text: text, tags: picked.slice()};
+        current = {text: text, tags: picked.slice(), queries: queries, byId: byId};
         running = 0;
         setRunning(1);
         var label = [text ? (byId ? 'ID ' : '') + '“' + text + '”' : ''].concat(picked.map(function (t) { return '#' + t; })).filter(Boolean).join(' + ');
@@ -1023,6 +1060,27 @@
     function layout() { return R.comic ? 'scroll' : look.layout; }
     if (darkPage && darkPage.addEventListener) darkPage.addEventListener('change', function () { if ($('reader').classList.contains('open')) applyLook(); });
 
+    // Full screen: the reader's bars hidden (a tap in the middle shows them), the page's own full screen
+    // where the browser allows it, and the app asked to hide its own bars too (genericFullscreen).
+    function setFull(on) {
+        R.full = !!on;
+        var reader = $('reader');
+        reader.classList.toggle('full', R.full);
+        reader.classList.remove('bars');
+        $('rFull').textContent = R.full ? '🗗' : '⛶';
+        $('rFull').title = R.full ? 'Leave full screen (F)' : 'Full screen (F)';
+        try {
+            // The browser's own full screen only without an app around the page (the apps hide their own
+            // bars instead; their web views handle a page's full screen badly).
+            if (R.full && !window.NovelDBQt && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(function () { /* the app's full screen only */ });
+            } else if (!R.full && document.fullscreenElement) {
+                document.exitFullscreen().catch(function () {});
+            }
+        } catch (e) { /* no full screen in this browser */ }
+        send({type: 'genericFullscreen', on: R.full});
+        setTimeout(function () { if ($('reader').classList.contains('open')) paginate(readingAt()); }, 250);
+    }
     function applyLook() {
         var reader = $('reader');
         reader.style.setProperty('--r-size', look.size + 'px');
@@ -1108,6 +1166,7 @@
         R.comic = !!group.comic;
         R.token++;
         R.cache = new Map();
+        R.chapterIds = new Map();
         R.chapters = [];
         reader.classList.add('open');
         document.body.style.overflow = 'hidden';
@@ -1193,9 +1252,17 @@
         attempt(0);
     }
     // An app request that gives up after `seconds` (the reader shows what failed instead of waiting forever).
-    function askWithin(message, seconds) {
-        return within(ask(message, function (id) { R.requestId = id; }), seconds * 1000,
+    // `onId` hears the request's id (default: the reader's current request, for its progress notes).
+    function askWithin(message, seconds, onId) {
+        return within(ask(message, onId || function (id) { R.requestId = id; }), seconds * 1000,
                       {error: 'the site did not answer in ' + seconds + ' s'});
+    }
+    // A chapter of images reads as a comic: one scroll, each image showing as it arrives (the paged
+    // layout could not count its pages until the last image was in).
+    function asComic() {
+        if (R.comic) return;
+        R.comic = true;
+        applyLook();
     }
     function loadBook(source) {
         if (lnreaderSite(source) && window.__LNR_parseBook) {
@@ -1214,7 +1281,9 @@
             var item = Object.assign({}, R.lnreader.chapters[index]);
             promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}').then(parse);
         } else {
-            promise = askWithin({type: 'genericChapter', url: source.url, index: index}, 90);
+            // Each chapter's request keeps its id: the next chapter read ahead must not take over this one's
+            // streamed images and notes.
+            promise = askWithin({type: 'genericChapter', url: source.url, index: index}, 90, function (id) { R.chapterIds.set(index, id); });
         }
         promise = promise.then(function (result) {
             if (!result || result.error) {
@@ -1251,6 +1320,7 @@
             var last = index + 1 < R.chapters.length;
             var many = (chapter.html.match(/<img/g) || []).length >= 4;
             if (many) {
+                asComic();
                 R.streamed = -1;
                 resetPictures();
                 chapter.html = chapter.html.replace(/<img[^>]*?src="([^"]+)"[^>]*>/g, function (_tag, src) { return slotHtml(src); });
@@ -1337,6 +1407,7 @@
     function streamImages(index, found) {
         if (index !== R.index) return;
         if (R.streamed !== index) {
+            asComic();
             R.streamed = index;
             clearInterval(R.clock);
             resetPictures();
@@ -1517,6 +1588,7 @@
         R.swiped = Date.now();  // the tap zones ignore the click this swipe ends with
     }, {passive: true});
     function closeReader() {
+        if (R.full) setFull(false);
         R.token++;
         $('reader').classList.remove('open');
         $('toc').classList.remove('open');
@@ -1529,9 +1601,20 @@
         var paged = layout() !== 'scroll';
         if (event.key === 'ArrowRight' || event.key === 'PageDown' || (paged && event.key === 'ArrowDown') || (event.key === ' ' && !event.shiftKey)) { event.preventDefault(); turn(1); }
         else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (paged && event.key === 'ArrowUp') || (event.key === ' ' && event.shiftKey)) { event.preventDefault(); turn(-1); }
-        else if (event.key === 'Escape') closeReader();
+        else if (event.key === 'Escape') { if (R.full) setFull(false); else closeReader(); }
+        else if (event.key === 'f' || event.key === 'F') setFull(!R.full);
         else if (event.key === 'Home') { R.page = 0; place(); }
         else if (event.key === 'End') { R.page = R.pages - 1; place(); }
+    });
+    $('rFull').onclick = function () { setFull(!R.full); };
+    // In full screen a tap in the page's middle (not a page-turning edge) shows or hides the bars.
+    $('viewport').addEventListener('click', function (event) {
+        if (!R.full || event.target.closest('button, a, input')) return;
+        $('reader').classList.toggle('bars');
+    });
+    // The browser's own way out of full screen (Esc, a back gesture) leaves the reader's too.
+    document.addEventListener('fullscreenchange', function () {
+        if (!document.fullscreenElement && R.full) setFull(false);
     });
     window.addEventListener('resize', function () {
         if (!$('reader').classList.contains('open')) return;
@@ -1539,6 +1622,45 @@
         var at = readingAt();
         R.resizeTimer = setTimeout(function () { paginate(at); }, 120);
     });
+
+    // -- more as the list is scrolled -------------------------------------------------------------------
+    // A search asks for its next results (NovelDB's next page, each site's next results page); a top list
+    // shows TOP_STEP more of the books its sites listed, and asks them for their next pages when it runs short.
+    var more = {page: 1, loading: false, has: true};
+    function nearEnd() {
+        var page = document.scrollingElement || document.documentElement;
+        return page.scrollTop + window.innerHeight >= page.scrollHeight - 900;
+    }
+    function moreSoon() {
+        if (!nearEnd() || $('reader').classList.contains('open')) return;
+        if (view === 'search') {
+            if (more.loading || !more.has || running || !current.queries || current.byId) return;
+            more.loading = true;
+            status('Loading more results…');
+            send({type: 'genericMore', id: searchId, queries: current.queries, page: more.page});
+        } else if (view === 'top') {
+            var waiting = Array.from(top.scores.values()).filter(function (entry) { return !entry.group && !entry.excluded; }).length;
+            if (waiting) {
+                top.limit = order.length + TOP_STEP;
+                topRedraw();
+            }
+            if (waiting >= TOP_STEP || more.loading || !more.has || running) return;
+            more.loading = true;
+            status('Loading more ' + TOP_NAMES[top.kind] + '…');
+            if (top.cached) {
+                top.cached = false;
+                top.limit = order.length + TOP_STEP;
+                loadTop(searchId);  // a kept list: its sites' lists first, then their next pages
+                more.loading = false;
+            } else {
+                send({type: 'genericTopMore', id: searchId});
+            }
+        }
+    }
+    window.addEventListener('scroll', function () {
+        clearTimeout(more.timer);
+        more.timer = setTimeout(moreSoon, 150);
+    }, {passive: true});
 
     window.NovelDBGeneric = {
         init: function (value) {
@@ -1556,6 +1678,16 @@
             if (view === 'top' && !order.length) showTop();
         },
         add: add,
+        moreDone: function (id, state) {
+            if (id !== searchId) return;
+            more.loading = false;
+            more.page++;
+            more.has = !!(state && state.more);
+            if (view === 'top') { top.limit = order.length + TOP_STEP; topRedraw(); topSave(); }
+            status(shownCount() + (more.has ? ' books so far; scroll for more.' : ' books; that is all the sites have.'));
+            empty();
+            setTimeout(moreSoon, 300);  // still at the end (few new books): the next page
+        },
         progress: function (id, item) {
             if (id !== searchId || !item) return;
             if (item.total) { progress.expected += item.total; showProgress(); return; }
@@ -1595,7 +1727,7 @@
             card.complete = true;
             merge(card);
             // Its page shows tags the list card lacked.
-            if (view === 'top' && notInTop(group)) { dropFromTop(group); return; }
+            if (view === 'top' && (notInTop(group) || !inLanguage(card))) { dropFromTop(group); return; }
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
         },
@@ -1607,14 +1739,14 @@
             openReader(group, 0);
         },
         readerStatus: function (id, text) {
-            if (id !== R.requestId || !R.drawNote) return;
+            if ((id !== R.requestId && id !== R.chapterIds.get(R.index)) || !R.drawNote) return;
             R.noteDetail = text;
             // Once the chapter's images are showing, the note would cover them: the bottom bar says it instead.
             if (R.streamed === R.index) { $('rWhere').textContent = text; return; }
             R.drawNote();
         },
         readerImages: function (id, found) {
-            if (id !== R.requestId || !found || !found.images) return;
+            if (id !== R.chapterIds.get(R.index) || !found || !found.images) return;
             streamImages(R.index, found);
         },
         fetched: function (id, result) {

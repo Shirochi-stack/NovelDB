@@ -202,3 +202,41 @@ def test_library_epubs_open_in_the_reader(tmp_path):
     assert contents["title"] == "Book" and contents["chapters"][0]["name"] == "c1"
     chapter = reader.chapter(book.as_uri(), 0)
     assert "<p>Hello</p>" in chapter["html"] and 'src="data:image/png;base64,' in chapter["html"]
+
+
+def test_a_results_pages_next_page_is_found():
+    from noveldb.core.catalog.site_search import next_page
+
+    assert next_page('<link rel="next" href="/find?q=a&page=2">', "https://x.example/find?q=a") == \
+        "https://x.example/find?q=a&page=2"
+    assert next_page('<div class="pagination"><a href="/manga/page/3/">Next ›</a></div>', "https://x.example/manga/page/2/") == \
+        "https://x.example/manga/page/3/"
+    assert next_page("<p>no links</p>", "https://x.example/popular?page=4") == "https://x.example/popular?page=5"
+    assert next_page('<a href="/popular/page/2/">2</a>', "https://x.example/popular") == "https://x.example/popular/page/2/"
+    assert next_page("<p>no links</p>", "https://x.example/popular") == ""
+    assert next_page('<a href="https://other.example/next">Next</a>', "https://x.example/a") == ""  # another site
+
+
+def test_more_reads_the_next_results_page_of_a_search():
+    first = RESULTS.replace("</body>", '<a rel="next" href="/find?q=dragon&page=2">Next</a></body>')
+    second = RESULTS.replace("dragon-king", "dragon-queen").replace("Dragon King Returns", "Dragon Queen Rises") \
+        .replace("dragon-girl", "dragon-boy").replace("The Dragon Girl", "The Dragon Boy")
+    pages = {"https://books.example/": HOME, "https://books.example/opensearch.xml": OPENSEARCH,
+             "https://books.example/find?q=dragon": first, "https://books.example/find?q=dragon&page=2": second}
+    search = SiteSearch(lambda url, **_o: page(pages[url], url) if url in pages else page("", url, 404))
+    home = "https://books.example/"
+    assert len(search.search(home, "dragon")) == 2
+    assert search.has_more(home, "search", "dragon")
+    assert [card["title"] for card in search.more(home, "search", "dragon")] == ["Dragon Queen Rises", "The Dragon Boy"]
+    # No next link on page 2: page 3 is guessed from its address, finds nothing, and the list ends there.
+    assert search.more(home, "search", "dragon") == []
+    assert not search.has_more(home, "search", "dragon")
+
+
+def test_more_messages_are_checked():
+    from noveldb.qt.catalog.generic import parse_message
+
+    assert parse_message({"type": "genericMore", "id": 2, "page": 1, "queries": [{"query": "dragon", "mode": "name"}]})
+    assert parse_message({"type": "genericMore", "id": 2, "page": 0, "queries": [{"query": "dragon"}]}) is None
+    assert parse_message({"type": "genericTopMore", "id": 2})
+    assert parse_message({"type": "genericFullscreen", "on": True})

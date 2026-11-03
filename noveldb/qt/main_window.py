@@ -421,6 +421,24 @@ class MainWindow(QMainWindow):
             self._maximized_before_full_screen = self.isMaximized()
             self.showFullScreen()
 
+    def set_reader_full_screen(self, on: bool) -> None:
+        """The Catalog's reader in full screen: the window full screen, without the sidebar and the log
+        panel; back as it was after."""
+        if on == bool(getattr(self, "_reader_full", False)):
+            return
+        self._reader_full = on
+        self.sidebar.setVisible(not on)
+        if on:
+            self._log_before_reader = self.log_panel.isVisible()
+            self._full_before_reader = self.isFullScreen()
+            self.log_panel.setVisible(False)
+            if not self._full_before_reader:
+                self.toggle_full_screen()
+        else:
+            self.log_panel.setVisible(getattr(self, "_log_before_reader", False))
+            if not getattr(self, "_full_before_reader", False) and self.isFullScreen():
+                self.toggle_full_screen()
+
     def show_initial(self) -> None:
         if self._start_maximized:
             self.showMaximized()

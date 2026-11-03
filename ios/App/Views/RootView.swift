@@ -167,14 +167,17 @@ struct RootView: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                Picker("Download", selection: Binding(get: { downloadMode }, set: { downloadMode = $0; selection = $0 })) {
-                    Label("Catalog", systemImage: "books.vertical").tag(Panel.catalog)
-                    Label("Add links", systemImage: "plus.circle").tag(Panel.add)
+                // Not over the Catalog's reader in full screen.
+                if !(downloadMode == .catalog && catalog.readerFullScreen) {
+                    Picker("Download", selection: Binding(get: { downloadMode }, set: { downloadMode = $0; selection = $0 })) {
+                        Label("Catalog", systemImage: "books.vertical").tag(Panel.catalog)
+                        Label("Add links", systemImage: "plus.circle").tag(Panel.add)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .background(.bar)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(.bar)
             }
             .onChange(of: selection) { _, panel in
                 if panel == .add || panel == .catalog, let panel { downloadMode = panel }

@@ -3,11 +3,14 @@
  *
  * The index (scripts/noveldb_index/build.cjs, rebuilt when the data changes) lives as separate small
  * files on the repository's `noveldb-index` branch: a table (manifest.json), word buckets
- * (b/<n>.json.gz: {token: [book number, ...]}, the most read books first) and card blocks
- * (c/<n>.json.gz). A search reads one bucket per query word and the blocks of the books found, a few
- * small files instead of the whole catalog. The tokens are the builder's; keep them in step.
+ * (b/<n>.json.gz: {token: {source: [book number, ...]}}, each source's books the most read first,
+ * written as differences, with "+source": [count, first page, ...] for a list longer than the bucket
+ * keeps), their further pages (p/<n>.json.gz) and card blocks (c/<n>.json.gz). A search reads one
+ * bucket per query word and the blocks of the books on the page asked for, a few small files instead
+ * of the whole catalog. Results take each selected source's next book in turn, npia's first. The
+ * tokens are the builder's; keep them in step.
  *
- * window.NovelIndexSearch.eligible(query) -> true for a plain text search on its first page
+ * window.NovelIndexSearch.eligible(query) -> true for a plain text search
  * window.NovelIndexSearch.search(query)   -> Promise of {rows, total, page} (rows as metadata-core's parseRows gives them)
  */
 (function () {
@@ -18,7 +21,7 @@
     const STOP = new Set(["the", "a", "an", "of", "to", "in", "and", "is", "on", "at", "for", "with"]);
     const CJK = /[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿]/;
     const METADATA_V1 = new Set(["nweb", "jara", "mpia", "rbooks", "nseries"]);
-    const LIMIT = 200;
+    const FORMAT = 2, LEAD = "npia", MULTI_PAGES = 40;
     let manifest = null;
     const pieces = new Map();
 
@@ -60,7 +63,7 @@
         const response = await fetch(BASE + "manifest.json", {cache: "no-cache"});
         if (!response.ok) throw new Error(`manifest: ${response.status}`);
         const value = await response.json();
-        if (value.format !== 1) throw new Error("an index for newer code");
+        if (value.format !== FORMAT) throw new Error("an index for other code");
         if (manifest && manifest.value.built !== value.built) pieces.clear();
         manifest = {at: Date.now(), value};
         return value;
@@ -79,36 +82,86 @@
 
     function eligible(query) {
         return !!(query && query.text && !query.author && query.status === "all" && query.audience === "all"
-            && !query.and.length && !query.or.length && !query.exclude.length && query.page === 1);
+            && !query.and.length && !query.or.length && !query.exclude.length);
+    }
+
+    const undelta = (values) => { let total = 0; return (values || []).map((value) => (total += value)); };
+
+    // One source's books for a token: the first page from the bucket, further pages read as needed.
+    function list(index, first, more) {
+        const page = index.page || 500;
+        const pageOf = async (n) => (n === 0 ? first : more && n <= more[2].length ? undelta(await gzJson(`p/${more[1] + n - 1}.json.gz`)) : []);
+        return {
+            total: more ? more[0] : first.length, first: first.length ? first[0] : Infinity, page, pageOf,
+            async numbers(start, end) {
+                end = Math.min(end, this.total);
+                if (end <= start) return [];
+                const pages = [];
+                for (let n = Math.floor(start / page); n <= Math.floor((end - 1) / page); n++) pages.push(pageOf(n));
+                const skip = start - Math.floor(start / page) * page;
+                return (await Promise.all(pages)).flat().slice(skip, skip + end - start);
+            },
+        };
+    }
+    const fixed = (numbers) => ({total: numbers.length, first: numbers.length ? numbers[0] : Infinity, page: Math.max(1, numbers.length),
+                                 pageOf: async () => numbers, numbers: async (start, end) => numbers.slice(start, end)});
+
+    async function lists(index, token) {
+        const entry = (await gzJson(`b/${bucketOf(token, index.buckets)}.json.gz`))[token] || {};
+        const out = {};
+        for (const [source, first] of Object.entries(entry)) {
+            if (!source.startsWith("+") && first.length) out[source] = list(index, undelta(first), entry["+" + source]);
+        }
+        return out;
+    }
+
+    // Each source's books with every token: one token's lists, or for several the books in all of them
+    // (among their first pages).
+    async function streams(index, wanted, sources) {
+        const perToken = await Promise.all(wanted.map((token) => lists(index, token)));
+        const keep = (name) => !sources.size || sources.has(name);
+        if (perToken.some((found) => !Object.keys(found).length)) return {};
+        if (perToken.length === 1) return Object.fromEntries(Object.entries(perToken[0]).filter(([name]) => keep(name)));
+        const out = {};
+        await Promise.all(Object.keys(perToken[0]).filter((name) => keep(name) && perToken.every((found) => found[name])).map(async (name) => {
+            const each = perToken.map((found) => found[name]);
+            const read = await Promise.all(each.map((one) => one.numbers(0, MULTI_PAGES * one.page)));
+            // A list read only in part says nothing of the books after its last one read.
+            let cutoff = Infinity;
+            read.forEach((numbers, i) => { if (numbers.length && numbers.length < each[i].total) cutoff = Math.min(cutoff, numbers[numbers.length - 1]); });
+            const others = read.slice(1).map((numbers) => new Set(numbers));
+            const numbers = read[0].filter((n) => n <= cutoff && others.every((set) => set.has(n))).sort((a, b) => a - b);
+            if (numbers.length) out[name] = fixed(numbers);
+        }));
+        return out;
     }
 
     async function search(query) {
         const wanted = tokens(query.text);
         if (!wanted.length) return null;
         const index = await table();
-        const lists = await Promise.all(wanted.map(async (token) => {
-            const bucket = await gzJson(`b/${bucketOf(token, index.buckets)}.json.gz`);
-            return bucket[token] || [];
-        }));
-        if (lists.some((list) => !list.length)) return {rows: [], total: 0, page: 1};
-        const others = lists.slice(1).map((list) => new Set(list));
-        const numbers = lists[0].filter((n) => others.every((set) => set.has(n))).sort((a, b) => a - b).slice(0, LIMIT);
-        // Only the blocks of the first page's books: a page's worth, then twice as many each round while the
-        // source filter drops some.
-        const size = query.size || 60, sources = new Set(query.sources || []);
-        const rows = [];
-        let next = 0, step = size;
-        while (rows.length < size && next < numbers.length) {
-            const part = numbers.slice(next, next += step);
-            step *= 2;
-            const blocks = [...new Set(part.map((n) => Math.floor(n / index.block)))];
-            const loaded = new Map(await Promise.all(blocks.map(async (b) => [b, await gzJson(`c/${b}.json.gz`)])));
-            rows.push(...part.map((n) => loaded.get(Math.floor(n / index.block))[n % index.block])
-                .filter(Boolean).map(row).filter((r) => !sources.size || sources.has(r.source)));
+        const found = await streams(index, wanted, new Set(query.sources || []));
+        const order = Object.keys(found).sort((a, b) => (a !== LEAD) - (b !== LEAD) || found[a].first - found[b].first);
+        const total = order.reduce((sum, name) => sum + found[name].total, 0);
+        const size = query.size || 60, page = Math.max(1, Math.min(query.page || 1, Math.ceil(total / size) || 1));
+        // The places of this page in the order that takes each source's next book in turn.
+        const picks = [], offset = (page - 1) * size;
+        let place = 0;
+        const longest = Math.max(0, ...order.map((name) => found[name].total));
+        for (let round = 0; round < longest && picks.length < size; round++) {
+            const active = order.filter((name) => found[name].total > round);
+            if (place + active.length <= offset) { place += active.length; continue; }
+            for (const name of active) { if (place >= offset && picks.length < size) picks.push([name, round]); place++; }
         }
-        // The count of the books not read is an estimate at most: they may be from sources not selected.
-        const total = next >= numbers.length ? rows.length : numbers.length;
-        return {rows: rows.slice(0, size), total, page: 1};
+        const numbers = await Promise.all(picks.map(async ([name, at]) => {
+            const one = found[name];
+            return (await one.pageOf(Math.floor(at / one.page)))[at % one.page];
+        }));
+        const rows = await Promise.all(numbers.filter((n) => n != null).map(async (n) => {
+            const card = (await gzJson(`c/${Math.floor(n / index.block)}.json.gz`))[n % index.block];
+            return card ? row(card) : null;
+        }));
+        return {rows: rows.filter(Boolean), total, page};
     }
 
     window.NovelIndexSearch = {eligible, search, tokens, bucketOf};

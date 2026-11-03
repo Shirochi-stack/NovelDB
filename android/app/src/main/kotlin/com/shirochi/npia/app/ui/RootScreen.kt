@@ -59,6 +59,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.DisposableEffect
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import android.app.Activity
+import android.content.ContextWrapper
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,11 +101,32 @@ fun RootScreen(model: AppViewModel) {
     }
     BackHandler(enabled = stack.isNotEmpty()) { model.pop() }
     LaunchedEffect(model.tab, route) { topBar.actions = null }
+    // The Catalog's reader in full screen: no app bars, no system bars (a swipe shows those for a moment).
+    val readerFull = catalog.readerFullScreen && model.tab == Tab.CATALOG && route == null
+    BackHandler(enabled = readerFull) { catalog.leaveFullScreen() }
+    val rootView = LocalView.current
+    DisposableEffect(readerFull) {
+        var context = rootView.context
+        while (context is ContextWrapper && context !is Activity) context = context.baseContext
+        val window = (context as? Activity)?.window
+        if (window != null) {
+            val controller = WindowCompat.getInsetsController(window, rootView)
+            if (readerFull) {
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose { }
+    }
 
     Scaffold(
         topBar = {
             // The Download tab's own header is its Catalog / Add links switch.
-            if (downloadHome) {
+            if (readerFull) {
+                // none: the reader has the whole screen
+            } else if (downloadHome) {
                 DownloadSwitch(model.tab, onSelect = { model.select(it) }, actions = if (model.tab == Tab.CATALOG) topBar.actions else null)
             } else TopAppBar(
                 title = {
@@ -118,26 +146,28 @@ fun RootScreen(model: AppViewModel) {
             )
         },
         bottomBar = {
-            val active = jobs.count { it.state.isActive }
-            FloatingTabBar(
-                items = BAR_ITEMS,
-                selected = BAR_ITEMS.first { model.tab in it.tabs },
-                badge = { item ->
-                    when {
-                        Tab.QUEUE in item.tabs -> active
-                        Tab.ADD in item.tabs -> cart.size
-                        else -> 0
-                    }
-                },
-                onSelect = { item ->
-                    if (model.tab in item.tabs) {
-                        if (model.tab == Tab.CATALOG) catalog.reload()
-                        model.select(model.tab)
-                    } else {
-                        model.select(if (item.tabs == DOWNLOAD_TABS) lastDownloadTab else item.tabs.first())
-                    }
-                },
-            )
+            if (!readerFull) {
+                val active = jobs.count { it.state.isActive }
+                FloatingTabBar(
+                    items = BAR_ITEMS,
+                    selected = BAR_ITEMS.first { model.tab in it.tabs },
+                    badge = { item ->
+                        when {
+                            Tab.QUEUE in item.tabs -> active
+                            Tab.ADD in item.tabs -> cart.size
+                            else -> 0
+                        }
+                    },
+                    onSelect = { item ->
+                        if (model.tab in item.tabs) {
+                            if (model.tab == Tab.CATALOG) catalog.reload()
+                            model.select(model.tab)
+                        } else {
+                            model.select(if (item.tabs == DOWNLOAD_TABS) lastDownloadTab else item.tabs.first())
+                        }
+                    },
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->

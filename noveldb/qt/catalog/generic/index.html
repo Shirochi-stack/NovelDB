@@ -147,14 +147,25 @@
     .actions { display: flex; gap: 8px; justify-content: flex-end; padding: 0 18px 16px; flex-wrap: wrap; }
     .actions button.icon { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
     .actions button.icon img { width: 24px; height: 24px; object-fit: contain; margin: -5px 0 -5px -3px; }
-    /* A phone: the cover and its Source page button centred on top, the actions two by two. */
+    /* The panel scrolls on its own: scrolling it (or its synopsis) to an end never moves the list behind. */
+    dialog { max-height: calc(100% - 24px); overflow: auto; overscroll-behavior: contain; }
+    .details .desc { overscroll-behavior: contain; }
+    body:has(dialog[open]) { overflow: hidden; }
+    /* A phone: a small cover beside the title and facts, a short synopsis box, the actions two by two. */
     @media (max-width: 600px) {
         dialog { width: calc(100% - 16px); }
-        .details { flex-direction: column; gap: 12px; padding: 14px; }
-        .details .side { width: 150px; align-self: center; }
-        .details h2 { font-size: 17px; }
-        .details .desc { max-height: 180px; }
-        .actions { display: grid; grid-template-columns: 1fr 1fr; padding: 0 14px 14px; }
+        /* The info's parts join the grid: title, meta and facts beside the cover, the rest full width. */
+        .details { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 0 12px; padding: 12px; align-items: start; }
+        .details .side { width: auto; gap: 6px; grid-row: span 4; margin-bottom: 8px; }
+        .details .side button { padding: 5px 4px; font-size: 12px; }
+        .details .info { display: contents; }
+        .details .chips, .details .desc, .details .loading, .details .sources { grid-column: 1 / -1; }
+        .details h2 { font-size: 16px; }
+        .details .rawtitle { font-size: 12px; }
+        .facts { grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 6px 0; font-size: 12px; }
+        .facts div span { font-size: 10px; }
+        .details .desc { max-height: 120px; font-size: 13px; margin: 6px 0; }
+        .actions { display: grid; grid-template-columns: 1fr 1fr; padding: 0 12px 12px; gap: 6px; }
     }
     /* the reader */
     #reader { position: fixed; inset: 0; z-index: 10; display: none; --r-bg: #fbfbf8; --r-ink: #1f1f24; --r-ink-2: #6b6b75; --r-line: #e4e4e8;
@@ -174,6 +185,10 @@
     #reader .bar b { color: var(--r-ink); font-weight: 600; }
     #reader input[type=range] { flex: 1; min-width: 60px; accent-color: var(--accent); }
     #viewport { position: absolute; top: 52px; bottom: 52px; left: 0; right: 0; overflow: hidden; }
+    /* Full screen: the page alone; a tap in its middle shows the bars over it until the next tap. */
+    #reader.full #viewport { top: 0; bottom: 0; }
+    #reader.full .bar { display: none; z-index: 3; background: var(--r-bg); }
+    #reader.full.bars .bar { display: flex; }
     #flow { height: 100%; padding: 28px 0; font: var(--r-size)/var(--r-leading) var(--r-font); color: var(--r-ink);
             column-fill: auto; transition: transform .18s ease-out; }
     #reader.scroll #viewport { overflow-y: auto; }
@@ -281,6 +296,7 @@
         <button id="rClose" type="button" title="Close the reader (Esc)">✕</button>
         <button id="rToc" type="button" title="Chapters and pages">☰ Contents</button>
         <div class="grow"><b id="rBook"></b> <span id="rChapter"></span></div>
+        <button id="rFull" type="button" title="Full screen (F)">⛶</button>
         <button id="rLook" type="button" title="Text and layout">Aa</button>
     </div>
     <div id="viewport"><div id="flow"></div></div>

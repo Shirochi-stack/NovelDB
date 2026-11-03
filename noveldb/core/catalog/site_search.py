@@ -7,7 +7,8 @@ How a site is searched, tried in order and remembered:
 3. The addresses most sites use: WordPress's `/?s=`, `/search?q=`, `/search?keyword=` ...
 
 Tags use the site's own genre, tag and category pages (their links on the home page), else a search
-for the tag. Results pages are read like the generic engine reads chapter lists: links to book pages
+for the tag. Each results page's next page (its "next" link, else the next page number in its address)
+is remembered, and `more` reads it: the Catalog's results go on as they are scrolled. Results pages are read like the generic engine reads chapter lists: links to book pages
 are grouped by the shape of their address, and the group that looks most like a list of books (with
 cover images and titles) wins. Each card is the link's title, its cover image and nearby text.
 """
@@ -152,6 +153,44 @@ def _tag_links(soup, base: str) -> Dict[str, str]:
     return tags
 
 
+# A link to a list's next page, by its words or symbols (in the languages of the sites searched).
+NEXT_WORDS = re.compile(r"^\s*(next( page)?|older( posts| entries)?|more|›|»|>|>>|→|다음( 페이지)?|次へ|次のページ|下一页|下页|后页|"
+                        r"siguiente|suivant|próxima|proxima|weiter|далее|следующая|التالي|selanjutnya|berikutnya|sonraki|tiếp)\s*[›»>→]*\s*$", re.I)
+PAGE_IN_URL = re.compile(r"([?&](?:page|p|pg|paged|pageno|page_no|pagenum)=)(\d+)|(/page/)(\d+)", re.I)
+
+
+def next_page(page: str, url: str) -> str:
+    """The address of a results page's next page ("" when there is none to be found): the page's own
+    rel=next link, a "Next" link, else the address with its page number one up (or page 2 of it, when a
+    link to that is on the page)."""
+    soup = soup_of(page)
+    found = soup.find(["link", "a"], rel=lambda value: value and "next" in (value if isinstance(value, list) else [value]),
+                      href=True)
+    if found is not None:
+        href = clean_url(found["href"], url)
+        if href and href != url and _same_site(href, url):
+            return href
+    for anchor in soup.find_all("a", href=True):
+        label = text_of(anchor) or anchor.get("aria-label") or anchor.get("title") or ""
+        classes = " ".join(anchor.get("class") or [])
+        if NEXT_WORDS.match(label) or re.search(r"(^|[\s_-])next([\s_-]|$)", classes, re.I):
+            href = clean_url(anchor["href"], url)
+            if href and href.rstrip("/") != url.rstrip("/") and _same_site(href, url) and not href.startswith("javascript"):
+                return href
+    match = PAGE_IN_URL.search(url)
+    if match:
+        # A page past the last one has no books: `more` then stops there.
+        number = match.group(2) if match.group(1) else match.group(4)
+        start, end = match.span(2) if match.group(1) else match.span(4)
+        return url[:start] + str(int(number) + 1) + url[end:]
+    for anchor in soup.find_all("a", href=True):
+        href = clean_url(anchor["href"], url)
+        if href and _same_site(href, url) and re.search(r"([?&](page|p|paged)=2(&|$))|/page/2/?($|\?)", href) \
+                and urlsplit(href).path.split("/page/")[0].rstrip("/") == urlsplit(url).path.rstrip("/"):
+            return href
+    return ""
+
+
 # Where sites keep their popular or ranking lists, tried in turn for the Catalog's top lists.
 POPULAR_PATHS = ("/popular", "/ranking", "/rankings", "/rank", "/top", "/trending", "/most-popular",
                  "/manga?order=popular", "/series?order=popular", "/comics?order=popular", "/manga/?m_orderby=views",
@@ -166,6 +205,8 @@ class SiteSearch:
         self.cache_file = cache_file
         self.max_age = max_age
         self._plans: Dict[str, dict] = {}
+        # (home, kind, query) -> the next page of the list the last search, tag or popular list read.
+        self.next_pages: Dict[tuple, str] = {}
         if cache_file is not None:
             try:
                 self._plans = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -210,6 +251,35 @@ class SiteSearch:
         self._save()
         return plan
 
+    def _remember_next(self, home: str, kind: str, query: str, result: Optional[dict], url: str = "") -> None:
+        page_url = (result or {}).get("url") or url
+        found = next_page(decode(result), page_url) if result and page_url else ""
+        with _lock:
+            if found:
+                self.next_pages[(home, kind, query)] = found
+            else:
+                self.next_pages.pop((home, kind, query), None)
+
+    def has_more(self, home: str, kind: str, query: str) -> bool:
+        return (home, kind, query) in self.next_pages
+
+    def more(self, home: str, kind: str, query: str = "", limit: int = 40) -> List[dict]:
+        """The next page of the list a search ("search"), tag ("tag") or popular list ("popular") of
+        `home` read last: its cards (relevant ones, for a search); its own next page is remembered."""
+        with _lock:
+            url = self.next_pages.pop((home, kind, query), "")
+        if not url:
+            return []
+        result = self.fetch(url)
+        if not result or result["status"] >= 400:
+            return []
+        cards = extract_cards(decode(result), result.get("url") or url)
+        if kind == "search":
+            cards = [card for card in cards if relevant(card["title"], query)]
+        if cards:
+            self._remember_next(home, kind, query, result, url)
+        return [dict(card, verified=True) if kind == "tag" else card for card in cards[:limit]]
+
     def _request(self, way: dict, query: str):
         if way["kind"] == "get" and "template" in way:
             template = way["template"]
@@ -248,6 +318,7 @@ class SiteSearch:
                 if index:  # try what worked first next time
                     plan["ways"].insert(0, plan["ways"].pop(index))
                     self._save()
+                self._remember_next(home, "search", query, result)
                 return cards[:limit]
         # Nothing in the plain pages: the site's own way (not a guess) may build its results with scripts.
         own = next((way for way in plan["ways"] if not way.get("guess") and way["kind"] == "get"), None)
@@ -279,9 +350,11 @@ class SiteSearch:
                 if plan.get("popular") != url:
                     plan["popular"] = url
                     self._save()
+                self._remember_next(home, "popular", "", result, url)
                 return cards[:limit]
         result = self.fetch(plan["home"])
         if result and result["status"] < 400:
+            self._remember_next(home, "popular", "", result, plan["home"])
             return extract_cards(decode(result), result.get("url") or plan["home"])[:limit]
         return []
 
@@ -298,6 +371,7 @@ class SiteSearch:
             if result and result["status"] < 400:
                 cards = extract_cards(decode(result), result.get("url") or url)
                 if cards:
+                    self._remember_next(home, "tag", tag, result, url)
                     return [dict(card, verified=True) for card in cards[:limit]]  # the site's own page for the tag
         cards = []
         for way in plan["ways"][:3]:
@@ -312,6 +386,7 @@ class SiteSearch:
                 cards = []
                 continue
             if cards:
+                self._remember_next(home, "tag", tag, result)
                 break
         return cards[:limit]
 

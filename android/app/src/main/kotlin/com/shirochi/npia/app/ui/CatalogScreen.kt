@@ -103,6 +103,15 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     /** Why the catalog site failed to load; shown instead of a blank page. */
     var error by mutableStateOf<String?>(null)
         private set
+    /** The generic page's reader is full screen: the app hides its own bars and the system's. */
+    var readerFullScreen by mutableStateOf(false)
+        private set
+
+    /** Leaves the reader's full screen (the back gesture): the page hears Escape, as from a keyboard. */
+    fun leaveFullScreen() {
+        readerFullScreen = false
+        view.evaluateJavascript("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))", null)
+    }
     private val main = Handler(Looper.getMainLooper())
     private val bridge = context.assets.open("catalog-bridge.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -303,6 +312,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                         model.manager.message("Added to the queue: ${field("title").ifBlank { url }}")
                     }
                     "genericLogin" -> if (onGenericPage) field("url").takeIf { it.startsWith("http") }?.let { model.openInBrowser(it) }
+                    "genericFullscreen" -> readerFullScreen = onGenericPage && field("on") == "true"
                 }
             }
         }
