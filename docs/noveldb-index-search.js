@@ -7,7 +7,8 @@
  * written as differences, with "+source": [count, first page, ...] for a list longer than the bucket
  * keeps), their further pages (p/<n>.json.gz) and card blocks (c/<n>.json.gz). A search reads one
  * bucket per query word and the blocks of the books on the page asked for, a few small files instead
- * of the whole catalog. Results take each selected source's next book in turn, npia's first. The
+ * of the whole catalog. Results take each source's next book in turn, npia's first (every source,
+ * whatever the source menu shows). The
  * tokens are the builder's; keep them in step.
  *
  * A search may have words, picked tags (each must match; "or" tags: any of them) and an author: each
@@ -165,11 +166,12 @@
         return out;
     }
 
+    // Every source is searched, whichever the source menu shows: the index has them all at the same cost.
     async function search(query) {
         const wanted = groups(query);
         if (!wanted.length) return null;
         const index = await table();
-        const found = await streams(index, wanted, new Set(query.sources || []));
+        const found = await streams(index, wanted, new Set());
         const order = Object.keys(found).sort((a, b) => (a !== LEAD) - (b !== LEAD) || found[a].first - found[b].first);
         const total = order.reduce((sum, name) => sum + found[name].total, 0);
         const size = query.size || 60, page = Math.max(1, Math.min(query.page || 1, Math.ceil(total / size) || 1));

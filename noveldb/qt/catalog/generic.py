@@ -112,6 +112,10 @@ def parse_message(data: dict) -> Optional[dict]:
         return None
     if kind == "genericTop" and data.get("kind") not in ("manga", "manhwa", "comic", "lightnovel", "webnovel"):
         return None
+    if kind == "genericTop" and "sites" in data and not (
+            isinstance(data["sites"], list) and len(data["sites"]) <= 50
+            and all(isinstance(site, str) and 0 < len(site) < 200 for site in data["sites"])):
+        return None
     if kind == "genericDownload" and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
     if kind == "genericDetails":
@@ -308,7 +312,7 @@ class GenericCatalog(QObject):
         elif kind == "genericCoverPut":
             self._background(self._cover_put, str(data["key"]), data["dataUrl"])
         elif kind == "genericTop":
-            self.top(int(data.get("id") or 0), data["kind"], str(data.get("language") or "all")[:5])
+            self.top(int(data.get("id") or 0), data["kind"], str(data.get("language") or "all")[:5], data.get("sites") or [])
         elif kind in ("genericBook", "genericChapter") and data["url"].startswith("file:") \
                 and not self._in_library(data["url"]):
             self._fetched.emit(data["id"], {"error": "only books in the Library can be read"})
@@ -366,22 +370,25 @@ class GenericCatalog(QObject):
         for item in queries:
             threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-search", daemon=True).start()
 
-    def top(self, search_id: int, kind: str, language: str = "all") -> None:
+    def top(self, search_id: int, kind: str, language: str = "all", only: Optional[list] = None) -> None:
         """The popular lists of the top sites of one kind (comics: the comic sites; novels: the rest), the
         sites of the preferred language first (a country's domain tells a site's language; .com and the
-        like count as English)."""
+        like count as English). `only`: the sites picked in the page's Sites panel, in their order."""
         self._stop.set()
         self._stop = stop = threading.Event()
         comic = kind in ("manga", "manhwa", "comic")
         sites = [site for site in top_sites() if bool(site.get("comic")) == comic and not site.get("lnreader")
                  or comic and COMIC_SITE.search(site["site"])]
-        if comic:
+        if only:
+            known = {site["site"]: site for site in top_sites()}
+            sites = [known.get(name) or {"site": name, "host": name} for name in only]
+        elif comic:
             # Each kind from the sites that publish it: manga sites, manhwa (webtoon and scanlation) sites,
             # and the other comic sites for comics.
             manga = [s for s in sites if MANGA_SITE.search(s["site"])]
             manhwa = [s for s in sites if MANHWA_SITE.search(s["site"]) and s not in manga]
             sites = {"manga": manga, "manhwa": manhwa}.get(kind) or [s for s in sites if s not in manga and s not in manhwa] or sites
-        if language != "all":
+        if language != "all" and not only:
             def fits(site: dict) -> bool:
                 country = TLD_LANG.get(site["site"].rsplit(".", 1)[-1])
                 return (country or "en") == language

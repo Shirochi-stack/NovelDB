@@ -1085,13 +1085,19 @@
     var MANGA_SITE = /(manga(?!.*hwa)|fanfox|comick|jumpplus|shonenjump|mechacomic|piccoma|booklive|komiku|raw)/i;
     var MANHWA_SITE = /(toon|manhwa|scans?\b|asura|reaper|flame|demonic|kingofshojo|mgeko|toomics)/i;
 
-    /** The popular lists of the top sites of one kind, the preferred language's sites first. */
-    function runTop(id, kind, language, token) {
+    /** The popular lists of the top sites of one kind, the preferred language's sites first; `only`: the
+     *  sites picked in the page's Sites panel, in their order. */
+    function runTop(id, kind, language, token, only) {
         var comic = kind === 'manga' || kind === 'manhwa' || kind === 'comic';
         var sites = SITES.filter(function (site) {
             return (!!site.comic === comic && !(site.lnreader || []).length) || (comic && COMIC_SITE.test(site.site));
         });
-        if (comic) {
+        if (only && only.length) {
+            sites = only.map(function (name) {
+                return SITES.filter(function (s) { return s.site === name; })[0] || {site: name, host: name};
+            });
+            language = 'all';
+        } else if (comic) {
             var manga = sites.filter(function (s) { return MANGA_SITE.test(s.site); });
             var manhwa = sites.filter(function (s) { return MANHWA_SITE.test(s.site) && manga.indexOf(s) < 0; });
             var rest = sites.filter(function (s) { return manga.indexOf(s) < 0 && manhwa.indexOf(s) < 0; });
@@ -1183,9 +1189,9 @@
             }, token), 30000, token);
         }).catch(function () {}).then(function () { call('moreDone', id, state); });
     }
-    function top(id, kind, language) {
+    function top(id, kind, language, only) {
         var token = newToken();
-        ready.then(function () { return runTop(id, kind, language, token); })
+        ready.then(function () { return runTop(id, kind, language, token, only); })
             .catch(function () { return {failed: 1}; })
             .then(function (summary) { call('done', id, summary); });
     }
@@ -1402,7 +1408,10 @@
         case 'genericReady': init(); break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
         case 'genericStop': if (current.token) current.token.stopped = true; break;
-        case 'genericTop': top(message.id || 0, message.kind, String(message.language || 'all').slice(0, 5)); break;
+        case 'genericTop':
+            top(message.id || 0, message.kind, String(message.language || 'all').slice(0, 5),
+                (Array.isArray(message.sites) ? message.sites : []).filter(function (s) { return typeof s === 'string' && s; }).slice(0, 50));
+            break;
         case 'genericMore': if (message.page >= 1 && Array.isArray(message.queries)) more(message.id || 0, message.queries, message.page); break;
         case 'genericTopMore': topMore(message.id || 0); break;
         case 'genericFetch':

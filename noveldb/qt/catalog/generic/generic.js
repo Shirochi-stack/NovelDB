@@ -139,12 +139,72 @@
                + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far');
     }
     function seconds(ms) { return ms == null ? '' : (ms < 10000 ? (ms / 1000).toFixed(1) : Math.round(ms / 1000)) + ' s'; }
+    function siteState(item) {
+        return item.state === 'failed' ? 'failed' : item.state === 'refused' ? 'refused' : item.state === 'timeout' ? 'too slow' : item.found + ' found';
+    }
+    // On a top list the panel picks sites: their own lists, in their own order, as the top list.
+    var picking = null;
+    function topCandidates() {
+        var names = [];
+        var add = function (site) { if (site && names.indexOf(site) < 0) names.push(site); };
+        top.only.forEach(add);
+        if (!isComicKind(top.kind)) topPlugins(top.kind, true).forEach(function (p) { add(p.site); });
+        progress.sites.forEach(function (item) { add(item.site); });
+        order.forEach(function (group) { group.sources.forEach(function (s) { add(s.site); }); });
+        return names;
+    }
+    function drawTopSites() {
+        var panel = $('sitespanel');
+        if (!picking) picking = new Set(top.only);
+        if (!panel.querySelector('#siteList')) {
+            panel.innerHTML = '<h3>Top of chosen sites</h3><p>Pick sites to see their own most read, in their order, with more as you scroll.</p>'
+                + '<div class="pickbar"><input id="siteFilter" placeholder="Find a site" autocomplete="off">'
+                + '<button type="button" class="primary" id="siteShow">Show</button><button type="button" id="siteAll">All sites</button></div>'
+                + '<div id="siteList"></div>';
+            $('siteFilter').addEventListener('input', drawTopSites);
+            $('siteShow').addEventListener('click', function () {
+                topOnly[top.kind] = Array.from(picking);
+                picking = null;
+                panel.classList.remove('open');
+                showTop();
+            });
+            $('siteAll').addEventListener('click', function () {
+                topOnly[top.kind] = [];
+                picking = null;
+                panel.classList.remove('open');
+                showTop();
+            });
+        }
+        var filter = $('siteFilter').value.trim().toLowerCase();
+        var answered = new Map(progress.sites.map(function (item) { return [item.site, item]; }));
+        var names = topCandidates().filter(function (site) { return !filter || site.toLowerCase().indexOf(filter) >= 0 || picking.has(site); });
+        // The picked sites first, then the ones that answered, quickest first, then the rest.
+        names.sort(function (a, b) {
+            var x = answered.get(a), y = answered.get(b);
+            return (picking.has(b) - picking.has(a)) || (!!y - !!x) || ((x ? x.ms : 0) - (y ? y.ms : 0));
+        });
+        $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
+        $('siteShow').disabled = !picking.size;
+        $('siteList').innerHTML = names.slice(0, 300).map(function (site) {
+            var item = answered.get(site);
+            return '<label class="siterow pick ' + esc(item ? item.state || 'ok' : '') + '"><input type="checkbox" data-site="' + esc(site) + '"'
+                + (picking.has(site) ? ' checked' : '') + '><span>' + esc(site) + '</span><span class="ms">' + (item ? seconds(item.ms) : '')
+                + '</span><span class="n">' + (item ? esc(siteState(item)) : '') + '</span></label>';
+        }).join('') || '<p>No site matches.</p>';
+        $('siteList').querySelectorAll('[data-site]').forEach(function (box) {
+            box.onchange = function () {
+                if (box.checked) picking.add(box.dataset.site); else picking.delete(box.dataset.site);
+                $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
+                $('siteShow').disabled = !picking.size;
+            };
+        });
+    }
     function drawSites() {
+        if (view === 'top') { drawTopSites(); return; }
         var rows = progress.sites.slice().sort(function (a, b) { return a.ms - b.ms; });
         var html = '<h3>' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered</h3>';
         html += rows.map(function (item) {
-            var what = item.state === 'failed' ? 'failed' : item.state === 'refused' ? 'refused' : item.state === 'timeout' ? 'too slow'
-                : item.found + ' found';
+            var what = siteState(item);
             return '<div class="siterow ' + esc(item.state || 'ok') + '"><span>' + esc(item.site) + '</span><span class="ms">'
                 + seconds(item.ms) + '</span><span class="n">' + esc(what) + '</span></div>';
         }).join('');
@@ -155,6 +215,8 @@
         event.stopPropagation();
         $('settingspanel').classList.remove('open');
         $('sitespanel').classList.toggle('open');
+        $('sitespanel').innerHTML = '';
+        picking = null;
         if ($('sitespanel').classList.contains('open')) drawSites();
     });
 
@@ -661,6 +723,33 @@
 
     // -- the details panel -------------------------------------------------------------------------
     function fact(label, value) { return some(value) || /[a-z]/i.test(String(value || '')) ? '<div><span>' + esc(label) + '</span>' + esc(value) + '</div>' : ''; }
+    // The details' tags in two rows; the rest wait behind a "+N" chip that shows them all.
+    function foldTags(box, group) {
+        if (!box || group.tagsOpen || !box.children.length) return;
+        var limit = box.firstElementChild.offsetTop + 2 * (box.firstElementChild.offsetHeight + 4) - 2;
+        var over = function (chip) { return chip.offsetTop + chip.offsetHeight > limit; };
+        var hidden = Array.prototype.filter.call(box.children, over);
+        if (!hidden.length) return;
+        var more = document.createElement('span');
+        more.className = 'chip more';
+        box.appendChild(more);
+        hidden.forEach(function (chip) { chip.style.display = 'none'; });
+        more.textContent = '+' + hidden.length;
+        // The "+N" chip itself must fit in the two rows: the last shown tags make room for it.
+        while (over(more)) {
+            var last = Array.prototype.filter.call(box.children, function (c) { return c !== more && c.style.display !== 'none'; }).pop();
+            if (!last) break;
+            last.style.display = 'none';
+            hidden.unshift(last);
+            more.textContent = '+' + hidden.length;
+        }
+        more.onclick = function (event) {
+            event.stopPropagation();
+            group.tagsOpen = true;
+            hidden.forEach(function (chip) { chip.style.display = ''; });
+            more.remove();
+        };
+    }
     function details(group) {
         var dialog = $('dialog');
         var show = function () {
@@ -723,10 +812,11 @@
             dialog.querySelectorAll('.chip').forEach(function (chip) {
                 chip.onclick = function () { dialog.close(); picked = [chip.textContent]; $('query').value = ''; showPicked(); search(); };
             });
+            if (dialog.open) foldTags(dialog.querySelector('.details .chips'), group);
         };
         group.onDetails = show;
         show();
-        if (!dialog.open) dialog.showModal();
+        if (!dialog.open) { dialog.showModal(); foldTags(dialog.querySelector('.details .chips'), group); }
         if (!group.loaded && !group.asked) { group.asked = true; queue.unshift(group); pump(); }
     }
     function download(group, source) {
@@ -790,16 +880,22 @@
     // ranking pages, read by the app. Each list is kept for 12 hours.
     var TOP_NAMES = {all: 'web novels', webnovel: 'web novels', lightnovel: 'light novels', manga: 'manga',
                      manhwa: 'manhwa', comic: 'comics'};
-    var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE};
+    var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE, only: [], seen: {}};
+    // The sites picked in the Sites panel for each kind: their own lists, in their own order.
+    var topOnly = {};
     function topKind() { var kind = $('kind').value; return kind === 'all' ? 'webnovel' : kind; }
+    function isComicKind(kind) { return kind === 'manga' || kind === 'manhwa' || kind === 'comic'; }
     function showTop() {
         searchId++;
         reset('top');
         current = {text: '', tags: []};
-        top = {kind: topKind(), scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE};
+        var kind = topKind();
+        top = {kind: kind, scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE, only: (topOnly[kind] || []).slice(), seen: {}, page: 1};
         var chosen = $('language').selectedOptions[0];
-        $('heading').textContent = 'Top ' + TOP_NAMES[top.kind] + (language === 'all' ? '' : ' · ' + chosen.text);
-        var cached = store(TOP_KEY + '.' + top.kind + '.' + language);
+        $('heading').textContent = 'Top ' + TOP_NAMES[top.kind] + (top.only.length ? ' · ' + top.only.join(', ')
+            : language === 'all' ? '' : ' · ' + chosen.text);
+        $('sitesButton').style.display = '';
+        var cached = !top.only.length && store(TOP_KEY + '.' + top.kind + '.' + language);
         if (cached && cached.items && cached.items.length) {
             cached.items.forEach(function (item, index) {
                 if (notInTop(item)) return;
@@ -823,9 +919,14 @@
     }
     function topCollect(card, weight, position, length) {
         if (view !== 'top') return;  // a search started meanwhile: its results own the page
-        if (!card.title || JUNK.test(card.title) || NO_RESULTS.test(card.title) || !inLanguage(card) || notInTop(card)) return;
+        // Picked sites show whatever they list, in any language.
+        var picked = top.only.length > 0;
+        if (picked && top.only.indexOf(card.site) < 0) return;
+        if (!card.title || JUNK.test(card.title) || NO_RESULTS.test(card.title) || (!picked && !inLanguage(card)) || notInTop(card)) return;
         var k = groupKey(card);
-        var entry = top.scores.get(k) || {key: k, score: 0, first: top.first++, cards: []};
+        // Picked sites take turns: each one's first book, then each one's second, and so on.
+        var place = picked ? (top.seen[card.site] = (top.seen[card.site] || 0) + 1) * 100 + top.only.indexOf(card.site) : top.first++;
+        var entry = top.scores.get(k) || {key: k, score: 0, first: place, cards: []};
         entry.score += weight * (1 - 0.7 * position / Math.max(1, length));
         entry.cards.push(card);
         top.scores.set(k, entry);
@@ -868,23 +969,31 @@
                     return {url: s.url, title: group.title, site: s.site, source: s.source, plugin: s.plugin, path: s.path, comic: group.comic, ms: s.ms};
                 })});
         });
-        if (items.length) store(TOP_KEY + '.' + top.kind + '.' + language, {time: Date.now(), items: items});
+        if (items.length && !top.only.length) store(TOP_KEY + '.' + top.kind + '.' + language, {time: Date.now(), items: items});
+    }
+    // The LNReader sites a novel top list reads: the picked ones, else the busiest of the language and kind.
+    function topPlugins(kind, all) {
+        var wantLn = kind === 'lightnovel';
+        var chosen = plugins().filter(function (p) {
+            return !p.comic && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language)
+                && (allPlugins.length ? !!p.ln === wantLn : true);
+        }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); });
+        return all ? chosen : chosen.slice(0, 60);
     }
     function loadTop(id) {
-        if (top.kind === 'manga' || top.kind === 'manhwa' || top.kind === 'comic') {
+        if (isComicKind(top.kind)) {
             // The comic sites' popular pages, read by the app (cards come back through add()).
             running = 0;
             setRunning(1);
             startProgress(0);
-            status('Reading the popular pages of the top ' + TOP_NAMES[top.kind] + ' sites…');
-            send({type: 'genericTop', id: id, kind: top.kind, language: language});
+            status('Reading the popular pages of ' + (top.only.length ? top.only.join(', ') : 'the top ' + TOP_NAMES[top.kind] + ' sites') + '…');
+            send(Object.assign({type: 'genericTop', id: id, kind: top.kind, language: language}, top.only.length ? {sites: top.only} : {}));
             return;
         }
-        var wantLn = top.kind === 'lightnovel';
-        var chosen = plugins().filter(function (p) {
-            return !p.comic && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language)
-                && (allPlugins.length ? !!p.ln === wantLn : true);
-        }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); }).slice(0, 60);
+        var chosen = top.only.length
+            ? top.only.map(function (site) { return plugins().filter(function (p) { return p.site === site; })[0]; }).filter(Boolean)
+            : topPlugins(top.kind);
+        top.plugins = chosen;
         if (!chosen.length || !window.__LNR_popular) { empty(); return; }
         status('Reading the popular lists of ' + chosen.length + ' ' + TOP_NAMES[top.kind] + ' sites…');
         var jobs = chosen.map(function (plugin, siteIndex) {
@@ -903,8 +1012,24 @@
             topRedraw();
             topSave();
             status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on ' + plugins_.length + ' ' + TOP_NAMES[top.kind] + ' sites, by their popular lists.'
+                : top.only.length ? top.only.join(', ') + ' did not send a popular list (a bot check, or the site is down). Pick other sites in Sites.'
                 : 'No ' + TOP_NAMES[top.kind] + ' in the popular lists right now.');
             empty();
+        });
+    }
+    // A novel top list's next page: page `top.page + 1` of each of its sites' popular lists. A site that
+    // ignores the page number sends its first page again, which adds no book, so the list ends.
+    function topMoreNovels(id) {
+        var page = top.page + 1, before = top.scores.size;
+        var jobs = (top.plugins || []).map(function (plugin) {
+            return {plugin: plugin, weight: 0.3, report: false, run: function () { return window.__LNR_popular(plugin.id, page, false); }};
+        });
+        lnreaderRun(id, jobs, function (job, found) {
+            found.forEach(function (item, position) { topCollect(lnreaderCard(job.plugin, item, 'top'), job.weight, position, found.length); });
+        }).then(function () {
+            if (id !== searchId) return;
+            top.page = page;
+            window.NovelDBGeneric.moreDone(id, {more: top.scores.size > before});
         });
     }
 
@@ -1652,6 +1777,8 @@
                 top.limit = order.length + TOP_STEP;
                 loadTop(searchId);  // a kept list: its sites' lists first, then their next pages
                 more.loading = false;
+            } else if (!isComicKind(top.kind)) {
+                topMoreNovels(searchId);
             } else {
                 send({type: 'genericTopMore', id: searchId});
             }
@@ -1699,7 +1826,8 @@
             if (view === 'top') {
                 topRedraw();
                 topSave();
-                status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on the top ' + TOP_NAMES[top.kind] + ' sites, by their popular pages.'
+                status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on ' + (top.only.length ? top.only.join(', ')
+                        : 'the top ' + TOP_NAMES[top.kind] + ' sites') + ', by their popular pages.'
                     : 'The ' + TOP_NAMES[top.kind] + ' sites\' popular pages did not answer.');
                 return;
             }
