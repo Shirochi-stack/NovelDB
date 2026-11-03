@@ -93,12 +93,14 @@
         if (lists.some((list) => !list.length)) return {rows: [], total: 0, page: 1};
         const others = lists.slice(1).map((list) => new Set(list));
         const numbers = lists[0].filter((n) => others.every((set) => set.has(n))).sort((a, b) => a - b).slice(0, LIMIT);
-        // Only the blocks of the first page's books, a page's worth at a time while the source filter drops some.
+        // Only the blocks of the first page's books: a page's worth, then twice as many each round while the
+        // source filter drops some.
         const size = query.size || 60, sources = new Set(query.sources || []);
         const rows = [];
-        let next = 0;
+        let next = 0, step = size;
         while (rows.length < size && next < numbers.length) {
-            const part = numbers.slice(next, next += size);
+            const part = numbers.slice(next, next += step);
+            step *= 2;
             const blocks = [...new Set(part.map((n) => Math.floor(n / index.block)))];
             const loaded = new Map(await Promise.all(blocks.map(async (b) => [b, await gzJson(`c/${b}.json.gz`)])));
             rows.push(...part.map((n) => loaded.get(Math.floor(n / index.block))[n % index.block])
