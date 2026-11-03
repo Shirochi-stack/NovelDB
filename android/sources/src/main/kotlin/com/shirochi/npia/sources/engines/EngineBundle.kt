@@ -24,6 +24,8 @@ class RuleEngine(
     internal val shippedManifestPath: String?,
     /** The manifest asset in the `engines` release. */
     val releaseManifest: String,
+    /** The manifest's `sites` (addresses) list the sites the engine knows (LNReader); otherwise the script says. */
+    val sitesInManifest: Boolean = false,
 ) {
     /** The settings name, also the folder under `engines/`. */
     val name: String get() = engine.raw
@@ -39,7 +41,11 @@ class RuleEngine(
             SiteEngine.WEBTOEPUB, "WebToEpub parsers", 1, "webtoepub-lib.js",
             ROOT + "webtoepub/webtoepub-lib.js", ROOT + "webtoepub/manifest.json", "webtoepub-manifest.json",
         )
-        val ALL = listOf(NOVEL_DOWNLOADER, WEBTOEPUB)
+        val LNREADER = RuleEngine(
+            SiteEngine.LNREADER, "LNReader plugins", 1, "lnreader-lib.js",
+            ROOT + "lnreader/lnreader-lib.js", ROOT + "lnreader/manifest.json", "lnreader-manifest.json", true,
+        )
+        val ALL = listOf(NOVEL_DOWNLOADER, WEBTOEPUB, LNREADER)
 
         fun of(engine: SiteEngine): RuleEngine? = ALL.firstOrNull { it.engine == engine }
     }
@@ -96,7 +102,9 @@ class EngineBundle internal constructor(
         }.joinToString(", ")
 
     private val text: String by lazy { bytes().decodeToString() }
-    private val index: SiteIndex by lazy { SiteIndex.parse(engine, text) }
+    private val index: SiteIndex by lazy {
+        if (engine.sitesInManifest) SiteIndex.fromManifest(manifest) else SiteIndex.parse(engine, text)
+    }
 
     /** The script. */
     fun read(): String = text
@@ -112,7 +120,8 @@ class EngineBundle internal constructor(
      * only hosts, so any page of a listed site counts except the site's home page.
      */
     fun listsPage(url: String): Boolean =
-        if (engine === RuleEngine.WEBTOEPUB) index.knows(engine, url) && !isHomePage(url) else header.accepts(url)
+        if (engine === RuleEngine.WEBTOEPUB || engine.sitesInManifest) index.knows(engine, url) && !isHomePage(url)
+        else header.accepts(url)
 
     /** Hosts the engine lists, for diagnostics and tests. */
     val hosts: Set<String> get() = index.hosts
@@ -129,7 +138,7 @@ internal class SiteIndex(val hosts: Set<String>, private val patterns: List<Rege
     fun knows(engine: RuleEngine, url: String): Boolean {
         val uri = runCatching { URI(url.trim()) }.getOrNull() ?: return false
         val host = uri.host?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
-        if (engine === RuleEngine.WEBTOEPUB) return host.removePrefix("www.") in hosts
+        if (engine === RuleEngine.WEBTOEPUB || engine.sitesInManifest) return host.removePrefix("www.") in hosts
         // novel-downloader compares location.host, which includes a non-default port.
         val withPort = if (uri.port != -1) "$host:${uri.port}" else host
         return withPort in hosts || patterns.any { it.containsMatchIn(withPort) }
@@ -140,6 +149,15 @@ internal class SiteIndex(val hosts: Set<String>, private val patterns: List<Rege
         private val ruleHost = Regex("""case"([^"]+)":""")
         private val rulePattern = Regex("""if\((/.+?/)\.test\(e\)""")
         private const val NO_RULE = "throw new Error(\"Not Found Rule!\")"
+
+        /** The hosts of a manifest's `sites` addresses (bare hosts count too), without `www.`. */
+        fun fromManifest(manifest: JsonObject): SiteIndex {
+            val sites = (manifest["sites"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+            val hosts = sites.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim() }.mapNotNull { site ->
+                runCatching { URI(if ("//" in site) site else "http://$site").host }.getOrNull()?.lowercase()?.removePrefix("www.")
+            }.toSet()
+            return SiteIndex(hosts, emptyList())
+        }
 
         fun parse(engine: RuleEngine, text: String): SiteIndex {
             if (engine === RuleEngine.WEBTOEPUB) {

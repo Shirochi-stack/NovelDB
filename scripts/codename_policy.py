@@ -19,6 +19,8 @@ VERBATIM = {
     'android/sources/src/main/resources/com/shirochi/npia/sources/reader/webtoepub/webtoepub-lib.js',
     'ios/NpiaKit/Sources/NpiaSources/Reader/Resources/webtoepub/webtoepub-lib.js',
     'lnreader/lnreader-lib.js', 'lnreader/manifest.json',
+    'android/sources/src/main/resources/com/shirochi/npia/sources/reader/lnreader/lnreader-lib.js',
+    'android/sources/src/main/resources/com/shirochi/npia/sources/reader/lnreader/manifest.json',
     'lncrawl/lncrawl-sources.zip', 'lncrawl/manifest.json',
     'haruneko/haruneko-lib.js', 'haruneko/manifest.json',
     'fanficfare/fanficfare.zip', 'fanficfare/manifest.json',

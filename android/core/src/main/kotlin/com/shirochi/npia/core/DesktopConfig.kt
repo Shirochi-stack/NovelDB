@@ -131,6 +131,7 @@ object DesktopConfig {
             disabled = off?.filter { SiteEngine.fromRaw(it) != null } ?: e.disabled,
             novelDownloaderAutoUpdate = c.bool("novel_downloader_auto_update") ?: e.novelDownloaderAutoUpdate,
             webtoepubAutoUpdate = c.bool("webtoepub_auto_update") ?: e.webtoepubAutoUpdate,
+            lnreaderAutoUpdate = c.bool("lnreader_auto_update") ?: e.lnreaderAutoUpdate,
         )
         // Never leave every engine off.
         if (SiteEngine.order(engines.order, engines.disabled).isEmpty()) engines = engines.copy(disabled = emptyList())
@@ -255,6 +256,7 @@ object DesktopConfig {
         put("source_engines_off", s.engines.disabled.filter { SiteEngine.fromRaw(it) != null })
         put("novel_downloader_auto_update", s.engines.novelDownloaderAutoUpdate)
         put("webtoepub_auto_update", s.engines.webtoepubAutoUpdate)
+        put("lnreader_auto_update", s.engines.lnreaderAutoUpdate)
         put("app_update_check", s.appUpdateCheck)
         put("upload_zip_bundle", s.upload.zipBundle)
         put("upload_zip_max_mb", s.upload.zipMaxMb.coerceIn(UploadSettings.MIN_ZIP_MAX_MB, UploadSettings.MAX_ZIP_MAX_MB))

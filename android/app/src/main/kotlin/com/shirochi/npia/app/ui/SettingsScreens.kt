@@ -234,10 +234,18 @@ fun SourceOptionsScreen(model: AppViewModel) {
 private const val NOVEL_DOWNLOADER_URL = "https://github.com/404-novel-project/novel-downloader"
 private const val WEBTOEPUB_URL = "https://github.com/dteviot/WebToEpub"
 
+/** The engines' makers, licences and repositories, one per line in the credits. */
+private val ENGINE_CREDITS = listOf(
+    Triple("novel-downloader", "the 404 Novel Project (AGPL-3.0)", NOVEL_DOWNLOADER_URL),
+    Triple("WebToEpub", "David Teviotdale and contributors (GPL-3.0)", WEBTOEPUB_URL),
+    Triple("LNReader plugins", "the LNReader team (MIT)", "https://github.com/LNReader/lnreader-plugins"),
+)
+
 private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.NATIVE -> "The app's own scrapers for the sites it knows best."
     SiteEngine.NOVEL_DOWNLOADER -> "novel-downloader's rules, mostly Chinese and Japanese sites."
     SiteEngine.WEBTOEPUB -> "WebToEpub's parsers for 650+ sites, mostly English translations."
+    SiteEngine.LNREADER -> "LNReader's plugins for 320+ novel sites in many languages."
 }
 
 @Composable
@@ -275,18 +283,15 @@ fun EngineSettingsScreen(model: AppViewModel) {
         bundles.forEach { (engine, bundle) ->
             Footnote(if (bundle != null) "${engine.title}: ${bundle.label}." else "${engine.title}: missing from this build.")
         }
-        SwitchRow(
-            "Update the novel-downloader rules automatically",
-            engines.novelDownloaderAutoUpdate,
-            { v -> set { it.withAutoUpdate(SiteEngine.NOVEL_DOWNLOADER, v) } },
-        )
-        SwitchRow(
-            "Update the WebToEpub parsers automatically",
-            engines.webtoepubAutoUpdate,
-            { v -> set { it.withAutoUpdate(SiteEngine.WEBTOEPUB, v) } },
-        )
+        RuleEngine.ALL.forEach { rule ->
+            SwitchRow(
+                "Update the ${rule.title} automatically",
+                engines.autoUpdate(rule.engine),
+                { v -> set { it.withAutoUpdate(rule.engine, v) } },
+            )
+        }
         Footnote(
-            "Both are on by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds " +
+            "All are on by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds " +
                 "each engine from its official repository and checks that it loads before publishing it. A downloaded update that fails to load is set aside.",
         )
         TextButton(
@@ -299,10 +304,12 @@ fun EngineSettingsScreen(model: AppViewModel) {
         val link = SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)
         Text(
             buildAnnotatedString {
-                append("novel-downloader is made by the 404 Novel Project (AGPL-3.0): ")
-                withLink(LinkAnnotation.Url(NOVEL_DOWNLOADER_URL, TextLinkStyles(link))) { append(NOVEL_DOWNLOADER_URL) }
-                append(". WebToEpub is made by David Teviotdale and contributors (GPL-3.0): ")
-                withLink(LinkAnnotation.Url(WEBTOEPUB_URL, TextLinkStyles(link))) { append(WEBTOEPUB_URL) }
+                // One engine per line: its name, its makers and licence, and its repository.
+                ENGINE_CREDITS.forEachIndexed { index, (name, by, url) ->
+                    if (index > 0) append("\n")
+                    append("$name by $by: ")
+                    withLink(LinkAnnotation.Url(url, TextLinkStyles(link))) { append(url) }
+                }
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

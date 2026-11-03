@@ -195,6 +195,7 @@ internal class ReaderBookSession(
         class Script(val runtime: ReaderRuntime) : Engine()
         class Web(val web: ReaderWebFallback) : Engine()
         class WebToEpub(val web: WebToEpubEngine) : Engine()
+        class Page(val web: PageBundleEngine) : Engine()
     }
 
     data class ChapterInfo(val url: String, val name: String, val isVIP: Boolean, val isPaid: Boolean?)
@@ -209,6 +210,7 @@ internal class ReaderBookSession(
                 ).blocks
                 is Engine.Web -> engine.web.chapter(info)
                 is Engine.WebToEpub -> engine.web.chapter(info)
+                is Engine.Page -> engine.web.chapter(info)
             }
         } catch (e: CancellationException) {
             throw e
@@ -226,6 +228,7 @@ internal class ReaderBookSession(
             is Engine.Script -> engine.runtime.close()
             is Engine.Web -> engine.web.closeLater()
             is Engine.WebToEpub -> engine.web.closeLater()
+            is Engine.Page -> engine.web.closeLater()
         }
     }
 
@@ -245,7 +248,11 @@ internal class ReaderBookSession(
             require(engine.runsScripts) { "${engine.raw} is not a script engine" }
             val page = shared ?: SharedBookPage(url, context)
             try {
-                return if (engine == SiteEngine.WEBTOEPUB) openWebToEpub(url, context, page) else openNovelDownloader(url, context, page)
+                return when (engine) {
+                    SiteEngine.WEBTOEPUB -> openWebToEpub(url, context, page)
+                    SiteEngine.NOVEL_DOWNLOADER -> openNovelDownloader(url, context, page)
+                    else -> openPageScript(url, context, page, engine)
+                }
             } finally {
                 if (shared == null) page.release()
             }
@@ -295,6 +302,17 @@ internal class ReaderBookSession(
             if (payload.chapters.isEmpty()) throw SourceException.Parse("The WebToEpub parser found no chapters on $url.")
             shared.adopt()
             return make(payload, url, Engine.WebToEpub(web))
+        }
+
+        /** A page-script engine (the LNReader plugins): its bundle in the book's web view page. */
+        private suspend fun openPageScript(url: String, context: SourceContext, shared: SharedBookPage, engine: SiteEngine): ReaderBookSession {
+            val rule = com.shirochi.npia.sources.engines.RuleEngine.of(engine)
+                ?: throw EngineMissException("${engine.label} are not in this build.")
+            val script = PageScript.of(rule) ?: throw EngineMissException("${engine.label} are not in this build.")
+            val (payload, web) = PageBundleEngine.openBook(shared.page(), url, script, context)
+            if (payload.chapters.isEmpty()) throw SourceException.Parse("The ${rule.title} found no chapters on $url.")
+            shared.adopt()
+            return make(payload, url, Engine.Page(web))
         }
 
         fun make(payload: ReaderBookPayload, requested: String, engine: Engine): ReaderBookSession {
