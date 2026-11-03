@@ -67,6 +67,11 @@ jobs:
             exit 1
           fi
           label="$LABEL_INPUT"
+          # An unpublished draft is simply updated (plain names, replacing its files): hotfix names are
+          # only for releases people already downloaded.
+          if [ "$label" = auto ] && [ "$(gh release view "$tag" --repo "$REPO" --json isDraft -q .isDraft)" = true ]; then
+            label=none
+          fi
           if [ "$label" = auto ]; then
             last=$(gh release view "$tag" --repo "$REPO" --json assets -q '.assets[].name' \
               | sed -nE 's/^NovelDB-.*_hotfix([0-9]+)\.(apk|ipa)$/\1/p' | sort -n | tail -1)
