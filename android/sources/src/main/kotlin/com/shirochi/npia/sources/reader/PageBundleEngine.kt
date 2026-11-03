@@ -134,7 +134,7 @@ internal class PageBundleEngine private constructor(
             val name = script.resource ?: throw SourceException.Parse("The ${script.title} are not in this build.")
             val source = PageBundleEngine::class.java.getResourceAsStream(name)?.use { it.readBytes().decodeToString() }
                 ?: throw SourceException.Parse("The ${script.title} are missing from this build.")
-            val error = inject(page, script, source, BUNDLED_API)
+            val error = inject(page, script, source, PageScript.BUNDLED_API)
             if (error != null) throw SourceException.Parse("The ${script.title} failed to load: $error")
             return "(built in)"
         }
