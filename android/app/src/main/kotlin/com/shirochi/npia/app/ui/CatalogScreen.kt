@@ -275,7 +275,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
             if (!onGenericPage) return
             transportScope.launch {
                 val context = model.manager.sourceContext()
-                val reply = CatalogTransport.handle(json, context.http, context.web)
+                val reply = CatalogTransport.handle(json, context.http, context.web, context)
                 main.post {
                     if (onGenericPage) {
                         view.evaluateJavascript(

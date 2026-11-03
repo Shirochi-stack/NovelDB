@@ -1408,8 +1408,13 @@
     });
     function harunekoReady() { return window.__HN_READY === true; }
 
+    // The app's built-in scrapers first (npia, sfc, ntk, ...: sites the generic engine cannot read): the
+    // app answers {skip} for a site none of them owns, and the page's own engines follow.
+    function appAsk(request) {
+        return window.NovelDBTransport ? Promise.resolve(window.NovelDBTransport(request)) : Promise.resolve({error: 'no app', skip: true});
+    }
     function engineFor(url) {
-        var engines = [];
+        var engines = ['app'];
         if (harunekoListed(url)) engines.push('haruneko');
         engines.push('generic');
         return engines;
@@ -1424,7 +1429,12 @@
         function next() {
             if (!engines.length) return Promise.reject(new Error(errors.join('; ') || 'no engine could read the book'));
             var name = engines.shift();
-            var start = name === 'haruneko'
+            var start = name === 'app'
+                ? (note('Reading the book with the built-in scraper for its site…'), appAsk({op: 'book', url: url}).then(function (reply) {
+                    if (reply && reply.skip) { name = ''; throw new Error('skip'); }
+                    return reply;
+                }))
+                : name === 'haruneko'
                 ? (note('Loading the HaruNeko websites…'), loadScript('haruneko-lib.js', harunekoReady).then(function (ok) {
                     if (!ok) throw new Error('the HaruNeko websites did not load');
                     note('Reading the book with HaruNeko…');
@@ -1438,7 +1448,9 @@
                 return {title: data.bookname || '', author: data.author || '', engine: data.ruleName || name,
                         chapters: data.chapters.map(function (c, i) { return {name: c.name || 'Chapter ' + (i + 1), section: c.sectionName || ''}; })};
             }).catch(function (error) {
-                errors.push(name + ': ' + ((error && error.message) || error));
+                if (name) errors.push(name + ': ' + ((error && error.message) || error));
+                // A site the app's scraper owns but could not open (a sign-in, a lock): its message stands.
+                if (name === 'app') return Promise.reject(error);
                 return next();
             });
         }
@@ -1456,7 +1468,8 @@
             var item = JSON.stringify(info);
             var haruneko = known.engine === 'haruneko';
             if (haruneko) watchPages(reading.id);
-            var asked = haruneko ? window.__HN_parseChapter(item) : window.__GEN_parseChapter(item);
+            var asked = known.engine === 'app' ? appAsk({op: 'chapter', url: url, index: index})
+                : haruneko ? window.__HN_parseChapter(item) : window.__GEN_parseChapter(item);
             return Promise.resolve(asked).then(parseJson).then(function (result) {
                 // HaruNeko fetched each page itself (some sites' pages need it): the reader is given those bytes.
                 (result.images || []).forEach(function (picture) {
