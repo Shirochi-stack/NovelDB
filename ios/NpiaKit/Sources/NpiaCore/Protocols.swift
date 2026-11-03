@@ -94,6 +94,10 @@ public protocol WebPageDriving: Sendable {
     /// this page. Sites that serve a phone layout (or no reader at all) to a phone need it. The default
     /// ignores the request.
     func emulateDesktop(userAgent: String?, width: Int, height: Int) async
+    /// Answers this page's requests to `LocalResponse.scheme` addresses itself: `handler` gets the
+    /// path and the query (nil is "not found"). The Python engines' page is served this way, its
+    /// synchronous requests to its `transport` address included. Pages that cannot ignore it.
+    func serveLocal(_ handler: @escaping @Sendable (String, String) async -> LocalResponse?) async
     func currentURL() async -> URL?
     func html() async throws -> String
     func close() async
@@ -109,6 +113,24 @@ public extension WebPageDriving {
     }
 
     func emulateDesktop(userAgent: String?, width: Int, height: Int) async {}
+
+    func serveLocal(_ handler: @escaping @Sendable (String, String) async -> LocalResponse?) async {}
+}
+
+/// A response `WebPageDriving.serveLocal` gives the page.
+public struct LocalResponse: Sendable {
+    /// Every page answers this scheme's addresses with its `serveLocal` handler.
+    public static let scheme = "noveldb-local"
+
+    public var mimeType: String
+    public var body: Data
+    public var status: Int
+
+    public init(mimeType: String, body: Data, status: Int = 200) {
+        self.mimeType = mimeType
+        self.body = body
+        self.status = status
+    }
 }
 
 public protocol WebEngineProviding: Sendable {

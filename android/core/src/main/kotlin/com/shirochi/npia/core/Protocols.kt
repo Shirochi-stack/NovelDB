@@ -78,8 +78,19 @@ interface WebPageDriving {
      */
     suspend fun emulateDesktop(userAgent: String?, width: Int, height: Int) {}
 
+    /**
+     * Answers this page's requests to addresses under `prefix` itself (`handler` gets the path after
+     * the prefix and the query, and runs off the main thread; null is "not found"). The Python
+     * engines' page is served this way, synchronous requests to its `transport` address included.
+     * The default serves nothing.
+     */
+    suspend fun serveLocal(prefix: String, handler: (path: String, query: String) -> LocalResponse?) {}
+
     suspend fun close()
 }
+
+/** A response `WebPageDriving.serveLocal` gives the page. */
+class LocalResponse(val mimeType: String, val body: ByteArray, val status: Int = 200)
 
 interface WebEngineProviding {
     /** Pages from the same profile share cookies with each other and with `HttpFetching`. */

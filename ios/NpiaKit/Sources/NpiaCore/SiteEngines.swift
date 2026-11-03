@@ -1,15 +1,20 @@
 import Foundation
 
 /// The engines a book link can go through. Each link tries them in the user's order until one
-/// finds chapters: the app's own scrapers, the novel-downloader rules, the WebToEpub parsers, the
-/// LNReader plugins, the HaruNeko websites (manga), then the generic fallback (any site, without site rules).
+/// finds chapters (the desktop's order): the app's own scrapers, the novel-downloader rules, the
+/// WebToEpub parsers, lightnovel-crawler's sources, the LNReader plugins, FanFicFare's adapters, the
+/// HaruNeko websites, gallery-dl's extractors, then the generic fallback (any site, without site
+/// rules). The three Python engines run the desktop's own modules in Pyodide (`PythonEngines`).
 /// Raw values are the names the desktop config uses.
 public enum SiteEngine: String, Codable, CaseIterable, Sendable {
     case native
     case novelDownloader = "novel_downloader"
     case webtoepub
+    case lncrawl
     case lnreader
+    case fanficfare
     case haruneko
+    case gallerydl
     case generic
 
     public var title: String {
@@ -19,6 +24,9 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .webtoepub: return "WebToEpub parsers"
         case .lnreader: return "LNReader plugins"
         case .haruneko: return "HaruNeko websites"
+        case .lncrawl: return "lightnovel-crawler sources"
+        case .fanficfare: return "FanFicFare adapters"
+        case .gallerydl: return "gallery-dl extractors"
         case .generic: return "Generic fallback"
         }
     }
@@ -30,6 +38,9 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .webtoepub: return "Parsers for 650+ sites, mostly English translations."
         case .lnreader: return "Plugins for 320+ novel sites in many languages."
         case .haruneko: return "800+ manga, manhwa and comic sites."
+        case .lncrawl: return "400+ novel sites (Python, in the app)."
+        case .fanficfare: return "100+ fan-fiction archives and forums (Python, in the app)."
+        case .gallerydl: return "Manga sites such as fanfox and mangahere (Python, in the app)."
         case .generic: return "Any other site: reads the chapter list and text without site rules."
         }
     }
@@ -58,6 +69,9 @@ public struct EngineSettings: Codable, Sendable, Equatable {
     public var webtoepubAutoUpdate: Bool
     public var lnreaderAutoUpdate: Bool
     public var harunekoAutoUpdate: Bool
+    public var lncrawlAutoUpdate: Bool
+    public var fanficfareAutoUpdate: Bool
+    public var gallerydlAutoUpdate: Bool
 
     public init(
         order: [SiteEngine] = SiteEngine.allCases,
@@ -65,7 +79,10 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         novelDownloaderAutoUpdate: Bool = true,
         webtoepubAutoUpdate: Bool = true,
         lnreaderAutoUpdate: Bool = true,
-        harunekoAutoUpdate: Bool = true
+        harunekoAutoUpdate: Bool = true,
+        lncrawlAutoUpdate: Bool = true,
+        fanficfareAutoUpdate: Bool = true,
+        gallerydlAutoUpdate: Bool = true
     ) {
         let full = SiteEngine.ordered(order.map { $0.rawValue })
         let off = full.filter { disabled.contains($0) }
@@ -76,10 +93,14 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         self.webtoepubAutoUpdate = webtoepubAutoUpdate
         self.lnreaderAutoUpdate = lnreaderAutoUpdate
         self.harunekoAutoUpdate = harunekoAutoUpdate
+        self.lncrawlAutoUpdate = lncrawlAutoUpdate
+        self.fanficfareAutoUpdate = fanficfareAutoUpdate
+        self.gallerydlAutoUpdate = gallerydlAutoUpdate
     }
 
     private enum CodingKeys: String, CodingKey {
-        case order, disabled, novelDownloaderAutoUpdate, webtoepubAutoUpdate, lnreaderAutoUpdate, harunekoAutoUpdate
+        case order, disabled, novelDownloaderAutoUpdate, webtoepubAutoUpdate, lnreaderAutoUpdate, harunekoAutoUpdate,
+             lncrawlAutoUpdate, fanficfareAutoUpdate, gallerydlAutoUpdate
     }
 
     /// Every key is optional and unknown engine names are dropped, so hand-edited files still load.
@@ -91,13 +112,19 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         let webtoepub = try container.decodeIfPresent(Bool.self, forKey: .webtoepubAutoUpdate) ?? true
         let lnreader = try container.decodeIfPresent(Bool.self, forKey: .lnreaderAutoUpdate) ?? true
         let haruneko = try container.decodeIfPresent(Bool.self, forKey: .harunekoAutoUpdate) ?? true
+        let lncrawl = try container.decodeIfPresent(Bool.self, forKey: .lncrawlAutoUpdate) ?? true
+        let fanficfare = try container.decodeIfPresent(Bool.self, forKey: .fanficfareAutoUpdate) ?? true
+        let gallerydl = try container.decodeIfPresent(Bool.self, forKey: .gallerydlAutoUpdate) ?? true
         self.init(
             order: SiteEngine.ordered(names),
             disabled: off.compactMap { SiteEngine(rawValue: $0) },
             novelDownloaderAutoUpdate: novelDownloader,
             webtoepubAutoUpdate: webtoepub,
             lnreaderAutoUpdate: lnreader,
-            harunekoAutoUpdate: haruneko
+            harunekoAutoUpdate: haruneko,
+            lncrawlAutoUpdate: lncrawl,
+            fanficfareAutoUpdate: fanficfare,
+            gallerydlAutoUpdate: gallerydl
         )
     }
 
@@ -135,6 +162,9 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         case .webtoepub: return webtoepubAutoUpdate
         case .lnreader: return lnreaderAutoUpdate
         case .haruneko: return harunekoAutoUpdate
+        case .lncrawl: return lncrawlAutoUpdate
+        case .fanficfare: return fanficfareAutoUpdate
+        case .gallerydl: return gallerydlAutoUpdate
         }
     }
 

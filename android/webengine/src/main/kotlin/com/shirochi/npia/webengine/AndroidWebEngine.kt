@@ -13,12 +13,14 @@ import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.shirochi.npia.core.DEFAULT_TIMEOUT_SECONDS
+import com.shirochi.npia.core.LocalResponse
 import com.shirochi.npia.core.SharedCookies
 import com.shirochi.npia.core.WebEngineException
 import com.shirochi.npia.core.WebLoadTimeoutException
@@ -119,6 +121,12 @@ internal class AndroidWebPage(
     private val results = ConcurrentHashMap<String, CompletableDeferred<Result<String>>>()
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
+    @Volatile private var local: Pair<String, (String, String) -> LocalResponse?>? = null
+
+    override suspend fun serveLocal(prefix: String, handler: (path: String, query: String) -> LocalResponse?) {
+        local = prefix to handler
+    }
+
     // `exposeTransport`: the app's answer to `window.__npia_gm_xmlhttp_request`, and what lets a request through.
     private var transport: (suspend (String) -> String)? = null
     private var transportScript: String? = null
@@ -138,6 +146,17 @@ internal class AndroidWebPage(
         webView.layout(0, 0, WIDTH, HEIGHT)
         HiddenHost.attach(webView)
         webView.webViewClient = object : WebViewClient() {
+            // `serveLocal`: this page's own address, answered by the app (on WebView's network thread).
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                val (prefix, handler) = local ?: return null
+                val url = request.url.toString()
+                if (!url.startsWith(prefix)) return null
+                val answer = runCatching { handler(url.substring(prefix.length).substringBefore('?'), request.url.encodedQuery.orEmpty()) }
+                    .getOrNull() ?: LocalResponse("text/plain", "Not found".toByteArray(), 404)
+                return WebResourceResponse(answer.mimeType, null, answer.status, if (answer.status == 200) "OK" else "Not Found",
+                    mapOf("Cache-Control" to "no-store", "Access-Control-Allow-Origin" to "null"), answer.body.inputStream())
+            }
+
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 if (!documentStart) fallbackInitScripts.forEach { view.evaluateJavascript(it, null) }
                 if (waitFor == WebLoadState.DOM_CONTENT_LOADED) watchReadyState(navigationToken)

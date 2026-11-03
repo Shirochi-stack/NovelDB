@@ -39,7 +39,7 @@ public enum SiteEngineRouter {
                     let adapter = type.init()
                     let book = try await adapter.parseBook(url, context: context)
                     return Opened(adapter: adapter, book: book, engine: .native)
-                case .novelDownloader, .webtoepub, .lnreader, .haruneko, .generic:
+                case .novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic:
                     let session = try await ReaderSessions.shared.open(url, context: context, engines: [engine], page: page)
                     return Opened(adapter: ReaderAdapter(), book: session.book, engine: engine)
                 }

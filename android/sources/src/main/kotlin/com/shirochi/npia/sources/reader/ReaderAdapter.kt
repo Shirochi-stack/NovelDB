@@ -196,6 +196,8 @@ internal class ReaderBookSession(
         class Web(val web: ReaderWebFallback) : Engine()
         class WebToEpub(val web: WebToEpubEngine) : Engine()
         class Page(val web: PageBundleEngine) : Engine()
+        /** lightnovel-crawler, FanFicFare or gallery-dl in the Python engines' page (`PythonEngines`). */
+        class Python(val engine: SiteEngine, val context: SourceContext) : Engine()
     }
 
     data class ChapterInfo(val url: String, val name: String, val isVIP: Boolean, val isPaid: Boolean?)
@@ -211,6 +213,7 @@ internal class ReaderBookSession(
                 is Engine.Web -> engine.web.chapter(info)
                 is Engine.WebToEpub -> engine.web.chapter(info)
                 is Engine.Page -> engine.web.chapter(info)
+                is Engine.Python -> PythonEngines.chapter(engine.engine, info, book.url, engine.context)
             }
         } catch (e: CancellationException) {
             throw e
@@ -229,6 +232,7 @@ internal class ReaderBookSession(
             is Engine.Web -> engine.web.closeLater()
             is Engine.WebToEpub -> engine.web.closeLater()
             is Engine.Page -> engine.web.closeLater()
+            is Engine.Python -> Unit  // the page is shared, and closes itself when idle
         }
     }
 
@@ -246,6 +250,12 @@ internal class ReaderBookSession(
             shared: SharedBookPage? = null,
         ): ReaderBookSession {
             require(engine.runsScripts) { "${engine.raw} is not a script engine" }
+            if (PythonEngines.isPython(engine)) {
+                // The Python engines fetch the book themselves: the book's own page is not needed.
+                val payload = PythonEngines.openBook(engine, url, context)
+                if (payload.chapters.isEmpty()) throw SourceException.Parse("The ${engine.label} found no chapters on $url.")
+                return make(payload, url, Engine.Python(engine, context))
+            }
             val page = shared ?: SharedBookPage(url, context)
             try {
                 return when (engine) {

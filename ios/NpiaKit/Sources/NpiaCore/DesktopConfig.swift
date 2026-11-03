@@ -122,6 +122,9 @@ public enum DesktopConfig {
         engines.webtoepubAutoUpdate = bool(c["webtoepub_auto_update"]) ?? engines.webtoepubAutoUpdate
         engines.lnreaderAutoUpdate = bool(c["lnreader_auto_update"]) ?? engines.lnreaderAutoUpdate
         engines.harunekoAutoUpdate = bool(c["haruneko_auto_update"]) ?? engines.harunekoAutoUpdate
+        engines.lncrawlAutoUpdate = bool(c["lncrawl_auto_update"]) ?? engines.lncrawlAutoUpdate
+        engines.fanficfareAutoUpdate = bool(c["fanficfare_auto_update"]) ?? engines.fanficfareAutoUpdate
+        engines.gallerydlAutoUpdate = bool(c["gallerydl_auto_update"]) ?? engines.gallerydlAutoUpdate
         if engines.enabled().isEmpty { engines.disabled = [] }  // never leave every engine off
         s.engines = engines
 
@@ -229,6 +232,9 @@ public enum DesktopConfig {
         c["webtoepub_auto_update"] = s.engines.webtoepubAutoUpdate
         c["lnreader_auto_update"] = s.engines.lnreaderAutoUpdate
         c["haruneko_auto_update"] = s.engines.harunekoAutoUpdate
+        c["lncrawl_auto_update"] = s.engines.lncrawlAutoUpdate
+        c["fanficfare_auto_update"] = s.engines.fanficfareAutoUpdate
+        c["gallerydl_auto_update"] = s.engines.gallerydlAutoUpdate
 
         c["app_update_check"] = s.appUpdateCheck
 

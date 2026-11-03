@@ -57,5 +57,5 @@ jobs:
           # Older builds' data: kept a few minutes for searches that read the old table, then removed.
           sleep 300
           keep=$(basename "$bin")
-          gh release view "$TAG" --json assets -q '.assets[].name' | grep '^noveldb-search-.*\.bin$' | grep -vx "$keep" |
-            while read -r old; do gh release delete-asset "$TAG" "$old" --yes; done
+          old=$(gh release view "$TAG" --json assets -q '.assets[].name' | grep '^noveldb-search-.*\.bin$' | grep -vx "$keep" || true)
+          for name in $old; do gh release delete-asset "$TAG" "$name" --yes; done

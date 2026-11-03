@@ -59,3 +59,8 @@ _build_info.py
 /data/engines/
 /data/*.tmp
 node_modules/
+
+# The mobile apps' Python engines (Pyodide, the page and the bundles), built by scripts/fetch_python_host.py.
+android/sources/src/main/resources/com/shirochi/npia/sources/python/
+ios/NpiaKit/Sources/NpiaSources/Reader/Resources/python/
+build/pyodide-cache/

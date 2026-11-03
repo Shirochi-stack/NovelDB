@@ -4,16 +4,21 @@ import kotlinx.serialization.Serializable
 
 /**
  * The ways a book page can be read, tried in the user's order until one returns chapters (the
- * desktop's `SITE_ENGINES`): the app's own scrapers, the novel-downloader rules, the WebToEpub
- * parsers, the LNReader plugins, the HaruNeko websites (manga), then the generic fallback (any site, without site rules). `raw` is
- * the name the desktop settings file uses.
+ * desktop's `SITE_ENGINES`, in its order): the app's own scrapers, the novel-downloader rules, the
+ * WebToEpub parsers, lightnovel-crawler's sources, the LNReader plugins, FanFicFare's adapters, the
+ * HaruNeko websites, gallery-dl's extractors, then the generic fallback (any site, without site
+ * rules). The three Python engines run the desktop's own modules in Pyodide (`PythonEngines`).
+ * `raw` is the name the desktop settings file uses.
  */
 enum class SiteEngine(val raw: String, val label: String) {
     NATIVE("native", "Built-in scrapers"),
     NOVEL_DOWNLOADER("novel_downloader", "novel-downloader rules"),
     WEBTOEPUB("webtoepub", "WebToEpub parsers"),
+    LNCRAWL("lncrawl", "lightnovel-crawler sources"),
     LNREADER("lnreader", "LNReader plugins"),
+    FANFICFARE("fanficfare", "FanFicFare adapters"),
     HARUNEKO("haruneko", "HaruNeko websites"),
+    GALLERYDL("gallerydl", "gallery-dl extractors"),
     GENERIC("generic", "Generic fallback");
 
     /** True for the engines that run a JavaScript bundle (everything but the built-in scrapers). */
@@ -43,6 +48,9 @@ data class EngineSettings(
     val webtoepubAutoUpdate: Boolean = true,
     val lnreaderAutoUpdate: Boolean = true,
     val harunekoAutoUpdate: Boolean = true,
+    val lncrawlAutoUpdate: Boolean = true,
+    val fanficfareAutoUpdate: Boolean = true,
+    val gallerydlAutoUpdate: Boolean = true,
 ) {
     /** Every engine in the user's order, switched off or not. */
     fun fullOrder(): List<SiteEngine> = SiteEngine.order(order)
@@ -57,6 +65,9 @@ data class EngineSettings(
         SiteEngine.WEBTOEPUB -> webtoepubAutoUpdate
         SiteEngine.LNREADER -> lnreaderAutoUpdate
         SiteEngine.HARUNEKO -> harunekoAutoUpdate
+        SiteEngine.LNCRAWL -> lncrawlAutoUpdate
+        SiteEngine.FANFICFARE -> fanficfareAutoUpdate
+        SiteEngine.GALLERYDL -> gallerydlAutoUpdate
         SiteEngine.NATIVE, SiteEngine.GENERIC -> false
     }
 
@@ -65,6 +76,9 @@ data class EngineSettings(
         SiteEngine.WEBTOEPUB -> copy(webtoepubAutoUpdate = on)
         SiteEngine.LNREADER -> copy(lnreaderAutoUpdate = on)
         SiteEngine.HARUNEKO -> copy(harunekoAutoUpdate = on)
+        SiteEngine.LNCRAWL -> copy(lncrawlAutoUpdate = on)
+        SiteEngine.FANFICFARE -> copy(fanficfareAutoUpdate = on)
+        SiteEngine.GALLERYDL -> copy(gallerydlAutoUpdate = on)
         SiteEngine.NATIVE, SiteEngine.GENERIC -> this
     }
 

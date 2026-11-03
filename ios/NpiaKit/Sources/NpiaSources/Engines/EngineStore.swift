@@ -10,6 +10,9 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
     case webtoepub
     case lnreader
     case haruneko
+    case lncrawl
+    case fanficfare
+    case gallerydl
 
     public var siteEngine: SiteEngine {
         switch self {
@@ -17,11 +20,18 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         case .webtoepub: return .webtoepub
         case .lnreader: return .lnreader
         case .haruneko: return .haruneko
+        case .lncrawl: return .lncrawl
+        case .fanficfare: return .fanficfare
+        case .gallerydl: return .gallerydl
         }
     }
 
-    /// The manifest's `sites` (addresses) list the sites the engine knows (LNReader, HaruNeko); otherwise the script says.
-    var sitesInManifest: Bool { self == .lnreader || self == .haruneko }
+    /// The manifest's `sites` (addresses) list the sites the engine knows; for the novel-downloader
+    /// rules and the WebToEpub parsers the script says.
+    var sitesInManifest: Bool { self != .novelDownloader && self != .webtoepub }
+
+    /// The bundle is a zip for the Python engines (`PythonEngines`), not a script.
+    var isPython: Bool { self == .lncrawl || self == .fanficfare || self == .gallerydl }
 
     /// The name shown to the user.
     public var title: String { siteEngine.title }
@@ -36,6 +46,9 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         case .webtoepub: return "webtoepub-lib.js"
         case .lnreader: return "lnreader-lib.js"
         case .haruneko: return "haruneko-lib.js"
+        case .lncrawl: return "lncrawl-sources.zip"
+        case .fanficfare: return "fanficfare.zip"
+        case .gallerydl: return "gallerydl.zip"
         }
     }
 
@@ -46,6 +59,9 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         case .webtoepub: return "webtoepub-manifest.json"
         case .lnreader: return "lnreader-manifest.json"
         case .haruneko: return "haruneko-manifest.json"
+        case .lncrawl: return "lncrawl-manifest.json"
+        case .fanficfare: return "fanficfare-manifest.json"
+        case .gallerydl: return "gallerydl-manifest.json"
         }
     }
 
@@ -53,7 +69,7 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
     var shippedManifest: String? {
         switch self {
         case .novelDownloader: return nil
-        case .webtoepub, .lnreader, .haruneko: return EngineStore.manifestName
+        case .webtoepub, .lnreader, .haruneko, .lncrawl, .fanficfare, .gallerydl: return EngineStore.manifestName
         }
     }
 
@@ -64,6 +80,8 @@ public enum RuleEngine: String, CaseIterable, Sendable, Hashable {
         case .webtoepub: return ["Resources/webtoepub", "webtoepub"]
         case .lnreader: return ["Resources/lnreader", "lnreader"]
         case .haruneko: return ["Resources/haruneko", "haruneko"]
+        // Built into the Reader resources with the Python engines' page (scripts/fetch_python_host.py).
+        case .lncrawl, .fanficfare, .gallerydl: return ["Resources/python/bundles/\(rawValue)", "python/bundles/\(rawValue)"]
         }
     }
 }
@@ -78,6 +96,9 @@ public extension SiteEngine {
         case .webtoepub: return .webtoepub
         case .lnreader: return .lnreader
         case .haruneko: return .haruneko
+        case .lncrawl: return .lncrawl
+        case .fanficfare: return .fanficfare
+        case .gallerydl: return .gallerydl
         }
     }
 }

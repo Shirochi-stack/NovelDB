@@ -49,7 +49,21 @@ class RuleEngine(
             SiteEngine.HARUNEKO, "HaruNeko websites", 1, "haruneko-lib.js",
             ROOT + "haruneko/haruneko-lib.js", ROOT + "haruneko/manifest.json", "haruneko-manifest.json", true,
         )
-        val ALL = listOf(NOVEL_DOWNLOADER, WEBTOEPUB, LNREADER, HARUNEKO)
+        // The Python engines' bundles (zips) sit with the Python engines' page (`PythonEngines`).
+        private const val PYTHON = "/com/shirochi/npia/sources/python/bundles/"
+        val LNCRAWL = RuleEngine(
+            SiteEngine.LNCRAWL, "lightnovel-crawler sources", 1, "lncrawl-sources.zip",
+            PYTHON + "lncrawl/lncrawl-sources.zip", PYTHON + "lncrawl/manifest.json", "lncrawl-manifest.json", true,
+        )
+        val FANFICFARE = RuleEngine(
+            SiteEngine.FANFICFARE, "FanFicFare adapters", 1, "fanficfare.zip",
+            PYTHON + "fanficfare/fanficfare.zip", PYTHON + "fanficfare/manifest.json", "fanficfare-manifest.json", true,
+        )
+        val GALLERYDL = RuleEngine(
+            SiteEngine.GALLERYDL, "gallery-dl extractors", 1, "gallerydl.zip",
+            PYTHON + "gallerydl/gallerydl.zip", PYTHON + "gallerydl/manifest.json", "gallerydl-manifest.json", true,
+        )
+        val ALL = listOf(NOVEL_DOWNLOADER, WEBTOEPUB, LNCRAWL, LNREADER, FANFICFARE, HARUNEKO, GALLERYDL)
 
         fun of(engine: SiteEngine): RuleEngine? = ALL.firstOrNull { it.engine == engine }
     }
@@ -112,6 +126,9 @@ class EngineBundle internal constructor(
 
     /** The script. */
     fun read(): String = text
+
+    /** The bundle's bytes (the Python engines' zips). */
+    fun data(): ByteArray = bytes()
 
     private val header: UserScriptPatterns by lazy { UserScriptPatterns.parse(text) }
 

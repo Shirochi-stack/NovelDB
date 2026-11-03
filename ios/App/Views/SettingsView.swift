@@ -244,6 +244,9 @@ struct SiteEnginesForm: View {
                 Toggle("Update the WebToEpub parsers automatically", isOn: $model.settings.engines.webtoepubAutoUpdate)
                 Toggle("Update the LNReader plugins automatically", isOn: $model.settings.engines.lnreaderAutoUpdate)
                 Toggle("Update the HaruNeko websites automatically", isOn: $model.settings.engines.harunekoAutoUpdate)
+                Toggle("Update the lightnovel-crawler sources automatically", isOn: $model.settings.engines.lncrawlAutoUpdate)
+                Toggle("Update the FanFicFare adapters automatically", isOn: $model.settings.engines.fanficfareAutoUpdate)
+                Toggle("Update the gallery-dl extractors automatically", isOn: $model.settings.engines.gallerydlAutoUpdate)
                 Button {
                     Task { await model.checkEngineUpdates(automatic: false) }
                 } label: {

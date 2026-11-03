@@ -175,6 +175,7 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
     private var navigationToken = 0
     private var waitState: WebLoadState = .load
     private var relays: [ReplyRelay] = []
+    private let local = LocalSchemeHandler()
     /// Set by `emulateDesktop`: every navigation asks for the desktop version of a site.
     private var wantsDesktop = false
     private let waits: PageWait
@@ -187,6 +188,7 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
         configuration.suppressesIncrementalRendering = false
+        configuration.setURLSchemeHandler(local, forURLScheme: LocalResponse.scheme)
         #if os(iOS)
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
@@ -253,6 +255,10 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         let relay = ReplyRelay(store: store, handler: handler)
         relays.append(relay)
         webView.configuration.userContentController.addScriptMessageHandler(relay, contentWorld: .page, name: name)
+    }
+
+    func serveLocal(_ handler: @escaping @Sendable (String, String) async -> LocalResponse?) async {
+        local.handler = handler
     }
 
     func currentURL() async -> URL? {
@@ -373,6 +379,37 @@ private final class ReplyRelay: NSObject, WKScriptMessageHandlerWithReply {
         // Requests made by the handler carry the page's cookies.
         await CookieBridge.shared.copyToShared(from: store.httpCookieStore)
         return (await handler(body), nil)
+    }
+}
+
+/// `serveLocal`: the page's own `noveldb-local:` addresses, answered by its handler.
+@MainActor
+private final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
+    var handler: (@Sendable (String, String) async -> LocalResponse?)?
+    private var stopped = Set<ObjectIdentifier>()
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url, let handler else {
+            urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
+            return
+        }
+        let id = ObjectIdentifier(urlSchemeTask)
+        let path = String(url.path.drop(while: { $0 == "/" }))
+        let query = url.query ?? ""
+        Task { @MainActor in
+            let answer = await handler(path, query) ?? LocalResponse(mimeType: "text/plain", body: Data("Not found".utf8), status: 404)
+            guard self.stopped.remove(id) == nil else { return }
+            let response = HTTPURLResponse(url: url, statusCode: answer.status, httpVersion: "HTTP/1.1", headerFields: [
+                "Content-Type": answer.mimeType, "Content-Length": String(answer.body.count), "Cache-Control": "no-store",
+            ])!
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didReceive(answer.body)
+            urlSchemeTask.didFinish()
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+        stopped.insert(ObjectIdentifier(urlSchemeTask))
     }
 }
 

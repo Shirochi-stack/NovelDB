@@ -173,6 +173,8 @@ final class ReaderBookSession: @unchecked Sendable {
         case web(ReaderWebFallback)
         case webtoepub(WebToEpubSession)
         case page(PageScriptSession)
+        /// lightnovel-crawler, FanFicFare or gallery-dl in the Python engines' page (`PythonEngines`).
+        case python(SiteEngine, SourceContext)
     }
 
     struct ChapterInfo {
@@ -206,6 +208,7 @@ final class ReaderBookSession: @unchecked Sendable {
                 case .lnreader: return try await openPageScript(url, script: .lnreader, context: context, page: shared)
                 case .haruneko: return try await openPageScript(url, script: .haruneko, context: context, page: shared)
                 case .generic: return try await openPageScript(url, script: .generic, context: context, page: shared)
+                case .lncrawl, .fanficfare, .gallerydl: return try await openPython(url, engine: engine, context: context)
                 case .native: continue
                 }
             } catch is CancellationError {
@@ -253,6 +256,15 @@ final class ReaderBookSession: @unchecked Sendable {
             context.logger.log(.debug, "[Reader] Web view fallback failed: \(error.localizedDescription)")
         }
         throw engineError(scriptError)
+    }
+
+    /// A Python engine: it fetches the book itself, so the book's own page is not needed.
+    private static func openPython(_ url: URL, engine: SiteEngine, context: SourceContext) async throws -> ReaderBookSession {
+        let payload = try await PythonEngines.shared.openBook(engine, url: url, context: context)
+        guard !payload.chapters.isEmpty else {
+            throw SourceError.parse("The \(engine.title) found no chapters on \(url.absoluteString).")
+        }
+        return try make(payload, requested: url, engine: .python(engine, context))
     }
 
     /// A page-script engine (the LNReader plugins, the generic fallback) in the book's page.
@@ -339,6 +351,8 @@ final class ReaderBookSession: @unchecked Sendable {
                 let read = try await session.chapter(info)
                 blocks = read.blocks
                 imageData = read.images
+            case .python(let engine, let context):
+                blocks = try await PythonEngines.shared.chapter(engine, info: info, bookURL: book.url, context: context)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -363,6 +377,7 @@ final class ReaderBookSession: @unchecked Sendable {
         case .web(let web): Task { await web.close() }
         case .webtoepub(let session): Task { await session.close() }
         case .page(let session): Task { await session.close() }
+        case .python: break  // the page is shared, and closes itself when idle
         }
     }
 

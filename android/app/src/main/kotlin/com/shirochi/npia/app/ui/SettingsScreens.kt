@@ -241,6 +241,10 @@ private val ENGINE_CREDITS = listOf(
     Triple("WebToEpub", "David Teviotdale and contributors (GPL-3.0)", WEBTOEPUB_URL),
     Triple("LNReader plugins", "the LNReader team (MIT)", "https://github.com/LNReader/lnreader-plugins"),
     Triple("HaruNeko", "the HaruNeko team (Unlicense)", "https://github.com/manga-download/haruneko"),
+    Triple("lightnovel-crawler", "Sudipto Chandra and contributors (GPL-3.0)", "https://github.com/lncrawl/lightnovel-crawler"),
+    Triple("FanFicFare", "Jim Miller and contributors (Apache-2.0)", "https://github.com/JimmXinu/FanFicFare"),
+    Triple("gallery-dl", "Mike Fährmann and contributors (GPL-2.0)", "https://github.com/mikf/gallery-dl"),
+    Triple("Pyodide", "the Pyodide contributors (MPL-2.0)", "https://github.com/pyodide/pyodide"),
 )
 
 private fun engineHint(engine: SiteEngine): String = when (engine) {
@@ -249,6 +253,9 @@ private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.WEBTOEPUB -> "WebToEpub's parsers for 650+ sites, mostly English translations."
     SiteEngine.LNREADER -> "LNReader's plugins for 320+ novel sites in many languages."
     SiteEngine.HARUNEKO -> "HaruNeko's websites: 800+ manga, manhwa and comic sites."
+    SiteEngine.LNCRAWL -> "lightnovel-crawler's sources: 400+ novel sites (Python, in the app)."
+    SiteEngine.FANFICFARE -> "FanFicFare's adapters: 100+ fan-fiction archives and forums (Python, in the app)."
+    SiteEngine.GALLERYDL -> "gallery-dl's extractors: manga sites such as fanfox and mangahere (Python, in the app)."
     SiteEngine.GENERIC -> "Any other site: reads the chapter list and text without site rules."
 }
 
