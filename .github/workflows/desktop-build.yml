@@ -80,6 +80,11 @@ jobs:
               echo "::error::Release '$tag' does not exist. Create it first, then re-run."
               exit 1
             fi
+            # An unpublished draft is simply updated (plain names, replacing its files): hotfix names are
+            # only for releases people already downloaded.
+            if [ "$label" = auto ] && [ "$(gh release view "$tag" --repo "$REPO" --json isDraft -q .isDraft)" = true ]; then
+              label=none
+            fi
             if [ "$label" = auto ]; then
               last=$(gh release view "$tag" --repo "$REPO" --json assets -q '.assets[].name' \
                 | sed -nE "s/^NovelDB[0-9]+(_Lite|_TurboLite)?-${OS_ID}-[A-Za-z0-9_]+_hotfix([0-9]+)\.[A-Za-z]+$/\2/p" \
