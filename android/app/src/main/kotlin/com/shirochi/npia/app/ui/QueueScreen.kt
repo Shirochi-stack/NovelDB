@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -363,6 +365,7 @@ fun JobDetailScreen(model: AppViewModel, id: String) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FileRow(model: AppViewModel, file: File, jobId: String?) {
     val manager = model.manager
@@ -386,7 +389,8 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
             Text("Missing", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             return@Column
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // The actions wrap onto a second line on a narrow screen (none is cut off at the edge).
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AssistChip(onClick = { if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}") }, label = { Text("Open") })
             AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share") })
             // A folder (separate TXT) is saved and uploaded as one ZIP.
