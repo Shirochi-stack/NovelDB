@@ -111,6 +111,8 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     /** The generic page's reader is full screen: the app hides its own bars and the system's. */
     var readerFullScreen by mutableStateOf(false)
         private set
+    /** Called when the reader of a Library book closes (the Library's own reader closes with it). */
+    var onReaderClosed: (() -> Unit)? = null
 
     /** Leaves the reader's full screen (the back gesture): the page hears Escape, as from a keyboard. */
     fun leaveFullScreen() {
@@ -211,8 +213,9 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     }
 
     /** Opens another catalog site (from Settings). */
-    fun load(url: String) {
-        if (url == site) return
+    /** Shows `url`'s catalog page; `force` loads it even when it is the site already set (a new view). */
+    fun load(url: String, force: Boolean = false) {
+        if (url == site && !force) return
         site = url
         pageUrl = catalogPage(url)
         onGenericPage = isGenericPage(pageUrl)
@@ -374,6 +377,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                     }
                     "genericLogin" -> if (onGenericPage) field("url").takeIf { it.startsWith("http") }?.let { model.openInBrowser(it) }
                     "genericFullscreen" -> readerFullScreen = onGenericPage && field("on") == "true"
+                    "genericReaderClosed" -> onReaderClosed?.invoke()
                 }
             }
         }

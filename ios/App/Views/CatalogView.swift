@@ -62,6 +62,8 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     @Published private(set) var error: String?
     /// The generic page's reader is full screen: the app hides its own bars and the status bar.
     @Published var readerFullScreen = false
+    /// Called when the reader of a Library book closes (the Library's own reader closes with it).
+    var onReaderClosed: (() -> Void)?
     private var observations: [NSKeyValueObservation] = []
     weak var model: AppModel?
     private(set) var site: URL
@@ -81,8 +83,9 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
-    override init() {
-        let start = CatalogSite.current
+    /// `site`: the catalog site to show (the one set in Settings unless another is given, as the
+    /// Library's reader gives the built-in page).
+    init(site start: URL = CatalogSite.current) {
         site = start
         tracker = CatalogPageTracker(pageURL: CatalogSite.page(for: start))
         let configuration = WKWebViewConfiguration()
@@ -278,6 +281,8 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             }
         case "genericFullscreen":
             readerFullScreen = CatalogPage.isPage(webView.url) && (body["on"] as? Bool ?? false)
+        case "genericReaderClosed":
+            onReaderClosed?()
         default:
             break
         }
@@ -319,7 +324,7 @@ private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
-private struct CatalogWebView: UIViewRepresentable {
+struct CatalogWebView: UIViewRepresentable {
     let state: CatalogState
 
     func makeUIView(context: Context) -> WKWebView { state.webView }

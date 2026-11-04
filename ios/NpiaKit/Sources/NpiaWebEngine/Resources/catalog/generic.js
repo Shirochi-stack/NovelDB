@@ -2323,6 +2323,8 @@
         $('toc').classList.remove('open');
         $('look').classList.remove('open');
         document.body.style.overflow = '';
+        // A Library book's reader: the phone apps close the page they opened it in.
+        if (R.group && R.group.sources[0] && R.group.sources[0].source === 'local') send({type: 'genericReaderClosed'});
     }
     document.addEventListener('keydown', function (event) {
         // Typing in a box keeps its keys; the page slider (a range input) does not take the arrows.

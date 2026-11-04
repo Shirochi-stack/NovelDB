@@ -1,3 +1,4 @@
+import NpiaSources
 import SwiftUI
 
 /// A book in the Library: every output sharing a name ("Title.epub", "Title.txt", a "Title/" TXT folder).
@@ -54,7 +55,8 @@ struct LibraryBook: Identifiable {
 }
 
 /// The Library tab: the books downloaded on this device, as a shelf of covers. A tap reads an EPUB in
-/// the Catalog's reader; a long press (or ⋯) shows the book's files with the same actions as a
+/// the Library's own reader (the built-in Catalog page's reader, opened here: it does not depend on the
+/// Catalog tab or its site); a long press (or ⋯) shows the book's files with the same actions as a
 /// finished download, and Delete.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
@@ -62,6 +64,7 @@ struct LibraryView: View {
     @State private var query = ""
     @State private var open: LibraryBook?
     @State private var deleting: LibraryBook?
+    @State private var reading: URL?
 
     private var shown: [LibraryBook] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -93,7 +96,7 @@ struct LibraryView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if let epub = book.epub { model.readInCatalog(epub) } else { open = book }
+                        if let epub = book.epub { reading = epub } else { open = book }
                     }
                     .onLongPressGesture { open = book }
                 }
@@ -119,7 +122,7 @@ struct LibraryView: View {
                             }
                         }
                         if let epub = book.epub {
-                            Button { open = nil; model.readInCatalog(epub) } label: { Label("Read", systemImage: "book") }
+                            Button { open = nil; reading = epub } label: { Label("Read", systemImage: "book") }
                         }
                         Button(role: .destructive) { open = nil; deleting = book } label: { Label("Delete", systemImage: "trash") }
                     }
@@ -134,6 +137,9 @@ struct LibraryView: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { open = nil } } }
             }
             .presentationDetents([.medium, .large])
+        }
+        .fullScreenCover(isPresented: Binding(get: { reading != nil }, set: { if !$0 { reading = nil } })) {
+            if let epub = reading { LibraryReaderView(epub: epub) { reading = nil } }
         }
         .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible) {
@@ -172,5 +178,35 @@ private struct ShelfCover: View {
                 guard let epub = book.epub else { return }
                 cover = await Task.detached(priority: .utility) { EpubCover.image(for: epub) }.value
             }
+    }
+}
+
+/// A Library book in the reader, full screen over the Library: a page of its own with the built-in
+/// Catalog page, so the book opens whatever the Catalog tab shows. Closing the reader closes it.
+private struct LibraryReaderView: View {
+    let epub: URL
+    let close: () -> Void
+    @Environment(AppModel.self) private var model
+    @StateObject private var state = CatalogState(site: URL(string: CatalogSite.genericAddress)!)
+    @AppStorage(Accent.storageKey) private var accent = Accent.halgakosRose.rawValue
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(epub: URL, close: @escaping () -> Void) {
+        self.epub = epub
+        self.close = close
+    }
+
+    var body: some View {
+        CatalogWebView(state: state)
+            .ignoresSafeArea(edges: state.readerFullScreen ? .all : [])
+            .statusBarHidden(state.readerFullScreen)
+            .onAppear {
+                state.model = model
+                state.onReaderClosed = close
+                CatalogTransport.libraryFolder = model.outputDirectory
+                state.setTheme((Accent(rawValue: accent) ?? .halgakosRose).webTheme(dark: colorScheme == .dark))
+                state.readLocal(epub)
+            }
+            .onDisappear { state.onReaderClosed = nil }
     }
 }

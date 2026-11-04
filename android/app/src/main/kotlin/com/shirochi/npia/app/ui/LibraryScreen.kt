@@ -2,6 +2,7 @@ package com.shirochi.npia.app.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -36,6 +37,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,11 +51,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.FileActions
+import com.shirochi.npia.app.GENERIC_CATALOG_URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -114,7 +122,8 @@ private fun formats(book: LibraryBook): String {
 
 /**
  * The Library tab: the books downloaded on this device, as a shelf of covers. A tap reads an EPUB in
- * the Catalog's reader; a long press (or ⋮) shows the book's files with the same actions as a
+ * the Library's own reader (the built-in Catalog page's reader, opened here: it does not depend on the
+ * Catalog tab or its site); a long press (or ⋮) shows the book's files with the same actions as a
  * finished download, and Delete.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -126,6 +135,7 @@ fun LibraryScreen(model: AppViewModel) {
     var query by remember { mutableStateOf("") }
     var open by remember { mutableStateOf<LibraryBook?>(null) }
     var deleting by remember { mutableStateOf<LibraryBook?>(null) }
+    var reading by remember { mutableStateOf<File?>(null) }
     // Read again whenever a download finishes (the jobs change) or a book is deleted.
     val books by produceState(emptyList<LibraryBook>(), jobs.count { !it.state.isActive }, refresh) {
         value = withContext(Dispatchers.IO) { scanLibrary(manager.outputDirectory) }
@@ -169,7 +179,7 @@ fun LibraryScreen(model: AppViewModel) {
             items(shown, key = { it.name.lowercase() }) { book ->
                 Column(
                     Modifier.clip(RoundedCornerShape(8.dp)).combinedClickable(
-                        onClick = { book.epub?.let { model.readInCatalog(it) } ?: run { open = book } },
+                        onClick = { book.epub?.let { reading = it } ?: run { open = book } },
                         onLongClick = { open = book },
                     ),
                 ) {
@@ -195,6 +205,7 @@ fun LibraryScreen(model: AppViewModel) {
             }
         }
     }
+    reading?.let { epub -> LibraryReader(epub, model) { reading = null } }
     open?.let { book ->
         ModalBottomSheet(onDismissRequest = { open = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -210,7 +221,7 @@ fun LibraryScreen(model: AppViewModel) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     book.epub?.let { epub ->
-                        Button(onClick = { open = null; model.readInCatalog(epub) }) { Text("Read") }
+                        Button(onClick = { open = null; reading = epub }) { Text("Read") }
                     }
                     OutlinedButton(onClick = { open = null; deleting = book }) { Text("Delete") }
                 }
@@ -256,3 +267,30 @@ private fun Cover(book: LibraryBook) {
         }
     }
 }
+
+/**
+ * A Library book in the reader, full screen over the Library: a page of its own with the built-in
+ * Catalog page, so the book opens whatever the Catalog tab shows. Closing the reader (or Back) closes it.
+ */
+@Composable
+private fun LibraryReader(epub: File, model: AppViewModel, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val web = remember(epub) { CatalogWeb(context, model) }
+    DisposableEffect(web) {
+        web.onReaderClosed = onClose
+        onDispose { web.onReaderClosed = null; web.destroy() }
+    }
+    val colors = MaterialTheme.colorScheme
+    LaunchedEffect(colors) { web.setTheme(colors) }
+    LaunchedEffect(web) {
+        web.load(GENERIC_CATALOG_URL, force = true)
+        web.readLocal(epub)
+    }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        BackHandler { if (web.readerFullScreen) web.leaveFullScreen() else onClose() }
+        Surface(Modifier.fillMaxSize()) {
+            AndroidView(factory = { web.view.fillingParent() }, modifier = Modifier.fillMaxSize())
+        }
+    }
+}
+
