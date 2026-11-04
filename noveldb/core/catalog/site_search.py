@@ -438,7 +438,48 @@ def _in_chrome(anchor, depth: int = 6) -> bool:
 
 
 def extract_cards(page: str, base: str) -> List[dict]:
-    """Book cards on a search, tag or list page: [{url, title, cover, snippet}]."""
+    """Book cards on a search, tag or list page: [{url, title, cover, snippet}]. The page's app data when
+    it lists more books than the page draws (bookkor draws 9 of its 40)."""
+    drawn = _drawn_cards(page, base)
+    listed = _app_data_cards(page, base)
+    return listed if len(listed) > len(drawn) else drawn
+
+
+def _app_data_cards(page: str, base: str) -> List[dict]:
+    """Cards from an Inertia app's page data: a paginated list (props.<name>.data) of books with a title
+    and a slug, each book at /<slug>. [] for any other page (a book's episodes included)."""
+    found = re.search(r'<script[^>]*\bdata-page="app"[^>]*>(.*?)</script>', page or "", re.S)
+    if not found:
+        return []
+    try:
+        props = json.loads(found.group(1)).get("props") or {}
+    except (ValueError, AttributeError):
+        return []
+    parts = urlsplit(base)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    best: List[dict] = []
+    for value in props.values() if isinstance(props, dict) else []:
+        items = value.get("data") if isinstance(value, dict) else None
+        if not isinstance(items, list):
+            continue
+        cards = []
+        for item in items:
+            if not isinstance(item, dict) or not item.get("title") or not item.get("slug") or "series_id" in item:
+                continue  # (a series' episodes carry its id: not a list of books)
+            cover = str(item.get("thumbnail") or "")
+            if cover and not re.match(r"https?://|/", cover):
+                cover = f"{origin}/storage/{cover}"  # a Laravel app's public files
+            tags = [t.strip().lstrip("#") for t in str(item.get("tags_string") or "").split(",")]
+            cards.append({"url": f"{origin}/{quote(str(item['slug']).strip('/'))}", "title": str(item["title"]),
+                          "cover": urljoin(origin + "/", cover) if cover else "", "snippet": "",
+                          "tags": list(dict.fromkeys(t for t in tags if t))})
+        if len(cards) > len(best):
+            best = cards
+    return best if len(best) >= 6 else []
+
+
+def _drawn_cards(page: str, base: str) -> List[dict]:
+    """Book cards drawn on the page: [{url, title, cover, snippet}]."""
     from noveldb.core.catalog.generic_search import looks_like_book
 
     soup = soup_of(page)
