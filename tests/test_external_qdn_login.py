@@ -5,6 +5,113 @@ from external_scraper import ExternalScraper
 import pytest
 
 
+def test_qdn_global_url_recognition_and_native_routing():
+    domain = '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com'
+    book = f'https://www.{domain}/book/title_11022733006234505'
+    catalog = f'https://www.{domain}/book/11022733006234505/catalog'
+    chapter = f'https://www.{domain}/book/title_11022733006234505/one_31208015751346911'
+
+    assert ExternalScraper.is_qdn_global(book)
+    assert ExternalScraper.is_qdn_global(catalog)
+    assert ExternalScraper.is_qdn_global(chapter)
+    assert not ExternalScraper.is_qdn_global(f'https://www.{domain}/search')
+    assert not ExternalScraper.is_qdn(book)
+
+    scraper = ExternalScraper()
+    message, parser = scraper._native_book_parser(book)
+    assert message == '[Qdn] Detected Global URL, using native scraper.'
+    assert parser == scraper._qdn_global_parse_book
+    assert scraper._qdn_global_catalog_url(book) == catalog
+
+
+def test_qdn_global_book_parser_uses_rendered_catalog(monkeypatch):
+    domain = '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com'
+    book_url = f'https://www.{domain}/book/title_11022733006234505'
+    catalog_url = f'https://www.{domain}/book/11022733006234505/catalog'
+    chapter_url = (
+        f'https://www.{domain}/book/title_11022733006234505/'
+        'one_31208015751346911'
+    )
+    visits = []
+    parsed = {
+        'bookname': 'Lord of Mysteries',
+        'author': 'Cuttlefish That Loves Diving',
+        'coverUrl': 'https://book-pic.invalid/cover.jpg',
+        'description': 'Synopsis',
+        'language': 'en',
+        'chapterCount': 1,
+        'chapters': [{
+            'id': '31208015751346911',
+            'url': chapter_url,
+            'name': '1: Crimson',
+            'fullName': '1: Crimson',
+            'isVIP': False,
+            'isPaid': False,
+            'isAccessible': True,
+        }],
+        'bookUrl': f'https://www.{domain}/book/11022733006234505',
+    }
+    page = SimpleNamespace(
+        goto=lambda url, **_kwargs: visits.append(url),
+        wait_for_function=lambda *_args, **_kwargs: None,
+        evaluate=lambda _script: dict(parsed),
+    )
+    scraper = ExternalScraper(logger=lambda _message: None)
+    scraper._page = page
+    scraper._context = object()
+    monkeypatch.setattr(scraper, '_start_qdn_global_browser', lambda _url: True)
+
+    result = scraper._qdn_global_parse_book(book_url)
+
+    assert visits == [catalog_url]
+    assert result['_qdn_global'] is True
+    assert result['chapterCount'] == 1
+    assert result['chapters'][0]['url'] == chapter_url
+    assert scraper._book_url == book_url
+
+
+def test_qdn_global_chapter_parser_returns_text_and_reports_locks():
+    scraper = ExternalScraper(logger=lambda _message: None)
+    scraper._context = object()
+    chapter_url = (
+        'https://www.\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com/'
+        'book/title_11022733006234505/one_31208015751346911'
+    )
+    scraper._book_url = chapter_url.rsplit('/', 1)[0]
+    responses = iter([
+        {
+            'chapterName': '1: Crimson',
+            'sourceChapterName': 'Chapter 1: Crimson',
+            'chapterUrl': chapter_url,
+            'contentText': 'Ouch!\nIt hurts so much!',
+            'contentHtml': '<p>Ouch!</p>\n<p>It hurts so much!</p>',
+            'images': [],
+        },
+        {'error': 'locked', 'reason': 'purchase', 'chars': 0},
+    ])
+    page = SimpleNamespace(
+        goto=lambda *_args, **_kwargs: None,
+        wait_for_function=lambda *_args, **_kwargs: None,
+        evaluate=lambda _script, _name: next(responses),
+    )
+    scraper._page = page
+
+    result = scraper._qdn_global_parse_chapter(
+        chapter_url, '1: Crimson', page=page
+    )
+    assert result['contentText'] == 'Ouch!\nIt hurts so much!'
+    assert result['sourceChapterName'] == 'Chapter 1: Crimson'
+
+    locked = scraper._qdn_global_parse_chapter(
+        chapter_url, 'Paid chapter', page=page
+    )
+    assert locked == {
+        '_locked': True,
+        'chapterName': 'Paid chapter',
+        '_lockReason': 'purchase',
+    }
+
+
 def test_qdn_download_opens_the_original_login_profile(monkeypatch):
     scraper = ExternalScraper(logger=lambda _message: None)
     original_profile = 'saved-login-profile'

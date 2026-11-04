@@ -2750,7 +2750,11 @@ class ExternalScraper(SiteEnginesMixin):
     # Downloads start in a new Chrome process, so preserve RBOOKS and Kobo
     # logins alongside Qdn's until that process can restore them.
     _SESSION_COOKIE_DOMAINS = (
-        '\u0071\u0069\u0064\u0069\u0061\u006e.com', 'yuewen.com', '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com', 'kobo.com',
+        '\u0071\u0069\u0064\u0069\u0061\u006e.com',
+        '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com',
+        'yuewen.com',
+        '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com',
+        'kobo.com',
     )
 
     @classmethod
@@ -4377,6 +4381,24 @@ class ExternalScraper(SiteEnginesMixin):
         return bool(re.match(r'^/(book|chapter)/\d+', parsed.path or ''))
 
     @staticmethod
+    def is_qdn_global(url):
+        """Return True for Qdn Global book, catalog, and chapter URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.hostname or '').lower()
+        domain = '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com'
+        if host != domain and not host.endswith('.' + domain):
+            return False
+        return bool(re.match(
+            r'^/(?:book|comic)/(?:[^/?#]+_)?\d+'
+            r'(?:/(?:catalog|(?:[^/?#]+_)?\d+))?/?$',
+            parsed.path or '',
+            re.I,
+        ))
+
+    @staticmethod
     def is_npia(url):
         """Return True for Korean Npia novel and viewer URLs."""
         try:
@@ -4803,6 +4825,7 @@ class ExternalScraper(SiteEnginesMixin):
         if self._book_data and (
             self._book_data.get('_ntk_novel')
             or self._book_data.get('_qdn')
+            or self._book_data.get('_qdn_global')
             or self._book_data.get('_mpia')
             or self._book_data.get('_npia')
             or self._book_data.get('_69shuba')
@@ -4893,6 +4916,9 @@ class ExternalScraper(SiteEnginesMixin):
                 if self._book_data and self._book_data.get('_qdn'):
                     self.log("Page recovered for Qdn scraper.")
                     return True
+                if self._book_data and self._book_data.get('_qdn_global'):
+                    self.log("Page recovered for Qdn Global scraper.")
+                    return True
                 if self._book_data and self._book_data.get('_webtoepub'):
                     if not self._w2e_inject(self._page):
                         return False
@@ -4922,6 +4948,347 @@ class ExternalScraper(SiteEnginesMixin):
 
         self.log("Page recovered (no book URL to re-inject).")
         return True
+
+    # ------------------------------------------------------------------
+    # Qdn Global native scraper
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _qdn_global_domain():
+        return '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com'
+
+    def _start_qdn_global_browser(self, start_url):
+        """Open Qdn Global with the saved External Downloader profile."""
+        if self._start_rbooks_browser(start_url, site='Qdn'):
+            restored = self._restore_session_cookies(
+                self._qdn_global_domain()
+            )
+            if restored:
+                self.log(
+                    f'[Qdn] Restored {restored} Global session login '
+                    'cookie(s) saved by Enter Browser.'
+                )
+            return True
+        user_data_dir = self._get_user_data_dir()
+        if self._chrome_processes_using_profile(user_data_dir):
+            return False
+        self.log(
+            '[Qdn] Installed Chrome unavailable for Global; using the '
+            'bundled headless browser.'
+        )
+        try:
+            self.start()
+            restored = self._restore_session_cookies(
+                self._qdn_global_domain()
+            )
+            if restored:
+                self.log(
+                    f'[Qdn] Restored {restored} Global session login '
+                    'cookie(s) saved by Enter Browser.'
+                )
+            return bool(self._context and self._page)
+        except Exception as exc:
+            self.log(f'ERROR: [Qdn] Global browser could not start: {exc}')
+            return False
+
+    @staticmethod
+    def _qdn_global_catalog_url(url):
+        parsed = urllib.parse.urlparse(url or '')
+        match = re.match(
+            r'^/(book|comic)/(?:[^/?#]+_)?(\d+)',
+            parsed.path or '',
+            re.I,
+        )
+        if not match:
+            return ''
+        scheme = parsed.scheme if parsed.scheme in ('http', 'https') else 'https'
+        return urllib.parse.urlunparse((
+            scheme,
+            parsed.netloc,
+            f'/{match.group(1).lower()}/{match.group(2)}/catalog',
+            '', '', '',
+        ))
+
+    def _qdn_global_parse_book(self, url):
+        """Scrape Qdn Global metadata and its complete rendered catalog."""
+        catalog_url = self._qdn_global_catalog_url(url)
+        if not catalog_url:
+            return None
+        if not self._start_qdn_global_browser(catalog_url):
+            return None
+
+        self.log(f'[Qdn] Opening Global catalog: {catalog_url}')
+        try:
+            self._page.goto(
+                catalog_url,
+                wait_until='domcontentloaded',
+                timeout=_page_ms(45000),
+            )
+        except Exception as exc:
+            self.log(f'[Qdn] Global catalog load warning: {exc}')
+        wait_for_function = getattr(self._page, 'wait_for_function', None)
+        if wait_for_function:
+            try:
+                wait_for_function(
+                    r"""() => {
+                      const links = [...document.querySelectorAll('a[href]')];
+                      return !!document.querySelector('h1, meta[property="og:title"]')
+                        && links.some((a) => /^\/(?:book|comic)\/(?:[^/]+_)?\d+\/(?:[^/]+_)?\d+\/?$/i.test(new URL(a.href, location.href).pathname));
+                    }""",
+                    timeout=_page_ms(30000),
+                )
+            except Exception:
+                pass
+
+        script = r"""
+(() => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const meta = (...keys) => {
+    for (const key of keys) {
+      const node = document.querySelector(
+        `meta[property="${key}"], meta[name="${key}"]`
+      );
+      const value = node?.getAttribute('content');
+      if (value && value.trim()) return value.trim();
+    }
+    return '';
+  };
+  const absolute = (value) => {
+    try { return new URL(value || '', location.href).href; }
+    catch (_) { return value || ''; }
+  };
+  const pathMatch = location.pathname.match(
+    /^\/(book|comic)\/(?:[^/]+_)?(\d+)/i
+  );
+  if (!pathMatch) return null;
+  const kind = pathMatch[1].toLowerCase();
+  const bookId = pathMatch[2];
+  const chapterPattern = new RegExp(
+    `^/${kind}/(?:[^/]+_)?${bookId}/(?:[^/]+_)?(\\d+)/?$`, 'i'
+  );
+  const bodyText = document.body?.innerText || '';
+  const title = clean(document.querySelector('h1')?.textContent)
+    || meta('og:title', 'twitter:title')
+    || clean(document.title.replace(/\s*[-|].*$/, ''));
+  let author = clean(
+    document.querySelector('a.c_primary, [class*="author"] a, '
+      + 'a[href*="/profile/"]')?.textContent
+  );
+  if (!author) {
+    author = (bodyText.match(
+      /(?:^|\n)\s*Author:\s*([^\n]+?)(?:\s+Translator:|\s+Editor:|\n|$)/i
+    ) || [])[1] || '';
+  }
+  const description = meta('og:description', 'twitter:description', 'description')
+    || clean(document.querySelector('div.det-abt p, [class*="synopsis"]')?.textContent);
+  const coverNode = document.querySelector(
+    'div.det-hd img, [class*="cover"] img, [class*="book"] img'
+  );
+  const cover = absolute(
+    meta('og:image', 'twitter:image', 'twitter:image:src')
+      || coverNode?.currentSrc || coverNode?.src || ''
+  );
+  const tags = [...document.querySelectorAll(
+    'div.m-tags a, [class*="tag"] a, a[href*="/tag/"]'
+  )].map((node) => clean(node.textContent).replace(/^#\s*/, ''))
+    .filter(Boolean);
+  const seenTags = new Set();
+  const uniqueTags = tags.filter((tag) => {
+    const key = tag.toLowerCase();
+    if (seenTags.has(key)) return false;
+    seenTags.add(key);
+    return true;
+  });
+
+  let links = [...document.querySelectorAll(
+    'ul.content-list a[href], div.volume-item ol a[href]'
+  )];
+  if (!links.length) links = [...document.querySelectorAll('a[href]')];
+  const seen = new Set();
+  const chapters = [];
+  for (const link of links) {
+    const chapterUrl = absolute(link.getAttribute('href') || link.href || '');
+    let parsed;
+    try { parsed = new URL(chapterUrl); } catch (_) { continue; }
+    const match = parsed.pathname.match(chapterPattern);
+    if (!match || seen.has(match[1])) continue;
+    seen.add(match[1]);
+    const strong = link.querySelector('strong');
+    const number = clean(link.querySelector('i')?.textContent);
+    let name = clean(strong?.textContent);
+    if (!name) {
+      const clone = link.cloneNode(true);
+      clone.querySelectorAll('time, svg, use, [class*="time"]').forEach(
+        (node) => node.remove()
+      );
+      name = clean(clone.textContent).replace(
+        /\s+\d+\s+(?:seconds?|minutes?|hours?|days?|months?|years?)\s+ago$/i,
+        ''
+      );
+    }
+    if (number && name && !name.startsWith(number)) name = `${number}: ${name}`;
+    if (!name) name = `Chapter ${chapters.length + 1}`;
+    const row = link.closest('li, dd, [class*="chapter"], [class*="content"]')
+      || link.parentElement || link;
+    const rowText = clean(row.textContent);
+    const locked = !!link.querySelector(
+      'svg use[href="#i-lock"], svg use[xlink\\:href="#i-lock"], '
+        + '[class*="lock"], [data-locked="true"]'
+    ) || /\b(?:locked|unlock)\b/i.test(rowText);
+    chapters.push({
+      id: match[1],
+      url: chapterUrl,
+      name,
+      fullName: name,
+      isVIP: locked,
+      isPaid: locked,
+      // Purchased chapters also look locked in the public catalog. Let the
+      // saved browser session prove whether their full reader is accessible.
+      isAccessible: true,
+    });
+  }
+  return {
+    bookname: title,
+    author: clean(author) || 'Unknown',
+    coverUrl: cover,
+    description,
+    introduction: description,
+    introductionHTML: description ? description.replace(/\n/g, '<br/>\n') : '',
+    tags: uniqueTags,
+    language: 'en',
+    chapterCount: chapters.length,
+    chapters,
+    bookUrl: `${location.origin}/${kind}/${bookId}`,
+  };
+})()
+"""
+        try:
+            data = self._page.evaluate(script)
+        except Exception as exc:
+            self.log(f'ERROR: [Qdn] Global catalog extraction failed: {exc}')
+            return None
+        if not data or not data.get('bookname'):
+            self.log('ERROR: [Qdn] Global book title was not found.')
+            return None
+        if not data.get('chapters'):
+            self.log('ERROR: [Qdn] Global catalog returned no chapters.')
+            return None
+        data['_qdn_global'] = True
+        self._book_data = data
+        self._book_url = url
+        self.log(
+            f"[Qdn] Global book: {data.get('bookname', '?')} by "
+            f"{data.get('author', '?')} - {data.get('chapterCount', 0)} chapters"
+        )
+        return data
+
+    def _qdn_global_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Read one Qdn Global chapter from its rendered reader page."""
+        if not self._context or not self._page:
+            if not self._start_qdn_global_browser(chapter_url):
+                return None
+        target = page or self._page
+        try:
+            kwargs = {
+                'wait_until': 'domcontentloaded',
+                'timeout': _page_ms(45000),
+            }
+            if self._book_url:
+                kwargs['referer'] = self._book_url
+            target.goto(chapter_url, **kwargs)
+        except Exception as exc:
+            self.log(f'  [Qdn] Global chapter load warning: {exc}')
+        wait_for_function = getattr(target, 'wait_for_function', None)
+        if wait_for_function:
+            try:
+                wait_for_function(
+                    r"""() => !!document.querySelector('div.chapter_content')
+                      || !!globalThis.chapInfo
+                      || /(?:unlock|sign in|subscribe)/i.test(document.body?.innerText || '')""",
+                    timeout=_page_ms(30000),
+                )
+            except Exception:
+                pass
+
+        script = r"""
+(chapterName) => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const escapeHtml = (value) => String(value || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const bodyText = document.body?.innerText || '';
+  const title = clean(
+    document.querySelector('div.chapter_content h1, main h1, article h1')?.textContent
+  ) || chapterName;
+  const root = document.querySelector(
+    'div.chapter_content, main [class*="chapter"], article [class*="chapter"]'
+  );
+  const embedded = globalThis.chapInfo?.chapterInfo
+    || globalThis.chapInfo || null;
+  let paragraphs = [];
+  let images = [];
+  if (root) {
+    const clone = root.cloneNode(true);
+    clone.querySelectorAll(
+      'script, style, noscript, form, button, textarea, input, svg, canvas, '
+        + 'h1, .para-comment, .para-comment_num, [class*="comment"], '
+        + '[class*="vote"], [class*="gift"], [class*="advert"]'
+    ).forEach((node) => node.remove());
+    images = [...clone.querySelectorAll('img')]
+      .map((img) => img.currentSrc || img.src || img.getAttribute('data-src') || '')
+      .filter(Boolean);
+    paragraphs = [...clone.querySelectorAll('p')]
+      .map((node) => clean(node.textContent)).filter(Boolean);
+    if (!paragraphs.length) {
+      paragraphs = (clone.innerText || clone.textContent || '')
+        .split(/\n+/).map(clean).filter(Boolean);
+    }
+  }
+  if (!paragraphs.length && embedded) {
+    const values = embedded.contents || embedded.content || [];
+    const list = Array.isArray(values) ? values : [values];
+    const holder = document.createElement('div');
+    paragraphs = list.map((item) => {
+      const value = typeof item === 'string' ? item : item?.content || item?.text || '';
+      holder.innerHTML = value;
+      return clean(holder.textContent);
+    }).filter(Boolean);
+    images = (embedded.chapterPage || []).map((item) => item?.url || item)
+      .filter(Boolean);
+  }
+  const contentText = paragraphs.join('\n');
+  const locked = /(?:unlock\s+(?:this\s+)?chapter|subscribe\s+to\s+read|purchase\s+chapter)/i.test(bodyText);
+  if (!contentText || contentText.length < 20 || locked) {
+    const loggedOut = /\bsign in\b|\blog in\b/i.test(bodyText);
+    return {
+      error: 'locked',
+      reason: loggedOut ? 'login' : 'purchase',
+      chars: contentText.length,
+    };
+  }
+  return {
+    chapterName,
+    sourceChapterName: title,
+    chapterUrl: location.href,
+    contentText,
+    contentHtml: paragraphs.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n'),
+    images,
+  };
+}
+"""
+        try:
+            data = target.evaluate(script, chapter_name)
+        except Exception as exc:
+            self.log(f'  [Qdn] Global chapter extraction failed: {exc}')
+            return None
+        if not data:
+            self.log(f'  [Qdn] Empty Global result for: {chapter_name}')
+            return None
+        if data.get('error') == 'locked':
+            return self._qdn_locked_result(data, chapter_name)
+        if data.get('error'):
+            self.log(f"  [Qdn] {data.get('error')} for: {chapter_name}")
+            return None
+        return data
 
     # ------------------------------------------------------------------
     # Qdn native scraper (rendered Chrome fallback for encrypted reader)
@@ -20535,6 +20902,11 @@ async (items) => {
                 "[Kpage] Detected Kpage URL, using native scraper.",
                 self._kpage_parse_book,
             )
+        if self.is_qdn_global(url):
+            return (
+                "[Qdn] Detected Global URL, using native scraper.",
+                self._qdn_global_parse_book,
+            )
         if self.is_qdn(url):
             return (
                 "[Qdn] Detected Qdn URL, using native scraper.",
@@ -20946,6 +21318,12 @@ async (items) => {
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
             result = self._nweb_parse_chapter(url, name)
+            self._sleep_interval(interval, interval_max)
+            return result
+        if self._book_data and self._book_data.get('_qdn_global'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            result = self._qdn_global_parse_chapter(url, name, page=page)
             self._sleep_interval(interval, interval_max)
             return result
         if self._book_data and self._book_data.get('_qdn'):
@@ -21366,6 +21744,21 @@ async (items) => {
         # count that the dialog used to size this batch.
         if self._book_data and self._book_data.get('_qdn'):
             return self._qdn_parse_chapter_batch_parallel(batch_info)
+        if self._book_data and self._book_data.get('_qdn_global'):
+            results = []
+            for index, chapter in enumerate(batch_info):
+                if self._stop_requested:
+                    results.extend([None] * (len(batch_info) - len(results)))
+                    break
+                result = self._qdn_global_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName', '') or chapter.get('name', ''),
+                )
+                results.append(result)
+                report_success(index, result)
+                if index < len(batch_info) - 1:
+                    self._sleep_interval(interval, interval_max)
+            return results
         if self._book_data and self._book_data.get('_ntk_novel'):
             if self._ntk_browser_fallback:
                 if self._book_data.get('_ntk_kind') == 'webtoon':
