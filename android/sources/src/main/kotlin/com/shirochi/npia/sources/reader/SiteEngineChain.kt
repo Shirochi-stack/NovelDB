@@ -48,6 +48,8 @@ internal class SiteEngineChain(
     override fun matches(url: String): Boolean = native?.matches(url) ?: reader.matches(url)
 
     override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
+        // A Python engine later in the list: started now, so it is ready if the ones before it fail.
+        if (steps.drop(1).any { PythonEngines.name(it) != null }) PythonEngines.warm(context)
         val page = SharedBookPage(url, context)
         var empty: BookInfo? = null
         val failures = ArrayList<Exception>()

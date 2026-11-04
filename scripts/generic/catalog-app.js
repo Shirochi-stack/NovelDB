@@ -1431,8 +1431,9 @@
     function appAsk(request) {
         return window.NovelDBTransport ? Promise.resolve(window.NovelDBTransport(request)) : Promise.resolve({error: 'no app', skip: true});
     }
+    // Then the app's site engines that list the site (gallery-dl, HaruNeko, ...: a download's), then the page's own.
     function engineFor(url) {
-        var engines = ['app'];
+        var engines = ['app', 'engines'];
         if (harunekoListed(url)) engines.push('haruneko');
         engines.push('generic');
         return engines;
@@ -1447,8 +1448,10 @@
         function next() {
             if (!engines.length) return Promise.reject(new Error(errors.join('; ') || 'no engine could read the book'));
             var name = engines.shift();
-            var start = name === 'app'
-                ? (note('Reading the book with the built-in scraper for its site…'), appAsk({op: 'book', url: url}).then(function (reply) {
+            var start = name === 'app' || name === 'engines'
+                ? (note(name === 'app' ? 'Reading the book with the built-in scraper for its site…'
+                        : 'Reading the book with the app’s site engines (gallery-dl, HaruNeko, …)…'),
+                   appAsk(name === 'app' ? {op: 'book', url: url} : {op: 'book', url: url, engines: true}).then(function (reply) {
                     if (reply && reply.skip) { name = ''; throw new Error('skip'); }
                     return reply;
                 }))
@@ -1487,6 +1490,7 @@
             var haruneko = known.engine === 'haruneko';
             if (haruneko) watchPages(reading.id);
             var asked = known.engine === 'app' ? appAsk({op: 'chapter', url: url, index: index})
+                : known.engine === 'engines' ? appAsk({op: 'chapter', url: url, index: index, engines: true})
                 : haruneko ? window.__HN_parseChapter(item) : window.__GEN_parseChapter(item);
             return Promise.resolve(asked).then(parseJson).then(function (result) {
                 // HaruNeko fetched each page itself (some sites' pages need it): the reader is given those bytes.

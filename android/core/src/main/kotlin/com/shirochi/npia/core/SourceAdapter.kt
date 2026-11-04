@@ -79,6 +79,33 @@ interface SourceAdapter {
         parseConcurrently(refs, context) { ref -> parseChapter(ref, book, context) }
 }
 
+/** Waits before each immediate retry of a chapter that failed on the network: 5 s, then 15 s. */
+private val CHAPTER_RETRY_MILLIS = longArrayOf(5_000, 15_000)
+
+/** A failure the network may not repeat: a lost connection, a timeout, a busy server (429, 5xx). */
+private val TRANSIENT = Regex("connection|timed? ?out|timeout|reset|refused|unreachable|broken pipe|\\b(429|50[0234])\\b", RegexOption.IGNORE_CASE)
+
+/**
+ * One chapter: `read`, again after a pause when it failed on the network (the end-of-book retry passes
+ * still follow for what fails here too). Exceptions become `Failed`.
+ */
+private suspend fun readWithRetries(ref: ChapterRef, context: SourceContext, read: suspend (ChapterRef) -> ChapterResult): ChapterResult {
+    var attempt = 0
+    while (true) {
+        val result = try {
+            read(ref)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ChapterResult.Failed(ref, e.message ?: e.toString())
+        }
+        if (result !is ChapterResult.Failed || attempt >= CHAPTER_RETRY_MILLIS.size || !TRANSIENT.containsMatchIn(result.message)) return result
+        val wait = CHAPTER_RETRY_MILLIS[attempt++]
+        context.logger.log(LogLevel.WARNING, "Chapter ${ref.index}: ${result.message.take(160)}; retry $attempt of ${CHAPTER_RETRY_MILLIS.size} in ${wait / 1000} s")
+        delay(wait)
+    }
+}
+
 /**
  * Runs `read` over `refs` with `threads` workers. Each worker sleeps one rate-limit delay after a
  * chapter (except the last), reports it through `onChapter`, and failures become `Failed`.
@@ -109,15 +136,7 @@ suspend fun SourceAdapter.parseConcurrently(
                     }
                     if (wait > 0) delay(wait)
                 }
-                val result = context.keep(
-                    try {
-                        read(ref)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        ChapterResult.Failed(ref, e.message ?: e.toString())
-                    },
-                )
+                val result = context.keep(readWithRetries(ref, context, read))
                 context.onChapter(result)
                 if (!spaced && ref !== last && result !is ChapterResult.Refused) shared.pauseBetweenChapters()
                 result

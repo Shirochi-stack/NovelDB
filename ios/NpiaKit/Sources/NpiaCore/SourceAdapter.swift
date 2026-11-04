@@ -111,13 +111,33 @@ public extension SourceAdapter {
 
     private func chapterTask(_ position: Int, _ ref: ChapterRef, book: BookInfo, context: SourceContext, delay: SharedSettings?) async throws -> (Int, ChapterResult) {
         if let delay { try await delay.sleepChapterDelay() }
-        do {
-            return (position, try await parseChapter(ref, book: book, context: context))
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            return (position, .failed(ref, message: error.localizedDescription))
+        // A chapter that failed on the network is read again after a pause (5 s, then 15 s); the
+        // end-of-book retry passes still follow for what fails here too.
+        let waits: [UInt64] = [5, 15]
+        var attempt = 0
+        while true {
+            let result: ChapterResult
+            do {
+                result = try await parseChapter(ref, book: book, context: context)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                result = .failed(ref, message: error.localizedDescription)
+            }
+            guard case .failed(_, let message) = result, attempt < waits.count, ChapterRetry.transient(message) else { return (position, result) }
+            let wait = waits[attempt]
+            attempt += 1
+            context.logger.log(.warning, "Chapter \(ref.index): \(message.prefix(160)); retry \(attempt) of \(waits.count) in \(wait) s")
+            try await Task.sleep(nanoseconds: wait * 1_000_000_000)
         }
+    }
+}
+
+/// A failure the network may not repeat: a lost connection, a timeout, a busy server (429, 5xx).
+enum ChapterRetry {
+    static func transient(_ message: String) -> Bool {
+        message.range(of: #"connection|timed? ?out|timeout|reset|refused|unreachable|broken pipe|\b(429|50[0234])\b"#,
+                      options: [.regularExpression, .caseInsensitive]) != nil
     }
 }
 

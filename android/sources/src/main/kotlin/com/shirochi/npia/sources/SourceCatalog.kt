@@ -80,7 +80,18 @@ object SourceCatalog {
         }
         if (steps.isEmpty()) return null
         if (native != null && steps == listOf(SiteEngine.NATIVE)) return native
-        return SiteEngineChain(native, steps)
+        return SiteEngineChain(native, mangaOrder(steps, engines))
+    }
+
+    /**
+     * Dynamic priority on a site both gallery-dl and HaruNeko list (a manga site): gallery-dl first.
+     * It reads such sites more reliably (HaruNeko's site scripts time out on some, such as fanfox).
+     */
+    internal fun mangaOrder(steps: List<SiteEngine>, engines: EngineSettings): List<SiteEngine> {
+        val haruneko = steps.indexOf(SiteEngine.HARUNEKO)
+        val gallerydl = steps.indexOf(SiteEngine.GALLERYDL)
+        if (!engines.dynamicPriority || haruneko < 0 || gallerydl < haruneko) return steps
+        return steps.toMutableList().apply { removeAt(gallerydl); add(haruneko, SiteEngine.GALLERYDL) }
     }
 
     /** The engine's current bundle lists the URL's site. */

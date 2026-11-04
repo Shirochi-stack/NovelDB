@@ -9,22 +9,28 @@ import NpiaCore
 /// - `{op: "chapter", url, index}` -> `{chapterName, contentHtml}` (pictures inline as data: addresses
 ///   when the scraper holds their bytes, else their own addresses)
 /// - `{error, skip: true}` when no built-in scraper owns the address: the page tries its own engines.
+/// - With `engines: true`, the app's site engines that list the site instead (gallery-dl, HaruNeko,
+///   FanFicFare, ...: those a download would try, the generic fallback left to the page), or `{skip}`.
 actor BuiltInReader {
     static let shared = BuiltInReader()
 
     private var books: [String: (adapter: any SourceAdapter, book: BookInfo)] = [:]
     private var order: [String] = []
 
-    func handle(op: String, address: String, index: Int, context: SourceContext) async -> String {
-        guard let url = URL(string: address), let type = SourceCatalog.nativeAdapterType(for: url) else {
-            return Self.json(["error": "no built-in scraper for this site", "skip": true])
+    func handle(op: String, address: String, index: Int, engines: Bool = false, context: SourceContext) async -> String {
+        guard let url = URL(string: address) else { return Self.json(["error": "not an address", "skip": true]) }
+        let type = SourceCatalog.nativeAdapterType(for: url)
+        // The app's site engines that list the address (a download's own order), none of the built-in or generic ones.
+        let steps = engines ? SiteEngineRouter.plan(for: url, engines: context.settings.engines).filter { $0 != .native && $0 != .generic } : []
+        if engines ? steps.isEmpty : type == nil {
+            return Self.json(["error": engines ? "no site engine lists this site" : "no built-in scraper for this site", "skip": true])
         }
         do {
-            let (adapter, book) = try await open(address, url: url, type: type, context: context)
+            let (adapter, book) = try await open(engines ? "engines|" + address : address, url: url, type: type, steps: steps, context: context)
             if op == "book" {
                 if book.chapters.isEmpty { return Self.json(["error": "no chapters found"]) }
                 return Self.json([
-                    "bookname": book.title, "author": book.author ?? "", "engine": type.id.rawValue,
+                    "bookname": book.title, "author": book.author ?? "", "engine": steps.first?.title ?? type?.id.rawValue ?? "",
                     "chapters": book.chapters.map { ["name": $0.title] },
                 ])
             }
@@ -50,10 +56,19 @@ actor BuiltInReader {
         }
     }
 
-    private func open(_ key: String, url: URL, type: any SourceAdapter.Type, context: SourceContext) async throws -> (any SourceAdapter, BookInfo) {
+    private func open(_ key: String, url: URL, type: (any SourceAdapter.Type)?, steps: [SiteEngine],
+                      context: SourceContext) async throws -> (any SourceAdapter, BookInfo) {
         if let known = books[key] { return (known.adapter, known.book) }
-        let adapter = type.init()
-        let book = try await adapter.parseBook(type.canonicalURL(url), context: context)
+        let adapter: any SourceAdapter
+        let book: BookInfo
+        if let type, steps.isEmpty {
+            adapter = type.init()
+            book = try await adapter.parseBook(type.canonicalURL(url), context: context)
+        } else {
+            let opened = try await SiteEngineRouter.open(url, context: context, steps: steps)
+            adapter = opened.adapter
+            book = opened.book
+        }
         books[key] = (adapter, book)
         order.removeAll { $0 == key }
         order.append(key)

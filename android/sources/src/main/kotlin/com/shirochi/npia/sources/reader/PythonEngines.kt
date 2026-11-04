@@ -52,6 +52,18 @@ internal object PythonEngines {
     /** The context of the latest call: its HTTP client and web engine answer the page's requests. */
     @Volatile private var context: SourceContext? = null
 
+    /**
+     * Starts the engines in the background (a job whose engine list reaches one): their ~15 s start
+     * overlaps the engines tried before them. Not at app launch: the running engines take a lot of memory.
+     */
+    fun warm(context: SourceContext) {
+        if (!available) return
+        scope.launch {
+            runCatching { page(context) }
+            closeLater()
+        }
+    }
+
     fun name(engine: SiteEngine): String? = when (engine) {
         SiteEngine.LNCRAWL -> "lncrawl"
         SiteEngine.FANFICFARE -> "fanficfare"

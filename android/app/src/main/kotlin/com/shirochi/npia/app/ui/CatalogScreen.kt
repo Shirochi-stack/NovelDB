@@ -378,7 +378,19 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
         Column(Modifier.fillMaxSize()) {
             if (web.progress in 1..99) LinearProgressIndicator(progress = { web.progress / 100f }, modifier = Modifier.fillMaxWidth())
             AndroidView(
-                factory = { web.view.also { (it.parent as? ViewGroup)?.removeView(it) }.fillingParent() },
+                factory = {
+                    web.view.also { view ->
+                        (view.parent as? ViewGroup)?.removeView(view)
+                        // Back from another tab: the web view is attached again. It can stay blank until
+                        // something makes it draw: it is resumed, laid out and asked to draw again.
+                        view.onResume()
+                        view.post {
+                            view.requestLayout()
+                            view.invalidate()
+                            view.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
+                        }
+                    }.fillingParent()
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

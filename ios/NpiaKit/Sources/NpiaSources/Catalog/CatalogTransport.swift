@@ -12,7 +12,8 @@ public enum CatalogTransport {
            let op = details["op"] as? String, op == "book" || op == "chapter" {
             let address = details["url"] as? String ?? ""
             let index = (details["index"] as? NSNumber)?.intValue ?? -1
-            return await BuiltInReader.shared.handle(op: op, address: address, index: index, context: context)
+            let engines = (details["engines"] as? Bool) ?? false
+            return await BuiltInReader.shared.handle(op: op, address: address, index: index, engines: engines, context: context)
         }
         return await EngineTransport.handle(json, http: context.http, web: context.web)
     }

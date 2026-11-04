@@ -17,6 +17,7 @@ actor PythonEngines {
     private static let startTimeout: TimeInterval = 90
 
     private var page: (any WebPageDriving)?
+    private var starting: Task<any WebPageDriving, Error>?
     private var closer: Task<Void, Never>?
     /// The context of the latest call: its HTTP client and web engine answer the page's requests.
     private var context: SourceContext?
@@ -75,10 +76,29 @@ actor PythonEngines {
         }
     }
 
+    /// Starts the engines in the background (a job whose engine list reaches one): their start overlaps
+    /// the engines tried before them. Not at app launch: the running engines take a lot of memory.
+    func warm(_ context: SourceContext) async {
+        guard Self.available else { return }
+        _ = try? await page(context)
+        closeLater()
+    }
+
     private func page(_ context: SourceContext) async throws -> any WebPageDriving {
         self.context = context
         closer?.cancel()
         if let page { return page }
+        // One start at a time: a call while the engines start waits for that start.
+        if let starting { return try await starting.value }
+        let task = Task { try await self.start(context) }
+        starting = task
+        defer { starting = nil }
+        let opened = try await task.value
+        page = opened
+        return opened
+    }
+
+    private func start(_ context: SourceContext) async throws -> any WebPageDriving {
         guard Self.available else { throw EngineNoMatch(message: "The Python engines are not in this build.") }
         context.logger.log(.info, "[Reader] Starting the Python engines…")
         let opened = try await context.web.newPage(profile: EnginePage.profile)
@@ -92,7 +112,6 @@ actor PythonEngines {
             await opened.close()
             throw error
         }
-        page = opened
         return opened
     }
 

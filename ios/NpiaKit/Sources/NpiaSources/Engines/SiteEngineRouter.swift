@@ -21,13 +21,18 @@ public enum SiteEngineRouter {
         public var engine: SiteEngine
     }
 
-    public static func open(_ url: URL, context: SourceContext) async throws -> Opened {
+    /// `steps`: these engines instead of the planned ones (the Catalog reader's: the site's own engines).
+    public static func open(_ url: URL, context: SourceContext, steps chosen: [SiteEngine]? = nil) async throws -> Opened {
         let enabled = context.settings.engines.enabled()
         guard !enabled.isEmpty else {
             throw SourceError.parse("Every site engine is switched off in Settings > Site engines.")
         }
         let nativeType = SourceCatalog.nativeAdapterType(for: url)
-        let steps = plan(for: url, engines: context.settings.engines)
+        let steps = chosen ?? plan(for: url, engines: context.settings.engines)
+        // A Python engine later in the list: started now, so it is ready if the ones before it fail.
+        if steps.dropFirst().contains(where: { PythonEngines.name($0) != nil }) {
+            Task { await PythonEngines.shared.warm(context) }
+        }
         guard !steps.isEmpty else { throw SourceError.unsupportedURL(url) }
         let page = EnginePage(url: url, context: context)
         let opened: Opened
@@ -65,7 +70,18 @@ public enum SiteEngineRouter {
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.lists(rules, url)
         }
-        return steps.filter { $0 == .native || isWebPage }
+        return mangaOrder(steps.filter { $0 == .native || isWebPage }, dynamic: engines.dynamicPriority)
+    }
+
+    /// Dynamic priority on a site both gallery-dl and HaruNeko list (a manga site): gallery-dl first.
+    /// It reads such sites more reliably (HaruNeko's site scripts time out on some, such as fanfox).
+    static func mangaOrder(_ steps: [SiteEngine], dynamic: Bool) -> [SiteEngine] {
+        guard dynamic, let haruneko = steps.firstIndex(of: .haruneko), let gallerydl = steps.firstIndex(of: .gallerydl),
+              gallerydl > haruneko else { return steps }
+        var ordered = steps
+        ordered.remove(at: gallerydl)
+        ordered.insert(.gallerydl, at: haruneko)
+        return ordered
     }
 
     /// Some enabled site engine can try `url`: the links the Add screen accepts and a download needs.

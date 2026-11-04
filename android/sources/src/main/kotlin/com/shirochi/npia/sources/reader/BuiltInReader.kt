@@ -4,12 +4,14 @@ import com.shirochi.npia.core.BookInfo
 import com.shirochi.npia.core.ChapterResult
 import com.shirochi.npia.core.SourceAdapter
 import com.shirochi.npia.core.SourceContext
+import com.shirochi.npia.core.SiteEngine
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.sources.SourceCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -25,6 +27,8 @@ import java.util.Base64
  * - `{op: "chapter", url, index}` -> `{chapterName, contentHtml}` (pictures inline as data: addresses
  *   when the scraper holds their bytes, else their own addresses)
  * - `{error, skip: true}` when no built-in scraper owns the address: the page tries its own engines.
+ * - With `engines: true`, the app's site engines that list the site instead (gallery-dl, HaruNeko,
+ *   FanFicFare, ...: those a download would try, the generic fallback left to the page), or `{skip}`.
  */
 internal object BuiltInReader {
     private val books = object : LinkedHashMap<String, Pair<SourceAdapter, BookInfo>>(8, 0.75f, true) {
@@ -35,13 +39,23 @@ internal object BuiltInReader {
     private fun adapterFor(url: String): SourceAdapter? =
         SourceCatalog.adapters.firstOrNull { it.id != SourceId.READER && it.matches(url) }
 
+    /** The app's site engines that list the address (a download's own order), none of the built-in or generic ones. */
+    private fun enginesFor(url: String, context: SourceContext): SourceAdapter? {
+        val chain = SourceCatalog.resolve(url, context.settings.engines) as? SiteEngineChain ?: return null
+        val steps = chain.steps.filter { it != SiteEngine.NATIVE && it != SiteEngine.GENERIC }
+        return if (steps.isEmpty()) null else SiteEngineChain(null, steps)
+    }
+
     suspend fun handle(op: String, details: JsonObject, context: SourceContext): String {
         val url = (details["url"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-        val adapter = adapterFor(url) ?: return buildJsonObject { put("error", "no built-in scraper for this site"); put("skip", true) }.toString()
+        val engines = (details["engines"] as? JsonPrimitive)?.booleanOrNull == true
+        val adapter = (if (engines) enginesFor(url, context) else adapterFor(url))
+            ?: return buildJsonObject { put("error", if (engines) "no site engine lists this site" else "no built-in scraper for this site"); put("skip", true) }.toString()
+        val key = if (engines) "engines|$url" else url
         return try {
             when (op) {
-                "book" -> book(url, adapter, context)
-                else -> chapter(url, (details["index"] as? JsonPrimitive)?.intOrNull ?: -1, adapter, context)
+                "book" -> book(key, url, adapter, context)
+                else -> chapter(key, url, (details["index"] as? JsonPrimitive)?.intOrNull ?: -1, adapter, context)
             }
         } catch (e: CancellationException) {
             throw e
@@ -50,26 +64,27 @@ internal object BuiltInReader {
         }
     }
 
-    private suspend fun open(url: String, adapter: SourceAdapter, context: SourceContext): BookInfo {
-        synchronized(books) { books[url] }?.let { return it.second }
+    private suspend fun open(key: String, url: String, adapter: SourceAdapter, context: SourceContext): BookInfo {
+        synchronized(books) { books[key] }?.let { return it.second }
         val book = adapter.parseBook(adapter.canonicalUrl(url), context)
-        synchronized(books) { books[url] = adapter to book }
+        synchronized(books) { books[key] = adapter to book }
         return book
     }
 
-    private suspend fun book(url: String, adapter: SourceAdapter, context: SourceContext): String {
-        val book = open(url, adapter, context)
+    private suspend fun book(key: String, url: String, adapter: SourceAdapter, context: SourceContext): String {
+        val book = open(key, url, adapter, context)
         if (book.chapters.isEmpty()) return buildJsonObject { put("error", "no chapters found") }.toString()
         return buildJsonObject {
             put("bookname", book.title)
             put("author", book.author.orEmpty())
-            put("engine", adapter.id.raw)
+            put("engine", (adapter as? SiteEngineChain)?.steps?.firstOrNull()?.label ?: adapter.id.raw)
             put("chapters", buildJsonArray { book.chapters.forEach { add(buildJsonObject { put("name", it.title) }) } })
         }.toString()
     }
 
-    private suspend fun chapter(url: String, index: Int, adapter: SourceAdapter, context: SourceContext): String {
-        val book = open(url, adapter, context)
+    private suspend fun chapter(key: String, url: String, index: Int, adapter: SourceAdapter, context: SourceContext): String {
+        val book = open(key, url, adapter, context)
+        val adapter = synchronized(books) { books[key]?.first } ?: adapter
         val ref = book.chapters.getOrNull(index) ?: return buildJsonObject { put("error", "no such chapter") }.toString()
         return when (val result = adapter.parseChapter(ref, book, context)) {
             is ChapterResult.Content -> {
