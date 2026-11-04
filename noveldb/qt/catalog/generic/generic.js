@@ -420,6 +420,8 @@
     }
     function synopsisText(text) {
         text = hashSplit(text).text;
+        // A box of figures ("5 43 42": a rating and its votes) is no synopsis.
+        if ((text.match(/[\p{L}]{2,}/gu) || []).length < 4) return '';
         // Junk before a label: everything up to the label goes (a rating or share buttons say it is junk).
         var label = text.slice(0, 400).search(SYNOPSIS_LABEL);
         if (label > 0) {
@@ -1462,11 +1464,22 @@
 
     $('form').addEventListener('submit', search);
     // Clearing the search box (and with no tags picked) goes back to the Top 100.
+    // Typing searches by itself once it pauses (0.8 s): two letters at least (one CJK character), and
+    // not again for the text already searched. Enter or Search still search at once.
+    var typingTimer = 0;
     $('query').addEventListener('input', function () {
-        if (!$('query').value.trim() && !picked.length && view === 'search') {
+        clearTimeout(typingTimer);
+        var text = $('query').value.trim();
+        if (!text && !picked.length && view === 'search') {
             send({type: 'genericStop', id: searchId});
             showTop();
+            return;
         }
+        if (text.length < 2 && !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(text)) return;
+        typingTimer = setTimeout(function () {
+            if (view === 'search' && current.text === $('query').value.trim()) return;
+            search(null);
+        }, 800);
     });
     $('stop').addEventListener('click', function () {
         send({type: 'genericStop', id: searchId});
@@ -1555,7 +1568,18 @@
             button.classList.toggle('on', name === look.font || name === look.theme || name === layout());
 
         });
+        // A comic's own switch in the bar: what a tap turns it into.
+        $('rComic').style.display = R.comic ? '' : 'none';
+        $('rComic').textContent = layout() === 'scroll' ? '▤ Pages' : '↕ Scroll';
         store(LOOK_KEY, look);
+    }
+    // A comic between a page per image and one long scroll, staying on the image being read.
+    function toggleComicLayout() {
+        if (!R.comic) return;
+        var at = readingAt();
+        look.comic = layout() === 'scroll' ? 'paged' : 'scroll';
+        applyLook();
+        paginate(at);
     }
     document.querySelectorAll('#look [data-look]').forEach(function (button) {
         button.addEventListener('click', function () {
@@ -2125,10 +2149,12 @@
         else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (paged && event.key === 'ArrowUp') || (event.key === ' ' && event.shiftKey)) { event.preventDefault(); turn(-1); }
         else if (event.key === 'Escape') { if (R.full) setFull(false); else closeReader(); }
         else if (event.key === 'f' || event.key === 'F') setFull(!R.full);
+        else if (event.key === 'p' || event.key === 'P') toggleComicLayout();
         else if (event.key === 'Home') { R.page = 0; place(); }
         else if (event.key === 'End') { R.page = R.pages - 1; place(); }
     });
     $('rFull').onclick = function () { setFull(!R.full); };
+    $('rComic').onclick = toggleComicLayout;
     // In full screen a tap in the page's middle (not a page-turning edge) shows or hides the bars.
     $('viewport').addEventListener('click', function (event) {
         if (!R.full || event.target.closest('button, a, input')) return;

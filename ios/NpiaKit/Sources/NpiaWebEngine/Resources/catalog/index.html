@@ -120,6 +120,11 @@
     #reader.comic #flow { max-width: 900px !important; padding: 0 0 80px !important; }
     #reader.comic #flow img { width: 100%; max-height: none !important; margin: 0 auto !important; }
     #reader.comic #flow p { text-align: center; }
+    /* A comic's images touch: no margins, line gaps or breaks between them (the site's <p>, <figure>, <br>). */
+    #reader.comic #flow img, #reader.comic #flow img.slot { margin: 0 auto !important; vertical-align: top; border: 0; }
+    #reader.comic #flow :is(p, figure, div, center):has(> img) { margin: 0 !important; padding: 0 !important;
+        line-height: 0; font-size: 0; }
+    #reader.comic #flow br, #reader.comic #flow hr { display: none; }
     /* A comic in pages: each image a page of its own, whole on the screen. */
     #reader.comic:not(.scroll) #flow { max-width: none !important; padding-bottom: 28px !important; }
     #reader.comic:not(.scroll) #flow img { width: auto; max-width: 100%; height: var(--page-h, calc(100vh - 160px));
@@ -343,6 +348,7 @@
         <button id="rClose" type="button" title="Close the reader (Esc)">✕</button>
         <button id="rToc" type="button" title="Chapters and pages">☰ Contents</button>
         <div class="grow"><b id="rBook"></b> <span id="rChapter"></span></div>
+        <button id="rComic" type="button" title="Comics: a page per image, or one long scroll (P)" style="display:none"></button>
         <button id="rFull" type="button" title="Full screen (F)">⛶</button>
         <button id="rLook" type="button" title="Text and layout">Aa</button>
     </div>
