@@ -68,9 +68,9 @@ def _save_place(key: str, chapter: int, at: float) -> None:
 
 
 class BookView(QWidget):
-    """A Library book's page, laid out like the Catalog's details panel: the cover with Open and
-    Show in folder under it; the title, what the book is, Read and Delete; its synopsis; then its
-    chapters, with a box to find one."""
+    """A Library book's page, laid out like the Catalog's details panel: the cover with Read and Open
+    side by side under it, then Show in folder; the title, what the book is and Delete; its synopsis;
+    then its chapters, with a box to find one."""
 
     back = Signal()
     readRequested = Signal(object, int)  # the book, the chapter to start at (-1: where it was left)
@@ -94,10 +94,20 @@ class BookView(QWidget):
         opener.clicked.connect(lambda: self.openRequested.emit(self.book))
         reveal = QPushButton("Show in folder")
         reveal.clicked.connect(lambda: self.revealRequested.emit(self.book))
+        self.read = QPushButton("Read")
+        self.read.setProperty("primary", True)
+        icons.set_icon(self.read, icons.MINING, 24)
+        self.read.clicked.connect(lambda: self.readRequested.emit(self.book, -1))
+        # Read and Open share a row: two columns as wide as the cover.
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        actions.addWidget(self.read, 1)
+        actions.addWidget(opener, 1)
+        opener.setMinimumHeight(self.read.sizeHint().height())  # one row of one height (Read has its icon)
         side = QVBoxLayout()
         side.setSpacing(8)
         side.addWidget(self.cover)
-        side.addWidget(opener)
+        side.addLayout(actions)
         side.addWidget(reveal)
         side.addStretch(1)
 
@@ -105,15 +115,10 @@ class BookView(QWidget):
         self.title.setWordWrap(True)
         self.title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.meta = hint("")
-        self.read = QPushButton("Read")
-        self.read.setProperty("primary", True)
-        icons.set_icon(self.read, icons.MINING, 24)
-        self.read.clicked.connect(lambda: self.readRequested.emit(self.book, -1))
         delete = QPushButton("Delete")
         delete.setToolTip("Move the book's files to the Recycle Bin")
         delete.clicked.connect(lambda: self.deleteRequested.emit(self.book))
         buttons = QHBoxLayout()
-        buttons.addWidget(self.read)
         buttons.addStretch(1)
         buttons.addWidget(delete)
         self.synopsis = QLabel()
@@ -273,15 +278,30 @@ class EpubReader(QWidget):
         self.themes.addItems(list(THEMES))
         self.themes.setCurrentText(self.theme)
         self.themes.currentTextChanged.connect(self._set_theme)
+        # The contents panel shows or hides (it starts shown; the choice is not kept).
+        self.contents = QPushButton("☰ Contents")
+        self.contents.setCheckable(True)
+        self.contents.setChecked(True)
+        self.contents.toggled.connect(lambda on: self.toc.setVisible(on))
         top = QHBoxLayout()
         top.addWidget(back)
+        top.addWidget(self.contents)
         top.addWidget(self.title, 1)
         top.addWidget(smaller)
         top.addWidget(larger)
         top.addWidget(self.themes)
 
+        # The contents: one line per chapter, cut short with "…" (the full name in its tooltip), in the
+        # app's font and the reader's colours; no sideways scrolling.
         self.toc = QListWidget()
-        self.toc.setMaximumWidth(320)
+        self.toc.setMinimumWidth(180)
+        self.toc.setMaximumWidth(420)
+        self.toc.setFrameShape(QFrame.NoFrame)
+        self.toc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.toc.setTextElideMode(Qt.ElideRight)
+        self.toc.setWordWrap(False)
+        self.toc.setUniformItemSizes(True)
+        on_scale(self.toc, lambda: self.toc.setFont(QApplication.font()))
         self.toc.currentRowChanged.connect(lambda row: self.open_chapter(row) if row >= 0 and row != self.index else None)
         self.page = _Page()
         self.page.verticalScrollBar().valueChanged.connect(lambda _v: self._remember_soon())
@@ -292,6 +312,11 @@ class EpubReader(QWidget):
         splitter.addWidget(self.toc)
         splitter.addWidget(self.page)
         splitter.setStretchFactor(1, 1)
+        splitter.setChildrenCollapsible(False)
+        # A thin line to drag, not the app's wide splitter grip.
+        splitter.setHandleWidth(5)
+        splitter.setStyleSheet("QSplitter::handle { background: rgba(128, 128, 128, 0.22); margin: 0 2px; image: none; }")
+        splitter.setSizes([280, 1000])
 
         self.previous = QPushButton("‹ Previous chapter")
         self.previous.clicked.connect(lambda: self.open_chapter(self.index - 1))
@@ -321,8 +346,17 @@ class EpubReader(QWidget):
         self.page.epub = self.epub
         self.toc.blockSignals(True)
         self.toc.clear()
-        for index, chapter in enumerate(self.chapters, 1):
-            self.toc.addItem(f"{index}. {chapter['name']}")
+        # Numbered as on the book page: the EPUB's cover and title pages before the first chapter carry no number.
+        shown = 0
+        for chapter in self.chapters:
+            name = clean_name(chapter["name"]) or chapter["name"]
+            if not shown and _FRONT_MATTER.match(name):
+                item = QListWidgetItem(name.capitalize())
+            else:
+                shown += 1
+                item = QListWidgetItem(f"{shown}.  {name}")
+            item.setToolTip(name)
+            self.toc.addItem(item)
         self.toc.blockSignals(False)
         place = _places().get(str(self.epub), {})
         at = 0.0
@@ -388,6 +422,12 @@ class EpubReader(QWidget):
     def _apply_look(self) -> None:
         background, ink = THEMES.get(self.theme, THEMES["Dark"])
         self.page.setStyleSheet(f"QTextBrowser {{ background: {background}; color: {ink}; border: none; padding: 24px 48px; }}")
+        # The contents in the page's colours: a quieter ink, the chapter being read picked out.
+        self.toc.setStyleSheet(
+            f"QListWidget {{ background: {background}; color: {ink}; border: none; padding: 6px; outline: none; }}"
+            f"QListWidget::item {{ padding: 7px 10px; border-radius: 6px; margin: 1px 0; }}"
+            f"QListWidget::item:hover {{ background: rgba(128, 128, 128, 0.16); }}"
+            f"QListWidget::item:selected {{ background: rgba(225, 143, 152, 0.30); color: {ink}; font-weight: 600; }}")
         font = QFont("Georgia")
         font.setPointSize(self.size)
         self.page.document().setDefaultFont(font)
