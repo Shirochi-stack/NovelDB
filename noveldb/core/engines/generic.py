@@ -412,7 +412,7 @@ def _clean_tags(tags: list, title: str) -> list:
     name = re.sub(r"\s+", " ", title or "").strip().lower()
     for tag in tags:
         tag = re.sub(r"^[#,，、;:·•|\s]+|[,，、;:·•|\s]+$", "", str(tag or "")).strip()
-        if not tag or _COUNTED.search(tag) or _LINK_WORDS.match(tag) or _NOT_TAG.match(tag):
+        if not tag or _COUNTED.search(tag) or _LINK_WORDS.match(tag) or _NOT_TAG.match(tag) or _UI_WORDS.search(tag):
             continue
         if name and len(name) > 3 and name in tag.lower() and len(tag) > len(name):
             continue
@@ -487,6 +487,66 @@ def _in_comments(node) -> bool:
                      + str(getattr(at, "get", lambda *_: None)("id") or ""), re.I):
             return True
     return False
+
+
+# A label the book's genres follow: "Genre:", "Géneros", "ジャンル", "장르", "类型：".
+_GENRE_LABEL = re.compile(r"^\s*(genres?|g[eéê]neros?|tags?|categor(y|ies)|categorias|kategori(ler)?|türler?|"
+                          r"жанры?|теги|ジャンル|タグ|类型|類型|分类|分類|标签|標籤|题材|題材|장르|태그|thể loại)\s*[:：]?\s*$", re.I)
+
+
+def _labelled_tags(soup) -> list:
+    """The genres next to their label: links in the label's row, or the text after it ("Action, Comedy")."""
+    out = []
+    for label in soup.find_all(string=_GENRE_LABEL, limit=6):
+        node = label.parent
+        if node is None or _site_chrome(node, ("header", "nav", "footer")):
+            continue
+        # The links after the label, up to the next label ("类型：仙侠 … 作者：X" stops before the author).
+        links = []
+        for element in node.next_elements:
+            if isinstance(element, str):
+                if links and re.match(r"^\s*\S{1,14}\s*[:：]\s*$", element):
+                    break
+                continue
+            if element.name in ("tr", "li", "dt", "h1", "h2", "h3", "section", "article") and links:
+                break
+            if element.name == "a":
+                links.append(text_of(element))
+            if len(links) >= 30:
+                break
+        if len(links) > 20:
+            links = []  # a menu of every genre, not the book's
+        sibling = node.find_next_sibling()
+        if not links and sibling is not None:
+            links = [text_of(a) for a in sibling.find_all("a")] or re.split(r"[,，、/|·•]", text_of(sibling))
+        if not links:
+            following = node.next_sibling
+            links = re.split(r"[,，、/|·•]", following) if isinstance(following, str) else []
+        out.extend(word.strip() for word in links if 1 < len(word.strip()) <= 40)
+        if out:
+            break
+    return out
+
+
+_NOT_CHIP_LINK = re.compile(r"(chapter|/read|episode|viewer|login|signin|bookmark|/user|/author|#)", re.I)
+_UI_WORDS = re.compile(r"(start reading|continue|latest|bookmark|follow|subscribe|share|report|download|"
+                       r"menu_book|schedule|visibility|favorite|북마크|이어보기|읽기|첫화|구독|続きを読む|読む|收藏|阅读|閱讀)", re.I)
+
+
+def _chip_tags(soup) -> list:
+    """A row of chip buttons (rounded links or spans side by side, Tailwind's flex-wrap): its words."""
+    for row in soup.select("[class*=flex-wrap]"):
+        if _site_chrome(row, ("header", "nav", "footer")):
+            continue
+        chips = [child for child in row.find_all(["a", "span", "button"], recursive=False)
+                 if "rounded" in " ".join(child.get("class") or [])
+                 and not _NOT_CHIP_LINK.search(child.get("href") or "")]
+        words = [text_of(chip) for chip in chips if not _UI_WORDS.search(text_of(chip))]
+        if len(words) < len(chips):
+            continue  # a row of the page's buttons ("Start Reading", "북마크"), not tags
+        if 2 <= len(chips) <= 30 and all(1 < len(word) <= 30 and not re.search(r"\d{2,}", word) for word in words):
+            return words
+    return []
 
 
 def _headed_synopsis(soup) -> list:
@@ -634,7 +694,7 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         "author": re.sub(r"\s+", " ", author or "").strip()[:200],
         "cover": cover,
         "description": _clean_synopsis(re.sub(r"[ \t]+", " ", _html_text(description or "")).strip())[:4000],
-        "tags": _clean_tags(tags, _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url))[:30],
+        "tags": _clean_tags(tags or _labelled_tags(soup) or _chip_tags(soup), _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url))[:30],
         "status": status,
         "site": site_name,
     }

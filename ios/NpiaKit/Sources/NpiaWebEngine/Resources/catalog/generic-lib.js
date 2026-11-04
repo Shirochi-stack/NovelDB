@@ -633,7 +633,7 @@ function cleanTags(tags, title) {
     let name = String(title || "").replace(/\s+/g, " ").trim().toLowerCase();
     for (let tag of tags) {
         tag = String(tag || "").replace(/^[#,，、;:·•|\s]+|[,，、;:·•|\s]+$/g, "").trim();
-        if (!tag || COUNTED.test(tag) || LINK_WORDS.test(tag) || NOT_TAG.test(tag)) {
+        if (!tag || COUNTED.test(tag) || LINK_WORDS.test(tag) || NOT_TAG.test(tag) || UI_WORDS.test(tag)) {
             continue;
         }
         if (name.length > 3 && tag.toLowerCase().includes(name) && tag.length > name.length) {
@@ -718,6 +718,81 @@ function inComments(node) {
         }
     }
     return false;
+}
+
+// A label the book's genres follow: "Genre:", "Géneros", "ジャンル", "장르", "类型：".
+const GENRE_LABEL = /^\s*(genres?|g[eéê]neros?|tags?|categor(y|ies)|categorias|kategori(ler)?|türler?|жанры?|теги|ジャンル|タグ|类型|類型|分类|分類|标签|標籤|题材|題材|장르|태그|thể loại)\s*[:：]?\s*$/i;
+
+/** The genres next to their label: links in the label's row, or the text after it ("Action, Comedy"). */
+function labelledTags(doc) {
+    let out = [];
+    for (let label of textNodes(doc, GENRE_LABEL, 6)) {
+        let node = label.parentElement;
+        if (!node || siteChrome(node, ["HEADER", "NAV", "FOOTER"])) {
+            continue;
+        }
+        // The links after the label, up to the next label ("类型：仙侠 … 作者：X" stops before the author).
+        let links = [];
+        let walker = doc.createTreeWalker(doc.body || doc.documentElement, 5);  // elements and text
+        walker.currentNode = node;
+        for (let element = walker.nextNode(), n = 0; element && n < 200; element = walker.nextNode(), n++) {
+            if (element.nodeType === 3) {
+                if (links.length && /^\s*\S{1,14}\s*[:：]\s*$/.test(element.nodeValue)) {
+                    break;
+                }
+                continue;
+            }
+            if (links.length && /^(TR|LI|DT|H1|H2|H3|SECTION|ARTICLE)$/.test(element.tagName)) {
+                break;
+            }
+            if (element.tagName === "A") {
+                links.push(textOf(element));
+            }
+            if (links.length >= 30) {
+                break;
+            }
+        }
+        if (links.length > 20) {
+            links = [];  // a menu of every genre, not the book's
+        }
+        let sibling = node.nextElementSibling;
+        if (!links.length && sibling) {
+            links = Array.from(sibling.querySelectorAll("a")).map(a => textOf(a));
+            if (!links.length) {
+                links = textOf(sibling).split(/[,，、/|·•]/);
+            }
+        }
+        if (!links.length && node.nextSibling && node.nextSibling.nodeType === 3) {
+            links = node.nextSibling.nodeValue.split(/[,，、/|·•]/);
+        }
+        out.push(...links.map(word => word.trim()).filter(word => word.length > 1 && word.length <= 40));
+        if (out.length) {
+            break;
+        }
+    }
+    return out;
+}
+
+const NOT_CHIP_LINK = /(chapter|\/read|episode|viewer|login|signin|bookmark|\/user|\/author|#)/i;
+const UI_WORDS = /(start reading|continue|latest|bookmark|follow|subscribe|share|report|download|menu_book|schedule|visibility|favorite|북마크|이어보기|읽기|첫화|구독|続きを読む|読む|收藏|阅读|閱讀)/i;
+
+/** A row of chip buttons (rounded links or spans side by side, Tailwind's flex-wrap): its words. */
+function chipTags(doc) {
+    for (let row of doc.querySelectorAll("[class*=flex-wrap]")) {
+        if (siteChrome(row, ["HEADER", "NAV", "FOOTER"])) {
+            continue;
+        }
+        let chips = Array.from(row.children).filter(child => /^(A|SPAN|BUTTON)$/.test(child.tagName)
+            && /rounded/.test(child.getAttribute("class") || "") && !NOT_CHIP_LINK.test(child.getAttribute("href") || ""));
+        let words = chips.map(chip => textOf(chip)).filter(word => !UI_WORDS.test(word));
+        if (words.length < chips.length) {
+            continue;  // a row of the page's buttons ("Start Reading", "북마크"), not tags
+        }
+        if (chips.length >= 2 && chips.length <= 30 && words.every(word => word.length > 1 && word.length <= 30 && !/\d{2,}/.test(word))) {
+            return words;
+        }
+    }
+    return [];
 }
 
 /** The block right after a "Synopsis" (or "Summary", "Description") heading. */
@@ -888,7 +963,7 @@ function metadata(doc, url) {
         author: String(author || "").replace(/\s+/g, " ").trim().slice(0, 200),
         cover: cover,
         description: cleanSynopsis(htmlText(String(description || "")).replace(/[ \t]+/g, " ").trim()).slice(0, 4000),
-        tags: cleanTags(tags, stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url)).slice(0, 30),
+        tags: cleanTags(tags.length ? tags : (labelledTags(doc).length ? labelledTags(doc) : chipTags(doc)), stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url)).slice(0, 30),
         status: status,
         site: siteName
     });
