@@ -513,9 +513,42 @@ def test_qdn_global_chapter_images_are_what_the_epub_writer_takes():
 
     cover = 'https://book-pic.example/bookcover/11022733006234505?imageMogr2/thumbnail/150x'
     picture = 'https://img.example/chapter/1.png'
-    data = ExternalScraper._qdn_global_chapter_images(
+    data = ExternalScraper._qdn_global_finish_chapter(
         {'contentHtml': '<p>Text</p>', 'images': [cover, picture, picture]})
     assert data['images'] == [{'url': picture, 'name': 'qdn_global_001.jpg'}]
     assert data['contentHtml'] == f'<p>Text</p>\n<p><img src="{picture}" alt=""/></p>'
-    plain = ExternalScraper._qdn_global_chapter_images({'contentHtml': '<p>Text</p>', 'images': [cover]})
+    plain = ExternalScraper._qdn_global_finish_chapter({'contentHtml': '<p>Text</p>', 'images': [cover]})
     assert plain['images'] == [] and plain['contentHtml'] == '<p>Text</p>'
+
+
+def test_qdn_global_chapter_loses_the_site_watermark_line_only():
+    from external_scraper import ExternalScraper
+
+    mark = '© WebNovel'
+    data = ExternalScraper._qdn_global_finish_chapter({
+        'contentText': f'{mark}\nOuch! It hurts.\nHe saw {mark} there.',
+        'contentHtml': f'<p>{mark}</p>\n<p>Ouch! It hurts.</p>\n<p>He saw {mark} there.</p>', 'images': []})
+    assert data['contentText'] == f'Ouch! It hurts.\nHe saw {mark} there.'
+    assert data['contentHtml'] == f'<p>Ouch! It hurts.</p>\n<p>He saw {mark} there.</p>'
+
+
+def test_qdn_global_skips_plain_requests_after_a_refusal(monkeypatch):
+    import requests
+
+    from external_scraper import ExternalScraper
+
+    scraper = ExternalScraper(logger=lambda _line: None)
+    lines = []
+    scraper.log = lines.append
+    calls = []
+
+    class Refused:
+        status_code = 403
+
+        def raise_for_status(self):
+            raise requests.HTTPError('403 Client Error: Forbidden')
+
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: calls.append(a) or Refused())
+    assert scraper._qdn_global_parse_chapter_http('https://x.example/book/1/2', 'One') is None
+    assert scraper._qdn_global_parse_chapter_http('https://x.example/book/1/3', 'Two') is None
+    assert len(calls) == 1 and lines == []

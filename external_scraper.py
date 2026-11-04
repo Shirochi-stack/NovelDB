@@ -4302,11 +4302,24 @@ class ExternalScraper(SiteEnginesMixin):
         host = (host or '').lower()
         return host == '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com' or host.endswith('.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com')
 
+    def _console_from_qdn_global(self, msg):
+        try:
+            page = getattr(msg, 'page', None)
+            host = (urllib.parse.urlparse(page.url if page else '').hostname or '').lower()
+        except Exception:
+            return False
+        domain = self._qdn_global_domain()
+        return host == domain or host.endswith('.' + domain)
+
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
         # Fenrir chapters come back through page.evaluate, so its page
         # console (Cloudflare CSP blocks, styled console art) is only noise.
         if getattr(self, '_rbooks_chrome', False) and getattr(self, '_rbooks_site', '') == 'Fenrir':
+            return
+        # Qdn Global's too: its pages are read through page.evaluate, and its console is Cloudflare's
+        # check page, styled console art and blocked trackers.
+        if self._book_data and self._book_data.get('_qdn_global') or self._console_from_qdn_global(msg):
             return
         text = msg.text
         lowered = text.lower()
@@ -5028,14 +5041,19 @@ class ExternalScraper(SiteEnginesMixin):
         return headers
 
     def _qdn_global_http_text(self, url, referer=''):
-        """Fetch one public Qdn Global page with a hard network timeout."""
+        """Fetch one public Qdn Global page with a hard network timeout. Once the site has answered with
+        its Cloudflare check (403/503), later pages skip the plain request: the saved browser reads them."""
         import requests
 
+        if getattr(self, '_qdn_global_refused', False):
+            raise RuntimeError('plain requests are refused')
         response = requests.get(
             url,
             headers=self._qdn_global_headers(referer),
             timeout=(_req_s(10), _req_s(30)),
         )
+        if response.status_code in (403, 503):
+            self._qdn_global_refused = True
         response.raise_for_status()
         return response.text
 
@@ -5202,7 +5220,8 @@ class ExternalScraper(SiteEnginesMixin):
             raw_html = self._qdn_global_http_text(catalog_url)
             data = self._qdn_global_parse_catalog_html(raw_html, catalog_url)
         except Exception as exc:
-            self.log(f'[Qdn] Direct Global catalog request failed: {exc}')
+            if not getattr(self, '_qdn_global_refused', False):  # (a refusal is the usual case)
+                self.log(f'[Qdn] Direct Global catalog request failed: {exc}')
             return None
         if not data or not data.get('bookname') or not data.get('chapters'):
             self.log('[Qdn] Direct Global catalog did not contain a book list.')
@@ -5214,6 +5233,7 @@ class ExternalScraper(SiteEnginesMixin):
         catalog_url = self._qdn_global_catalog_url(url)
         if not catalog_url:
             return None
+        self._qdn_global_refused = False  # a new book tries a plain request again
         data = self._qdn_global_parse_book_http(catalog_url)
         if data:
             data['_qdn_global'] = True
@@ -5226,7 +5246,6 @@ class ExternalScraper(SiteEnginesMixin):
             )
             return data
 
-        self.log('[Qdn] Retrying the Global catalog in the saved browser.')
         if not self._start_qdn_global_browser(catalog_url):
             return None
 
@@ -5459,7 +5478,7 @@ class ExternalScraper(SiteEnginesMixin):
                 'reason': 'login' if logged_out else 'purchase',
                 'chars': len(content_text),
             }
-        return cls._qdn_global_chapter_images({
+        return cls._qdn_global_finish_chapter({
             'chapterName': chapter_name,
             'sourceChapterName': source_title,
             'chapterUrl': chapter_url,
@@ -5479,10 +5498,11 @@ class ExternalScraper(SiteEnginesMixin):
                 raw_html, chapter_url, chapter_name
             )
         except Exception as exc:
-            self.log(
-                f'  [Qdn] Direct Global chapter request failed for '
-                f'{chapter_name}: {exc}'
-            )
+            if not getattr(self, '_qdn_global_refused', False):  # (a refusal is the usual case)
+                self.log(
+                    f'  [Qdn] Direct Global chapter request failed for '
+                    f'{chapter_name}: {exc}'
+                )
             return None
 
     def _qdn_global_parse_chapter(
@@ -5501,7 +5521,7 @@ class ExternalScraper(SiteEnginesMixin):
                 f'  [Qdn] Public Global reader is locked for {chapter_name}; '
                 'checking the saved browser session.'
             )
-        elif not _skip_http:
+        elif not _skip_http and not getattr(self, '_qdn_global_refused', False):
             self.log(
                 f'  [Qdn] Retrying {chapter_name} in the saved browser.'
             )
@@ -5612,12 +5632,24 @@ class ExternalScraper(SiteEnginesMixin):
         if data.get('error'):
             self.log(f"  [Qdn] {data.get('error')} for: {chapter_name}")
             return None
-        return self._qdn_global_chapter_images(data)
+        return self._qdn_global_finish_chapter(data)
 
-    @staticmethod
-    def _qdn_global_chapter_images(data):
-        """The chapter's images as the EPUB writer takes them ({url, name}), shown at its end. The book's
-        cover thumbnails the reader page puts beside chapter 1 are not chapter images."""
+    # The site's line at the top of a chapter ("(c) <site name>"), in the text and its markup.
+    _QDN_GLOBAL_WATERMARK = re.compile(
+        r'^\s*(?:\u00a9|\(c\))\s*\u0057\u0065\u0062\s*\u004e\u006f\u0076\u0065\u006c\s*$', re.I)
+
+    @classmethod
+    def _qdn_global_finish_chapter(cls, data):
+        """The chapter without the site's watermark line, and its images as the EPUB writer takes them
+        ({url, name}), shown at its end. The book's cover thumbnails the reader page puts beside chapter 1
+        are not chapter images."""
+        lines = (data.get('contentText') or '').split('\n')
+        data['contentText'] = '\n'.join(line for line in lines if not cls._QDN_GLOBAL_WATERMARK.match(line))
+        data['contentHtml'] = re.sub(
+            r'<p>([^<]*)</p>\n?',
+            lambda m: '' if cls._QDN_GLOBAL_WATERMARK.match(html.unescape(m.group(1))) else m.group(0),
+            data.get('contentHtml') or '',
+        )
         urls = [
             str(url) for url in data.get('images') or []
             if url and '/bookcover/' not in str(url)
