@@ -126,7 +126,12 @@ def scan(folder: Path, progress=None, found=None) -> List[LibraryBook]:
     if not folder.is_dir():
         return []
     books: Dict[str, LibraryBook] = {}
+    # Newest first, so the books shown while the folder is read come in the order they end up in.
     entries = list(folder.iterdir())
+    try:
+        entries.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    except OSError:
+        pass
     told = time.monotonic()
     for done, path in enumerate(entries, 1):
         if progress is not None and (done % 10 == 0 or done == len(entries)):

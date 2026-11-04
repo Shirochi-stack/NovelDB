@@ -397,7 +397,9 @@ def test_the_library_shows_books_while_the_folder_is_still_read(window, context,
     folder = tmp_path / "lib"
     folder.mkdir()
     for n in range(30):
-        (folder / f"Book {n:02}.pdf").write_bytes(b"%PDF-1.4")
+        book = folder / f"Book {n:02}.pdf"
+        book.write_bytes(b"%PDF-1.4")
+        os.utime(book, (1_700_000_000 + (n * 7919) % 30, 1_700_000_000 + (n * 7919) % 30))  # dates out of name order
     slow = library._format_of
     monkeypatch.setattr(library, "_format_of", lambda path: (clock.sleep(0.06), slow(path))[1])
     context.update_settings(lambda s: replace(s, output=replace(s.output, output_dir=str(folder))))
@@ -406,8 +408,11 @@ def test_the_library_shows_books_while_the_folder_is_still_read(window, context,
     # Books show up before the folder is read through, with how far the reading is.
     qtbot.waitUntil(lambda: page.grid.count() > 0, timeout=5000)
     assert page._reading is not None and page.grid.count() < 30
+    early = [page.grid.item(i).text() for i in range(page.grid.count())]
     qtbot.waitUntil(lambda: page._reading is None and page.grid.count() == 30, timeout=10000)
     assert "reading" not in page.page_label.text()
+    # The books shown early kept their places (no reshuffling as more came in).
+    assert [page.grid.item(i).text() for i in range(len(early))] == early
 
 
 def test_the_library_shows_the_books_in_the_save_folder(window, context, qtbot, tmp_path):

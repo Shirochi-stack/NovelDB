@@ -141,6 +141,7 @@ class LibraryPage(QWidget):
         self._generation = 0
         self._scan_started = 0.0
         self._reading = None  # (done, total) while the folder is read with books already shown
+        self._places = None  # book name: its place, kept while books stream in (no reshuffling)
         self._items = {}  # book name: its item on the page shown
         self._covers = {}  # (book name, modified): its decoded cover, kept while the page refills
         self._ever_shown = False
@@ -283,7 +284,9 @@ class LibraryPage(QWidget):
         folder = library_folder(self.context)
         started = time.monotonic()
         self._scan_started = started
-        if not self.books:
+        if self.books:
+            self._places = None  # a later reading shows the books in their order once it is done
+        else:
             self.body.setCurrentWidget(self.loading)
             self.loading.start()
             self.empty.setVisible(False)
@@ -311,6 +314,7 @@ class LibraryPage(QWidget):
             return
         if self._reading is None:
             self._reading = (0, 0)
+            self._places = {}
             self.loading.stop()
             self.body.setCurrentWidget(self.grid)
         self.books = books
@@ -337,6 +341,14 @@ class LibraryPage(QWidget):
             books.sort(key=lambda b: b.title.lower())
         elif order == 2:
             books.sort(key=lambda b: b.size, reverse=True)
+        if self._places is not None:
+            if reset:
+                self._places = None  # the reader picked another order or search: it applies at once
+            else:
+                # Books keep the places they were shown in; the ones read since come after them.
+                for book in books:
+                    self._places.setdefault(book.name, len(self._places))
+                books.sort(key=lambda b: self._places[b.name])
         self.shown = books
         pages = max(1, (len(books) + PER_PAGE - 1) // PER_PAGE)
         self.page = min(self.page, pages - 1)
