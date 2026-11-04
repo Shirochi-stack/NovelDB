@@ -21,7 +21,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.Base64
@@ -68,6 +70,7 @@ internal object PythonEngines {
         SiteEngine.LNCRAWL -> "lncrawl"
         SiteEngine.FANFICFARE -> "fanficfare"
         SiteEngine.GALLERYDL -> "gallerydl"
+        SiteEngine.CUSTOM -> "custom"
         else -> null
     }
 
@@ -79,16 +82,24 @@ internal object PythonEngines {
     /** The book at `url` read by `engine`; a site the engine doesn't list is refused before anything starts. */
     suspend fun openBook(engine: SiteEngine, url: String, context: SourceContext): ReaderBookPayload {
         val name = name(engine) ?: throw EngineMissException("${engine.label} are not a Python engine.")
-        val rule = RuleEngine.of(engine)
-        val bundle = rule?.let { RuleEngines.store.current(it) }
-            ?: throw EngineMissException("The ${engine.label} are missing from this build.")
-        if (!bundle.knows(url)) throw EngineMissException("The ${engine.label} have no source for this site.")
+        val version = if (engine == SiteEngine.CUSTOM) {
+            // The user's engines: each one decides in the page whether it reads the link.
+            val added = CustomEngines.list()
+            if (added.isEmpty()) throw EngineMissException("No custom engines are added.")
+            added.joinToString(", ") { it.label }
+        } else {
+            val rule = RuleEngine.of(engine)
+            val bundle = rule?.let { RuleEngines.store.current(it) }
+                ?: throw EngineMissException("The ${engine.label} are missing from this build.")
+            if (!bundle.knows(url)) throw EngineMissException("The ${engine.label} have no source for this site.")
+            bundle.label
+        }
         val payload = ReaderBookPayload.decode(call(context, "parseBook", name, url))
         payload.error?.let { error ->
             if (payload.noParser == true) throw EngineMissException("${engine.label}: $error")
             throw SourceException.Parse("${engine.label}: $error")
         }
-        context.logger.log(LogLevel.INFO, "[Reader] ${engine.label} (${bundle.label}), ${payload.chapters.size} chapters")
+        context.logger.log(LogLevel.INFO, "[Reader] ${engine.label} ($version), ${payload.chapters.size} chapters")
         return payload
     }
 
@@ -156,6 +167,7 @@ internal object PythonEngines {
         if (path == "transport") {
             val raw = query.split('&').firstOrNull { it.startsWith("r=") }?.substring(2) ?: return null
             val json = runCatching { Base64.getUrlDecoder().decode(raw).decodeToString() }.getOrNull() ?: return null
+            if (customEnginesAsked(json)) return LocalResponse("application/json", customEnginesReply().toByteArray())
             val reply = context?.let { runBlocking { WebToEpubTransport.handle(json, it.http, it.web) } }
                 ?: """{"error":"the Python engines have no request context"}"""
             return LocalResponse("application/json", reply.toByteArray())
@@ -174,6 +186,22 @@ internal object PythonEngines {
         val bytes = PythonEngines::class.java.getResourceAsStream(RESOURCES + path)?.use { it.readBytes() } ?: return null
         return LocalResponse(mimeType(path), bytes)
     }
+
+    /** The page asks for the custom engines (noveldb_mobile's `_custom_engines`), not a site. */
+    private fun customEnginesAsked(json: String): Boolean =
+        runCatching { (Json.parseToJsonElement(json) as? JsonObject)?.string("op") == "customEngines" }.getOrDefault(false)
+
+    /** The custom engines with their source: the page runs them (and loads one again when its source changes). */
+    private fun customEnginesReply(): String = buildJsonObject {
+        put("engines", JsonArray(CustomEngines.list().map { engine ->
+            buildJsonObject {
+                put("id", engine.id)
+                put("label", engine.label)
+                put("sites", JsonArray(engine.sites.map { JsonPrimitive(it) }))
+                put("source", engine.source)
+            }
+        }))
+    }.toString()
 
     private fun mimeType(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {
         "html" -> "text/html"

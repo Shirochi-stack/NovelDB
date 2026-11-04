@@ -20,6 +20,7 @@ import com.shirochi.npia.sources.ntk.NtkAdapter
 import com.shirochi.npia.sources.nweb.NwebAdapter
 import com.shirochi.npia.sources.qdn.QdnAdapter
 import com.shirochi.npia.sources.rbooks.RbooksAdapter
+import com.shirochi.npia.sources.reader.CustomEngines
 import com.shirochi.npia.sources.reader.ReaderAdapter
 import com.shirochi.npia.sources.reader.SiteEngineChain
 import com.shirochi.npia.sources.sfc.SfcAdapter
@@ -73,6 +74,7 @@ object SourceCatalog {
         val steps = order.filter { engine ->
             when {
                 engine == SiteEngine.NATIVE -> native != null
+                engine == SiteEngine.CUSTOM && !CustomEngines.any() -> false  // none added
                 native == null && !engines.dynamicPriority -> isWebUrl(url)
                 native == null -> isWebUrl(url) && (engine == SiteEngine.GENERIC || lists(engine, url))
                 else -> lists(engine, url)
@@ -96,6 +98,7 @@ object SourceCatalog {
 
     /** The engine's current bundle lists the URL's site. */
     fun lists(engine: SiteEngine, url: String): Boolean {
+        if (engine == SiteEngine.CUSTOM) return CustomEngines.listsSite(url)
         val rule = RuleEngine.of(engine) ?: return false
         return RuleEngines.store.current(rule)?.knows(url) == true
     }

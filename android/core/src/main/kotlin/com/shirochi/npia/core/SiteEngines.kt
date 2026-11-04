@@ -6,9 +6,10 @@ import kotlinx.serialization.Serializable
  * The ways a book page can be read, tried in the user's order until one returns chapters (the
  * desktop's `SITE_ENGINES`, in its order): the app's own scrapers, the novel-downloader rules, the
  * WebToEpub parsers, lightnovel-crawler's sources, the LNReader plugins, FanFicFare's adapters, the
- * HaruNeko websites, gallery-dl's extractors, then the generic fallback (any site, without site
- * rules). The three Python engines run the desktop's own modules in Pyodide (`PythonEngines`).
- * `raw` is the name the desktop settings file uses.
+ * HaruNeko websites, gallery-dl's extractors, the user's custom engines, then the generic fallback
+ * (any site, without site rules). The three Python engines and the custom engines run in Pyodide
+ * (`PythonEngines`). `raw` is the name the desktop settings file uses (the desktop lists each custom
+ * engine on its own, as `custom:<id>`; here they are one place in the order).
  */
 enum class SiteEngine(val raw: String, val label: String) {
     NATIVE("native", "Built-in scrapers"),
@@ -19,6 +20,7 @@ enum class SiteEngine(val raw: String, val label: String) {
     FANFICFARE("fanficfare", "FanFicFare adapters"),
     HARUNEKO("haruneko", "HaruNeko websites"),
     GALLERYDL("gallerydl", "gallery-dl extractors"),
+    CUSTOM("custom", "Custom engines"),
     GENERIC("generic", "Generic fallback");
 
     /** True for the engines that run a JavaScript bundle (everything but the built-in scrapers). */
@@ -29,10 +31,19 @@ enum class SiteEngine(val raw: String, val label: String) {
 
         fun fromRaw(raw: String): SiteEngine? = entries.firstOrNull { it.raw == raw }
 
-        /** Known engines in the given order (missing ones appended), minus the switched-off ones. */
+        /**
+         * Known engines in the given order (missing ones appended; the custom engines, when the order
+         * predates them, just before the generic fallback), minus the switched-off ones.
+         */
         fun order(order: Iterable<String>?, disabled: Iterable<String>? = null): List<SiteEngine> {
             val off = disabled?.toSet().orEmpty()
-            return ((order ?: emptyList()).mapNotNull(::fromRaw) + entries).distinct().filter { it.raw !in off }
+            val given = (order ?: emptyList()).mapNotNull(::fromRaw)
+            val all = (given + entries).distinct().toMutableList()
+            if (CUSTOM !in given) {
+                all.remove(CUSTOM)
+                all.add(all.indexOf(GENERIC).takeIf { it >= 0 } ?: all.size, CUSTOM)
+            }
+            return all.filter { it.raw !in off }
         }
     }
 }
@@ -73,7 +84,7 @@ data class EngineSettings(
         SiteEngine.LNCRAWL -> lncrawlAutoUpdate
         SiteEngine.FANFICFARE -> fanficfareAutoUpdate
         SiteEngine.GALLERYDL -> gallerydlAutoUpdate
-        SiteEngine.NATIVE, SiteEngine.GENERIC -> false
+        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.GENERIC -> false
     }
 
     fun withAutoUpdate(engine: SiteEngine, on: Boolean): EngineSettings = when (engine) {
@@ -84,7 +95,7 @@ data class EngineSettings(
         SiteEngine.LNCRAWL -> copy(lncrawlAutoUpdate = on)
         SiteEngine.FANFICFARE -> copy(fanficfareAutoUpdate = on)
         SiteEngine.GALLERYDL -> copy(gallerydlAutoUpdate = on)
-        SiteEngine.NATIVE, SiteEngine.GENERIC -> this
+        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.GENERIC -> this
     }
 
     /** Switches `engine` on or off. The last engine that is on cannot be switched off. */

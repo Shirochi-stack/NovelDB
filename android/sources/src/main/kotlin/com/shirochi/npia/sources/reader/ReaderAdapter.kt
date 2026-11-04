@@ -53,7 +53,8 @@ class ReaderAdapter : SourceAdapter {
     override fun matches(url: String): Boolean = ReaderRules.supports(url) || webToEpubLists(url)
 
     override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
-        val steps = context.settings.engines.enabled().filter { it.runsScripts }
+        // The custom engines only when some were added (their Python page is not started for nothing).
+        val steps = context.settings.engines.enabled().filter { it.runsScripts && (it != SiteEngine.CUSTOM || CustomEngines.any()) }
         if (steps.isEmpty()) {
             throw SourceException.Parse("Every site engine that runs scripts is switched off in Settings > Site engines.")
         }

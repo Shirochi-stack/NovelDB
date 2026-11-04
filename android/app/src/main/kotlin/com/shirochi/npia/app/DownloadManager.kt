@@ -41,6 +41,7 @@ import com.shirochi.npia.sources.engines.RuleEngines
 import com.shirochi.npia.sources.engines.UpdateResult
 import com.shirochi.npia.sources.npia.NpiaAuth
 import com.shirochi.npia.sources.npia.NpiaCookieSetting
+import com.shirochi.npia.sources.reader.CustomEngines
 import com.shirochi.npia.sources.session.HardSessions
 import com.shirochi.npia.sources.session.SessionSite
 import com.shirochi.npia.sources.session.SessionStatus
@@ -273,6 +274,8 @@ class DownloadManager(private val app: Application) {
     }
 
     init {
+        // The user's custom engines (Python files run by the Python engines' page).
+        CustomEngines.folder = File(app.filesDir, "custom_engines")
         // Debug builds keep a test upload server across restarts (see `setUploadTestHost`).
         setUploadTestHost(preferences.uploadTestBase, preferences.uploadTestMaxBytes.takeIf { it > 0 })
         // At start: only for the engines the user opted in to, and at most once a day.

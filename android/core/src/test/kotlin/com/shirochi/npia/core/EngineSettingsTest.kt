@@ -14,18 +14,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EngineSettingsTest {
-    private val all = listOf(SiteEngine.NATIVE, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC)
+    private val all = listOf(SiteEngine.NATIVE, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.CUSTOM, SiteEngine.GENERIC)
 
     @Test
     fun orderKeepsKnownEnginesAndAppendsMissingOnes() {
         assertEquals(
-            listOf(SiteEngine.WEBTOEPUB, SiteEngine.NATIVE, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC),
+            listOf(SiteEngine.WEBTOEPUB, SiteEngine.NATIVE, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.CUSTOM, SiteEngine.GENERIC),
             SiteEngine.order(listOf("webtoepub", "bogus", "native")),
         )
         assertEquals(all, SiteEngine.order(null))
         assertEquals(all, SiteEngine.order(listOf("native", "native", "novel_downloader", "webtoepub")))
         assertEquals(
-            listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC),
+            listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.CUSTOM, SiteEngine.GENERIC),
             SiteEngine.order(all.map { it.raw }, listOf("novel_downloader")),
         )
     }
@@ -63,11 +63,11 @@ class EngineSettingsTest {
     fun enginesMoveOnePlaceAtATimeAndStopAtTheEnds() {
         val engines = EngineSettings()
         assertEquals(
-            listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.NATIVE, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC),
+            listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.NATIVE, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.CUSTOM, SiteEngine.GENERIC),
             engines.moved(SiteEngine.NOVEL_DOWNLOADER, -1).fullOrder(),
         )
         assertEquals(
-            listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC),
+            listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.CUSTOM, SiteEngine.GENERIC),
             engines.moved(SiteEngine.NOVEL_DOWNLOADER, 1).fullOrder(),
         )
         assertSame(engines, engines.moved(SiteEngine.NATIVE, -1))
@@ -112,7 +112,7 @@ class EngineSettingsTest {
         )
         assertEquals(
             EngineSettings(
-                order = listOf("webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "generic"),
+                order = listOf("webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "custom", "generic"),
                 disabled = listOf("novel_downloader"),
                 novelDownloaderAutoUpdate = false,
             ),
@@ -120,7 +120,7 @@ class EngineSettingsTest {
         )
         val exported = DesktopConfig.export(settings)
         assertEquals(
-            listOf("webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "generic"),
+            listOf("webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "custom", "generic"),
             exported["source_engine_order"]!!.jsonArray.map { it.jsonPrimitive.content },
         )
         assertEquals(listOf("novel_downloader"), exported["source_engines_off"]!!.jsonArray.map { it.jsonPrimitive.content })
@@ -134,13 +134,13 @@ class EngineSettingsTest {
         val (settings, _) = DesktopConfig.import(
             """{"source_engine_order": ["webtoepub", "bogus"], "source_engines_off": ["bogus", "native"]}""",
         )
-        assertEquals(listOf("webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "generic"), settings.engines.order)
+        assertEquals(listOf("webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "custom", "generic"), settings.engines.order)
         assertEquals(listOf("native"), settings.engines.disabled)
     }
 
     @Test
     fun desktopImportNeverLeavesEveryEngineOff() {
-        val (settings, _) = DesktopConfig.import("""{"source_engines_off": ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "generic"]}""")
+        val (settings, _) = DesktopConfig.import("""{"source_engines_off": ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "custom", "generic"]}""")
         assertEquals(emptyList<String>(), settings.engines.disabled)
         assertEquals(all, settings.engines.enabled())
     }

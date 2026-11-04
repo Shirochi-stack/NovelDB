@@ -1,5 +1,6 @@
 package com.shirochi.npia.app.ui
 
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -30,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,6 +71,7 @@ import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.sources.engines.RuleEngine
 import com.shirochi.npia.sources.engines.RuleEngines
 import com.shirochi.npia.sources.npia.NpiaFontMapping
+import com.shirochi.npia.sources.reader.CustomEngines
 import com.shirochi.npia.upload.Uploader
 import com.shirochi.npia.core.UploadSettings
 import com.shirochi.npia.upload.UploaderCatalog
@@ -256,6 +259,7 @@ private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.LNCRAWL -> "lightnovel-crawler's sources: 400+ novel sites (Python, in the app)."
     SiteEngine.FANFICFARE -> "FanFicFare's adapters: 100+ fan-fiction archives and forums (Python, in the app)."
     SiteEngine.GALLERYDL -> "gallery-dl's extractors: manga sites such as fanfox and mangahere (Python, in the app)."
+    SiteEngine.CUSTOM -> "Your own engines: Python files added below (the desktop's format; Python, in the app)."
     SiteEngine.GENERIC -> "Any other site: reads the chapter list and text without site rules."
 }
 
@@ -295,6 +299,7 @@ fun EngineSettingsScreen(model: AppViewModel) {
             subtitle = "A link no built-in scraper owns goes only to the engines that list its site, then the generic fallback. Off: it tries every engine that is on, in order.",
         )
         Footnote("A built-in scraper hands over to the other engines only on sites they list.")
+        CustomEnginesSection(model)
 
         SectionHeader("Updates")
         bundles.forEach { (engine, bundle) ->
@@ -870,3 +875,61 @@ fun ConfigTransferScreen(model: AppViewModel) {
         )
     }
 }
+
+/**
+ * The custom engines: Python files with a class Engine (the desktop's format; see the desktop's
+ * examples/custom_engine_example.py), run in the app's Python. They are tried in the order's
+ * "Custom engines" place, each for the sites it reads.
+ */
+@Composable
+private fun CustomEnginesSection(model: AppViewModel) {
+    val context = LocalContext.current
+    var refresh by remember { mutableIntStateOf(0) }
+    val added = remember(refresh) { CustomEngines.list() }
+    var pending by remember { mutableStateOf<Pair<String, ByteArray>?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("could not read it")
+            val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            } ?: uri.lastPathSegment ?: "engine.py"
+            pending = name to bytes
+        }.onFailure { model.manager.message("Could not add the engine: ${it.message}") }
+    }
+    SectionHeader("Custom engines")
+    Footnote("A Python file with a class Engine (label, sites, parse_book, parse_chapter), the same file as on the desktop. They run in the app's Python, in the order's \"Custom engines\" place.")
+    added.forEach { engine ->
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(engine.label)
+                Text(
+                    if (engine.sites.isEmpty()) "${engine.id}.py" else "${engine.id}.py · ${engine.sites.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { CustomEngines.remove(engine.id); refresh++ }) { Text("Remove") }
+        }
+    }
+    TextButton(onClick = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.padding(start = 8.dp)) { Text("Add custom engine…") }
+    pending?.let { (name, bytes) ->
+        AlertDialog(
+            onDismissRequest = { pending = null },
+            title = { Text("Add a custom engine") },
+            text = { Text("$name is Python code that runs inside the app, with its access to your downloads and logins. Only add one you wrote or trust.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pending = null
+                    val message = runCatching { CustomEngines.add(name, bytes) }.fold(
+                        { info -> "Added ${info.label}" + if (info.sites.isEmpty()) "." else " for ${info.sites.joinToString(", ")}." },
+                        { "This file is not an engine: ${it.message}." },
+                    )
+                    model.manager.message(message)
+                    refresh++
+                }) { Text("Add") }
+            },
+            dismissButton = { TextButton(onClick = { pending = null }) { Text("Cancel") } },
+        )
+    }
+}
+

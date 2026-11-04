@@ -21,6 +21,7 @@ import re
 import sys
 import types
 from pathlib import Path
+from urllib.parse import urlsplit
 
 BUNDLES = Path("/bundles")
 CACHE = Path("/tmp/noveldb-cache")
@@ -176,7 +177,99 @@ _engines: dict = {}
 _books: dict = {}  # engine name -> {book address: book}, so a chapter keeps what its book read
 
 
+# -- custom engines: the user's Python files (noveldb/core/engines/custom_engines.py has the format) ----
+
+_custom: dict = {}  # id -> (its source, the engine made from it)
+
+
+class _Custom:
+    """One custom engine with the built-in engines' interface (the desktop's custom_engines._Runner)."""
+
+    def __init__(self, ident: str, engine, sites: list):
+        self.ident, self.engine, self.sites = ident, engine, [str(s).lower().removeprefix("www.") for s in sites]
+        self.label = getattr(engine, "label", "") or ident
+
+    def on_site(self, url: str) -> bool:
+        host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+        return bool(host) and any(host == s or host.endswith("." + s) for s in self.sites)
+
+    def knows(self, url: str) -> bool:
+        own = getattr(self.engine, "knows", None)
+        return bool(own(url)) if callable(own) else self.on_site(url)
+
+
+def _custom_engines() -> list:
+    """The custom engines the app has (asked each time: one may have been added, changed or removed)."""
+    reply = _transport({"op": "customEngines"})
+    found = []
+    for item in reply.get("engines") or []:
+        ident, source = str(item.get("id") or ""), str(item.get("source") or "")
+        cached = _custom.get(ident)
+        if not cached or cached[0] != source:
+            module = types.ModuleType(f"noveldb_custom_{ident}")
+            try:
+                exec(compile(source, f"/custom/{ident}.py", "exec"), module.__dict__)
+                try:
+                    engine = module.Engine(fetch=fetch, log=print, render=None)
+                except TypeError:
+                    engine = module.Engine(fetch=fetch, log=print)
+            except Exception as error:
+                print(f"[python] custom engine {ident} did not load: {type(error).__name__}: {error}")
+                continue
+            cached = (source, _Custom(ident, engine, list(item.get("sites") or getattr(module.Engine, "sites", []))))
+            _custom[ident] = cached
+        found.append(cached[1])
+    return found
+
+
+class _CustomEngines:
+    """The "custom" engine: each custom engine that reads the link, the ones listing its site first."""
+
+    label = "Custom engines"
+
+    def _for(self, url: str) -> list:
+        engines = [e for e in _custom_engines() if e.knows(url)]
+        return sorted(engines, key=lambda e: not e.on_site(url))
+
+    def knows(self, url: str) -> bool:
+        return bool(self._for(url))
+
+    def parse_book(self, url: str):
+        fallback, errors = None, []
+        for custom in self._for(url):
+            try:
+                book = custom.engine.parse_book(url)
+            except Exception as error:
+                errors.append(f"{custom.label}: {error}")
+                continue
+            if not book:
+                continue
+            book["_customId"] = custom.ident  # its chapters go back to the same engine
+            book.setdefault("ruleName", f"{custom.label} (custom engine)")
+            for index, chapter in enumerate(book.get("chapters") or [], 1):
+                chapter.setdefault("name", f"Chapter {index}")
+            if book.get("chapters"):
+                return book
+            fallback = fallback or book
+        if fallback is None and errors:
+            raise RuntimeError("; ".join(errors))
+        return fallback
+
+    def parse_chapter(self, chapter: dict, book: dict):
+        custom = next((e for e in _custom_engines() if e.ident == book.get("_customId")), None)
+        if custom is None:
+            raise RuntimeError("the custom engine that read this book is gone")
+        result = custom.engine.parse_chapter(chapter, book)
+        if result and not result.get("contentHtml") and result.get("contentText"):
+            from html import escape
+
+            result["contentHtml"] = "".join(f"<p>{escape(line)}</p>" for line in result["contentText"].splitlines() if line.strip())
+        return result
+
+
 def _engine(name: str):
+    if name == "custom":
+        return _CustomEngines()
     if name not in _engines:
         if name == "lncrawl":
             from noveldb.core.engines.lncrawl_engine import LncrawlEngine as Engine
