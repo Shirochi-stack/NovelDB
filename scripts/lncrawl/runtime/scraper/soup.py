@@ -538,16 +538,11 @@ class PageSoup:
     ) -> "PageSoup":
         if not self.root:
             raise ValueError("Cannot create a new tag on an empty soup")
-        tag = self.root.new_tag(
-            name,
-            namespace,
-            nsprefix,
-            attrs,
-            sourceline,
-            sourcepos,
-            string,
-            **kwargs,
-        )
+        # By name, and the text set after: Beautiful Soup 4.12 has no `string` argument (4.13 does).
+        tag = self.root.new_tag(name, namespace=namespace, nsprefix=nsprefix, attrs=attrs or {},
+                                sourceline=sourceline, sourcepos=sourcepos, **kwargs)
+        if string is not None:
+            tag.string = string
         return PageSoup(tag)
 
     def append(self, tag: Union[str, "PageSoup"]) -> None:
@@ -569,3 +564,21 @@ class PageSoup:
                 contents.append(t._tag)
         self._tag.replace_with(*contents)
         return self
+
+
+# A crawler may hand Beautiful Soup a PageSoup: `img.parent.append(soup.new_tag("img"))`, where the parent
+# is a plain Tag (from findAll) and the new tag a PageSoup. Beautiful Soup then set the wrapper's parent
+# ("property 'parent' of 'PageSoup' object has no setter"; webtoons). Its insert, which append,
+# insert_before/after and replace_with all go through, takes the tag inside.
+_tag_insert = Tag.insert
+
+
+def _insert(self, position, new_child, *rest, **kwargs):
+    if isinstance(new_child, PageSoup):
+        new_child = new_child._tag if new_child._tag is not None else ""
+    return _tag_insert(self, position, new_child, *rest, **kwargs)
+
+
+if not getattr(Tag.insert, "_unwraps_page_soup", False):
+    _insert._unwraps_page_soup = True
+    Tag.insert = _insert
