@@ -1,14 +1,16 @@
-"""Pick the Catalog's generic-search sites: the 100 most visited sites any site engine knows.
+"""List the Catalog's sites: every site any site engine knows, the most visited first.
 
 Every site an engine lists (the built-in scrapers, novel-downloader, WebToEpub, LNReader,
 lightnovel-crawler, FanFicFare, HaruNeko) is ranked by the Tranco list of the most visited
-domains (https://tranco-list.eu, a research ranking that averages several traffic sources). The top
-100 go to noveldb/core/catalog/generic_sites.json with what each can do: its own search (an LNReader
-plugin or a lightnovel-crawler crawler that searches) or a web search limited to the site. Adult-only
-sites are left out of this default list.
+domains (https://tranco-list.eu, a research ranking that averages several traffic sources); the ones
+it doesn't rank follow, those more engines know first. All of them go to
+noveldb/core/catalog/generic_sites.json with what each can do: its own search (an LNReader plugin or a
+lightnovel-crawler crawler that searches) or a web search limited to the site. A search asks the
+`--count` busiest ones itself ("searched"); every site is in the Sites panel, the top lists and the
+reader. Adult-only sites are left out.
 
     python scripts/build_generic_sites.py                 # downloads the current Tranco list
-    python scripts/build_generic_sites.py --tranco top-1m.csv.zip --count 100
+    python scripts/build_generic_sites.py --tranco top-1m.csv.zip --count 200
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from noveldb.core.engines.generic import site_of  # noqa: E402
 
 OUT = ROOT / "noveldb" / "core" / "catalog" / "generic_sites.json"
 TRANCO = "https://tranco-list.eu/top-1m.csv.zip"
+UNRANKED = 2 * 10 ** 6  # the rank of the first site Tranco doesn't rank (its list stops at a million)
 ADULT = re.compile(r"(hentai|porn|xxx|nsfw|sex|erotic|literotica|adult-fanfiction|doujin|nhentai|hitomi|tsumino|"
                    r"pururin|luscious|rule34|gelbooru|danbooru|manytoon|toonily|18comic|wnacg|myreadingmanga|manga18|"
                    r"allhen|yaoi|toongod|toptoon|cool18|semprot|hanime|ecchi|chochox|xlecx|inkbunny|honeytoon|cgbum)", re.I)
@@ -136,14 +139,19 @@ def build(hosts: dict, ranks: dict, count: int) -> list:
         entry["hosts"].add(host)
         for engine, details in engines.items():
             entry["engines"][engine].extend(details)
-    ranked = []
+    ranked, unranked = [], []
     for site, entry in by_site.items():
         rank = min([ranks[h] for h in entry["hosts"] if h in ranks] + [ranks.get(site, 10 ** 9)])
         if rank < 10 ** 9:
             ranked.append((rank, site, entry))
+        else:
+            unranked.append((site, entry))
     ranked.sort(key=lambda item: item[0])
+    # The sites Tranco doesn't rank: those more engines know first, then by name (ranks after all ranked).
+    unranked.sort(key=lambda item: (-len(item[1]["engines"]), item[0]))
+    ranked += [(UNRANKED + n, site, entry) for n, (site, entry) in enumerate(unranked)]
     out = []
-    for rank, site, entry in ranked[:count]:
+    for place, (rank, site, entry) in enumerate(ranked):
         engines = entry["engines"]
         lnr = sorted(set(engines.get("lnreader", [])))
         lnc = [c for c in engines.get("lncrawl", []) if c["search"]]
@@ -158,30 +166,37 @@ def build(hosts: dict, ranks: dict, count: int) -> list:
             "lncrawl": lnc[:1],
             "search": "lnreader" if lnr else ("lncrawl" if lnc else "web"),
             "comic": bool(engines.get("haruneko")) and not (lnr or engines.get("lncrawl") or engines.get("webtoepub")),
+            "searched": place < count,
         })
     return out
 
 
 def extra_sites(listed: set) -> list:
-    """EXTRA_SITES not already among the ranked ones, as entries like theirs (ranked after all of them, a web search)."""
-    return [dict({"rank": 10 ** 6, "engines": ["generic"], "lnreader": [], "lncrawl": [], "search": "web"}, **extra)
+    """EXTRA_SITES not already listed, as entries like theirs (after the ranked ones, searched, a web search)."""
+    return [dict({"rank": UNRANKED - 1, "engines": ["generic"], "lnreader": [], "lncrawl": [], "search": "web",
+                  "searched": True}, **extra)
             for extra in EXTRA_SITES if extra["site"] not in listed]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tranco", default=TRANCO, help="the Tranco list (zip) as a file or an address")
-    parser.add_argument("--count", type=int, default=100)
+    parser.add_argument("--count", type=int, default=200, help="how many of the busiest sites a search asks itself")
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args(argv)
     sites = build(engine_hosts(), tranco_ranks(args.tranco), args.count)
     sites += extra_sites({site["site"] for site in sites})
+    sites.sort(key=lambda site: site["rank"])
     data = {"built": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "ranking": "Tranco top 1M", "sites": sites}
-    args.out.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    # A site a line: the file stays small enough for the phones and still reads in a diff.
+    lines = ",\n".join(json.dumps(site, ensure_ascii=False, separators=(",", ":")) for site in sites)
+    head = json.dumps({k: v for k, v in data.items() if k != "sites"}, ensure_ascii=False)[:-1]
+    args.out.write_text(head + ',"sites":[\n' + lines + "\n]}\n", encoding="utf-8", newline="\n")
     kinds = defaultdict(int)
     for site in sites:
         kinds[site["search"]] += 1
-    print(f"{len(sites)} sites -> {args.out} ({dict(kinds)})")
+    searched = sum(1 for site in sites if site["searched"])
+    print(f"{len(sites)} sites ({searched} searched) -> {args.out} ({dict(kinds)})")
     return 0
 
 

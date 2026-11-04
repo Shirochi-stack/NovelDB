@@ -276,20 +276,23 @@ class GenericSearch:
         from noveldb.core.catalog.site_search import SiteSearch
 
         self.fetch = fetch
-        self.sites = sites if sites is not None else top_sites()
+        # A search asks the busiest sites itself ("searched"); the rest are known (their books are
+        # recognised, the top lists read them) and come up through the web search.
+        self.sites = sites if sites is not None else [site for site in top_sites() if site.get("searched", True)]
+        self._known = sites if sites is not None else top_sites()
         self.known_site = known_site or (lambda url: False)
         self.workers = workers or search_workers()
         self.site_search = site_search or SiteSearch(fetch)
         self.skip_lnreader = skip_lnreader  # the page searches those sites with their LNReader plugin
         self.noveldb = noveldb  # NovelDB's own books (noveldb_index.NovelDBIndex), when given
-        self._site_hosts = {host: site for site in self.sites for host in site.get("hosts", [site["host"]])}
+        self._site_hosts = {host: site for site in self._known for host in site.get("hosts", [site["host"]])}
 
     def site_for(self, url: str) -> Optional[dict]:
         host = _host(url)
         if host in self._site_hosts:
             return self._site_hosts[host]
         root = site_of(host)
-        return next((site for site in self.sites if site["site"] == root), None)
+        return next((site for site in self._known if site["site"] == root), None)
 
     def card(self, url: str, title: str = "", snippet: str = "", source: str = "web", cover: str = "") -> dict:
         learn_template(url)

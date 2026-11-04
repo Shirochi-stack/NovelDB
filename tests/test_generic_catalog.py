@@ -42,14 +42,23 @@ def test_the_generic_catalog_address_is_accepted_and_kept():
     assert import_config({"catalog_url": GENERIC_CATALOG_URL}).catalog.url == GENERIC_CATALOG_URL
 
 
-def test_the_site_list_has_the_top_100_book_sites():
+def test_the_site_list_has_every_site_the_engines_know():
     sites = top_sites()
-    # The 100 most visited, then the sites added by hand (build_generic_sites.EXTRA_SITES).
-    assert len(sites) == 101
-    assert sites[-1]["site"] == "bookkor.com" and "009.bookkor.com" in sites[-1]["hosts"]
+    # Every site an engine knows (well over a thousand), the most visited first; a search asks the
+    # busiest 200 itself, then the sites added by hand (build_generic_sites.EXTRA_SITES).
+    assert len(sites) > 1000
+    searched = [site for site in sites if site["searched"]]
+    assert len(searched) == 201 and sites[:200] == searched[:200]
+    bookkor = next(site for site in sites if site["site"] == "bookkor.com")
+    assert bookkor["searched"] and "009.bookkor.com" in bookkor["hosts"]
     assert all(site["host"] and site["search"] in ("lnreader", "lncrawl", "web") for site in sites)
     assert sites == sorted(sites, key=lambda site: site["rank"])
+    assert len({site["site"] for site in sites}) == len(sites)
     assert not any(site["site"] in ("google.com", "reddit.com", "blogspot.com") for site in sites)
+    # A search asks only the searched sites; a book from any listed site is still known.
+    engine = GenericSearch(fetch=lambda *a, **k: None)
+    assert len(engine.sites) == 201
+    assert engine.site_for("https://" + sites[-1]["host"] + "/x") is not None
 
 
 def test_book_pages_are_told_apart_from_chapters_and_lists():

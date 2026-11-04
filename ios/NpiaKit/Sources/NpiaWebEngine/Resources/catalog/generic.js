@@ -448,7 +448,7 @@
                 text = text.slice(label);
             }
         }
-        text = text.replace(/^\s*(summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé|story)\s*[:：-]?\s*/i, '');
+        text = text.replace(/^\s*((about|description of) this (novel|book|story|series|manga|manhwa|comic|title)|summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé|story)\s*[:：-]?\s*/i, '');
         // A run of share buttons, and ratings, anywhere at the start.
         text = text.replace(/^((\s*(facebook|twitter|whatsapp|pinterest|reddit|telegram|tumblr|share|tweet)\b[\s,|·]*){2,})/i, '');
         // Only the page's figures: a rating, a language, genres and a chapter count, no sentence.
@@ -1058,7 +1058,14 @@
         group.onDetails = show;
         show();
         if (!dialog.open) { dialog.showModal(); foldTags(dialog.querySelector('.details .chips'), group); }
-        if (!group.loaded && !group.asked) { group.asked = true; queue.unshift(group); pump(); }
+        // An open book's page is read now, not after the cards waiting before it (that took 20 s).
+        if (!group.loaded && !group.timer) {
+            group.asked = true;
+            queue = queue.filter(function (other) { return other !== group; });
+            loading++;
+            send({type: 'genericDetails', id: searchId, card: strip(group, group.sources[0])});
+            group.timer = setTimeout(function () { finishDetails(group); }, 45000);
+        }
     }
     function download(group, source) {
         send({type: 'genericDownload', url: source.url, title: group.title});
@@ -1350,7 +1357,8 @@
         $('heading').innerHTML = 'Results for ' + esc(label) + ' <a id="backTop">Top 100</a>';
         $('backTop').onclick = function () { $('query').value = ''; picked = []; showPicked(); showTop(); };
         startProgress(0);
-        status('Searching ' + ((config.sites.length || 100) + plugins().length) + ' sites for ' + label + '…');
+        // The sites a search asks itself (the busiest; every other one is found through the web search).
+        status('Searching ' + ((config.searched || config.sites.length || 100) + plugins().length) + ' sites for ' + label + '…');
         empty();
         send({type: 'genericSearch', id: searchId, queries: queries});
         if (!byId) lnreaderSearch(searchId, queries);

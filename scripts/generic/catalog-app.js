@@ -1086,7 +1086,8 @@
         function report(site, started, found, state) {
             call('progress', id, {site: site, ms: Date.now() - started, found: found, state: state || 'ok'});
         }
-        var sources = SITES.filter(function (site) { return !(site.lnreader || []).length; }).map(function (site) {
+        // The busiest sites ("searched"); the rest come up through the web search.
+        var sources = SITES.filter(function (site) { return site.searched !== false && !(site.lnreader || []).length; }).map(function (site) {
             return function () {
                 var started = Date.now(), home = 'https://' + site.host + '/';
                 var asked = mode === 'name' ? siteSearch(home, text, token) : siteTag(home, text, token);
@@ -1275,6 +1276,7 @@
                     if (found.more) { state.more = true; state.ndbMore = true; }
                 }, function () {})] : [];
                 if (sites) SITES.forEach(function (site) {
+                    if (site.searched === false) return;
                     var home = 'https://' + site.host + '/';
                     if (!hasMore(home, kind, text)) return;
                     jobs.push(siteMore(home, kind, text, token).then(function (hits) {
@@ -1682,7 +1684,7 @@
             SITES.forEach(function (site) {
                 (site.lnreader || []).slice(0, 1).forEach(function (plugin) { lnreader.push({id: plugin, site: site.site, comic: site.comic}); });
             });
-            call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, downloadIcon: window.NovelDBDownloadIcon || ''});
+            call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, searched: SITES.filter(function (s) { return s.searched !== false; }).length, downloadIcon: window.NovelDBDownloadIcon || ''});
         });
     }
     // A web page, or a Library EPUB (the app hands over only EPUBs in its download folder).

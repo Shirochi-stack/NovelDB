@@ -359,7 +359,7 @@ class GenericCatalog(QObject):
         lnreader = [{"id": plugin, "site": site["site"], "comic": site["comic"]}
                     for site in sites for plugin in site.get("lnreader", [])[:1]]
         self._call("init", {"sites": [site["site"] for site in sites], "comic": [site["site"] for site in sites if site["comic"]],
-                            "lnreader": lnreader,
+                            "lnreader": lnreader, "searched": sum(1 for site in sites if site.get("searched", True)),
                             "downloadIcon": download_icon()})
         self.send_theme()
 
