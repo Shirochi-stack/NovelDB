@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -365,7 +363,6 @@ fun JobDetailScreen(model: AppViewModel, id: String) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FileRow(model: AppViewModel, file: File, jobId: String?) {
     val manager = model.manager
@@ -389,16 +386,18 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
             Text("Missing", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             return@Column
         }
-        // The actions wrap onto a second line on a narrow screen (none is cut off at the edge).
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AssistChip(onClick = { if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}") }, label = { Text("Open") })
-            AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share") })
+        // Slightly smaller labels and gaps, so all four fit on one line on a phone (a folder's "Save as
+        // ZIP" and "Upload as ZIP" were cut off at the edge); a very narrow screen still scrolls.
+        val small = MaterialTheme.typography.labelMedium
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            AssistChip(onClick = { if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}") }, label = { Text("Open", style = small) })
+            AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share", style = small) })
             // A folder (separate TXT) is saved and uploaded as one ZIP.
             AssistChip(onClick = { saveCopy.launch(FileActions.copyName(file)) },
-                label = { Text(if (file.isDirectory) "Save as ZIP" else "Save copy") })
+                label = { Text(if (file.isDirectory) "Save as ZIP" else "Save copy", style = small) })
             if (upload?.phase != UploadState.Phase.RUNNING) {
                 AssistChip(onClick = { model.requestUpload { manager.upload(file, jobId) } },
-                    label = { Text(if (file.isDirectory) "Upload as ZIP" else "Upload") })
+                    label = { Text(if (file.isDirectory) "Upload as ZIP" else "Upload", style = small) })
             }
         }
         upload?.let { state ->
