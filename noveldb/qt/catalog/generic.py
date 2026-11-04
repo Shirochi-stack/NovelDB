@@ -146,6 +146,16 @@ def _refused(result: Optional[dict]) -> bool:
     return any(word in head for word in _CHALLENGE)
 
 
+
+def _haruneko_site(url: str) -> bool:
+    """HaruNeko's websites list the address's site (the downloader reads those with it)."""
+    try:
+        from noveldb.core.catalog import sites
+
+        return sites.supported_site(url, ("haruneko",))
+    except Exception:
+        return False
+
 class BrowserFetcher(QObject):
     """Loads pages in hidden tabs of the Catalog's browser profile, for worker threads.
 
@@ -600,6 +610,14 @@ class GenericCatalog(QObject):
             if url in self._downloader_books:
                 self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
                 return
+            # A HaruNeko site goes to the download engines (HaruNeko among them) at once: the quick
+            # engines' generic fallback "reads" its pages wrongly instead of failing (thunderscans).
+            if self.downloader is not None and len(args) == 1 and _haruneko_site(url):
+                try:
+                    self._fetched.emit(fetch_id, self._downloader_read(url))
+                    return
+                except Exception as e:
+                    log.info("generic reader (downloader, HaruNeko site): %s", e)
             try:
                 self._fetched.emit(fetch_id, function(*args))
                 return
@@ -618,6 +636,7 @@ class GenericCatalog(QObject):
             _reading.id = None
 
     def _downloader_read(self, url: str, index: Optional[int] = None) -> dict:
+        # Its index is None for the book.
         """The book (index None) or one chapter through the downloader's engine chain and saved sessions."""
         if index is None:
             self._note("The quick engines couldn't read it; trying the downloader with your saved logins…")

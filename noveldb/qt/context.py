@@ -70,6 +70,12 @@ class AppContext(QObject):
 
         self.auth = NpiaAuth()
         self.browser = BrowserWorker(log=lambda text: self.hub.log("", text)) if start_workers else None
+        # The Catalog reader's own browser (noveldb.core.external.reader_scraper): reading a book never
+        # waits for a download that has the downloader's browser.
+        from noveldb.core.external.reader_scraper import reader_scraper
+
+        self.reader_browser = BrowserWorker(scraper_factory=reader_scraper, log=lambda text: self.hub.log("", text)) \
+            if start_workers else None
         data = paths.data_dir()
         self.uploads = UploadHistory(str(data / "upload-history.json"))
         self.cart = LinkCart(str(data / "link-cart.json"), on_change=self.cartChanged.emit)
@@ -210,4 +216,6 @@ class AppContext(QObject):
         self.runner.wait_idle(5)
         if self.browser is not None:
             self.browser.shutdown()
+        if self.reader_browser is not None:
+            self.reader_browser.shutdown()
         self.save_now()
