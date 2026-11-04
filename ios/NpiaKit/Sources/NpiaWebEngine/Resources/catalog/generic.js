@@ -1638,6 +1638,9 @@
         $('rChapter').textContent = '';
         tryBook(group, sourceIndex || 0, R.token, []);
     }
+    // A chapter's pages are streaming in (on screen): notes go to the bottom bar, not over them. No chapter
+    // yet (a book just opened: both -1) is not streaming.
+    function streaming() { return R.index >= 0 && R.streamed === R.index; }
     // What the reader is doing, with a clock; after `limit` seconds it gives up with a way out.
     function note(text, limit, retry) {
         clearInterval(R.clock);
@@ -1645,7 +1648,7 @@
         R.noteText = text;
         R.noteDetail = '';
         var draw = R.drawNote = function () {
-            if (token !== R.token || R.streamed === R.index) { clearInterval(R.clock); return; }
+            if (token !== R.token || streaming()) { clearInterval(R.clock); return; }
             var seconds = Math.round((Date.now() - started) / 1000);
             if (limit && seconds >= limit) {
                 clearInterval(R.clock);
@@ -2297,7 +2300,7 @@
             if ((id !== R.requestId && id !== R.chapterIds.get(R.index)) || !R.drawNote) return;
             R.noteDetail = text;
             // Once the chapter's images are showing, the note would cover them: the bottom bar says it instead.
-            if (R.streamed === R.index) { $('rWhere').textContent = text; return; }
+            if (streaming()) { $('rWhere').textContent = text; return; }
             R.drawNote();
         },
         readerImages: function (id, found) {

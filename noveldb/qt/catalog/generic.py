@@ -543,7 +543,7 @@ class GenericCatalog(QObject):
         `scroll`: scrolled to its end first (lists that load as you scroll)."""
         if scroll:
             self._note("Scrolling the chapter list to its end in a browser tab…")
-        result = self.browser.fetch(url, timeout=75.0 if scroll else 45.0, scroll=scroll)
+        result = self.browser.fetch(url, timeout=45.0, scroll=scroll)
         return (result or {}).get("text") or ""
 
     def _chapter(self, url: str, index: int) -> dict:
