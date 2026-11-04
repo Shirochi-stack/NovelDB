@@ -88,7 +88,7 @@
         if (options.data != null) details.dataBase64 = base64Of(String(options.data));
         if (stopped(options.stop)) return Promise.resolve(null);
         // `priority`: a few small reads (NovelDB's index) that never wait behind the sites' pages.
-        var pool = options.priority ? {free: 1, waiting: []} : slots;
+        var pool = options.pool || (options.priority ? {free: 1, waiting: []} : slots);
         return take(pool).then(function () {
             // A search or top list stopped while this waited for a slot: its request is not sent.
             return stopped(options.stop) ? {error: 'stopped'} : transport(details);
@@ -270,7 +270,16 @@
     // Format 2: each token's books per source, in pages (scripts/noveldb_index/build.cjs). Results take
     // the next book of each source in turn, the lead source's (npia) first; more pages as the user scrolls.
     var NDB_FORMAT = 2, NDB_LEAD = 'npia', NDB_MULTI_PAGES = 40;
-    var ndb = {manifest: null, pieces: new Map(), loading: null};
+    var ndb = {manifest: null, pieces: new Map(), loading: null, reading: 0, idle: []};
+    /** The search index's reads in flight: synopses wait until there are none (on a phone every reply
+     *  goes through the page, and a synopsis shard is many times an index piece). */
+    function ndbReading(asked) {
+        ndb.reading++;
+        var done = function () { if (--ndb.reading === 0) ndb.idle.splice(0).forEach(function (go) { go(); }); };
+        asked.then(done, done);
+        return asked;
+    }
+    function ndbIdle() { return ndb.reading ? new Promise(function (go) { ndb.idle.push(go); }) : Promise.resolve(); }
 
     function ndbNormal(text) { return String(text || '').normalize('NFKC').toLowerCase(); }
     function ndbTokens(text) {
@@ -309,7 +318,7 @@
         var kept = store(NDB_KEY);
         if (kept && kept._read && kept.format === NDB_FORMAT && Date.now() - kept._read < NDB_HOURS * 3600e3) { ndb.manifest = kept; return Promise.resolve(kept); }
         if (ndb.loading) return ndb.loading;
-        ndb.loading = fetchUrl(NDB_INDEX + 'noveldb-search.json', {binary: true, priority: true}).then(function (result) {
+        ndb.loading = ndbReading(fetchUrl(NDB_INDEX + 'noveldb-search.json', {binary: true, priority: true})).then(function (result) {
             ndb.loading = null;
             if (!result || result.status >= 400) return ndb.manifest;
             var found;
@@ -328,7 +337,7 @@
         var key = manifest.built + '|' + kind + '|' + index;
         if (ndb.pieces.has(key)) return ndb.pieces.get(key);
         var at = place || (kind === 'bucket' ? manifest.bucketAt : manifest.blockAt)[index];
-        var asked = fetchUrl(NDB_INDEX + manifest.bin, {binary: true, priority: true, headers: {Range: 'bytes=' + at[0] + '-' + (at[0] + at[1] - 1)}})
+        var asked = ndbReading(fetchUrl(NDB_INDEX + manifest.bin, {binary: true, priority: true, headers: {Range: 'bytes=' + at[0] + '-' + (at[0] + at[1] - 1)}}))
             .then(function (result) {
                 if (result && result.status === 404 && !retried && !place) {
                     // A table of contents kept from an earlier build points at data a newer build replaced.
@@ -522,17 +531,18 @@
     }
     // The synopsis shards read lately (a shard holds hundreds of books' synopses): one read for every
     // card of a search that falls in it.
-    var ndbShards = new Map();
+    // Shards are 80-300 KB each: two at a time, so they never crowd out the search index's small reads.
+    var ndbShards = new Map(), shardSlots = {free: 2, waiting: []};
     function ndbShardFile(url) {
         if (ndbShards.has(url)) return ndbShards.get(url);
-        var asked = fetchUrl(url, {binary: true, priority: true}).then(function (result) {
+        var asked = ndbIdle().then(function () { return fetchUrl(url, {binary: true, pool: shardSlots}); }).then(function (result) {
             if (!result || result.status >= 400) { ndbShards.delete(url); return {}; }
             var bytes = result.bytes;
             var text = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzip(bytes) : Promise.resolve(new TextDecoder().decode(bytes));
             return text.then(JSON.parse);
         }).catch(function () { ndbShards.delete(url); return {}; });
         ndbShards.set(url, asked);
-        if (ndbShards.size > 8) ndbShards.delete(ndbShards.keys().next().value);
+        if (ndbShards.size > 24) ndbShards.delete(ndbShards.keys().next().value);
         return asked;
     }
     /** A NovelDB book's synopsis, from the site's synopsis shard for it. */

@@ -138,6 +138,11 @@
         status('Searching… ' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered · ' + seconds + ' s · '
                + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far' + noveldbCount());
     }
+    // While searching, the one progress line counts the books: no second line takes turns with it.
+    function countLine() {
+        if (running) { showProgress(); return; }
+        status(shownCount() + ' books found' + noveldbCount() + (progress.noveldb > shownCount() ? '; scroll for more.' : '.'));
+    }
     function noveldbCount() {
         return progress.noveldb ? ' · ' + progress.noveldb.toLocaleString() + ' in NovelDB' : '';
     }
@@ -439,7 +444,7 @@
             if (group.element) group.element.remove();
             if ($('dialog').open && group.onDetails) $('dialog').close();
         }
-        if (view === 'search') status(shownCount() + ' books found' + (running ? '…' : '.'));
+        if (view === 'search') countLine();
         empty();
         pump();
     }
@@ -748,7 +753,7 @@
                 render(group);
             }
         });
-        if (view === 'search') status(shownCount() + ' books found' + (running ? '…' : '.'));
+        if (view === 'search') countLine();
     }
     function shownCount() { return order.filter(function (g) { return !(g.held && !g.verified); }).length; }
 
@@ -1214,7 +1219,8 @@
     }
     function finishedSearch(id) {
         if (id !== searchId || running) return;
-        status(shownCount() + ' books found in ' + seconds(Date.now() - progress.started) + '.');
+        status(shownCount() + ' books found in ' + seconds(Date.now() - progress.started) + noveldbCount()
+               + (progress.noveldb > shownCount() ? '; scroll for more.' : '.'));
         empty();
     }
 
