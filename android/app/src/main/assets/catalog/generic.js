@@ -343,8 +343,23 @@
     var SHARE_WORDS = /\b(facebook|twitter|whatsapp|pinterest|reddit|telegram|tumblr|share|tweet|copy link)\b[\s,|·]*/gi;
     var RATING = /\b\d(\.\d+)?\s*\/\s*(5|10)\s*(\(\s*[\d,.]+\s*votes?\s*\))?|\(\s*[\d,.]+\s*(votes?|ratings?)\s*\)|rate this (novel|book|series|story)/gi;
     var SYNOPSIS_LABEL = /\b(summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé)\b\s*[:：-]?\s*/i;
-    function synopsisText(text) {
+    // A synopsis that ends in the page's hashtags ("… #Aristocracy #Found Family Suggest tag …"): the
+    // text before them, and the tags (the page's own tag widgets after the last one go).
+    var TAG_JUNK = /\s*\b(suggest (tags?|genres?)|community suggestions|show (more|less)|read more|add tags?|vote)\b[\s\S]*$/i;
+    function hashSplit(text) {
         text = String(text || '');
+        var at = text.search(/(^|\s)#(?=[^\s#\d])/);
+        if (at < 0 || (text.slice(at).match(/(^|\s)#(?=[^\s#])/g) || []).length < 2) return {text: text, tags: []};
+        var tags = text.slice(at).trim().slice(1).split(/\s+#/).map(function (piece) {
+            return piece.replace(TAG_JUNK, '').replace(/[\s,;|·]+$/, '').trim();
+        }).filter(function (tag) { return tag.length >= 2 && tag.length <= 40; });
+        var before = text.slice(0, at).replace(/\s*(show more|read more|show less|more)\s*$/i, '').trim();
+        return {text: before, tags: tags};
+    }
+    // A chapter count is a whole number ("436", "1,204", "86 chapters"), not a rating that landed there.
+    function wholeCount(value) { return /^\s*\d[\d,\s]*(chapters?|ch|eps?|episodes?)?\s*$/i.test(String(value || '')); }
+    function synopsisText(text) {
+        text = hashSplit(text).text;
         // Junk before a label: everything up to the label goes (a rating or share buttons say it is junk).
         var label = text.slice(0, 400).search(SYNOPSIS_LABEL);
         if (label > 0) {
@@ -433,15 +448,16 @@
             byUrl.set(key(card.url), group);
         }
         ['author', 'status', 'published', 'updated', 'rating', 'ratings', 'likes', 'views', 'chapters'].forEach(function (name) {
-            if (card[name] && !group[name]) group[name] = card[name];
+            if (card[name] && !group[name] && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
         });
         if (card.cover && !group.cover) group.cover = card.cover;  // the first site's cover stays
         if (card.cover && (group.covers || (group.covers = [])).indexOf(card.cover) < 0) group.covers.push(card.cover);
         // The longest synopsis once cleaned (a page's rating and share buttons do not count).
         if (card.description && synopsisText(card.description).length > synopsisText(group.description).length) group.description = card.description;
-        if (card.tags && card.tags.length) {
+        var cardTags = (card.tags || []).concat(hashSplit(card.description).tags);
+        if (cardTags.length) {
             var seen = new Set(group.tags.map(function (t) { return t.toLowerCase(); }));
-            card.tags.forEach(function (tag) {
+            cardTags.forEach(function (tag) {
                 if (!seen.has(tag.toLowerCase())) { seen.add(tag.toLowerCase()); group.tags.push(tag); }
             });
         }
