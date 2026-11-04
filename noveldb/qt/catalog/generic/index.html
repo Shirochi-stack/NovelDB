@@ -120,6 +120,14 @@
     #reader.comic #flow { max-width: 900px !important; padding: 0 0 80px !important; }
     #reader.comic #flow img { width: 100%; max-height: none !important; margin: 0 auto !important; }
     #reader.comic #flow p { text-align: center; }
+    /* A comic in pages: each image a page of its own, whole on the screen. */
+    #reader.comic:not(.scroll) #flow { max-width: none !important; padding-bottom: 28px !important; }
+    #reader.comic:not(.scroll) #flow img { width: auto; max-width: 100%; height: var(--page-h, calc(100vh - 160px));
+        max-height: var(--page-h, calc(100vh - 160px)) !important; object-fit: contain; break-after: column; break-inside: avoid;
+        margin: 0 auto !important; }
+    #reader.comic:not(.scroll) #flow img.slot:not(.ready) { width: 100%; min-height: 0; }
+    #reader.comic:not(.scroll) #flow p { margin: 0; }
+    #reader.comic:not(.scroll) #flow h2.chapter { display: none; }  /* its name is in the bar */
     #empty { color: var(--ink-2); text-align: center; margin-top: 60px; }
     /* the tag menu */
     #tagmenu { position: absolute; left: 16px; right: 16px; top: 100%; margin-top: 4px; max-height: min(70vh, 560px); overflow: auto;

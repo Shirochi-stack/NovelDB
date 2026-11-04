@@ -1499,7 +1499,8 @@
         applyLook();
     }
     // Comics read as one scroll of full-width images; novels in the layout picked.
-    function layout() { return R.comic ? 'scroll' : look.layout; }
+    // Comics have a layout of their own (one long scroll by default, or a page per image).
+    function layout() { return R.comic ? (look.comic || 'scroll') : look.layout; }
     if (darkPage && darkPage.addEventListener) darkPage.addEventListener('change', function () { if ($('reader').classList.contains('open')) applyLook(); });
 
     // Full screen: the reader's bars hidden (a tap in the middle shows them), the page's own full screen
@@ -1539,7 +1540,7 @@
         document.querySelectorAll('#look [data-look]').forEach(function (button) {
             var name = button.dataset.look;
             button.classList.toggle('on', name === look.font || name === look.theme || name === layout());
-            if (name === 'paged') button.disabled = !!R.comic;
+
         });
         store(LOOK_KEY, look);
     }
@@ -1552,6 +1553,7 @@
             else if (name === 'looser') look.leading = Math.min(2.6, Math.round((look.leading + 0.1) * 10) / 10);
             else if (name === 'serif' || name === 'sans') look.font = name;
             else if (name === 'auto' || name === 'light' || name === 'sepia' || name === 'dark') look.theme = name;
+            else if (R.comic) look.comic = name;
             else look.layout = name;
             applyLook();
             paginate(at);
@@ -1619,6 +1621,7 @@
         R.streamed = -1;
         R.index = -1;
         R.slots = [];
+        R.slotsIndex = -1;
         R.pages = 1;
         R.page = 0;
         clearInterval(R.clock);
@@ -1759,8 +1762,11 @@
         return promise;
     }
     function openChapter(index, at) {
+        // The chapter already streaming in (its pages arriving): left as it is, not started again.
+        if (index === R.index && R.slotsIndex === index && R.slots && R.slots.length) return;
         var token = R.token;
         R.streamed = -1;
+        R.slotsIndex = -1;
         resetPictures();
         R.index = index;
         $('rChapter').textContent = '· ' + (R.chapters[index].name || '');
@@ -1776,7 +1782,13 @@
                 failed(chapter.blocked ? chapter.message : 'Chapter ' + (index + 1) + ' could not be read: ' + chapter.error, retry, chapter.blocked);
                 return;
             }
-            if (R.streamed === index) { R.streamed = -1; finishStream(chapter); return; }
+            // Its pages streamed in: finish them where they are (the slots know their chapter, even
+            // when something reset R.streamed meanwhile), never draw the chapter again from 0.
+            if (R.streamed === index || (R.slotsIndex === index && R.slots && R.slots.length)) {
+                R.streamed = -1;
+                finishStream(chapter);
+                return;
+            }
             var last = index + 1 < R.chapters.length;
             var many = (chapter.html.match(/<img/g) || []).length >= 4;
             if (many) {
@@ -1874,6 +1886,7 @@
         if (R.streamed !== index) {
             asComic();
             R.streamed = index;
+            R.slotsIndex = index;
             clearInterval(R.clock);
             resetPictures();
             $('flow').innerHTML = '<h2 class="chapter">' + esc(R.chapters[index].name || '') + '</h2>';
@@ -1926,6 +1939,8 @@
         }
         flow.style.width = width + 'px';
         flow.style.padding = '28px ' + (gap / 2) + 'px';
+        // A comic page's image fills the page's height (the viewport less the padding).
+        flow.style.setProperty('--page-h', Math.max(200, viewport.clientHeight - 60) + 'px');
         flow.style.columnGap = gap + 'px';
         flow.style.columnWidth = column + 'px';
         flow.style.transition = 'none';
