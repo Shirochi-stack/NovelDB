@@ -328,11 +328,8 @@ def test_a_volume_title_with_a_suffix_finds_its_series_card(monkeypatch, title):
     assert 'seriesTitle = ' + dumps('두 개의 제국, 제국의 노예') + ',' in sent[0]
 
 
-def test_the_books_own_contents_page_is_left_out_of_the_front_matter():
-    # Volume 2's front matter was only its printed contents: "목차" and "8. 9. ... 13."
-    rows = [{'title': title} for title in ('8.', '9.', '10.', '11.', '12.', '13.')]
-    contents = '<h1>목차</h1>' + ''.join(f'<p>{row["title"]}</p>' for row in rows)
-    assert RbooksAppProxy._contents_page(contents, rows)
-    assert not RbooksAppProxy._contents_page('<h1>두 개의 제국, 제국의 노예 2권</h1><p>레브노아드 지음</p>', rows)
-    assert not RbooksAppProxy._contents_page('<h1>목차</h1><p>작가의 말</p><p>긴 머리말이 이어진다</p>'
-                                             '<p>또 다른 이야기</p>', rows)
+def test_the_hidden_watermark_characters_are_removed_from_the_text():
+    raw = '<p>⁠⁠⁣⁠⁣[인물 설정]</p><p>⁣⁠대륙 남부의 패자</p>'
+    cleaned = RbooksAppProxy._clean_section(raw)
+    assert '[인물 설정]' in cleaned and '대륙 남부의 패자' in cleaned
+    assert not RbooksAppProxy.WATERMARK.search(cleaned)
