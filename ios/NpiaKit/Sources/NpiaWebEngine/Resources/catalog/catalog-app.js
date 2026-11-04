@@ -1219,7 +1219,7 @@
             var fits = function (site) { return (TLD_LANG[site.site.split('.').pop()] || 'en') === language; };
             sites = sites.filter(fits).concat(sites.filter(function (s) { return !fits(s); }));
         }
-        sites = sites.slice(0, 30);
+        sites = sites.slice(0, 80);  // the busiest 80 of the kind (with the LNReader sites the page reads, ~180)
         topSites = sites;
         call('progress', id, {total: sites.length});
         var seen = {};

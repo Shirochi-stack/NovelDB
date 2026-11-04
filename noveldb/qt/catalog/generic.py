@@ -446,7 +446,7 @@ class GenericCatalog(QObject):
                 country = TLD_LANG.get(site["site"].rsplit(".", 1)[-1])
                 return (country or "en") == language
             sites = [site for site in sites if fits(site)] + [site for site in sites if not fits(site)]
-        sites = sites[:30]
+        sites = sites[:80]  # the busiest 80 of the kind (with the LNReader sites the page reads, ~180)
         self._top_sites = sites
         engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
 

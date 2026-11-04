@@ -997,12 +997,23 @@
             group.sources.splice(group.sources.indexOf(source), 1);
             group.sources.unshift(source);
         }
-        if (synopsisText(group.description) && group.tags.length) return;
+        if (synopsisText(group.description) && group.tags.length) return false;
         var next = group.sources.find(function (s) { return !asked[key(s.url)] && !s.noveldb; });
-        if (!next || Object.keys(asked).length >= 4) return;
+        if (!next || Object.keys(asked).length >= 4) return false;
         asked[key(next.url)] = true;
         send({type: 'genericDetails', id: searchId, card: strip(group, next)});
+        return true;
     }
+    function thin(group) { return !synopsisText(group.description) && !group.tags.length; }
+    // Sites whose books' pages tell nothing (atsu.moe): after three such books, none of theirs in the top lists.
+    var THIN_KEY = 'noveldb.generic.thinSites';
+    var thinSites = store(THIN_KEY) || {};
+    function thinSite(site) {
+        if (!site) return;
+        thinSites[site] = (thinSites[site] || 0) + 1;
+        store(THIN_KEY, thinSites);
+    }
+    function thinSiteNow(site) { return (thinSites[site] || 0) >= 3; }
     function strip(group, source) {
         return {url: source.url, title: group.title, author: group.author, cover: group.cover, description: group.description,
                 tags: group.tags, site: source.site, comic: group.comic, source: source.source, noveldb: source.noveldb, complete: false};
@@ -1233,6 +1244,7 @@
         var picked = top.only.length > 0;
         if (picked && top.only.indexOf(card.site) < 0) return;
         if (!card.title || JUNK.test(card.title) || NO_RESULTS.test(card.title) || (!picked && !inLanguage(card)) || notInTop(card)) return;
+        if (!picked && thinSiteNow(card.site)) return;  // its books' pages tell nothing
         var k = groupKey(card);
         // Picked sites take turns: each one's first book, then each one's second, and so on.
         var place = picked ? (top.seen[card.site] = (top.seen[card.site] || 0) + 1) * 100 + top.only.indexOf(card.site) : top.first++;
@@ -1288,7 +1300,7 @@
             return !p.comic && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language)
                 && (allPlugins.length ? !!p.ln === wantLn : true);
         }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); });
-        return all ? chosen : chosen.slice(0, 60);
+        return all ? chosen : chosen.slice(0, 100);
     }
     function loadTop(id) {
         if (isComicKind(top.kind)) {
@@ -1335,7 +1347,8 @@
             if (id !== searchId) return;
             topRedraw();
             topSave();
-            status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on ' + plugins_.length + ' ' + TOP_NAMES[top.kind] + ' sites, by their popular lists.'
+            // Every source read: the LNReader sites and the sites the app read (progress counts both).
+            status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on ' + Math.max(plugins_.length, progress.expected) + ' ' + TOP_NAMES[top.kind] + ' sites, by their popular lists.'
                 : top.only.length ? top.only.join(', ') + ' did not send a popular list (a bot check, or the site is down). Pick other sites in Sites.'
                 : 'No ' + TOP_NAMES[top.kind] + ' in the popular lists right now.');
             empty();
@@ -2410,7 +2423,9 @@
             merge(card);
             // Its page shows tags the list card lacked.
             if (view === 'top' && (notInTop(group) || !inLanguage(card))) { dropFromTop(group); return; }
-            moreDetails(group, card);
+            var asking = moreDetails(group, card);
+            // A book no site tells anything of (no synopsis, no tags) leaves the top list for the next.
+            if (view === 'top' && !asking && thin(group)) { thinSite(group.sources[0].site); dropFromTop(group); return; }
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
         },
