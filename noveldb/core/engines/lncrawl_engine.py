@@ -159,7 +159,57 @@ def _load_class(entry: dict):
         except BaseException:
             sys.modules.pop(name, None)
             raise
+        _patch(module)
     return getattr(module, entry["name"])
+
+
+def _patch(module) -> None:
+    """Fixes for upstream crawlers, applied as they load (the bundle keeps their files unchanged)."""
+    crawler = getattr(module, "WebToonsCrawler", None)
+    if crawler is not None and not getattr(crawler, "_noveldb_patched", False):
+        crawler.read_novel_info = _webtoons_novel_info
+        crawler._noveldb_patched = True
+
+
+def _webtoons_novel_info(self) -> None:
+    """webtoons: every page of the episode list, oldest first.
+
+    Upstream took the last pagination link for the last page, but that link is "Next" (the next ten
+    pages): a series of 286 episodes gave its newest 110, the first of them S2 Ep. 82. The pages are
+    read until one adds no episode, and the episodes are ordered by their number."""
+    module = sys.modules[type(self).__module__]
+    soup = self.get_soup(self.novel_url)
+    title = soup.select_one("h1.subj") or soup.select_one("h3.subj")
+    self.novel_title = title.text.strip() if title else ""
+    author = soup.select_one("a.author") or soup.select_one(".author_area")
+    self.novel_author = author.text.strip() if author else ""
+    cover = soup.select_one("meta[property='og:image']")
+    if cover:
+        self.novel_cover = self.absolute_url(cover["content"])
+    base = re.sub(r"[?&]page=\d+", "", self.novel_url)
+    joiner = "&" if "?" in base else "?"
+    episodes: Dict[int, tuple] = {}
+    for page in range(1, 400):
+        page_soup = soup if page == 1 else self.get_soup(f"{base}{joiner}page={page}")
+        added = 0
+        for link in page_soup.select("#_listUl a"):
+            href = str(link["href"] or "")
+            number = re.search(r"episode_no=(\d+)", href)
+            if not number or int(number.group(1)) in episodes:
+                continue
+            name = link.select_one("span.subj > span") or link.select_one("span.subj")  # not its "UP" badge
+            episodes[int(number.group(1))] = (href, (name.text if name else "").strip())
+            added += 1
+        if not added:
+            break
+    for number in sorted(episodes):
+        href, name = episodes[number]
+        chapter_id = len(self.chapters) + 1
+        volume_id = 1 + len(self.chapters) // 100
+        if chapter_id % 100 == 1:
+            self.volumes.append(module.Volume(id=volume_id))
+        self.chapters.append(module.Chapter(id=chapter_id, volume=volume_id, title=name or f"Episode {number}",
+                                            url=self.absolute_url(href)))
 
 
 def _plain(text: str) -> str:
