@@ -382,6 +382,7 @@ function stripSiteName(title, siteName, url) {
     }
     title = title.replace(/^(read\s+)/i, "");
     title = title.replace(/\s+(novel|light novel|manga|manhwa|webtoon)?\s*(online)?\s*(for\s+)?free.*$/i, "");
+    title = title.replace(/[\s\-|:]+(all |the )?latest chapters?$/i, "");  // "X Latest Chapter" (mangabats)
     return title.trim();
 }
 
@@ -501,6 +502,8 @@ const TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [
 const COVER_IMAGES = "[class*=cover] img, [class*=thumb] img, [class*=poster] img, img[class*=cover], [class*=book] img";
 const NOT_COVER = /(gravatar|googleusercontent\.com\/a\/|\/unit\/|\.svg($|\?)|(^|\/)[^\/?]*(logo|icon|flag|avatar|sprite|placeholder|default)[^\/]*$)/i;
 const SYNOPSIS_HEADING = /^\s*(synopsis|summary|description|story|about( this (novel|book|series))?|sinopsis|sinopse|résumé|resumen)\s*[:：]?\s*$/i;
+// A site's notice where the synopsis goes, not a synopsis.
+const ANNOUNCEMENT = /(📢|📌|🔔|new feature|announcement|join (us on|our) discord|we('ve| have) moved|our new (domain|address)|bookmark (our|this) (site|domain)|reading history for guests)/i;
 // A synopsis box that says there is none, and the buttons that unfold one.
 const NO_SYNOPSIS = /^(n\/?a|none|null|nil|unknown|tbd|-+|no (description|synopsis|summary)( yet| available)?\.?)$/i;
 const MORE_LESS = /\[?(more|less|show more|show less|read more)\]?/gi;
@@ -588,6 +591,16 @@ function htmlText(text) {
     return root ? plain(root) : text;
 }
 
+/** `node` is (in) a comment section ("comment-summary": its replies, Login to reply...). */
+function inComments(node) {
+    for (let at = node, n = 0; at && at.getAttribute && n < 7; at = at.parentElement, n++) {
+        if (/comment|disqus|reply|review/i.test((at.getAttribute("class") || "") + " " + (at.getAttribute("id") || ""))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** The block right after a "Synopsis" (or "Summary", "Description") heading. */
 function headedSynopsis(doc) {
     let out = [];
@@ -647,12 +660,15 @@ function metadata(doc, url) {
         }
     }
     if (!author) {
-        let label = textNodes(doc, /^\s*(author|writer|作者|저자|작가|著者|autor|auteur|автор)\s*[:：]?\s*$/i, 1)[0];
+        let label = textNodes(doc, /^\s*(author|writer|作者|저자|작가|著者|autor|auteur|автор)(\(s\)|s)?\s*[:：]?\s*$/i, 1)[0];
         let node = label ? label.parentNode : null;
         if (node) {
             let inside = textOf(node).replace(label.nodeValue.trim(), "").replace(/^[ :：]+|[ :：]+$/g, "");
+            // The name may be bare text after the label ("<p>Author(s):</p> Shirakawa Miabi").
+            let following = node.nextSibling;
+            let bare = following && following.nodeType === 3 ? following.nodeValue.trim() : "";
             let sibling = nextElement(node);
-            author = inside || (sibling ? textOf(sibling) : "");
+            author = inside || bare || (sibling ? textOf(sibling) : "");
         }
         if (!author) {
             let link = Array.from(doc.querySelectorAll("a[href]"))
@@ -689,8 +705,14 @@ function metadata(doc, url) {
     if (blocks.some(block => NO_SYNOPSIS.test(textOf(block).replace(MORE_LESS, "").trim()))) {
         blocks = [];  // the page's synopsis says there is none ("N/A"): no bigger box of the page instead
     }
+    if (ANNOUNCEMENT.test(description.slice(0, 200))) {
+        description = "";
+    }
     for (let block of blocks) {
         let longer = textOf(block);
+        if (ANNOUNCEMENT.test(longer.slice(0, 200)) || inComments(block)) {
+            continue;  // the site's notice in the synopsis box ("📢 New Feature: Save Reading History..."), or comments
+        }
         if (longer.length > description.length && !statsBox(longer) && prose(longer)) {
             description = longer;
             break;
@@ -707,15 +729,17 @@ function metadata(doc, url) {
         // (A footer's or a menu's genre links list the site's genres, not the book's.)
         .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)[\/-]|[?&][\w-]*(genres?|tags?|categor(y|ies))[\w-]*=/i.test(a.getAttribute("href"))
             && !siteChrome(a, ["FOOTER"])).slice(0, 40);
-    for (let box of doc.querySelectorAll(TAG_LISTS)) {
-        if (!siteChrome(box, ["HEADER", "NAV", "FOOTER"])) {
-            let found = Array.from(box.querySelectorAll("a[href]")).slice(0, 40);
-            tagLinks.push(...found);
-            if (!found.length) {
-                // Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
-                tags.push(...textOf(box).split(/[,/|·•]/).map(word => word.trim())
-                    .filter(word => word.length > 1 && word.length <= 40 && !NOT_TAG.test(word)));
-            }
+    let boxed = Array.from(doc.querySelectorAll(TAG_LISTS)).filter(box => !siteChrome(box, ["HEADER", "NAV", "FOOTER"]));
+    if (boxed.some(box => box.querySelector("a[href]"))) {
+        tagLinks = [];  // the page's genre box is the book's: other genre links are a site-wide table (mangabats)
+    }
+    for (let box of boxed) {
+        let found = Array.from(box.querySelectorAll("a[href]")).slice(0, 40);
+        tagLinks.push(...found);
+        if (!found.length) {
+            // Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
+            tags.push(...textOf(box).split(/[,/|·•]/).map(word => word.trim())
+                .filter(word => word.length > 1 && word.length <= 40 && !NOT_TAG.test(word)));
         }
     }
     for (let link of tagLinks) {

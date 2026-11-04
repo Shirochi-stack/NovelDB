@@ -171,6 +171,7 @@ def _strip_site_name(title: str, site_name: str, url: str) -> str:
     # "Read X Online Free", "X Novel - Read X for free"
     title = re.sub(r"^(read\s+)", "", title, flags=re.I)
     title = re.sub(r"\s+(novel|light novel|manga|manhwa|webtoon)?\s*(online)?\s*(for\s+)?free.*$", "", title, flags=re.I)
+    title = re.sub(r"[\s\-|:]+(all |the )?latest chapters?$", "", title, flags=re.I)  # "X Latest Chapter" (mangabats)
     return title.strip()
 
 
@@ -280,6 +281,9 @@ _COVER_IMAGES = ("[class*=cover] img, [class*=thumb] img, [class*=poster] img, i
 _NOT_COVER = re.compile(r"(gravatar|googleusercontent\.com/a/|/unit/|\.svg($|\?)|(^|/)[^/?]*(logo|icon|flag|avatar|sprite|placeholder|default)[^/]*$)", re.I)
 _SYNOPSIS_HEADING = re.compile(r"^\s*(synopsis|summary|description|story|about( this (novel|book|series))?|"
                                r"sinopsis|sinopse|résumé|resumen)\s*[:：]?\s*$", re.I)
+# A site's notice where the synopsis goes, not a synopsis.
+_ANNOUNCEMENT = re.compile(r"(📢|📌|🔔|new feature|announcement|join (us on|our) discord|we('ve| have) moved|"
+                           r"our new (domain|address)|bookmark (our|this) (site|domain)|reading history for guests)", re.I)
 # A synopsis box that says there is none, and the buttons that unfold one.
 _NO_SYNOPSIS = re.compile(r"^(n/?a|none|null|nil|unknown|tbd|-+|no (description|synopsis|summary)( yet| available)?\.?)$", re.I)
 _MORE_LESS = re.compile(r"\[?(more|less|show more|show less|read more)\]?", re.I)
@@ -350,6 +354,15 @@ def _tag_text(tag: str) -> str:
     return tag if 1 < len(tag) <= 40 else ""
 
 
+def _in_comments(node) -> bool:
+    """`node` is (in) a comment section ("comment-summary": its replies, Login to reply...)."""
+    for at in [node] + list(node.parents)[:6]:
+        if re.search(r"comment|disqus|reply|review", " ".join(getattr(at, "get", lambda *_: None)("class") or []) + " "
+                     + str(getattr(at, "get", lambda *_: None)("id") or ""), re.I):
+            return True
+    return False
+
+
 def _headed_synopsis(soup) -> list:
     """The block right after a "Synopsis" (or "Summary", "Description") heading: [] when there is none."""
     out = []
@@ -406,13 +419,16 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         if author and site_name and author.strip().lower() == site_name.strip().lower():
             author = ""
     if not author:
-        label = soup.find(string=re.compile(r"^\s*(author|writer|作者|저자|작가|著者|autor|auteur|автор)\s*[:：]?\s*$", re.I))
+        label = soup.find(string=re.compile(r"^\s*(author|writer|作者|저자|작가|著者|autor|auteur|автор)(\(s\)|s)?\s*[:：]?\s*$", re.I))
         node = label.find_parent() if label else None
         if node is not None:
-            # "Author: <a>Name</a>" in one element, or the label and the name side by side.
+            # "Author: <a>Name</a>" in one element, the name as bare text after the label ("<p>Author(s):</p>
+            # Shirakawa Miabi"), or the label and the name side by side.
             inside = text_of(node).replace(str(label).strip(), "", 1).strip(" :：")
+            following = node.next_sibling
+            bare = following.strip() if isinstance(following, str) else ""
             sibling = node.find_next_sibling()
-            author = inside or (text_of(sibling) if sibling else "")
+            author = inside or bare or (text_of(sibling) if sibling else "")
         if not author:
             link = soup.find("a", href=re.compile(r"/(author|authors|writer|artist)/", re.I))
             author = text_of(link) if link else ""
@@ -437,8 +453,12 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     blocks = soup.select(_FULL_SYNOPSIS) + soup.select(_SYNOPSIS) + _headed_synopsis(soup)
     if any(_NO_SYNOPSIS.match(_MORE_LESS.sub("", text_of(block)).strip()) for block in blocks):
         blocks = []  # the page's synopsis says there is none ("N/A"): no bigger box of the page instead
+    if _ANNOUNCEMENT.search(description[:200]):
+        description = ""
     for block in blocks:
         longer = text_of(block)
+        if _ANNOUNCEMENT.search(longer[:200]) or _in_comments(block):
+            continue  # the site's notice in the synopsis box ("📢 New Feature: Save Reading History..."), or comments
         if len(longer) > len(description) and not _stats_box(longer) and _prose(longer):
             description = longer
             break
@@ -451,14 +471,19 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     # (A footer's or a menu's genre links list the site's genres, not the book's.)
     links = [link for link in soup.find_all("a", href=re.compile(r"[/-](genres?|tags?|categor(y|ies)|keywords?)[/-]|[?&][\w-]*(genres?|tags?|categor(y|ies))[\w-]*=", re.I))
              if not _site_chrome(link, ("footer",))][:40]
+    boxed = []
     for box in soup.select(_TAG_LISTS):
         if not _site_chrome(box, ("header", "nav", "footer")):
-            found = box.find_all("a", href=True)[:40]
-            links.extend(found)
-            if not found:
-                # Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
-                tags.extend(word.strip() for word in re.split(r"[,/|·•]", text_of(box))
-                            if 1 < len(word.strip()) <= 40 and not _NOT_TAG.match(word.strip()))
+            boxed.append(box)
+    if any(box.find("a", href=True) for box in boxed):
+        links = []  # the page's genre box is the book's: other genre links are a site-wide table (mangabats)
+    for box in boxed:
+        found = box.find_all("a", href=True)[:40]
+        links.extend(found)
+        if not found:
+            # Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
+            tags.extend(word.strip() for word in re.split(r"[,/|·•]", text_of(box))
+                        if 1 < len(word.strip()) <= 40 and not _NOT_TAG.match(word.strip()))
     for link in links:
         word = text_of(link)
         if 1 < len(word) <= 40 and not _NOT_TAG.match(word):
