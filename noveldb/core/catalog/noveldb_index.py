@@ -33,7 +33,33 @@ PAGES_URL = "https://shirochi-stack.github.io/NovelDB/data/"
 MANIFEST = "noveldb-search.json"
 MANIFEST_HOURS = 24
 HEDGE_SECONDS = 2.0  # a piece's request is sent again after this long without an answer
-_HEDGES = ThreadPoolExecutor(32, thread_name_prefix="noveldb-range")
+# The pieces' requests share a few kept-open connections: each on a new connection, a burst of them lost
+# connection attempts and waited 3, 7, 15 s for the retries (a search took 80 s); kept open, 0.1 s each.
+RANGE_CONNECTIONS = 8
+_HEDGES = ThreadPoolExecutor(RANGE_CONNECTIONS, thread_name_prefix="noveldb-range")
+_session = None
+_session_lock = threading.Lock()
+
+
+def _plain_fetch():
+    """The plain HTTP fetch the app hands the index (its requests go over the kept-open connections instead)."""
+    from noveldb.core.catalog.generic_search import default_fetch
+
+    return default_fetch
+
+
+def _range_session():
+    global _session
+    with _session_lock:
+        if _session is None:
+            import requests
+            from requests.adapters import HTTPAdapter
+
+            _session = requests.Session()
+            adapter = HTTPAdapter(pool_connections=4, pool_maxsize=RANGE_CONNECTIONS)
+            _session.mount("https://", adapter)
+            _session.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
+        return _session
 SIGNED_SECONDS = 240  # how long a release file's signed address is used (GitHub's last five minutes)
 PIECES = 512  # word buckets, list pages and card blocks kept in memory
 FORMAT = 2
@@ -218,17 +244,29 @@ class NovelDBIndex:
                 self._signed = (url, final, time.time() + SIGNED_SECONDS)
         return result
 
+    def _get(self, url: str, headers: dict) -> Optional[dict]:
+        """A piece of the release file over the kept-open connections (the given fetch for anything else,
+        or when that fails), in the fetch's result shape."""
+        if self.fetch is not _plain_fetch():
+            return self.fetch(url, binary=True, headers=headers)
+        try:
+            response = _range_session().get(url, headers=headers, timeout=20, allow_redirects=True)
+        except Exception:
+            return self.fetch(url, binary=True, headers=headers)
+        return {"status": response.status_code, "url": response.url, "content": response.content,
+                "text": "", "headers": "\n".join(f"{k}: {v}" for k, v in response.headers.items())}
+
     def _hedged(self, url: str, headers: dict) -> Optional[dict]:
         """One request, and a second alike if the first hasn't answered in HEDGE_SECONDS: now and then one
         stalls for seconds (the search waited 7 s for one piece); whichever answers first is taken."""
-        first = _HEDGES.submit(self.fetch, url, binary=True, headers=headers)
+        first = _HEDGES.submit(self._get, url, headers)
         try:
             return first.result(timeout=HEDGE_SECONDS)
         except FutureTimeout:
             pass
         except Exception:
             return None
-        second = _HEDGES.submit(self.fetch, url, binary=True, headers=headers)
+        second = _HEDGES.submit(self._get, url, headers)
         for future in as_completed([first, second]):
             try:
                 result = future.result()
