@@ -1304,8 +1304,11 @@
         entries.forEach(function (entry) {
             if (entry.excluded) return;
             // A site found meanwhile to be in another language (its synopses): its books leave the list.
-            // (Not in NovelDB's list of a language: its books are that language whatever their titles.)
-            if (entry.group && !top.ndbOnly && !inLanguage(entry.cards[0])) { entry.excluded = true; dropFromTop(entry.group); return; }
+            // (Not in NovelDB's list of a language: its books are that language whatever their titles. Not
+            // for picked sites either: they show whatever they list, in any language.)
+            if (entry.group && !top.ndbOnly && !top.only.length && !inLanguage(entry.cards[0])) {
+                entry.excluded = true; dropFromTop(entry.group); return;
+            }
             if (entry.group && !groups.has(entry.group.key)) { entry.excluded = true; return; }  // dropped from the list
             if (!entry.group) {
                 if (order.length >= top.limit) return;
@@ -2479,11 +2482,13 @@
             card.complete = true;
             merge(card);
             // Its page shows tags the list card lacked.
-            if (view === 'top' && (notInTop(group) || (!top.ndbOnly && !inLanguage(card)))) { dropFromTop(group); return; }
+            // (Picked sites show whatever they list, in any language, with or without a synopsis.)
+            var picked = view === 'top' && (top.only.length > 0 || !!top.ndbOnly);
+            if (view === 'top' && (notInTop(group) || (!picked && !inLanguage(card)))) { dropFromTop(group); return; }
             var asking = moreDetails(group, card);
             // A book no site tells anything of (no synopsis, no tags) leaves the top list for the next.
             // (Not the one whose panel is open: it would vanish under the reader's eyes.)
-            if (view === 'top' && !top.ndbOnly && !asking && thin(group) && !(openGroup === group && $('dialog').open)) {
+            if (view === 'top' && !picked && !asking && thin(group) && !(openGroup === group && $('dialog').open)) {
                 thinSite(group.sources[0].site);
                 dropFromTop(group);
                 return;
