@@ -23,7 +23,7 @@ import threading
 import time
 import unicodedata
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, as_completed
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -32,6 +32,9 @@ INDEX_URL = "https://github.com/Shirochi-stack/NovelDB/releases/download/engines
 PAGES_URL = "https://shirochi-stack.github.io/NovelDB/data/"
 MANIFEST = "noveldb-search.json"
 MANIFEST_HOURS = 24
+HEDGE_SECONDS = 2.0  # a piece's request is sent again after this long without an answer
+_HEDGES = ThreadPoolExecutor(32, thread_name_prefix="noveldb-range")
+SIGNED_SECONDS = 240  # how long a release file's signed address is used (GitHub's last five minutes)
 PIECES = 512  # word buckets, list pages and card blocks kept in memory
 FORMAT = 2
 LEAD = "npia"  # its books come first in each round of results
@@ -115,6 +118,7 @@ class NovelDBIndex:
         self._manifest: Optional[dict] = None
         self._pieces: "OrderedDict[tuple, object]" = OrderedDict()
         self._lock = threading.Lock()
+        self._signed: Optional[tuple] = None  # (release address, its signed address, valid until)
 
     # -- reading the index -----------------------------------------------------------------------
 
@@ -176,8 +180,7 @@ class NovelDBIndex:
                 self._pieces.move_to_end(key)
                 return self._pieces[key]
         offset, length = at or manifest["bucketAt" if kind == "bucket" else "blockAt"][index]
-        result = self.fetch(self.base + manifest["bin"], binary=True,
-                            headers={"Range": f"bytes={offset}-{offset + length - 1}"})
+        result = self._range(self.base + manifest["bin"], offset, length)
         data = (result or {}).get("content") or b""
         if result and result.get("status") == 404 and retry:
             # A table of contents kept from an earlier build points at data a newer build replaced.
@@ -195,6 +198,45 @@ class NovelDBIndex:
             while len(self._pieces) > PIECES:
                 self._pieces.popitem(last=False)
         return value
+
+    def _range(self, url: str, offset: int, length: int) -> Optional[dict]:
+        """Bytes `offset`..+`length` of the release file. The release address sends each request on to a
+        signed one (a second round trip every time): that address is used directly while it is valid."""
+        headers = {"Range": f"bytes={offset}-{offset + length - 1}"}
+        with self._lock:
+            signed = self._signed if self._signed and self._signed[0] == url and time.time() < self._signed[2] else None
+        if signed:
+            result = self._hedged(signed[1], headers)
+            if result and result.get("status") == 206 and len(result.get("content") or b"") == length:
+                return result
+            with self._lock:
+                self._signed = None  # expired or refused: through the release address again
+        result = self._hedged(url, headers)
+        final = (result or {}).get("url") or ""
+        if result and result.get("status") == 206 and final and final != url:
+            with self._lock:
+                self._signed = (url, final, time.time() + SIGNED_SECONDS)
+        return result
+
+    def _hedged(self, url: str, headers: dict) -> Optional[dict]:
+        """One request, and a second alike if the first hasn't answered in HEDGE_SECONDS: now and then one
+        stalls for seconds (the search waited 7 s for one piece); whichever answers first is taken."""
+        first = _HEDGES.submit(self.fetch, url, binary=True, headers=headers)
+        try:
+            return first.result(timeout=HEDGE_SECONDS)
+        except FutureTimeout:
+            pass
+        except Exception:
+            return None
+        second = _HEDGES.submit(self.fetch, url, binary=True, headers=headers)
+        for future in as_completed([first, second]):
+            try:
+                result = future.result()
+            except Exception:
+                continue
+            if result is not None:
+                return result
+        return None
 
     def _lists(self, token: str) -> Dict[str, "_List"]:
         """A token's book list in each source that has it."""
@@ -220,17 +262,28 @@ class NovelDBIndex:
             aliases = (self._piece("bucket", bucket_of(key, manifest["buckets"])) or {}).get(key)
             if isinstance(aliases, list):
                 wanted += [token for token in aliases if isinstance(token, str) and token not in wanted]
-        found = [lists for lists in (self._lists(token) for token in wanted) if lists]
-        out = {}
+        # The tag's lists, and then their pages, are read at once (one after another took a minute).
+        with ThreadPoolExecutor(min(16, len(wanted)), thread_name_prefix="noveldb-tags") as pool:
+            found = [lists for lists in pool.map(self._lists, wanted) if lists]
+        merging = {}
         for source in set().union(*found) if found else ():
             lists, every = [], [lists[source] for lists in found if source in lists]
             for lst in every:  # a tag and its translation list the same books: read them once
                 if not any(lst.total == other.total and lst.head == other.head for other in lists):
                     lists.append(lst)
+            merging[source] = lists
+        jobs = [(source, at, lst) for source, lists in merging.items() if len(lists) > 1 for at, lst in enumerate(lists)]
+        pages = {}
+        if jobs:
+            with ThreadPoolExecutor(min(16, len(jobs)), thread_name_prefix="noveldb-tag-pages") as pool:
+                pages = dict(zip([(source, at) for source, at, _lst in jobs],
+                                 pool.map(lambda job: job[2].numbers(0, UNION_PAGES * job[2].page), jobs)))
+        out = {}
+        for source, lists in merging.items():
             if len(lists) == 1:
                 out[source] = lists[0]
                 continue
-            read = [lst.numbers(0, UNION_PAGES * lst.page) for lst in lists]
+            read = [pages[(source, at)] for at in range(len(lists))]
             # A list read only in part says nothing of the books after its last one read: the merge stops
             # there, and the longest list's own books follow.
             cutoff = min((nums[-1] for nums, lst in zip(read, lists) if nums and len(nums) < lst.total), default=None)

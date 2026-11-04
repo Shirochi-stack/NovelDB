@@ -21,7 +21,7 @@ import json
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
@@ -489,7 +489,20 @@ class GenericSearch:
             report("NovelDB", started, len(fresh))
 
         if self.noveldb is not None:
-            futures.append(pool.submit(from_noveldb))
+            # NovelDB first, on a thread of its own: its cards show in about a second when the sites'
+            # searches (thousands of them, each parsed in Python) don't start at the same moment.
+            ndb_done = threading.Event()
+            ndb_future: Future = Future()
+
+            def noveldb_first():
+                try:
+                    from_noveldb()
+                finally:
+                    ndb_done.set()
+                    ndb_future.set_result(None)
+
+            threading.Thread(target=noveldb_first, name="generic-noveldb", daemon=True).start()
+            futures.append(ndb_future)
         if mode == "author":  # NovelDB knows books by author; the sites' searches are by title
             progress({"total": len(futures)})
             for future in futures:
@@ -497,6 +510,8 @@ class GenericSearch:
             pool.shutdown(wait=False)
             done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=False))
             return
+        if self.noveldb is not None:
+            ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most
         for site in self.sites:
             if not (self.skip_lnreader and site.get("lnreader")):
                 futures.append(pool.submit(from_site, site))
