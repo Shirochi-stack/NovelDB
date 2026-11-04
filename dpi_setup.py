@@ -38,6 +38,7 @@ DEFAULT_SCALE_FACTOR = 1.0
 _TOTAL_SCALE = 1.0    # user's desired total UI scale
 _QT_SCALE = 1.0       # what we wrote into QT_SCALE_FACTOR
 _SYSTEM_SCALE = 1.0   # OS-level DPI scale (1.0, 1.25, 1.5, ...)
+_FONT_SCALE = 1.0     # the part of a scale below 1 the app applies itself (text and sizes), not Qt
 
 
 def _ensure_dpi_aware():
@@ -405,12 +406,18 @@ def configure():
     # created (the Catalog page).
     factor = _read_scale_factor()
     system_scale = _get_system_dpi_scale()
-    qt_scale = max(0.25, min(4.0, factor))
+    # Qt draws badly below one device pixel per point (QT_SCALE_FACTOR 0.9 on a 100 % screen): its
+    # repaint areas round short and leave stale slivers (text cut at its left edge, old selections
+    # left behind, a window that seems stuck). A scale under 1 stays out of Qt: the app makes its
+    # text and stylesheet sizes smaller instead (get_font_scale, noveldb.qt.scale).
+    qt_scale = max(1.0, min(4.0, factor))
     os.environ["QT_SCALE_FACTOR"] = str(round(qt_scale, 4))
 
+    global _FONT_SCALE
     _TOTAL_SCALE = float(factor)
     _QT_SCALE = float(qt_scale)
     _SYSTEM_SCALE = float(system_scale)
+    _FONT_SCALE = max(0.5, float(factor) / qt_scale) if factor < 1.0 else 1.0
 
     try:
         print(
@@ -429,6 +436,11 @@ def get_scale_factor():
     if _configured:
         return _TOTAL_SCALE
     return _read_scale_factor()
+
+
+def get_font_scale():
+    """The scale below 1 the app applies to its own text and sizes (1.0 when Qt applies all of it)."""
+    return _FONT_SCALE if _configured else 1.0
 
 
 def get_system_scale():

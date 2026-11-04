@@ -57,24 +57,45 @@ class UiScale(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.factor = 1.0
+        # A screen scale under 1 (dpi_setup.get_font_scale): applied here, never by Qt, which draws
+        # badly below one device pixel per point.
+        self.base = 1.0
         self._base_point_size: Optional[float] = None
 
-    def px(self, value: float) -> int:
-        return int(round(value * self.factor))
+    @property
+    def total(self) -> float:
+        """The size everything is drawn at: the screen's part under 1 times the window's."""
+        return self.base * self.factor
 
-    def set_factor(self, factor: float) -> bool:
-        """Apply a new factor; True when it changed."""
-        if abs(factor - self.factor) < 1e-6:
-            return False
+    def px(self, value: float) -> int:
+        return int(round(value * self.total))
+
+    def _apply_font(self) -> None:
         app = QApplication.instance()
         if app is not None:
             font = app.font()
             if self._base_point_size is None:
                 self._base_point_size = font.pointSizeF()
-            font.setPointSizeF(self._base_point_size * factor)
+            font.setPointSizeF(self._base_point_size * self.total)
             app.setFont(font)
+
+    def set_base(self, base: float) -> bool:
+        """The screen's scale under 1 (once, at start); True when it changed."""
+        base = max(0.5, min(1.0, float(base)))
+        if abs(base - self.base) < 1e-6:
+            return False
+        self.base = base
+        self._apply_font()
+        self.changed.emit(self.total)
+        return True
+
+    def set_factor(self, factor: float) -> bool:
+        """Apply a new factor; True when it changed."""
+        if abs(factor - self.factor) < 1e-6:
+            return False
         self.factor = factor
-        self.changed.emit(factor)
+        self._apply_font()
+        self.changed.emit(self.total)
         return True
 
 
@@ -89,7 +110,7 @@ class _Binding(QObject):
         self._apply = apply
         ui_scale.changed.connect(self.refresh)
         if now:
-            self.refresh(ui_scale.factor)
+            self.refresh(ui_scale.total)
 
     def refresh(self, _factor: float = 1.0) -> None:
         self._apply()

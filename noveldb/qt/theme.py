@@ -237,5 +237,5 @@ def apply_theme(app: QApplication, theme: str = "system", accent: str = "halgako
             hints.setColorScheme(Qt.ColorScheme.Dark if theme in ("dark", "amoled") else Qt.ColorScheme.Light)
     scheme = scheme_for(theme, accent)
     app.setPalette(palette_for(scheme))
-    app.setStyleSheet(scale_stylesheet(stylesheet_for(scheme), ui_scale.factor))
+    app.setStyleSheet(scale_stylesheet(stylesheet_for(scheme), ui_scale.total))
     return scheme

@@ -250,6 +250,15 @@ def main(argv=None) -> int:
     font = app.font()
     font.setPointSizeF(max(font.pointSizeF(), 11.0))  # Qt's 9 pt default reads small next to the site
     app.setFont(font)
+    # A scale under 1 (a small screen, or set so): the app's text and sizes, not Qt's drawing.
+    try:
+        import dpi_setup
+
+        from noveldb.qt.scale import ui_scale
+
+        ui_scale.set_base(dpi_setup.get_font_scale())
+    except ImportError:
+        pass
     # Spin boxes and drop-downs ignore the mouse wheel on their own (noveldb.qt.widgets.SpinBox and
     # friends). No application-wide event filter: on Linux one crashed the app when the Catalog opened.
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import html as html_module
 import json
+import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -240,16 +241,26 @@ def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
 
 # -- the search ------------------------------------------------------------------------------------
 
+def search_workers() -> int:
+    """How many sites a search asks at once: 32 on 8 cores or more, 16 on 4, 8 on 2.
+
+    Each answer is parsed in Python, which runs one thread at a time: the window's own thread waits its
+    turn among them. On a small CPU 32 parsing threads left the window little time (it lagged and
+    seemed stuck while a search ran); fewer still keep the network busy."""
+    cores = os.cpu_count() or 2
+    return 32 if cores >= 8 else 16 if cores >= 4 else 8
+
+
 class GenericSearch:
     def __init__(self, fetch: Callable = default_fetch, sites: Optional[List[dict]] = None,
-                 known_site: Optional[Callable[[str], bool]] = None, workers: int = 32, site_search=None,
+                 known_site: Optional[Callable[[str], bool]] = None, workers: Optional[int] = None, site_search=None,
                  skip_lnreader: bool = True, noveldb=None):
         from noveldb.core.catalog.site_search import SiteSearch
 
         self.fetch = fetch
         self.sites = sites if sites is not None else top_sites()
         self.known_site = known_site or (lambda url: False)
-        self.workers = workers
+        self.workers = workers or search_workers()
         self.site_search = site_search or SiteSearch(fetch)
         self.skip_lnreader = skip_lnreader  # the page searches those sites with their LNReader plugin
         self.noveldb = noveldb  # NovelDB's own books (noveldb_index.NovelDBIndex), when given
