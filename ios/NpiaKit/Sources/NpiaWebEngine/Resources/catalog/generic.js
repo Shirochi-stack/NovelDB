@@ -436,6 +436,28 @@
         var a = namesBook(next, title), b = namesBook(old, title);
         return a !== b ? a : (!b && fromPage) || next.length > old.length;
     }
+    // What a site puts before the synopsis itself: figures the card shows already ("Ongoing Author: Fuyuki
+    // Latest Chapter: Vol.07 Ch.033") and an introduction ("A brief description of the manga X: ...").
+    var LEAD_LABEL = /^(?:(?:ongoing|completed|hiatus|on-?going)\s+)?(author|artist|status|latest chapters?|last chapter|type|genres?|released?|updated)s?\s*[:：]\s*/i;
+    var NEXT_LABEL = /\s(?:author|artist|status|latest chapters?|last chapter|type|genres?|released?|updated)s?\s*[:：]/i;
+    function synopsisLead(text) {
+        for (var round = 0; round < 6; round++) {
+            var before = text;
+            text = text.replace(/^\s*an? (brief|short|quick) (description|summary|synopsis|introduction) of (the )?(manga|manhwa|manhua|novel|light novel|web ?novel|webtoon|comic|book|story|series)?[^:：.!?]{0,160}[:：]\s*/i, '');
+            var label = text.match(LEAD_LABEL);
+            if (label) {
+                var rest = text.slice(label[0].length);
+                var next = rest.slice(0, 80).search(NEXT_LABEL);
+                var chapter = /^latest|^last/i.test(label[1]) && rest.match(/^((vol(ume)?\.?\s*[\d.]+\s*)?(ch(apter)?\.?\s*[\d.]+)|[\d.]+)\s*/i);
+                if (next >= 0) text = rest.slice(next).replace(/^\s+/, '');
+                else if (chapter) text = rest.slice(chapter[0].length);
+                else if (/^(status|type)/i.test(label[1])) text = rest.replace(/^\S+\s*/, '');
+                else break;  // a value whose end can't be told: leave the text as it is
+            }
+            if (text === before) break;
+        }
+        return text;
+    }
     function synopsisText(text) {
         text = hashSplit(text).text;
         // A box of figures ("5 43 42": a rating and its votes) is no synopsis.
@@ -449,6 +471,7 @@
             }
         }
         text = text.replace(/^\s*((about|description of) this (novel|book|story|series|manga|manhwa|comic|title)|summary|synopsis|sinopsis|sinopse|description|deskripsi|ringkasan|resumen|résumé|story)\s*[:：-]?\s*/i, '');
+        text = synopsisLead(text);
         // A run of share buttons, and ratings, anywhere at the start.
         text = text.replace(/^((\s*(facebook|twitter|whatsapp|pinterest|reddit|telegram|tumblr|share|tweet)\b[\s,|·]*){2,})/i, '');
         // Only the page's figures: a rating, a language, genres and a chapter count, no sentence.
@@ -528,7 +551,7 @@
                 group.sources.unshift(source);
                 group.title = card.title;
                 if (card.originalTitle) group.rawTitle = card.originalTitle;
-                if (card.cover) group.cover = card.cover;
+                if (card.cover) { group.cover = card.cover; group.coverFrom = card.url; }
                 group.loaded = false;
             } else {
                 group.sources.push(source);
@@ -540,7 +563,7 @@
         });
         // The full-size image first, the thumbnail the site listed behind it (if the big one fails).
         var offered = card.cover ? [fullCover(card.cover), card.cover] : [];
-        if (offered.length && !group.cover) group.cover = offered[0];  // the first site's cover stays
+        if (offered.length && !group.cover) { group.cover = offered[0]; group.coverFrom = card.url; }  // the first site's cover stays
         offered.forEach(function (cover) { if ((group.covers || (group.covers = [])).indexOf(cover) < 0) group.covers.push(cover); });
         // The longest synopsis once cleaned (a page's rating and share buttons do not count).
         if (card.description && betterSynopsis(synopsisText(card.description), synopsisText(group.description), group.title, !!card.complete)) group.description = card.description;
@@ -739,7 +762,8 @@
             return;
         }
         group.coverTried = true;
-        ask({type: 'genericImage', url: group.cover, referer: group.sources[0].url}).then(function (data) {
+        // The cover's own site as the referrer (the card's first site may have changed since).
+        ask({type: 'genericImage', url: group.cover, referer: group.coverFrom || group.sources[0].url}).then(function (data) {
             if (data && data.dataUrl) group.cover = data.dataUrl;
             else { if (holder) holder.classList.remove('loading'); image.remove(); }
             if (data && data.dataUrl) render(group);
@@ -953,6 +977,31 @@
         group.loaded = true;
         if (group.element) render(group);
         pump();
+    }
+    // How much a book page told: its synopsis counts most, then tags, the author and the figures.
+    function richness(card) {
+        return (synopsisText(card.description) ? 4 : 0) + ((card.tags || []).length ? 2 : 0) + (card.author ? 1 : 0)
+            + (card.chapters || card.rating || card.views ? 1 : 0);
+    }
+    // A book page in: the site that told the most leads the card (its name on it, the first to read),
+    // however much slower it answered; while the card still lacks a synopsis or tags, the next site's
+    // page is read too (atsu.moe shows neither, novelbuddy both).
+    function moreDetails(group, card) {
+        var asked = group.detailsAsked || (group.detailsAsked = {});
+        asked[key(card.url)] = true;
+        var source = group.sources.find(function (s) { return key(s.url) === key(card.url); });
+        if (source) source.richness = richness(card);
+        var first = group.sources[0];
+        if (source && first !== source && !(first.noveldb && first.noveldb.source === 'npia')
+                && source.richness > (first.richness == null ? -1 : first.richness)) {
+            group.sources.splice(group.sources.indexOf(source), 1);
+            group.sources.unshift(source);
+        }
+        if (synopsisText(group.description) && group.tags.length) return;
+        var next = group.sources.find(function (s) { return !asked[key(s.url)] && !s.noveldb; });
+        if (!next || Object.keys(asked).length >= 4) return;
+        asked[key(next.url)] = true;
+        send({type: 'genericDetails', id: searchId, card: strip(group, next)});
     }
     function strip(group, source) {
         return {url: source.url, title: group.title, author: group.author, cover: group.cover, description: group.description,
@@ -1541,6 +1590,7 @@
     var THEME_VARS = {bg: '--bg', panel: '--panel', ink: '--ink', ink2: '--ink-2', line: '--line', accent: '--accent',
                       accentInk: '--accent-ink', chip: '--chip'};
     var READER_VARS = {bg: '--r-bg', ink: '--r-ink', ink2: '--r-ink-2', line: '--r-line'};
+    var THEME_KEY = 'noveldb.generic.theme';  // the app's last colours: the page wears them before it hears from the app
     function setAppTheme(colors) {
         var valid = colors && typeof colors === 'object' ? colors : null;
         var root = document.documentElement.style;
@@ -1549,6 +1599,7 @@
             if (value) root.setProperty(THEME_VARS[name], value); else root.removeProperty(THEME_VARS[name]);
         });
         appTheme = valid;
+        if (valid) store(THEME_KEY, valid);
         document.documentElement.style.colorScheme = valid ? (valid.dark ? 'dark' : 'light') : '';
         applyLook();
     }
@@ -2253,6 +2304,9 @@
         more.timer = setTimeout(moreSoon, 150);
     }, {passive: true});
 
+    // The app's theme (Halgakos Rose by default) from the start, even when the app is slow to send it or
+    // its message is lost (the page showed the plain default colours).
+    if (!appTheme && store(THEME_KEY)) setAppTheme(store(THEME_KEY));
     window.NovelDBGeneric = {
         init: function (value) {
             config = value || config;
@@ -2356,6 +2410,7 @@
             merge(card);
             // Its page shows tags the list card lacked.
             if (view === 'top' && (notInTop(group) || !inLanguage(card))) { dropFromTop(group); return; }
+            moreDetails(group, card);
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
         },

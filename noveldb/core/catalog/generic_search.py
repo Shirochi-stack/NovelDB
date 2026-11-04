@@ -260,13 +260,14 @@ def _better_synopsis(new: str, old: str, title: str) -> bool:
 
 
 def search_workers() -> int:
-    """How many sites a search asks at once: 32 on 8 cores or more, 16 on 4, 8 on 2.
+    """How many sites a search asks at once: 64 on 8 cores or more, 16 on 4, 8 on 2.
 
     Each answer is parsed in Python, which runs one thread at a time: the window's own thread waits its
     turn among them. On a small CPU 32 parsing threads left the window little time (it lagged and
-    seemed stuck while a search ran); fewer still keep the network busy."""
+    seemed stuck while a search ran); fewer still keep the network busy. A search asks every site the
+    engines know (nearly 2,000, most of them waiting on the network): a big CPU asks 64 at once."""
     cores = os.cpu_count() or 2
-    return 32 if cores >= 8 else 16 if cores >= 4 else 8
+    return 64 if cores >= 8 else 16 if cores >= 4 else 8
 
 
 class GenericSearch:

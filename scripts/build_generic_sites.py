@@ -5,12 +5,12 @@ lightnovel-crawler, FanFicFare, HaruNeko) is ranked by the Tranco list of the mo
 domains (https://tranco-list.eu, a research ranking that averages several traffic sources); the ones
 it doesn't rank follow, those more engines know first. All of them go to
 noveldb/core/catalog/generic_sites.json with what each can do: its own search (an LNReader plugin or a
-lightnovel-crawler crawler that searches) or a web search limited to the site. A search asks the
-`--count` busiest ones itself ("searched"); every site is in the Sites panel, the top lists and the
-reader. Adult-only sites are left out.
+lightnovel-crawler crawler that searches) or a web search limited to the site. A search asks every
+one of them, the busiest first ("searched"; `--count` limits it to that many, the rest found only through
+the web search). Adult-only sites are left out.
 
     python scripts/build_generic_sites.py                 # downloads the current Tranco list
-    python scripts/build_generic_sites.py --tranco top-1m.csv.zip --count 200
+    python scripts/build_generic_sites.py --tranco top-1m.csv.zip --count 500
 """
 
 from __future__ import annotations
@@ -166,7 +166,7 @@ def build(hosts: dict, ranks: dict, count: int) -> list:
             "lncrawl": lnc[:1],
             "search": "lnreader" if lnr else ("lncrawl" if lnc else "web"),
             "comic": bool(engines.get("haruneko")) and not (lnr or engines.get("lncrawl") or engines.get("webtoepub")),
-            "searched": place < count,
+            "searched": not count or place < count,
         })
     return out
 
@@ -181,7 +181,7 @@ def extra_sites(listed: set) -> list:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tranco", default=TRANCO, help="the Tranco list (zip) as a file or an address")
-    parser.add_argument("--count", type=int, default=200, help="how many of the busiest sites a search asks itself")
+    parser.add_argument("--count", type=int, default=0, help="how many of the busiest sites a search asks itself (0: all)")
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args(argv)
     sites = build(engine_hosts(), tranco_ranks(args.tranco), args.count)

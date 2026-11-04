@@ -44,20 +44,19 @@ def test_the_generic_catalog_address_is_accepted_and_kept():
 
 def test_the_site_list_has_every_site_the_engines_know():
     sites = top_sites()
-    # Every site an engine knows (well over a thousand), the most visited first; a search asks the
-    # busiest 200 itself, then the sites added by hand (build_generic_sites.EXTRA_SITES).
+    # Every site an engine knows (well over a thousand), the most visited first, and the sites added by
+    # hand (build_generic_sites.EXTRA_SITES); a search asks all of them.
     assert len(sites) > 1000
-    searched = [site for site in sites if site["searched"]]
-    assert len(searched) == 201 and sites[:200] == searched[:200]
+    assert all(site["searched"] for site in sites)
     bookkor = next(site for site in sites if site["site"] == "bookkor.com")
     assert bookkor["searched"] and "009.bookkor.com" in bookkor["hosts"]
     assert all(site["host"] and site["search"] in ("lnreader", "lncrawl", "web") for site in sites)
     assert sites == sorted(sites, key=lambda site: site["rank"])
     assert len({site["site"] for site in sites}) == len(sites)
     assert not any(site["site"] in ("google.com", "reddit.com", "blogspot.com") for site in sites)
-    # A search asks only the searched sites; a book from any listed site is still known.
+    # A search asks the searched sites; a book from any listed site is known.
     engine = GenericSearch(fetch=lambda *a, **k: None)
-    assert len(engine.sites) == 201
+    assert len(engine.sites) == len(sites)
     assert engine.site_for("https://" + sites[-1]["host"] + "/x") is not None
 
 
