@@ -47,6 +47,7 @@ BLOCKED = ("This page is blocked: the site may need you to sign in, or to buy th
            "Browser (your login is saved), then try again.")
 _reading = threading.local()  # the reader request a worker thread is answering (for its progress notes)
 _CHALLENGE = ("just a moment", "attention required", "security check", "verify you are human")
+_WAITING = ("verifying access", "checking your browser")  # a page's text while it checks the browser
 
 
 def download_icon() -> str:
@@ -208,6 +209,18 @@ class BrowserFetcher(QObject):
         title = (page.title() or "").lower()
         if any(word in title for word in _CHALLENGE) and time.monotonic() < job["deadline"]:
             QTimer.singleShot(1000, lambda: self._check(job))  # the site's check page reloads itself when done
+            return
+        # A page that checks the browser in its own text ("Verifying access..." where fenrirealm's chapter
+        # goes) fills itself in once that passes.
+        page.runJavaScript("(document.body && document.body.innerText || '').slice(0, 20000).toLowerCase()",
+                           lambda text, job=job: self._checked(job, text))
+
+    def _checked(self, job, text) -> None:
+        page = job.get("page")
+        if page is None:
+            return
+        if any(word in str(text or "") for word in _WAITING) and time.monotonic() < job["deadline"]:
+            QTimer.singleShot(1000, lambda: self._check(job))
             return
         if job.get("scroll"):
             from noveldb.core.engines.generic import SCROLL_TO_END

@@ -163,6 +163,27 @@ def _load_class(entry: dict):
     return getattr(module, entry["name"])
 
 
+# What a chapter page says while its scripts still have to fill it in (a browser check first).
+_PLACEHOLDER = re.compile(r"verifying access|checking your browser|enable javascript|loading chapter", re.I)
+
+
+def _visible(html: str) -> str:
+    """A rendered page as a reader sees it: without the blocks hidden from view (aria-hidden decoys of
+    random letters between fenrirealm's paragraphs) and the invisible zero-width characters in its text."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(re.sub("[\u200b-\u200d\u2060\ufeff]", "", html), "html.parser")
+    for node in soup.select("[aria-hidden=true]"):
+        if not node.find(["img", "svg", "picture"]) and len(node.get_text(strip=True)) > 20:
+            node.decompose()
+    return str(soup)
+
+
+def _placeholder(text: str) -> bool:
+    """A chapter that is only a page's waiting message (short, and saying so), not its text."""
+    return len(text) < 1500 and bool(_PLACEHOLDER.search(text))
+
+
 def _patch(module) -> None:
     """Fixes for upstream crawlers, applied as they load (the bundle keeps their files unchanged)."""
     _patch_soup()
@@ -374,6 +395,13 @@ class LncrawlEngine:
         crawler.download_chapter(chapter)
         body = str(chapter.get("body") or "")
         text = _plain(body)
+        if _placeholder(text) and self.render is not None and saved.get("url"):
+            # The page fills the chapter in with its scripts, after a check of the browser (fenrirealm's
+            # "Verifying access..."): the same crawler reads the page as a browser tab shows it.
+            body = self._rendered_chapter(crawler, chapter, saved["url"]) or body
+            text = _plain(body)
+            if _placeholder(text):
+                raise ValueError("the chapter page only says it is verifying access")
         if not text and "<img" not in body:
             raise ValueError("the chapter has no visible text")
         return {
@@ -383,6 +411,23 @@ class LncrawlEngine:
             "imageCount": 0,
             "images": [],
         }
+
+    def _rendered_chapter(self, crawler, chapter, url: str) -> str:
+        """The chapter read by `crawler` from the page as a browser tab shows it (its scripts ran)."""
+        html = self.render(url)
+        if not html:
+            return ""
+        soup = crawler.scraper.make_soup(_visible(html))
+        plain_get_soup = crawler.get_soup
+        crawler.get_soup = lambda page_url, *args, **kwargs: soup if page_url == url else plain_get_soup(page_url, *args, **kwargs)
+        try:
+            chapter.body = None
+            crawler.download_chapter(chapter)
+            return str(chapter.get("body") or "")
+        except Exception:
+            return ""
+        finally:
+            crawler.get_soup = plain_get_soup
 
     def search(self, entry: dict, query: str) -> List[dict]:
         """The site's own search: [{name, url, info}]."""
