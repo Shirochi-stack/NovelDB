@@ -241,6 +241,23 @@ def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
 
 # -- the search ------------------------------------------------------------------------------------
 
+def _site_title(title: str, url: str, site_name: str = "") -> bool:
+    """`title` is only the site's name ("chikari.moe", or its og:site_name)."""
+    text = re.sub(r"\s+", " ", title or "").strip().lower()
+    if not text:
+        return False
+    host = _host(url)
+    names = {host, site_of(host), (site_name or "").strip().lower(), site_of(host).split(".")[0]}
+    return text in names
+
+
+def _app_shell(meta: dict, url: str) -> bool:
+    """What a page said is only its app shell's: no synopsis, no tags, no author, and the site's own name or
+    nothing for a title (chikari.moe's pages load the book with their scripts)."""
+    return (not meta.get("description") and not meta.get("tags") and not meta.get("author")
+            and (not meta.get("title") or _site_title(meta.get("title", ""), url, meta.get("site", ""))))
+
+
 def _names_book(text: str, title: str) -> bool:
     """The text names the book (a word of its title): not the site's blurb shown on every page."""
     words = [w for w in re.findall(r"\w{4,}", (title or "").lower()) if w not in ("manga", "novel", "read", "online")]
@@ -273,10 +290,11 @@ def search_workers() -> int:
 class GenericSearch:
     def __init__(self, fetch: Callable = default_fetch, sites: Optional[List[dict]] = None,
                  known_site: Optional[Callable[[str], bool]] = None, workers: Optional[int] = None, site_search=None,
-                 skip_lnreader: bool = True, noveldb=None):
+                 skip_lnreader: bool = True, noveldb=None, render: Optional[Callable[[str], str]] = None):
         from noveldb.core.catalog.site_search import SiteSearch
 
         self.fetch = fetch
+        self.render = render  # a page's HTML after its scripts ran (a hidden browser tab), for app-shell pages
         # A search asks the busiest sites itself ("searched"); the rest are known (their books are
         # recognised, the top lists read them) and come up through the web search.
         self.sites = sites if sites is not None else [site for site in top_sites() if site.get("searched", True)]
@@ -312,8 +330,15 @@ class GenericSearch:
         if not result or result["status"] >= 400:
             return dict(card, complete=True)
         meta = extract_metadata(decode(result), result.get("url") or card["url"])
+        if self.render is not None and _app_shell(meta, card["url"]):
+            # The page is only the site's app shell (its scripts fetch the book): read as a browser shows it.
+            html = self.render(card["url"])
+            if html:
+                meta = extract_metadata(html, card["url"])
         if is_no_results(meta.get("title", ""), (meta.get("description") or "")[:400]):
             return dict(card, complete=True, empty=True)  # the page tells the card to go
+        if _site_title(meta.get("title", ""), card["url"], meta.get("site", "")):
+            meta["title"] = ""  # the site's own name is no book's title
         merged = dict(card, complete=True)
         for key in ("title", "author", "cover", "description", "tags", "status") + FIGURES:
             value = meta.get(key)

@@ -694,7 +694,7 @@ class GenericCatalog(QObject):
         if cached:
             self._detailed.emit(dict(card, **cached, complete=True))
             return
-        engine = GenericSearch(fetch=self.fetch, site_search=self.site_search, noveldb=self.noveldb)
+        engine = GenericSearch(fetch=self.fetch, site_search=self.site_search, noveldb=self.noveldb, render=self._render)
         try:
             found = engine.details(card)
         except Exception:
