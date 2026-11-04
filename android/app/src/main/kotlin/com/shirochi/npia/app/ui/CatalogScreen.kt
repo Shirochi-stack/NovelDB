@@ -25,7 +25,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -179,6 +183,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
             override fun onPageFinished(view: WebView, url: String?) {
                 this@CatalogWeb.canBack = view.canGoBack()
                 if (!documentStart) view.evaluateJavascript(bridge, null)
+                showTheme()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -261,6 +266,31 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setCart($urls)", null)
     }
 
+    /** The app theme's colours as the generic page takes them ({dark, bg, panel, ...} as #rrggbb). */
+    private var theme: String? = null
+
+    fun setTheme(colors: ColorScheme) {
+        fun hex(color: Color) = String.format("#%06X", color.toArgb() and 0xFFFFFF)
+        theme = buildJsonObject {
+            put("dark", colors.background.luminance() < 0.5f)
+            put("bg", hex(colors.background))
+            put("panel", hex(colors.surfaceContainer))
+            put("ink", hex(colors.onBackground))
+            put("ink2", hex(colors.onSurfaceVariant))
+            put("line", hex(colors.outlineVariant))
+            put("accent", hex(colors.primary))
+            put("accentInk", hex(colors.onPrimary))
+            put("chip", hex(colors.surfaceContainerHighest))
+        }.toString()
+        showTheme()
+    }
+
+    /** The generic page (only it has `NovelDBGeneric`) takes the app's theme. */
+    private fun showTheme() {
+        val colors = theme ?: return
+        view.evaluateJavascript("window.NovelDBGeneric && window.NovelDBGeneric.theme && window.NovelDBGeneric.theme($colors)", null)
+    }
+
     fun reload() {
         error = null
         if (view.url.isNullOrEmpty() || view.url == "about:blank") view.loadUrl(catalogPage(site)) else view.reload()
@@ -298,6 +328,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                     "ready" -> {
                         showMode()
                         showCart(model.cart.items.value)
+                        showTheme()
                     }
                     "location" -> located(field("url"), field("title"))
                     "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { url ->
@@ -340,6 +371,8 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
         web.showMode()
     }
     LaunchedEffect(cart) { web.showCart(cart) }
+    val colors = MaterialTheme.colorScheme
+    LaunchedEffect(colors) { web.setTheme(colors) }
     BackHandler(enabled = web.canBack) { web.view.goBack() }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {

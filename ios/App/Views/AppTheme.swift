@@ -76,6 +76,34 @@ enum Accent: String, CaseIterable, Identifiable {
     }
 }
 
+extension Accent {
+    /// The Catalog's generic page in this accent's colours (its `NovelDBGeneric.theme`): a JSON object of
+    /// #rrggbb colours, the same tones as `palette`.
+    func webTheme(dark: Bool) -> String {
+        // primary, on primary, background, panel, ink, secondary ink, line, chip: [light, dark]
+        let tones: [String: (UInt32, UInt32)]
+        switch self {
+        case .halgakosRose:
+            tones = ["accent": (0x8B4D55, 0xF7B6BC), "accentInk": (0xFFFFFF, 0x52202A), "bg": (0xFFF0F0, 0x130C0D),
+                     "panel": (0xFFFFFF, 0x281D1E), "ink": (0x22191A, 0xF0DEDF), "ink2": (0x524344, 0xD7C1C2),
+                     "line": (0xE8D2D3, 0x4A3A3B), "chip": (0xF6E3E4, 0x3A2C2D)]
+        case .desktopBlue:
+            tones = ["accent": (0x366385, 0xAACAE9), "accentInk": (0xFFFFFF, 0x0F344F), "bg": (0xF1F4F9, 0x0C0E11),
+                     "panel": (0xFFFFFF, 0x1B2025), "ink": (0x191C20, 0xE1E2E8), "ink2": (0x42474E, 0xC2C7CF),
+                     "line": (0xD7DCE3, 0x3A4047), "chip": (0xE6EBF1, 0x2B3137)]
+        case .libraryViolet:
+            tones = ["accent": (0x5C5A8B, 0xC5C2EE), "accentInk": (0xFFFFFF, 0x2D2B5A), "bg": (0xF6F2FA, 0x0E0E12),
+                     "panel": (0xFFFFFF, 0x1F1F26), "ink": (0x1B1B21, 0xE4E1E9), "ink2": (0x47464F, 0xC8C5D0),
+                     "line": (0xDDD9E4, 0x3D3C46), "chip": (0xECE8F3, 0x2E2D36)]
+        }
+        let fields = tones.keys.sorted().map { key -> String in
+            let tone = tones[key]!
+            return "\"\(key)\":\"" + String(format: "#%06X", dark ? tone.1 : tone.0) + "\""
+        }
+        return "{\"dark\":\(dark)," + fields.joined(separator: ",") + "}"
+    }
+}
+
 extension Color {
     init(hex: UInt32) {
         self.init(uiColor: UIColor(hex: hex))

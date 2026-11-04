@@ -172,6 +172,24 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         failed(error)
     }
 
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        showTheme()
+    }
+
+    /// The app theme's colours as the generic page takes them ({dark, bg, panel, ...} as #rrggbb).
+    private var theme: String?
+
+    func setTheme(_ json: String) {
+        theme = json
+        showTheme()
+    }
+
+    /// The generic page (only it has `NovelDBGeneric`) takes the app's theme.
+    private func showTheme() {
+        guard let theme else { return }
+        webView.evaluateJavaScript("window.NovelDBGeneric && window.NovelDBGeneric.theme && window.NovelDBGeneric.theme(\(theme))", completionHandler: nil)
+    }
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
         failed(error)
     }
@@ -209,6 +227,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         case "ready":
             showMode()
             if let model { showCart(model.cart.items) }
+            showTheme()
         case "location":
             located(url: field("url"), title: field("title"))
         case "cartAdd":
@@ -288,6 +307,12 @@ struct CatalogView: View {
     @ObservedObject var state: CatalogState
     @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.genericAddress
     @AppStorage(CatalogSite.cartLinksKey) private var cartLinks = true
+    @AppStorage(Accent.storageKey) private var accent = Accent.halgakosRose.rawValue
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var webTheme: String {
+        (Accent(rawValue: accent) ?? .halgakosRose).webTheme(dark: colorScheme == .dark)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -327,7 +352,9 @@ struct CatalogView: View {
             state.load(CatalogSite.current)
             state.showMode()
             state.showCart(model.cart.items)
+            state.setTheme(webTheme)
         }
+        .onChange(of: webTheme) { _, theme in state.setTheme(theme) }
         .onChange(of: model.cart.items) { _, items in state.showCart(items) }
         .onChange(of: site) { _, _ in
             state.load(CatalogSite.current)

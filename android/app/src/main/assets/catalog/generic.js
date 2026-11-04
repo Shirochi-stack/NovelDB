@@ -240,17 +240,55 @@
             };
         });
     }
+    // A search's results narrowed to some sites (ticked in the Sites panel; empty: every site). Works
+    // while the search runs: books that come in later from other sites stay hidden.
+    var siteFilter = new Set();
+    function refilter() {
+        order.forEach(function (group) {
+            if (!group.element) return;
+            group.element.style.display = wanted(group) && !(group.held && !group.verified) ? '' : 'none';
+            fit(group.element.querySelector('.title'));
+        });
+        empty();
+    }
     function drawSites() {
         if (view === 'top') { drawTopSites(); return; }
+        // The sites the books came from, the most books first: ticking some shows only their books.
+        var counts = new Map();
+        order.forEach(function (group) {
+            if (group.held && !group.verified) return;
+            new Set(group.sources.map(function (s) { return s.site; })).forEach(function (site) { if (site) counts.set(site, (counts.get(site) || 0) + 1); });
+        });
+        siteFilter.forEach(function (site) { if (!counts.has(site)) counts.set(site, 0); });
+        var bySite = Array.from(counts).sort(function (a, b) { return (siteFilter.has(b[0]) - siteFilter.has(a[0])) || b[1] - a[1]; });
+        var html = '';
+        if (bySite.length) {
+            html += '<h3>Show books from</h3><div class="pickbar"><button type="button" id="siteFilterAll"' + (siteFilter.size ? '' : ' disabled')
+                + '>All sites</button></div>' + bySite.map(function (entry) {
+                    return '<label class="siterow pick"><input type="checkbox" data-filter-site="' + esc(entry[0]) + '"'
+                        + (siteFilter.has(entry[0]) ? ' checked' : '') + '><span>' + esc(entry[0]) + '</span><span class="n">'
+                        + entry[1] + ' book' + (entry[1] === 1 ? '' : 's') + '</span></label>';
+                }).join('');
+        }
         var rows = progress.sites.slice().sort(function (a, b) { return a.ms - b.ms; });
-        var html = '<h3>' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered</h3>';
+        html += '<h3>' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered</h3>';
         html += rows.map(function (item) {
             var what = siteState(item);
             return '<div class="siterow ' + esc(item.state || 'ok') + '"><span>' + esc(item.site) + '</span><span class="ms">'
                 + seconds(item.ms) + '</span><span class="n">' + esc(what) + '</span></div>';
         }).join('');
         if (running && progress.expected > progress.answered) html += '<p>' + (progress.expected - progress.answered) + ' still searching…</p>';
-        $('sitespanel').innerHTML = html;
+        var panel = $('sitespanel'), scroll = panel.scrollTop;
+        panel.innerHTML = html;
+        panel.scrollTop = scroll;  // redrawn as sites answer: the list stays where it was
+        panel.querySelectorAll('[data-filter-site]').forEach(function (box) {
+            box.onchange = function () {
+                if (box.checked) siteFilter.add(box.dataset.filterSite); else siteFilter.delete(box.dataset.filterSite);
+                refilter();
+                drawSites();
+            };
+        });
+        if ($('siteFilterAll')) $('siteFilterAll').onclick = function () { siteFilter.clear(); refilter(); drawSites(); };
     }
     $('sitesButton').addEventListener('click', function (event) {
         event.stopPropagation();
@@ -337,6 +375,7 @@
     function wanted(group) {
         var kind = $('kind').value;
         if (view === 'top') return true;  // each category has its own top list
+        if (siteFilter.size && !group.sources.some(function (s) { return siteFilter.has(s.site); })) return false;
         return kind === 'all' || kindOf(group) === kind;
     }
 
@@ -395,7 +434,7 @@
         view = nextView;
         more = {page: 1, loading: false, has: true};
         clearTimeout(top.timer);  // a top list still loading draws nothing more
-        groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear();
+        groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear(); siteFilter.clear();
         $('grid').innerHTML = '';
         queue.length = 0;
     }
@@ -423,6 +462,14 @@
     }
     // NovelDB's npia books lead their group: their cover and title are the ones shown, whoever answered first.
     function leads(card) { return !!(card.noveldb && card.noveldb.source === 'npia'); }
+    // A site's list thumbnail ("cover-193x278.jpg", "?resize=175,238") and the full-size image it was made from.
+    function fullCover(url) {
+        var text = String(url || '');
+        if (!/^https?:/i.test(text)) return text;
+        var big = text.replace(/-\d{2,4}x\d{2,4}(?=\.(jpe?g|png|webp|gif)(\?|#|$))/i, '');
+        big = big.replace(/([?&])(resize|fit|w|h)=[^&#]*/gi, '$1').replace(/[?&]+(#|$)/, '$1').replace(/\?&+/, '?');
+        return big;
+    }
     function merge(card, rank) {
         if (card && card.title) card.title = bookTitle(card.title, card.site);
         if (!card || !card.url || !card.title || JUNK.test(String(card.title).trim())) return null;
@@ -458,8 +505,10 @@
         ['author', 'status', 'published', 'updated', 'rating', 'ratings', 'likes', 'views', 'chapters'].forEach(function (name) {
             if (card[name] && !group[name] && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
         });
-        if (card.cover && !group.cover) group.cover = card.cover;  // the first site's cover stays
-        if (card.cover && (group.covers || (group.covers = [])).indexOf(card.cover) < 0) group.covers.push(card.cover);
+        // The full-size image first, the thumbnail the site listed behind it (if the big one fails).
+        var offered = card.cover ? [fullCover(card.cover), card.cover] : [];
+        if (offered.length && !group.cover) group.cover = offered[0];  // the first site's cover stays
+        offered.forEach(function (cover) { if ((group.covers || (group.covers = [])).indexOf(cover) < 0) group.covers.push(cover); });
         // The longest synopsis once cleaned (a page's rating and share buttons do not count).
         if (card.description && synopsisText(card.description).length > synopsisText(group.description).length) group.description = card.description;
         var cardTags = (card.tags || []).concat(hashSplit(card.description).tags);
@@ -669,15 +718,18 @@
     // "v2": covers made by the older, harsher shrinking are not reused.
     function coverKey(url) { return ['v2', url, imaging.quality, imaging.resolution, Math.round(window.devicePixelRatio || 1)].join('|'); }
     function shrink(group, image) {
-        if (!imaging.low || image.dataset.small || !image.naturalWidth) return;
+        if (image.dataset.small || !image.naturalWidth) return;
         var original = group.cover;
         // Only a cover much bigger than the card is made smaller: one up to twice the size it is shown at
         // (in device pixels) is kept exactly as the site sent it, since re-encoding a small thumbnail only
         // blurs it. A bigger one shrinks by the resolution setting, never below 1.5 times the shown size.
         var card = image.closest('.cover');
         var shown = Math.max(1, ((card && card.clientWidth) || image.clientWidth || 180) * (window.devicePixelRatio || 1));
-        if (image.naturalWidth <= shown * 2) { image.dataset.small = '1'; return; }
-        var scale = Math.min(1, Math.max(shown * 1.5 / image.naturalWidth, imaging.resolution / 100));
+        // With compression off only a huge cover is made smaller (an original of 4000 x 6000 pixels takes
+        // ~90 MB decoded), to twice the shown size at high quality: the card looks the same.
+        var huge = !imaging.low;
+        if (image.naturalWidth <= shown * (huge ? 4 : 2)) { image.dataset.small = '1'; return; }
+        var scale = huge ? shown * 2 / image.naturalWidth : Math.min(1, Math.max(shown * 1.5 / image.naturalWidth, imaging.resolution / 100));
         var canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
         canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -700,10 +752,10 @@
                     if (!/^data:/.test(original)) group.original = original;  // for compression turned off later
                     group.cover = reader.result;  // later renders reuse the small copy
                     image.src = reader.result;
-                    if (!/^data:/.test(original)) send({type: 'genericCoverPut', key: coverKey(original), dataUrl: reader.result});
+                    if (!/^data:/.test(original) && !huge) send({type: 'genericCoverPut', key: coverKey(original), dataUrl: reader.result});
                 };
                 reader.readAsDataURL(blob);
-            }, 'image/webp', imaging.quality / 100);
+            }, 'image/webp', huge ? 0.92 : imaging.quality / 100);
         } catch (e) {
             keepCanvas();
         }
@@ -787,7 +839,8 @@
         var text = '';
         if (!order.length && view === 'top') text = running ? 'Loading the top ' + TOP_NAMES[top.kind] + '…' : 'Nothing in the top lists right now. Type a title, or pick tags with the Tags button.';
         else if (!order.length && !running) text = 'Nothing found.';
-        else if (order.length && !shown) text = 'No ' + $('kind').selectedOptions[0].text.toLowerCase() + ' among these.';
+        else if (order.length && !shown) text = siteFilter.size ? 'No books from the picked sites (yet).'
+            : 'No ' + $('kind').selectedOptions[0].text.toLowerCase() + ' among these.';
         $('empty').textContent = text;
         $('empty').style.display = text ? '' : 'none';
     }
@@ -1411,11 +1464,7 @@
     });
     $('kind').addEventListener('change', function () {
         if (view === 'top' && topKind() !== top.kind) { showTop(); return; }
-        order.forEach(function (group) {
-            if (group.element) group.element.style.display = wanted(group) ? '' : 'none';
-            if (group.element) fit(group.element.querySelector('.title'));
-        });
-        empty();
+        refilter();
     });
     window.addEventListener('resize', function () {
         clearTimeout(window.__fitTimer);
@@ -1428,7 +1477,27 @@
     var R = {group: null, source: null, chapters: [], index: 0, page: 0, pages: 1, cache: new Map(), token: 0, lnreader: null};
     var LOOK_KEY = 'noveldb.reader.look.v2', look = Object.assign({size: 19, leading: 1.75, font: 'serif', theme: 'auto', layout: 'paged'}, store(LOOK_KEY) || {});
     var darkPage = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-    function theme() { return look.theme === 'auto' ? (darkPage && darkPage.matches ? 'dark' : 'light') : look.theme; }
+    function theme() {
+        if (look.theme === 'auto' && appTheme) return 'app';
+        return look.theme === 'auto' ? (darkPage && darkPage.matches ? 'dark' : 'light') : look.theme;
+    }
+    // The app's own theme (its accent, light or dark), when the app says it: the page takes its colours,
+    // and the reader's Auto look reads in them.
+    var appTheme = null;
+    var THEME_VARS = {bg: '--bg', panel: '--panel', ink: '--ink', ink2: '--ink-2', line: '--line', accent: '--accent',
+                      accentInk: '--accent-ink', chip: '--chip'};
+    var READER_VARS = {bg: '--r-bg', ink: '--r-ink', ink2: '--r-ink-2', line: '--r-line'};
+    function setAppTheme(colors) {
+        var valid = colors && typeof colors === 'object' ? colors : null;
+        var root = document.documentElement.style;
+        Object.keys(THEME_VARS).forEach(function (name) {
+            var value = valid && /^#[0-9a-f]{6}$/i.test(valid[name] || '') ? valid[name] : '';
+            if (value) root.setProperty(THEME_VARS[name], value); else root.removeProperty(THEME_VARS[name]);
+        });
+        appTheme = valid;
+        document.documentElement.style.colorScheme = valid ? (valid.dark ? 'dark' : 'light') : '';
+        applyLook();
+    }
     // Comics read as one scroll of full-width images; novels in the layout picked.
     function layout() { return R.comic ? 'scroll' : look.layout; }
     if (darkPage && darkPage.addEventListener) darkPage.addEventListener('change', function () { if ($('reader').classList.contains('open')) applyLook(); });
@@ -1461,6 +1530,10 @@
         reader.classList.toggle('sans', look.font === 'sans');
         reader.classList.toggle('sepia', theme() === 'sepia');
         reader.classList.toggle('dark', theme() === 'dark');
+        Object.keys(READER_VARS).forEach(function (name) {
+            var value = theme() === 'app' && /^#[0-9a-f]{6}$/i.test(appTheme[name] || '') ? appTheme[name] : '';
+            if (value) reader.style.setProperty(READER_VARS[name], value); else reader.style.removeProperty(READER_VARS[name]);
+        });
         reader.classList.toggle('scroll', layout() === 'scroll');
         reader.classList.toggle('comic', !!R.comic);
         document.querySelectorAll('#look [data-look]').forEach(function (button) {
@@ -1541,6 +1614,20 @@
         R.cache = new Map();
         R.chapterIds = new Map();
         R.chapters = [];
+        // Nothing of the book read before stays: its streamed chapter (which kept the loading note from
+        // showing), its pictures still coming, its page and place.
+        R.streamed = -1;
+        R.index = -1;
+        R.slots = [];
+        R.pages = 1;
+        R.page = 0;
+        clearInterval(R.clock);
+        resetPictures();
+        $('flow').innerHTML = '';
+        $('flow').style.transform = 'translateX(0)';
+        $('viewport').scrollTop = 0;
+        $('rChapterNo').textContent = '';
+        $('rWhere').textContent = '';
         reader.classList.add('open');
         document.body.style.overflow = 'hidden';
         applyLook();
@@ -2094,6 +2181,8 @@
             setTimeout(moreSoon, 300);  // still at the end (few new books): the next page
         },
         // The picked NovelDB sources' page of books is in (their cards came through add()).
+        // The app's theme: {dark, bg, panel, ink, ink2, line, accent, accentInk, chip} as #rrggbb (null: the page's own).
+        theme: function (colors) { setAppTheme(colors); },
         ndbTags: function (names) {
             ndbTagNames = Array.isArray(names) ? names.filter(function (n) { return typeof n === 'string' && n; }) : [];
             if ($('tagmenu').classList.contains('open')) drawTags();
