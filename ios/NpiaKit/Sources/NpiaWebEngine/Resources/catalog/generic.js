@@ -144,7 +144,10 @@
     // "ko-en": Korean books shown with their English titles (NovelDB's translated metadata).
     function baseLang() { return language.split('-')[0]; }
     function englishTitles() { return /-en$/.test(language); }
-    function inLanguage(card) { return language === 'all' || langOf(card) === baseLang(); }
+    // The language a card's text is in: "日本語 (English)" is Japanese novels in English translation (the
+    // light-novel sites), so English text.
+    function cardLang() { return language === 'ja-en' ? 'en' : baseLang(); }
+    function inLanguage(card) { return language === 'all' || langOf(card) === cardLang(); }
 
     // -- progress: every source (a site's search, a plugin, the web search) reports when it answers --
     var progress = {expected: 0, answered: 0, started: 0, sites: [], timer: 0};
@@ -1317,9 +1320,9 @@
     }
     // The LNReader sites a novel top list reads: the picked ones, else the busiest of the language and kind.
     function topPlugins(kind, all) {
-        var wantLn = kind === 'lightnovel';
+        var wantLn = kind === 'lightnovel' || language === 'ja-en';  // translated Japanese novels
         var chosen = plugins().filter(function (p) {
-            return !p.comic && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === baseLang())
+            return !p.comic && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === cardLang())
                 && (allPlugins.length ? !!p.ln === wantLn : true);
         }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); });
         return all ? chosen : chosen.slice(0, 100);
@@ -1331,7 +1334,7 @@
             setRunning(1);
             startProgress(0);
             status('Reading the popular pages of ' + (top.only.length ? top.only.join(', ') : 'the top ' + TOP_NAMES[top.kind] + ' sites') + '…');
-            send(Object.assign({type: 'genericTop', id: id, kind: top.kind, language: language}, top.only.length ? {sites: top.only} : {}));
+            send(Object.assign({type: 'genericTop', id: id, kind: top.kind, language: cardLang()}, top.only.length ? {sites: top.only} : {}));
             return;
         }
         // Korean and Chinese web novels: NovelDB's index of those sites (every book, the most read first).
@@ -1362,7 +1365,7 @@
         if (top.ndbSources.length) askNdbTop(id, false);
         if (top.others.length) {
             setRunning(1);
-            send({type: 'genericTop', id: id, kind: top.kind, language: language, sites: top.others});
+            send({type: 'genericTop', id: id, kind: top.kind, language: cardLang(), sites: top.others});
         }
         if (!chosen.length || !window.__LNR_popular) { status('Reading the Top lists of ' + picks.join(', ') + '…'); return; }
         status('Reading the popular lists of ' + chosen.length + ' ' + TOP_NAMES[top.kind] + ' sites…');
