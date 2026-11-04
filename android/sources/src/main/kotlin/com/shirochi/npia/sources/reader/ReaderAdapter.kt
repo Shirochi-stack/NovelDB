@@ -15,6 +15,7 @@ import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.SiteEngine
 import com.shirochi.npia.core.SourceTier
+import com.shirochi.npia.core.parseConcurrently
 import com.shirochi.npia.sources.engines.RuleEngine
 import com.shirochi.npia.sources.engines.RuleEngines
 import kotlinx.coroutines.CancellationException
@@ -61,6 +62,10 @@ class ReaderAdapter : SourceAdapter {
 
     override suspend fun parseChapter(ref: ChapterRef, book: BookInfo, context: SourceContext): ChapterResult =
         ReaderSessions.session(book, context).chapter(ref)
+
+    /** Sites no built-in scraper knows: the rate-limit pause is kept between chapter starts across all threads. */
+    override suspend fun parseChapters(refs: List<ChapterRef>, book: BookInfo, context: SourceContext): List<ChapterResult> =
+        parseConcurrently(refs, context, spaced = true) { ref -> parseChapter(ref, book, context) }
 
     private fun webToEpubLists(url: String): Boolean {
         val scheme = runCatching { URI(url.trim()).scheme }.getOrNull()?.lowercase()

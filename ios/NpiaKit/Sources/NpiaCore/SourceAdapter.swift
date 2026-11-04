@@ -81,6 +81,34 @@ public extension SourceAdapter {
         return results.compactMap { $0 }
     }
 
+    /// Like `parseChapters`, but the rate-limit delay is between chapter starts across all tasks (one
+    /// chapter begins per delay, whatever the threads): for sites no built-in scraper knows the limits of.
+    func parseChaptersSpaced(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
+        let shared = context.shared(for: Self.id)
+        let limit = max(1, shared.threads)
+        let gate = ChapterGate()
+        var results = [ChapterResult?](repeating: nil, count: refs.count)
+        var pending: [(offset: Int, element: ChapterRef)] = refs.enumerated().reversed()
+        func start(_ item: (offset: Int, element: ChapterRef), in group: inout ThrowingTaskGroup<(Int, ChapterResult), Error>) {
+            group.addTask {
+                try await gate.wait(seconds: shared.chapterDelay())
+                return try await self.chapterTask(item.offset, item.element, book: book, context: context, delay: nil)
+            }
+        }
+        try await withThrowingTaskGroup(of: (Int, ChapterResult).self) { group in
+            for _ in 0..<limit {
+                guard let item = pending.popLast() else { break }
+                start(item, in: &group)
+            }
+            while let (position, result) = try await group.next() {
+                results[position] = result
+                context.onChapter(result)
+                if let item = pending.popLast() { start(item, in: &group) }
+            }
+        }
+        return results.compactMap { $0 }
+    }
+
     private func chapterTask(_ position: Int, _ ref: ChapterRef, book: BookInfo, context: SourceContext, delay: SharedSettings?) async throws -> (Int, ChapterResult) {
         if let delay { try await delay.sleepChapterDelay() }
         do {
@@ -90,6 +118,23 @@ public extension SourceAdapter {
         } catch {
             return (position, .failed(ref, message: error.localizedDescription))
         }
+    }
+}
+
+/// Hands out chapter start times one delay apart; each caller sleeps until its own.
+actor ChapterGate {
+    private var nextStart = Date.distantPast
+
+    func reserve(seconds: Double) -> TimeInterval {
+        let now = Date()
+        let start = max(now, nextStart)
+        nextStart = start.addingTimeInterval(seconds)
+        return start.timeIntervalSince(now)
+    }
+
+    nonisolated func wait(seconds: Double) async throws {
+        let wait = await reserve(seconds: seconds)
+        if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
     }
 }
 

@@ -39,6 +39,11 @@ public struct ReaderAdapter: SourceAdapter {
         let session = try await ReaderSessions.shared.session(for: book, context: context)
         return try await session.chapter(ref)
     }
+
+    /// Sites no built-in scraper knows: the rate-limit pause is kept between chapter starts across all threads.
+    public func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
+        try await parseChaptersSpaced(refs, book: book, context: context)
+    }
 }
 
 // MARK: - Rule lookup

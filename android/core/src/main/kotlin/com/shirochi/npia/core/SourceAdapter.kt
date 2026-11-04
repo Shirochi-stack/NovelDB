@@ -4,6 +4,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.net.URI
@@ -79,18 +82,33 @@ interface SourceAdapter {
 /**
  * Runs `read` over `refs` with `threads` workers. Each worker sleeps one rate-limit delay after a
  * chapter (except the last), reports it through `onChapter`, and failures become `Failed`.
+ * `spaced`: the delay is between chapter starts across all workers instead (one chapter begins per
+ * delay, whatever the threads), for sites no built-in scraper knows the limits of.
  */
 suspend fun SourceAdapter.parseConcurrently(
     refs: List<ChapterRef>,
     context: SourceContext,
+    spaced: Boolean = false,
     read: suspend (ChapterRef) -> ChapterResult,
 ): List<ChapterResult> = coroutineScope {
     val shared = context.shared(id)
     val permits = Semaphore(shared.threads.coerceAtLeast(1))
     val last = refs.lastOrNull()
+    val gate = Mutex()
+    var nextStart = 0L
     refs.map { ref ->
         async {
             permits.withPermit {
+                if (spaced) {
+                    // Take the next start time, then wait for it outside the lock.
+                    val wait = gate.withLock {
+                        val now = System.currentTimeMillis()
+                        val start = maxOf(now, nextStart)
+                        nextStart = start + (shared.chapterDelay() * 1000).toLong()
+                        start - now
+                    }
+                    if (wait > 0) delay(wait)
+                }
                 val result = context.keep(
                     try {
                         read(ref)
@@ -101,7 +119,7 @@ suspend fun SourceAdapter.parseConcurrently(
                     },
                 )
                 context.onChapter(result)
-                if (ref !== last && result !is ChapterResult.Refused) shared.pauseBetweenChapters()
+                if (!spaced && ref !== last && result !is ChapterResult.Refused) shared.pauseBetweenChapters()
                 result
             }
         }
