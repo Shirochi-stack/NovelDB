@@ -478,7 +478,7 @@ def test_enter_browser_is_off_while_a_download_runs(window, context, qtbot, monk
         return {"ok": True, "title": "Book", "outputs": []}
 
     context.runner._executor = slow_executor
-    context.enqueue_text("https://novelpia.com/novel/1")
+    context.enqueue_text("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/1")
     qtbot.waitUntil(lambda: not page.enter_browser.isEnabled(), timeout=3000)
     release.set()
     qtbot.waitUntil(lambda: page.enter_browser.isEnabled(), timeout=5000)

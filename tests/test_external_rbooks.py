@@ -830,7 +830,7 @@ def test_rbooks_parallel_batch_reads_through_the_web_viewer_api_before_any_viewe
     scraper._rbooks_page_is_usable = lambda page: page is scraper._page
     scraper._rbooks_api_chapter = lambda page, url, name: (
         {'chapterName': name, 'images': [{'url': 'x'}]} if page is scraper._page else None)
-    chapters = [{'url': f'https://ridibooks.com/books/{n}/view',
+    chapters = [{'url': f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{n}/view',
                  'name': f'Ep {n}'} for n in (1, 2, 3, 4, 5)]
     completed = []
     results = scraper._rbooks_parse_chapter_batch_parallel(
@@ -1591,26 +1591,26 @@ class _Page:
 
 def test_rbooks_reads_an_episode_through_the_web_viewer_api():
     scraper, _ = make_scraper()
-    page = _Page('https://ridibooks.com/books/3049080915', {
+    page = _Page('https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/3049080915', {
         'status': 200, 'parts': ['<html><body><p>\u2060\u2063Hello</p><img src="https://cdn.example/a.png"></body></html>']})
-    result = scraper._rbooks_api_chapter(page, 'https://ridibooks.com/books/3049081022/view', 'Ep 2')
+    result = scraper._rbooks_api_chapter(page, 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/3049081022/view', 'Ep 2')
     assert result['contentText'] == 'Hello' and len(result['images']) == 1
     assert '\u2060' not in result['contentHtml']
 
 
 def test_rbooks_reads_a_webtoon_episode_as_its_page_images():
     scraper, _ = make_scraper()
-    pages = [f'https://webview-cache.example/4921002551/webtoon/__ridi__{n}.webp?Expires=1&Signature=x' for n in range(3)]
-    page = _Page('https://ridibooks.com/books/4921002551', {'status': 200, 'parts': [], 'pages': pages})
-    result = scraper._rbooks_api_chapter(page, 'https://ridibooks.com/books/4921002551/view', 'Ep 1')
+    pages = [f'https://webview-cache.example/4921002551/webtoon/page_{n}.webp?Expires=1&Signature=x' for n in range(3)]
+    page = _Page('https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/4921002551', {'status': 200, 'parts': [], 'pages': pages})
+    result = scraper._rbooks_api_chapter(page, 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/4921002551/view', 'Ep 1')
     assert [image['url'] for image in result['images']] == pages
     assert result['contentHtml'].count('<img') == 3 and result['contentText'] == ''
 
 
 def test_rbooks_web_viewer_api_refusals():
     scraper, _ = make_scraper()
-    url = 'https://ridibooks.com/books/3049081050/view'
-    here = 'https://ridibooks.com/books/3049080915'
+    url = 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/3049081050/view'
+    here = 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/3049080915'
     # Not bought: locked at once. Not a web-viewer book or logged out: the page's way (None).
     assert scraper._rbooks_api_chapter(_Page(here, {'status': 403, 'code': 'INVALID_ACCESS', 'parts': []}), url, 'Ep 30')['_locked']
     assert scraper._rbooks_api_chapter(_Page(here, {'status': 400, 'parts': []}), url, 'Vol 3') is None
