@@ -231,6 +231,10 @@ def _smoke_report(window, started: float) -> dict:
 def main(argv=None) -> int:
     started = time.time()
     args = _parse(sys.argv[1:] if argv is None else argv)
+    if args.smoke and sys.stderr is not None:
+        import faulthandler
+
+        faulthandler.enable(all_threads=True)  # a crash in the build's smoke test prints where it happened
     QCoreApplication.setOrganizationName("NovelDB")
     QCoreApplication.setApplicationName("NovelDB")
     QCoreApplication.setApplicationVersion(VERSION)

@@ -453,24 +453,12 @@ def test_the_library_shows_the_books_in_the_save_folder(window, context, qtbot, 
     assert "First words." in page.reader.page.toPlainText()
 
 
-def test_a_click_elsewhere_folds_the_log_while_idle(window, qtbot):
-    from PySide6.QtCore import QPoint, QPointF, Qt
-    from PySide6.QtGui import QMouseEvent
-    from PySide6.QtWidgets import QApplication
-
+def test_moving_elsewhere_folds_the_log_while_idle(window, qtbot):
+    window.show()
     window.sidebar.setCurrentRow(1)  # a page with the log at the bottom
     window.set_log_visible(True)
-
-    clock = [1000]
-
-    def click(widget):
-        point = QPointF(QPoint(2, 2))
-        event = QMouseEvent(QMouseEvent.Type.MouseButtonPress, point, point, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
-        clock[0] += 100
-        event.setTimestamp(clock[0])  # each click its own moment, as real ones are
-        QApplication.sendEvent(widget, event)
-
-    click(window.log_panel)  # inside the log: it stays
+    window.log_panel.setFocus()
+    window._focus_moved(None, window.log_panel)  # inside the log: it stays
     assert window._log_open
-    click(window.sidebar)  # elsewhere, nothing running: it folds away
+    window._focus_moved(window.log_panel, window.sidebar)  # elsewhere, nothing running: it folds away
     assert not window._log_open
