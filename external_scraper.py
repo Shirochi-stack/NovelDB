@@ -19670,7 +19670,10 @@ async (items) => {
             return results
         self._hide_chrome_windows_for_profile(self._get_user_data_dir())
         unlocked = False
-        for attempt in range(3):
+        # Three rounds, and up to three more while the site only says to slow down (HTTP 429).
+        attempt, limit = 0, 3
+        while attempt < limit:
+            attempt += 1
             if not pending or self._stop_requested:
                 break
             if not self._fenrir_token_active():
@@ -19734,7 +19737,12 @@ async (items) => {
             pending = retry
             if pending and not self._stop_requested:
                 if retry_delays:
+                    # The site's wait first, then longer each time it refuses again (its own "1 s" kept
+                    # refusing the next round too): 2, 4, 8... seconds.
                     delay = max(retry_delays)
+                    if attempt > 1:
+                        delay = max(delay, 2.0 ** (attempt - 1))
+                    limit = min(6, limit + 1)
                     self.log(f'  [Fenrir] Rate limited; waiting {delay:g} s...')
                     self._sleep_interval(delay)
                 elif self._fenrir_token_active():

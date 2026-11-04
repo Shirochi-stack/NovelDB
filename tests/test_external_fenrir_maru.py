@@ -311,3 +311,25 @@ def test_fenrir_batch_respects_longest_retry_after(monkeypatch, headers, expecte
     assert all(ch['contentText'] == 'Body' for ch in result)
     assert sleeps == [expected, 0]
     assert any(f'waiting {expected:g} s' in message for message in messages)
+
+
+def test_fenrir_batch_backs_off_while_still_rate_limited(monkeypatch):
+    # The site said "1 s" each time; each round after the first waits longer, and the
+    # rate-limited rounds don't use up the batch's three tries.
+    scraper, messages = make_scraper()
+    scraper._book_data = {'_fenrir': True, '_fenrir_slug': 'demo'}
+    replies = iter([[{'status': 429, 'retryAfter': '1'}]] * 4
+                   + [[{'status': 200, 'payload': {'content': 'Body', 'content_format': 'text'}}]])
+    class Page:
+        def evaluate(self, *args):
+            return next(replies)
+    scraper._page = Page()
+    monkeypatch.setattr(scraper, '_fenrir_page_ready', lambda url: True)
+    monkeypatch.setattr(scraper, '_fenrir_token_active', lambda: True)
+    monkeypatch.setattr(scraper, '_get_user_data_dir', lambda: 'profile')
+    monkeypatch.setattr(scraper, '_hide_chrome_windows_for_profile', lambda path: None)
+    sleeps = []
+    monkeypatch.setattr(scraper, '_sleep_interval', lambda delay, *args: sleeps.append(delay))
+    result = scraper._fenrir_parse_chapter_batch([{'name': 'Chapter 1', 'url': 'https://fenrirealm.com/series/demo/1'}])
+    assert result[0]['contentText'] == 'Body'
+    assert sleeps == [1, 2, 4, 8, 0]
