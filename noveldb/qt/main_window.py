@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStackedWidget,
+    QSplitterHandle,
     QWidget,
 )
 
@@ -163,6 +164,9 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.log_toggle)
         self.log_panel.activity.connect(lambda: self.set_log_visible(True))
         self.set_log_visible(False)
+        # A click anywhere else folds the bottom log away again, while no download runs.
+        self._press = None
+        QApplication.instance().installEventFilter(self)
         self.sidebar.currentRowChanged.connect(self._place_log)
         self._place_log()
         self.download.queued.connect(self._queued)
@@ -237,6 +241,31 @@ class MainWindow(QMainWindow):
     # is kept per page. The Download page shows the log as a column instead.
     LOG_SHARE: dict = {}
     DEFAULT_LOG_SHARE = 0.28
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonPress and isinstance(watched, QWidget):
+            # A click nothing handled travels on to the parents (as a copy of itself): it is judged once,
+            # by where it landed.
+            point = event.globalPosition().toPoint()
+            press = (event.timestamp(), point.x(), point.y(), event.button())
+            if self._press != press:
+                self._press = press
+                if (getattr(self, "_log_open", False) and self._page_name() != "Download"
+                        and watched.window() is self and not self._in_log(watched)
+                        and not isinstance(watched, QSplitterHandle) and not self.context.runner.running()):
+                    self.set_log_visible(False)
+        return super().eventFilter(watched, event)
+
+    def _in_log(self, widget) -> bool:
+        """`widget` is the log, its toggle, or inside the log (by the Qt object: Python wrappers may differ)."""
+        import shiboken6
+
+        mine = {shiboken6.getCppPointer(self.log_panel)[0], shiboken6.getCppPointer(self.log_toggle)[0]}
+        while widget is not None:
+            if shiboken6.getCppPointer(widget)[0] in mine:
+                return True
+            widget = widget.parentWidget()
+        return False
 
     def _page_name(self) -> str:
         row = self.sidebar.currentRow()
