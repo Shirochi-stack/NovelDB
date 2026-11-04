@@ -227,6 +227,10 @@ def stylesheet_for(scheme: dict) -> str:
                          font-size: {LOG_POINT_SIZE}pt; }}
     QProgressBar {{ border: none; background: {s['surfaceContainerHighest']}; border-radius: 3px; max-height: 6px; text-align: center; }}
     QProgressBar::chunk {{ background: {s['primary']}; border-radius: 3px; }}
+    /* Message boxes (Delete book, Reset settings...): wide enough for a file name, buttons centred and apart. */
+    QMessageBox QLabel#qt_msgbox_label {{ min-width: 460px; }}
+    QMessageBox QDialogButtonBox {{ qproperty-centerButtons: true; }}
+    QMessageBox QPushButton {{ min-width: 96px; margin: 4px 8px; }}
     """
 
 
