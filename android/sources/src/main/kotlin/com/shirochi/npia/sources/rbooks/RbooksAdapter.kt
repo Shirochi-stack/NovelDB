@@ -346,6 +346,7 @@ class RbooksAdapter internal constructor(
 
         private suspend fun read(page: WebPageDriving, ref: ChapterRef): ChapterResult {
             val url = ref.url ?: return ChapterResult.Failed(ref, "missing chapter URL")
+            apiChapter(page, ref, url)?.let { return it }
             try {
                 page.load(url, WebLoadState.DOM_CONTENT_LOADED, timing.loadTimeoutSeconds)
             } catch (e: WebLoadTimeoutException) {
@@ -392,6 +393,24 @@ class RbooksAdapter internal constructor(
                 return if (wall.wall) ChapterResult.Refused(ref, "locked or not bought") else ChapterResult.Failed(ref, "no chapter content was extracted")
             }
             return buildResult(ref, extract)
+        }
+
+        /**
+         * The web viewer's own API first (rbooks.apiChapter: a few requests, no drawing, about 1 s an episode
+         * instead of 4), when the page is already on the store's address. Null means the viewer's way: a book
+         * the web viewer does not serve, signed out, or anything that failed.
+         */
+        private suspend fun apiChapter(page: WebPageDriving, ref: ChapterRef, url: String): ChapterResult? {
+            val host = HttpSourceSupport.host(page.currentUrl().orEmpty()).removePrefix("www.")
+            val bookId = RbooksSite.bookId(url)
+            if (host != RbooksSite.DOMAIN || bookId.isEmpty()) return null
+            val options = buildJsonObject { put("bookId", bookId); put("fallbackTitle", ref.title); put("chapterIndex", ref.index) }
+            val reply = runCatching { page.hard<RbooksApiChapter>("rbooks.apiChapter($options)") }.getOrNull() ?: return null
+            return when (reply.status) {
+                "ok" -> reply.extract?.takeIf { it.content.isNotBlank() }?.let { buildResult(ref, it) }
+                "locked" -> ChapterResult.Refused(ref, "locked or not bought")
+                else -> null
+            }
         }
 
         /** The viewer's text must be long enough and keep its length: it is drawn in pieces. */

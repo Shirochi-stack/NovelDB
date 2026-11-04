@@ -80,5 +80,9 @@ internal data class RbooksExtract(
     val images: List<RbooksImage> = emptyList(),
 )
 
+/** rbooks.apiChapter: "ok" with the extract, "locked", or "fallback" (load the viewer). */
+@Serializable
+internal data class RbooksApiChapter(val status: String = "fallback", val extract: RbooksExtract? = null)
+
 @Serializable
 internal data class RbooksOwned(val owned: List<String>? = null)

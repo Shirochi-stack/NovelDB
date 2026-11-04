@@ -888,6 +888,73 @@ def test_contiguous_serial_catalog_is_validated_with_one_request(context):
     assert any('Fast episode catalog: 5' in line for line in out['diagnostics'])
 
 
+def serial_book(book_id, series_id, next_id, title):
+    return {'id': book_id, 'title': {'main': title}, 'series': {'id': series_id, 'property': {
+        'total_book_count': 6, 'is_serial': True, 'next_books': {next_id: {}} if next_id else {}}}}
+
+
+def test_a_serial_catalog_comes_in_batches_chained_by_next_books(context):
+    # Close but not contiguous IDs: each request asks for a window of 100 IDs (book API's ?b_ids=), the
+    # books of this series in it are chained by their own next_books, a jump past the window starts the next.
+    page = api_page(context)
+    ids = ['6251000001', '6251000002', '6251000006', '6251000007', '6251000150', '6251000151']
+    books = {book_id: serial_book(book_id, ids[0], ids[i + 1] if i + 1 < len(ids) else None, f'Ep {i + 1}')
+             for i, book_id in enumerate(ids)}
+    books['6251000003'] = serial_book('6251000003', '9999', None, 'Another series')
+    serve_api(page, {book_id: json.dumps(book) for book_id, book in books.items()})
+    windows = []
+
+    def batch(route):
+        asked = route.request.url.split('b_ids=')[1].split(',')
+        windows.append(asked[0])
+        route.fulfill(status=200, content_type='application/json',
+                      body=json.dumps([books[i] for i in asked if i in books]),
+                      headers={'access-control-allow-origin': '*'})
+    page.route(f'{hs.RBOOKS_API}/books?b_ids=*', batch)
+    page.goto(f'{hs.RBOOKS_API}/start')
+    out = run_discover(page, seriesId=ids[0], renderedLinks=[])
+    assert out['done'] and [link.split('/')[-2] for link in out['links']] == ids
+    assert windows == ['6251000002', '6251000150']
+    assert out['titleById']['6251000150'] == 'Ep 5'
+    assert any('Batched episode links: 6' in line for line in out['diagnostics'])
+
+
+def serve_web_viewer(page, generate_status, generate_body, spine_body=None):
+    page.route(f'{hs.RBOOKS_ORIGIN}/api/web-viewer/generate', lambda route: route.fulfill(
+        status=generate_status, content_type='application/json', body=json.dumps(generate_body)))
+    if spine_body is not None:
+        page.route('https://webview-cache.example/**', lambda route: route.fulfill(
+            status=200, content_type='application/json', body=json.dumps({'value': spine_body}),
+            headers={'access-control-allow-origin': '*'}))
+
+
+def test_an_episode_is_read_through_the_web_viewer_api(context):
+    page = context.new_page()
+    serve(page, hs.RBOOKS_ORIGIN, rbooks_pages())
+    serve_web_viewer(page, 200, {'success': True, 'data': {'spines': ['https://webview-cache.example/a.json']}},
+                     '<html><body><h1>#2</h1><p>\u2060\u2063First line.</p><p><img src="https://img.example/one.png"></p>'
+                     '<p>Second line.</p></body></html>')
+    page.goto(f'{hs.RBOOKS_ORIGIN}/books/6251000001')
+    reply = call(page, 'rbooks.apiChapter', {'bookId': '6251000002', 'fallbackTitle': '2화 (삽화)', 'chapterIndex': 3})
+    assert reply['status'] == 'ok'
+    extract = reply['extract']
+    assert extract['title'] == '2화 (삽화)'  # the catalog's name, not the file's "#2"
+    assert extract['contentText'] == 'First line.\nSecond line.'
+    assert extract['images'] == [{'url': 'https://img.example/one.png', 'name': 'images/0003_01.png'}]
+    assert 'images/0003_01.png' in extract['content'] and '\u2060' not in extract['content']
+
+
+def test_the_web_viewer_api_says_locked_or_leaves_it_to_the_viewer(context):
+    page = context.new_page()
+    serve(page, hs.RBOOKS_ORIGIN, rbooks_pages())
+    page.goto(f'{hs.RBOOKS_ORIGIN}/books/6251000001')
+    serve_web_viewer(page, 403, {'success': False, 'error': {'code': 'INVALID_ACCESS'}})
+    assert call(page, 'rbooks.apiChapter', {'bookId': '6251000030'})['status'] == 'locked'
+    page.unroute(f'{hs.RBOOKS_ORIGIN}/api/web-viewer/generate')
+    serve_web_viewer(page, 400, {'success': False, 'message': 'not supported in the web viewer'})
+    assert call(page, 'rbooks.apiChapter', {'bookId': '6251000040'})['status'] == 'fallback'
+
+
 def test_a_catalog_that_is_not_contiguous_is_followed_one_episode_at_a_time(context):
     page = api_page(context)
     ids = ['6251000001', '6251000007', '6251000012', '6251000040']

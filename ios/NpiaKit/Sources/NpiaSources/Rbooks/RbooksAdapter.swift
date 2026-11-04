@@ -367,6 +367,7 @@ final class RbooksRun: @unchecked Sendable {
 
     private func read(_ page: any WebPageDriving, _ ref: ChapterRef) async throws -> ChapterResult {
         guard let url = ref.url else { return .failed(ref, message: "missing chapter URL") }
+        if let fast = await apiChapter(page, ref, url) { return fast }
         do {
             try await page.load(url, until: .domContentLoaded, timeout: timing.loadTimeout)
         } catch WebEngineError.timeout(_) {
@@ -406,6 +407,28 @@ final class RbooksRun: @unchecked Sendable {
         let extract = RbooksExtract(reply)
         if extract.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return try await emptyExtraction(page, ref) }
         return await buildResult(ref, extract)
+    }
+
+    /// The web viewer's own API first (rbooks.apiChapter: a few requests, no drawing, about 1 s an episode
+    /// instead of 4), when the page is already on the store's address. Nil means the viewer's way: a book the
+    /// web viewer does not serve, signed out, or anything that failed.
+    private func apiChapter(_ page: any WebPageDriving, _ ref: ChapterRef, _ url: URL) async -> ChapterResult? {
+        let host = (await page.currentURL())?.host ?? ""
+        let bookID = RbooksSite.bookID(url)
+        guard host == RbooksSite.domain || host == "www." + RbooksSite.domain, !bookID.isEmpty else { return nil }
+        let options: [String: Any] = ["bookId": bookID, "fallbackTitle": ref.title, "chapterIndex": ref.index]
+        guard let reply = try? await page.hardObject("rbooks.apiChapter(\(HardScripts.json(options)))") else { return nil }
+        switch reply.string("status") {
+        case "ok":
+            guard let raw = reply.object("extract") else { return nil }
+            let extract = RbooksExtract(raw)
+            if extract.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            return await buildResult(ref, extract)
+        case "locked":
+            return .refused(ref, reason: "locked or not bought")
+        default:
+            return nil
+        }
     }
 
     private func emptyExtraction(_ page: any WebPageDriving, _ ref: ChapterRef) async throws -> ChapterResult {

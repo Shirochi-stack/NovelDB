@@ -1570,10 +1570,10 @@ class _Page:
 def test_rbooks_reads_an_episode_through_the_web_viewer_api():
     scraper, _ = make_scraper()
     page = _Page('https://ridibooks.com/books/3049080915', {
-        'status': 200, 'parts': ['<html><body><p>⁠⁣Hello</p><img src="https://cdn.example/a.png"></body></html>']})
+        'status': 200, 'parts': ['<html><body><p>\u2060\u2063Hello</p><img src="https://cdn.example/a.png"></body></html>']})
     result = scraper._rbooks_api_chapter(page, 'https://ridibooks.com/books/3049081022/view', 'Ep 2')
     assert result['contentText'] == 'Hello' and len(result['images']) == 1
-    assert '⁠' not in result['contentHtml']
+    assert '\u2060' not in result['contentHtml']
 
 
 def test_rbooks_web_viewer_api_refusals():

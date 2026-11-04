@@ -1941,6 +1941,41 @@
       if (st.ids.length < 2 && !st.isSerial) st.ids = [];
       return finish(st);
     }
+    // A serial's episodes a window of IDs per request (book API's /books?b_ids=): each window's books of
+    // this series are chained by their own next_books (the store's order, nothing guessed); a jump past
+    // the window starts the next one there. 136 episodes: 3.5 s instead of 55. A failed batch request
+    // leaves the rest to the one-at-a-time walk below.
+    if (st.phase === 'chain' && !st.batchFailed) {
+      while (st.nextId && !st.ids.includes(st.nextId) && st.ids.length < 10000 && Date.now() - started < budget) {
+        const next = st.nextId;
+        if (!/^\d+$/.test(next)) { st.batchFailed = true; break; }
+        const window = [];
+        for (let offset = 0; offset < 100; offset += 1) window.push(String(Number(next) + offset).padStart(next.length, '0'));
+        let books = null;
+        try {
+          const response = await fetch(`/books?b_ids=${window.join(',')}`, { credentials: 'include', headers: { Accept: 'application/json' } });
+          if (response.status >= 200 && response.status < 300) books = JSON.parse(await response.text());
+        } catch (e) { books = null; }
+        if (!Array.isArray(books)) { st.batchFailed = true; break; }
+        const series = {};
+        for (const book of books) {
+          if (book && book.id && String(((book.series || {}).id) || '') === st.seriesId) series[String(book.id)] = book;
+        }
+        if (!series[next]) {
+          const single = await fetchBook(next, 2);
+          if (!single) return finish(st, true);
+          series[next] = single;
+        }
+        while (st.nextId && series[st.nextId] && !st.ids.includes(st.nextId)) {
+          const book = series[st.nextId];
+          st.ids.push(st.nextId);
+          const title = apiTitle(book);
+          if (title) st.titleById[st.nextId] = title;
+          st.nextId = apiNextId(book);
+        }
+        st.batched = true;
+      }
+    }
     const limit = st.phase === 'volumes' ? Math.min(st.total, 100) : Math.min(Math.max(st.total || 10000, 1), 10000);
     while (st.phase !== 'done' && st.ids.length < limit && Date.now() - started < budget) {
       const next = st.nextId;
@@ -1955,7 +1990,7 @@
     }
     if (st.phase !== 'done' && (!st.nextId || st.ids.includes(st.nextId) || st.ids.length >= limit)) {
       st.phase = 'done';
-      st.diagnostics.push(st.isSerial ? `Chained episode links: ${st.ids.length}` : `Linked ebook volumes: ${st.ids.length}`);
+      st.diagnostics.push(st.isSerial ? `${st.batched ? 'Batched' : 'Chained'} episode links: ${st.ids.length}` : `Linked ebook volumes: ${st.ids.length}`);
       if (!st.isSerial && st.ids.length < 2) st.ids = [];
     }
     return finish(st);
@@ -2002,15 +2037,59 @@
    * Result: {title, content (XHTML fragment), contentText, images[]} or null when there is no viewer.
    */
   rbooks.extract = function (options) {
-    const fallbackTitle = (options && options.fallbackTitle) || '';
-    const chapterIndex = String((options && options.chapterIndex) || 0).padStart(4, '0');
     const source = firstViewer();
     if (!source) return null;
-    // Work on a clone: the page is reused for the next chapter.
-    const content = source.cloneNode(true);
-    // The viewer's top-bar headings show the series title only. The document title names the episode
-    // and is server-rendered, so it is ready before the content.
+    // Work on a clone: the page is reused for the next chapter. The viewer's top-bar headings show the
+    // series title only; the document title names the episode and is server-rendered, so it is ready
+    // before the content.
     const pageTitle = (document.title || '').replace(/\s*[-|]\s*리디(?:북스)?\s*$/, '').trim();
+    return cleanViewer(source.cloneNode(true), options, pageTitle);
+  };
+
+  /**
+   * One episode through the web viewer's own API (POST /api/web-viewer/generate, then its spine files),
+   * from a page on the store's address: no viewer page to draw (about 1 s an episode instead of 4).
+   * {bookId, fallbackTitle, chapterIndex} -> {status: 'ok', extract} (the shape rbooks.extract returns),
+   * {status: 'locked'} (the store says this account may not read it), or {status: 'fallback'} for anything
+   * else (not a web-viewer book, signed out, a failed request): the native side then loads the viewer.
+   */
+  rbooks.apiChapter = async function (options) {
+    const host = location.hostname;
+    if (host !== SITE.rbooksDomain && host !== `www.${SITE.rbooksDomain}`) return { status: 'fallback' };
+    let response;
+    let body = null;
+    try {
+      response = await fetch('/api/web-viewer/generate', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ book_id: String((options && options.bookId) || '') }),
+      });
+      body = await response.json().catch(() => null);
+    } catch (e) {
+      return { status: 'fallback' };
+    }
+    if (response.status === 403 && body && body.error && body.error.code === 'INVALID_ACCESS') return { status: 'locked' };
+    const spines = (body && body.success && body.data && body.data.spines) || [];
+    if (!spines.length) return { status: 'fallback' };
+    const parts = await Promise.all(spines.map((url) => fetch(url).then((r) => r.json()).then((j) => (j && j.value) || null)
+      .catch(() => null)));
+    if (parts.some((part) => part === null)) return { status: 'fallback' };
+    const holder = document.createElement('div');
+    for (const part of parts) {
+      const parsed = new DOMParser().parseFromString(part, 'text/html');
+      for (const child of [...parsed.body.childNodes]) holder.appendChild(document.importNode(child, true));
+    }
+    const extract = cleanViewer(holder, options, '');
+    if (!extract.contentText && !extract.images.length) return { status: 'fallback' };
+    // The catalog's episode name: the file's own heading is often only "#2".
+    extract.title = ((options && options.fallbackTitle) || '').trim() || extract.title;
+    return { status: 'ok', extract };
+  };
+
+  /** A viewer's (or the API's) content as {title, content, contentText, images}: the markup cleaned for the EPUB. */
+  const cleanViewer = function (content, options, pageTitle) {
+    const fallbackTitle = (options && options.fallbackTitle) || '';
+    const chapterIndex = String((options && options.chapterIndex) || 0).padStart(4, '0');
     let title = (pageTitle && pageTitle.length < 200 ? pageTitle : '') || fallbackTitle;
     content.querySelectorAll('.content_footer').forEach((node) => node.remove());
     const chapterHeader = content.querySelector('.chapter-header');
