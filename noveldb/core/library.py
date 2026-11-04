@@ -10,6 +10,7 @@ from __future__ import annotations
 import posixpath
 import re
 import threading
+import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -118,16 +119,21 @@ def _format_of(path: Path) -> Optional[str]:
     return {".htm": "HTML"}.get(suffix, suffix[1:].upper())
 
 
-def scan(folder: Path, progress=None) -> List[LibraryBook]:
-    """The books in `folder`, newest first; `progress(done, total)` hears how far the reading is."""
+def scan(folder: Path, progress=None, found=None) -> List[LibraryBook]:
+    """The books in `folder`, newest first; `progress(done, total)` hears how far the reading is, and
+    `found(books)` gets the books read so far (newest first) about twice a second, to show them early."""
     folder = Path(folder)
     if not folder.is_dir():
         return []
     books: Dict[str, LibraryBook] = {}
     entries = list(folder.iterdir())
+    told = time.monotonic()
     for done, path in enumerate(entries, 1):
         if progress is not None and (done % 10 == 0 or done == len(entries)):
             progress(done, len(entries))
+        if found is not None and books and time.monotonic() - told > 0.5:
+            told = time.monotonic()
+            found(sorted(books.values(), key=lambda b: b.modified, reverse=True))
         if path.name.startswith(".") or path.name.endswith((".part", ".tmp")):
             continue
         try:

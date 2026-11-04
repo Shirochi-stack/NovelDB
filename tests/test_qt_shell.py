@@ -388,6 +388,28 @@ def test_the_log_keeps_its_share_and_the_options_get_the_rest(window, qtbot):
     assert abs(right - round((left + right) * LOG_SHARE)) <= 2
 
 
+def test_the_library_shows_books_while_the_folder_is_still_read(window, context, qtbot, tmp_path, monkeypatch):
+    import time as clock
+    from dataclasses import replace
+
+    from noveldb.core import library
+
+    folder = tmp_path / "lib"
+    folder.mkdir()
+    for n in range(30):
+        (folder / f"Book {n:02}.pdf").write_bytes(b"%PDF-1.4")
+    slow = library._format_of
+    monkeypatch.setattr(library, "_format_of", lambda path: (clock.sleep(0.06), slow(path))[1])
+    context.update_settings(lambda s: replace(s, output=replace(s.output, output_dir=str(folder))))
+    page = window.library
+    page.refresh()
+    # Books show up before the folder is read through, with how far the reading is.
+    qtbot.waitUntil(lambda: page.grid.count() > 0, timeout=5000)
+    assert page._reading is not None and page.grid.count() < 30
+    qtbot.waitUntil(lambda: page._reading is None and page.grid.count() == 30, timeout=10000)
+    assert "reading" not in page.page_label.text()
+
+
 def test_the_library_shows_the_books_in_the_save_folder(window, context, qtbot, tmp_path):
     import zipfile
     from dataclasses import replace

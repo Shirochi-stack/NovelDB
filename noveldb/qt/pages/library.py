@@ -128,6 +128,7 @@ class Loading(QWidget):
 
 class LibraryPage(QWidget):
     _scanned = Signal(object, float)
+    _scan_found = Signal(object, float)  # the books read so far, while the folder is still being read
     _scan_progress = Signal(int, int, float)
     _covered = Signal(str, object, int)  # book name, cover QImage, page generation
 
@@ -139,6 +140,9 @@ class LibraryPage(QWidget):
         self.page = 0
         self._generation = 0
         self._scan_started = 0.0
+        self._reading = None  # (done, total) while the folder is read with books already shown
+        self._items = {}  # book name: its item on the page shown
+        self._covers = {}  # (book name, modified): its decoded cover, kept while the page refills
         self._ever_shown = False
         title = bind_title(QLabel("Library"), 24)
         self.where = hint("")
@@ -242,8 +246,8 @@ class LibraryPage(QWidget):
         self._later = QTimer(self, singleShot=True, interval=800)
         self._later.timeout.connect(self.refresh)
         self._scanned.connect(self._take)
-        self._scan_progress.connect(lambda done, total, started: self.loading.progress(done, total)
-                                    if started == self._scan_started else None)
+        self._scan_found.connect(self._take_some)
+        self._scan_progress.connect(self._progress)
         self._covered.connect(self._set_cover)
         context.hub.jobSaved.connect(lambda *_a: self._later.start() if self._ever_shown else None)
         context.settingsChanged.connect(self._folder_changed)
@@ -284,15 +288,38 @@ class LibraryPage(QWidget):
             self.loading.start()
             self.empty.setVisible(False)
 
+        streaming = not self.books  # a refresh keeps the books shown until it is done
+
         def run():
-            books = library.scan(folder, lambda done, total: self._scan_progress.emit(done, total, started))
+            books = library.scan(folder, lambda done, total: self._scan_progress.emit(done, total, started),
+                                 (lambda some: self._scan_found.emit(some, started)) if streaming else None)
             self._scanned.emit(books, started)
 
         threading.Thread(target=run, name="library-scan", daemon=True).start()
 
+    def _progress(self, done: int, total: int, started: float) -> None:
+        if started != self._scan_started:
+            return
+        self.loading.progress(done, total)
+        if self._reading is not None and done < total:
+            self._reading = (done, total)
+            self._label()
+
+    def _take_some(self, books, started: float) -> None:
+        """The books read so far, shown while the rest of the folder is read."""
+        if started != self._scan_started:
+            return
+        if self._reading is None:
+            self._reading = (0, 0)
+            self.loading.stop()
+            self.body.setCurrentWidget(self.grid)
+        self.books = books
+        self._show()
+
     def _take(self, books, started: float) -> None:
         if started != self._scan_started:
             return  # a newer scan is on its way
+        self._reading = None
         self.books = books
         self.loading.stop()
         self.body.setCurrentWidget(self.grid)
@@ -313,8 +340,14 @@ class LibraryPage(QWidget):
         self.shown = books
         pages = max(1, (len(books) + PER_PAGE - 1) // PER_PAGE)
         self.page = min(self.page, pages - 1)
-        self._fill()
-        if not self.books:
+        start = self.page * PER_PAGE
+        if not reset and [b.name for b in books[start:start + PER_PAGE]] == list(self._items):
+            self._label()  # the page shows the same books: only the counts change
+        else:
+            self._fill()
+        if self._reading is not None and not books:
+            self.empty.setText("Reading the Library folder…")
+        elif not self.books:
             self.empty.setText("No books yet. Downloads are saved here, and show up as soon as they finish.")
         elif not books:
             self.empty.setText("No book matches.")
@@ -340,14 +373,20 @@ class LibraryPage(QWidget):
             if selected is not None and book.name == selected.name:
                 self.grid.setCurrentItem(item)
         self.grid.setUpdatesEnabled(True)
+        self._label()
+        self._selection_changed()
+        self._load_covers(page_books, self._generation)
+
+    def _label(self) -> None:
         pages = max(1, (len(self.shown) + PER_PAGE - 1) // PER_PAGE)
-        self.page_label.setText(f"Page {self.page + 1} of {pages}  ·  {len(self.shown)} books")
+        text = f"Page {self.page + 1} of {pages}  ·  {len(self.shown)} books"
+        if self._reading is not None and self._reading[1]:
+            text += f"  ·  reading {self._reading[0]} of {self._reading[1]}…"
+        self.page_label.setText(text)
         self.previous.setEnabled(self.page > 0)
         self.next.setEnabled(self.page < pages - 1)
         for widget in (self.previous, self.next, self.page_label):
-            widget.setVisible(pages > 1)
-        self._selection_changed()
-        self._load_covers(page_books, self._generation)
+            widget.setVisible(pages > 1 or self._reading is not None)
 
     def _turn(self, step: int) -> None:
         self.page += step
@@ -362,7 +401,13 @@ class LibraryPage(QWidget):
                     return  # another page is shown now
                 if not any(f.format == "EPUB" for f in book.files):
                     continue
-                self._covered.emit(book.name, _cover_image(library.cover(book)), generation)
+                key = (book.name, book.modified)
+                image = self._covers.get(key)
+                if image is None:
+                    if len(self._covers) > 200:
+                        self._covers.clear()  # a few pages' worth, no more
+                    image = self._covers[key] = _cover_image(library.cover(book))
+                self._covered.emit(book.name, image, generation)
 
         threading.Thread(target=run, name="library-covers", daemon=True).start()
 
