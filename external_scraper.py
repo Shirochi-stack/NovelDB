@@ -5008,11 +5008,225 @@ class ExternalScraper(SiteEnginesMixin):
             '', '', '',
         ))
 
+    @staticmethod
+    def _qdn_global_headers(referer=''):
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/137.0.0.0 Safari/537.36'
+            ),
+            'Accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,*/*;q=0.8'
+            ),
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache',
+        }
+        if referer:
+            headers['Referer'] = referer
+        return headers
+
+    def _qdn_global_http_text(self, url, referer=''):
+        """Fetch one public Qdn Global page with a hard network timeout."""
+        import requests
+
+        response = requests.get(
+            url,
+            headers=self._qdn_global_headers(referer),
+            timeout=(_req_s(10), _req_s(30)),
+        )
+        response.raise_for_status()
+        return response.text
+
+    @classmethod
+    def _qdn_global_parse_catalog_html(cls, raw_html, catalog_url):
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(raw_html or '', 'html.parser')
+        parsed = urllib.parse.urlparse(catalog_url or '')
+        path_match = re.match(
+            r'^/(book|comic)/(?:[^/?#]+_)?(\d+)',
+            parsed.path or '',
+            re.I,
+        )
+        if not path_match:
+            return None
+        kind, book_id = path_match.group(1).lower(), path_match.group(2)
+        chapter_pattern = re.compile(
+            rf'^/{kind}/(?:[^/]+_)?{re.escape(book_id)}/'
+            r'(?:[^/]+_)?(\d+)/?$',
+            re.I,
+        )
+
+        def clean(value):
+            return re.sub(r'\s+', ' ', value or '').strip()
+
+        def meta(*keys):
+            for key in keys:
+                node = soup.select_one(
+                    f'meta[property="{key}"], meta[name="{key}"]'
+                )
+                value = node.get('content', '').strip() if node else ''
+                if value:
+                    return value
+            return ''
+
+        title_node = soup.select_one('h1')
+        title = clean(title_node.get_text(' ', strip=True) if title_node else '')
+        title = title or meta('og:title', 'twitter:title')
+        if not title and soup.title:
+            title = clean(re.split(r'\s*[-|]\s*', soup.title.get_text(), 1)[0])
+
+        author_node = soup.select_one(
+            'a.c_primary, [class*="author"] a, a[href*="/profile/"]'
+        )
+        author = clean(author_node.get_text(' ', strip=True) if author_node else '')
+        if not author:
+            body_text = soup.get_text('\n', strip=True)
+            author_match = re.search(
+                r'(?:^|\n)\s*Author:\s*([^\n]+?)'
+                r'(?:\s+Translator:|\s+Editor:|\n|$)',
+                body_text,
+                re.I,
+            )
+            author = clean(author_match.group(1)) if author_match else ''
+
+        description = meta(
+            'og:description', 'twitter:description', 'description'
+        )
+        if not description:
+            node = soup.select_one('div.det-abt p, [class*="synopsis"]')
+            description = clean(node.get_text(' ', strip=True) if node else '')
+        cover = meta('og:image', 'twitter:image', 'twitter:image:src')
+        if not cover:
+            node = soup.select_one(
+                'div.det-hd img, [class*="cover"] img, [class*="book"] img'
+            )
+            if node:
+                cover = node.get('src') or node.get('data-src') or ''
+        cover = urllib.parse.urljoin(catalog_url, cover)
+
+        tags, seen_tags = [], set()
+        for node in soup.select(
+            'div.m-tags a, [class*="tag"] a, a[href*="/tag/"]'
+        ):
+            tag = clean(node.get_text(' ', strip=True)).lstrip('#').strip()
+            key = tag.casefold()
+            if tag and key not in seen_tags:
+                seen_tags.add(key)
+                tags.append(tag)
+
+        links = soup.select(
+            'ul.content-list a[href], div.volume-item ol a[href]'
+        ) or soup.select('a[href]')
+        chapters, seen = [], set()
+        for link in links:
+            chapter_url = urllib.parse.urljoin(
+                catalog_url, link.get('href') or ''
+            )
+            match = chapter_pattern.match(
+                urllib.parse.urlparse(chapter_url).path or ''
+            )
+            if not match or match.group(1) in seen:
+                continue
+            seen.add(match.group(1))
+            strong = link.select_one('strong')
+            number_node = link.select_one('i')
+            number = clean(
+                number_node.get_text(' ', strip=True) if number_node else ''
+            )
+            name = clean(strong.get_text(' ', strip=True) if strong else '')
+            if not name:
+                link_copy = BeautifulSoup(str(link), 'html.parser')
+                for unwanted in link_copy.select(
+                    'time, svg, use, [class*="time"]'
+                ):
+                    unwanted.decompose()
+                name = clean(link_copy.get_text(' ', strip=True))
+                name = re.sub(
+                    r'\s+\d+\s+(?:seconds?|minutes?|hours?|days?|months?|years?)'
+                    r'\s+ago$',
+                    '',
+                    name,
+                    flags=re.I,
+                )
+            if number and name and not name.startswith(number):
+                name = f'{number}: {name}'
+            if not name:
+                name = f'Chapter {len(chapters) + 1}'
+
+            row = link.find_parent(
+                ['li', 'dd'], class_=re.compile(r'.*')
+            ) or link.parent or link
+            row_text = clean(row.get_text(' ', strip=True))
+            locked = bool(link.select_one('[class*="lock"], [data-locked="true"]'))
+            if not locked:
+                for use in link.select('svg use'):
+                    icon = use.get('href') or use.get('xlink:href') or ''
+                    if icon == '#i-lock':
+                        locked = True
+                        break
+            locked = locked or bool(re.search(r'\b(?:locked|unlock)\b', row_text, re.I))
+            chapters.append({
+                'id': match.group(1),
+                'url': chapter_url,
+                'name': name,
+                'fullName': name,
+                'isVIP': locked,
+                'isPaid': locked,
+                'isAccessible': True,
+            })
+
+        origin = urllib.parse.urlunparse((
+            parsed.scheme or 'https', parsed.netloc, '', '', '', ''
+        ))
+        return {
+            'bookname': title,
+            'author': author or 'Unknown',
+            'coverUrl': cover,
+            'description': description,
+            'introduction': description,
+            'introductionHTML': (
+                description.replace('\n', '<br/>\n') if description else ''
+            ),
+            'tags': tags,
+            'language': 'en',
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'bookUrl': f'{origin}/{kind}/{book_id}',
+        }
+
+    def _qdn_global_parse_book_http(self, catalog_url):
+        try:
+            raw_html = self._qdn_global_http_text(catalog_url)
+            data = self._qdn_global_parse_catalog_html(raw_html, catalog_url)
+        except Exception as exc:
+            self.log(f'[Qdn] Direct Global catalog request failed: {exc}')
+            return None
+        if not data or not data.get('bookname') or not data.get('chapters'):
+            self.log('[Qdn] Direct Global catalog did not contain a book list.')
+            return None
+        return data
+
     def _qdn_global_parse_book(self, url):
         """Scrape Qdn Global metadata and its complete rendered catalog."""
         catalog_url = self._qdn_global_catalog_url(url)
         if not catalog_url:
             return None
+        data = self._qdn_global_parse_book_http(catalog_url)
+        if data:
+            data['_qdn_global'] = True
+            self._book_data = data
+            self._book_url = url
+            self.log(
+                f"[Qdn] Global book: {data.get('bookname', '?')} by "
+                f"{data.get('author', '?')} - "
+                f"{data.get('chapterCount', 0)} chapters"
+            )
+            return data
+
+        self.log('[Qdn] Retrying the Global catalog in the saved browser.')
         if not self._start_qdn_global_browser(catalog_url):
             return None
 
@@ -5181,10 +5395,120 @@ class ExternalScraper(SiteEnginesMixin):
         )
         return data
 
-    def _qdn_global_parse_chapter(self, chapter_url, chapter_name, page=None):
+    @classmethod
+    def _qdn_global_parse_chapter_html(
+        cls, raw_html, chapter_url, chapter_name
+    ):
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(raw_html or '', 'html.parser')
+
+        def clean(value):
+            return re.sub(r'\s+', ' ', value or '').strip()
+
+        root = soup.select_one(
+            'div.chapter_content, main [class*="chapter"], '
+            'article [class*="chapter"]'
+        )
+        title_node = soup.select_one(
+            'div.chapter_content h1, main h1, article h1'
+        )
+        source_title = clean(
+            title_node.get_text(' ', strip=True) if title_node else ''
+        ) or chapter_name
+        paragraphs, images = [], []
+        if root:
+            clone = BeautifulSoup(str(root), 'html.parser')
+            for unwanted in clone.select(
+                'script, style, noscript, form, button, textarea, input, svg, '
+                'canvas, h1, .para-comment, .para-comment_num, '
+                '[class*="comment"], [class*="vote"], [class*="gift"], '
+                '[class*="advert"]'
+            ):
+                unwanted.decompose()
+            for image in clone.select('img'):
+                source = (
+                    image.get('src') or image.get('data-src')
+                    or image.get('data-original') or ''
+                )
+                if source:
+                    images.append(urllib.parse.urljoin(chapter_url, source))
+            paragraphs = [
+                clean(node.get_text(' ', strip=True))
+                for node in clone.select('p')
+            ]
+            paragraphs = [value for value in paragraphs if value]
+            if not paragraphs:
+                paragraphs = [
+                    clean(value) for value in clone.get_text('\n').splitlines()
+                    if clean(value)
+                ]
+
+        content_text = '\n'.join(paragraphs)
+        body_text = soup.get_text('\n', strip=True)
+        locked = bool(re.search(
+            r'unlock\s+(?:this\s+)?chapter|subscribe\s+to\s+read|'
+            r'purchase\s+chapter',
+            body_text,
+            re.I,
+        ))
+        if not content_text or len(content_text) < 20 or locked:
+            logged_out = bool(re.search(r'\bsign in\b|\blog in\b', body_text, re.I))
+            return {
+                'error': 'locked',
+                'reason': 'login' if logged_out else 'purchase',
+                'chars': len(content_text),
+            }
+        return cls._qdn_global_chapter_images({
+            'chapterName': chapter_name,
+            'sourceChapterName': source_title,
+            'chapterUrl': chapter_url,
+            'contentText': content_text,
+            'contentHtml': '\n'.join(
+                f'<p>{html.escape(value)}</p>' for value in paragraphs
+            ),
+            'images': images,
+        })
+
+    def _qdn_global_parse_chapter_http(self, chapter_url, chapter_name):
+        try:
+            raw_html = self._qdn_global_http_text(
+                chapter_url, referer=self._book_url or ''
+            )
+            return self._qdn_global_parse_chapter_html(
+                raw_html, chapter_url, chapter_name
+            )
+        except Exception as exc:
+            self.log(
+                f'  [Qdn] Direct Global chapter request failed for '
+                f'{chapter_name}: {exc}'
+            )
+            return None
+
+    def _qdn_global_parse_chapter(
+        self, chapter_url, chapter_name, page=None, _skip_http=False
+    ):
         """Read one Qdn Global chapter from its rendered reader page."""
+        direct = None
+        if not _skip_http:
+            direct = self._qdn_global_parse_chapter_http(
+                chapter_url, chapter_name
+            )
+        if direct and not direct.get('error'):
+            return direct
+        if direct and direct.get('error') == 'locked':
+            self.log(
+                f'  [Qdn] Public Global reader is locked for {chapter_name}; '
+                'checking the saved browser session.'
+            )
+        elif not _skip_http:
+            self.log(
+                f'  [Qdn] Retrying {chapter_name} in the saved browser.'
+            )
         if not self._context or not self._page:
             if not self._start_qdn_global_browser(chapter_url):
+                if direct and direct.get('error') == 'locked':
+                    return self._qdn_locked_result(direct, chapter_name)
                 return None
         target = page or self._page
         try:
@@ -5288,6 +5612,25 @@ class ExternalScraper(SiteEnginesMixin):
         if data.get('error'):
             self.log(f"  [Qdn] {data.get('error')} for: {chapter_name}")
             return None
+        return self._qdn_global_chapter_images(data)
+
+    @staticmethod
+    def _qdn_global_chapter_images(data):
+        """The chapter's images as the EPUB writer takes them ({url, name}), shown at its end. The book's
+        cover thumbnails the reader page puts beside chapter 1 are not chapter images."""
+        urls = [
+            str(url) for url in data.get('images') or []
+            if url and '/bookcover/' not in str(url)
+        ]
+        urls = list(dict.fromkeys(urls))
+        data['images'] = [
+            {'url': url, 'name': f'qdn_global_{index:03d}.jpg'}
+            for index, url in enumerate(urls, 1)
+        ]
+        if urls:
+            data['contentHtml'] = (data.get('contentHtml') or '') + ''.join(
+                f'\n<p><img src="{html.escape(url, quote=True)}" alt=""/></p>' for url in urls
+            )
         return data
 
     # ------------------------------------------------------------------
@@ -21745,19 +22088,47 @@ async (items) => {
         if self._book_data and self._book_data.get('_qdn'):
             return self._qdn_parse_chapter_batch_parallel(batch_info)
         if self._book_data and self._book_data.get('_qdn_global'):
-            results = []
-            for index, chapter in enumerate(batch_info):
+            from concurrent.futures import ThreadPoolExecutor
+
+            launch_delays = [0.0]
+            for _index in range(1, len(batch_info)):
+                launch_delays.append(
+                    launch_delays[-1]
+                    + self._random_interval_delay(interval, interval_max)
+                )
+
+            def fetch_qdn_global(item):
+                index, chapter = item
+                if launch_delays[index] > 0:
+                    time.sleep(launch_delays[index])
                 if self._stop_requested:
-                    results.extend([None] * (len(batch_info) - len(results)))
-                    break
-                result = self._qdn_global_parse_chapter(
+                    return None
+                return self._qdn_global_parse_chapter_http(
                     chapter.get('url', ''),
                     chapter.get('fullName', '') or chapter.get('name', ''),
                 )
-                results.append(result)
+
+            with ThreadPoolExecutor(
+                max_workers=max(1, len(batch_info))
+            ) as executor:
+                results = list(executor.map(
+                    fetch_qdn_global, enumerate(batch_info)
+                ))
+
+            for index, result in enumerate(results):
+                if result and not result.get('error'):
+                    report_success(index, result)
+                    continue
+                if self._stop_requested:
+                    break
+                chapter = batch_info[index]
+                result = self._qdn_global_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName', '') or chapter.get('name', ''),
+                    _skip_http=True,
+                )
+                results[index] = result
                 report_success(index, result)
-                if index < len(batch_info) - 1:
-                    self._sleep_interval(interval, interval_max)
             return results
         if self._book_data and self._book_data.get('_ntk_novel'):
             if self._ntk_browser_fallback:

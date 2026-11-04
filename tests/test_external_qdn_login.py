@@ -59,6 +59,7 @@ def test_qdn_global_book_parser_uses_rendered_catalog(monkeypatch):
     scraper = ExternalScraper(logger=lambda _message: None)
     scraper._page = page
     scraper._context = object()
+    monkeypatch.setattr(scraper, '_qdn_global_parse_book_http', lambda _url: None)
     monkeypatch.setattr(scraper, '_start_qdn_global_browser', lambda _url: True)
 
     result = scraper._qdn_global_parse_book(book_url)
@@ -95,6 +96,7 @@ def test_qdn_global_chapter_parser_returns_text_and_reports_locks():
         evaluate=lambda _script, _name: next(responses),
     )
     scraper._page = page
+    scraper._qdn_global_parse_chapter_http = lambda *_args: None
 
     result = scraper._qdn_global_parse_chapter(
         chapter_url, '1: Crimson', page=page
@@ -110,6 +112,103 @@ def test_qdn_global_chapter_parser_returns_text_and_reports_locks():
         'chapterName': 'Paid chapter',
         '_lockReason': 'purchase',
     }
+
+
+def test_qdn_global_http_html_parsers_match_public_page_shape():
+    domain = '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com'
+    catalog_url = f'https://www.{domain}/book/11022733006234505/catalog'
+    chapter_url = (
+        f'https://www.{domain}/book/title_11022733006234505/'
+        'crimson_31208015751346911'
+    )
+    catalog_html = f'''
+      <html><head>
+        <meta property="og:image" content="//book-pic.invalid/cover.jpg">
+        <meta property="og:description" content="A mystery synopsis.">
+      </head><body>
+        <h1>Lord of Mysteries</h1>
+        <div>Author: Cuttlefish That Loves Diving Translator: Atlas</div>
+        <div class="volume-item"><ol><li>
+          <a href="{chapter_url}"><i>1</i><strong>Crimson</strong>
+            <time>7 years ago</time></a>
+        </li><li>
+          <a href="/book/title_11022733006234505/paid_31208036152441571">
+            <i>2</i><strong>Situation</strong><svg><use href="#i-lock"></use></svg>
+          </a>
+        </li></ol></div>
+      </body></html>
+    '''
+    book = ExternalScraper._qdn_global_parse_catalog_html(
+        catalog_html, catalog_url
+    )
+    assert book['bookname'] == 'Lord of Mysteries'
+    assert book['author'] == 'Cuttlefish That Loves Diving'
+    assert book['chapterCount'] == 2
+    assert book['chapters'][0]['name'] == '1: Crimson'
+    assert book['chapters'][0]['isVIP'] is False
+    assert book['chapters'][1]['isVIP'] is True
+
+    chapter_html = '''
+      <html><body><div class="chapter_content">
+        <h1>Chapter 1: Crimson</h1>
+        <p>Ouch!</p><p>It hurts so much!</p>
+        <p>The bizarre dream shattered instantly around Zhou Mingrui.</p>
+      </div></body></html>
+    '''
+    chapter = ExternalScraper._qdn_global_parse_chapter_html(
+        chapter_html, chapter_url, '1: Crimson'
+    )
+    assert chapter['sourceChapterName'] == 'Chapter 1: Crimson'
+    assert chapter['contentText'].startswith('Ouch!\nIt hurts so much!')
+    assert '<p>Ouch!</p>' in chapter['contentHtml']
+
+
+def test_qdn_global_public_book_and_batch_do_not_start_browser(monkeypatch):
+    domain = '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com'
+    book_url = f'https://www.{domain}/book/title_11022733006234505'
+    chapters = [
+        {
+            'url': f'{book_url}/chapter_{index}',
+            'name': f'Chapter {index}',
+            'fullName': f'Chapter {index}',
+        }
+        for index in (1, 2)
+    ]
+    book = {
+        'bookname': 'Lord of Mysteries',
+        'author': 'Cuttlefish That Loves Diving',
+        'chapterCount': 2,
+        'chapters': chapters,
+    }
+    scraper = ExternalScraper(logger=lambda _message: None)
+    monkeypatch.setattr(
+        scraper, '_qdn_global_parse_book_http', lambda _url: dict(book)
+    )
+    monkeypatch.setattr(
+        scraper,
+        '_start_qdn_global_browser',
+        lambda _url: (_ for _ in ()).throw(
+            AssertionError('public metadata must not start Chrome')
+        ),
+    )
+    result = scraper._qdn_global_parse_book(book_url)
+    assert result['_qdn_global'] is True
+
+    def fetch(url, name):
+        return {
+            'chapterName': name,
+            'sourceChapterName': name,
+            'chapterUrl': url,
+            'contentText': f'{name} public content',
+            'contentHtml': f'<p>{name} public content</p>',
+            'images': [],
+        }
+
+    monkeypatch.setattr(scraper, '_qdn_global_parse_chapter_http', fetch)
+    results = scraper.parse_chapter_batch(chapters, interval=0)
+    assert [item['chapterName'] for item in results] == [
+        'Chapter 1', 'Chapter 2'
+    ]
 
 
 def test_qdn_download_opens_the_original_login_profile(monkeypatch):
@@ -407,3 +506,16 @@ def test_batch_rereads_blocked_or_unfinished_tabs(monkeypatch):
     results = scraper._qdn_parse_chapter_batch_parallel(batch)
     assert reread == ['u1', 'u2']
     assert [r['contentText'] for r in results] == ['a', 'u1', 'u2']
+
+
+def test_qdn_global_chapter_images_are_what_the_epub_writer_takes():
+    from external_scraper import ExternalScraper
+
+    cover = 'https://book-pic.example/bookcover/11022733006234505?imageMogr2/thumbnail/150x'
+    picture = 'https://img.example/chapter/1.png'
+    data = ExternalScraper._qdn_global_chapter_images(
+        {'contentHtml': '<p>Text</p>', 'images': [cover, picture, picture]})
+    assert data['images'] == [{'url': picture, 'name': 'qdn_global_001.jpg'}]
+    assert data['contentHtml'] == f'<p>Text</p>\n<p><img src="{picture}" alt=""/></p>'
+    plain = ExternalScraper._qdn_global_chapter_images({'contentHtml': '<p>Text</p>', 'images': [cover]})
+    assert plain['images'] == [] and plain['contentHtml'] == '<p>Text</p>'
