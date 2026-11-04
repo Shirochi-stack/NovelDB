@@ -274,7 +274,7 @@ class GenericCatalog(QObject):
 
     DETAILS_DAYS = 3
     # The details cache's name: a new one drops details read by older code (link tags, HTML synopses).
-    DETAILS = "details-v3"  # v3: no details from before a site's blurb gave way to the book's synopsis
+    DETAILS = "details-v4"  # v4: none from before the engine left out menu links ("All Tags") and site-named authors
 
     def __init__(self, run_js: Callable[[str], None], profile, known_site: Callable[[str], bool], parent: QObject,
                  cache_mb: Callable[[], int] = lambda: 300):

@@ -141,7 +141,10 @@
         titlesLang(card);
         return siteLangs.get(card.site) || TLD_LANG[tld] || 'en';
     }
-    function inLanguage(card) { return language === 'all' || langOf(card) === language; }
+    // "ko-en": Korean books shown with their English titles (NovelDB's translated metadata).
+    function baseLang() { return language.split('-')[0]; }
+    function englishTitles() { return /-en$/.test(language); }
+    function inLanguage(card) { return language === 'all' || langOf(card) === baseLang(); }
 
     // -- progress: every source (a site's search, a plugin, the web search) reports when it answers --
     var progress = {expected: 0, answered: 0, started: 0, sites: [], timer: 0};
@@ -365,6 +368,8 @@
     // One name for one tag, without a site's "#": "Manhwa BL" (or "Mahwa BL"), "Boys' Love", "BL Manga" are BL.
     function tagAlias(tag) {
         var text = String(tag || '').trim().replace(/^#+\s*/, '');  // "# system": the tag is "system"
+        // A site's menu link, not a tag ("All Tags", "Browse", "More genres", "Genres").
+        if (/^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$/i.test(text)) return '';
         if (/^((man?h?wa|manga|manhua|webtoon|comics?)[\s-]*bl|bl[\s-]*(man?h?wa|manga|manhua|webtoon|comics?)|boys?'?s?[\s-]*love)$/i.test(text)) return 'BL';
         return text;
     }
@@ -567,7 +572,7 @@
         offered.forEach(function (cover) { if ((group.covers || (group.covers = [])).indexOf(cover) < 0) group.covers.push(cover); });
         // The longest synopsis once cleaned (a page's rating and share buttons do not count).
         if (card.description && betterSynopsis(synopsisText(card.description), synopsisText(group.description), group.title, !!card.complete)) group.description = card.description;
-        var cardTags = (card.tags || []).concat(hashSplit(card.description).tags).map(tagAlias);
+        var cardTags = (card.tags || []).concat(hashSplit(card.description).tags).map(tagAlias).filter(Boolean);
         if (cardTags.length) {
             var seen = new Set(group.tags.map(function (t) { return t.toLowerCase(); }));
             cardTags.forEach(function (tag) {
@@ -1048,9 +1053,15 @@
             more.remove();
         };
     }
+    var openGroup = null;  // the book whose details panel was opened last
     function details(group) {
         var dialog = $('dialog');
+        // A card on its way out of the list (dropped, its sites gone) opens nothing: its panel had no site
+        // to show and failed before it appeared.
+        if (!group.sources.length || !groups.has(group.key)) return;
+        openGroup = group;
         var show = function () {
+            if (!group.sources.length) return;
             var inCart = group.sources.some(function (s) { return cart.has(s.url); });
             var rating = group.rating ? '★ ' + group.rating + (group.ratings ? ' (' + group.ratings + ' ratings)' : '') : '';
             // The panel shows the cover as the site sent it: the card's copy is made small for the card.
@@ -1117,7 +1128,12 @@
         };
         group.onDetails = show;
         show();
-        if (!dialog.open) { dialog.showModal(); foldTags(dialog.querySelector('.details .chips'), group); }
+        // Open as a modal panel; one left open without being modal (or hidden) is opened again.
+        if (dialog.open && !dialog.matches(':modal')) dialog.close();
+        if (!dialog.open) {
+            try { dialog.showModal(); } catch (e) { dialog.show(); }
+            foldTags(dialog.querySelector('.details .chips'), group);
+        }
         // An open book's page is read now, not after the cards waiting before it (that took 20 s).
         if (!group.loaded && !group.timer) {
             group.asked = true;
@@ -1202,6 +1218,8 @@
         '\u006d\u0075\u006e\u0070\u0069\u0061.com': ['mpia'],
         '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com': ['rbooks']
     };
+    // NovelDB's sources by their books' language: the Korean and Chinese top lists come from its index.
+    var NDB_LANGS = {ko: ['npia', 'kpage', 'nweb', 'nseries', 'jara', 'mpia', 'rbooks'], zh: ['sfc']};
     // The built-in scrapers' other sites: their Top lists come from their own popular pages.
     var BUILTIN_SITES = ['\u0071\u0069\u0064\u0069\u0061\u006e.com', '\u0066\u0061\u006c\u006f\u006f.com', 'fenrirealm.com', 'xiyuwx.com', 'yeduji.com', 'kobo.com', '1qxs.com', '69shuba.tw'];
     function topKind() { var kind = $('kind').value; return kind === 'all' ? 'webnovel' : kind; }
@@ -1240,9 +1258,13 @@
     }
     function topCollect(card, weight, position, length) {
         if (view !== 'top') return;  // a search started meanwhile: its results own the page
-        // Picked sites show whatever they list, in any language.
-        var picked = top.only.length > 0;
-        if (picked && top.only.indexOf(card.site) < 0) return;
+        // Picked sites show whatever they list, in any language; so does NovelDB's list of a language.
+        var picked = top.only.length > 0 || !!top.ndbOnly;
+        if (top.only.length && top.only.indexOf(card.site) < 0) return;
+        if (top.ndbOnly && card.noveldb && card.originalTitle && !englishTitles()) {
+            // The book's own title first (its English one second); "(English)" keeps NovelDB's English title.
+            card = Object.assign({}, card, {title: card.originalTitle, originalTitle: card.title});
+        }
         if (!card.title || JUNK.test(card.title) || NO_RESULTS.test(card.title) || (!picked && !inLanguage(card)) || notInTop(card)) return;
         if (!picked && thinSiteNow(card.site)) return;  // its books' pages tell nothing
         var k = groupKey(card);
@@ -1297,7 +1319,7 @@
     function topPlugins(kind, all) {
         var wantLn = kind === 'lightnovel';
         var chosen = plugins().filter(function (p) {
-            return !p.comic && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language)
+            return !p.comic && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === baseLang())
                 && (allPlugins.length ? !!p.ln === wantLn : true);
         }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); });
         return all ? chosen : chosen.slice(0, 100);
@@ -1310,6 +1332,18 @@
             startProgress(0);
             status('Reading the popular pages of ' + (top.only.length ? top.only.join(', ') : 'the top ' + TOP_NAMES[top.kind] + ' sites') + '…');
             send(Object.assign({type: 'genericTop', id: id, kind: top.kind, language: language}, top.only.length ? {sites: top.only} : {}));
+            return;
+        }
+        // Korean and Chinese web novels: NovelDB's index of those sites (every book, the most read first).
+        if (!top.only.length && NDB_LANGS[baseLang()]) {
+            top.plugins = [];
+            top.others = [];
+            top.ndbSources = NDB_LANGS[baseLang()].slice();
+            top.ndbOnly = true;
+            running = 0;
+            startProgress(0);
+            status('Reading the most read ' + TOP_NAMES[top.kind] + ' from NovelDB…');
+            askNdbTop(id, false);
             return;
         }
         // Picked sites: NovelDB's sources from its index, LNReader's sites from their popular lists (read
@@ -2376,7 +2410,8 @@
             top.limit = Math.max(top.limit, order.length + TOP_STEP);
             topRedraw();
             if (top.ndbScrolled) { top.ndbScrolled = false; window.NovelDBGeneric.moreDone(id, {more: top.ndbMore}); return; }
-            if (!running) status('The most read on ' + top.only.join(', ') + (top.ndbMore ? '; scroll for more.' : '.'));
+            if (!running) status('The most read on ' + (top.ndbOnly ? 'NovelDB · ' + $('language').selectedOptions[0].text : top.only.join(', '))
+                + (top.ndbMore ? '; scroll for more.' : '.'));
             empty();
         },
         progress: function (id, item) {
@@ -2425,7 +2460,12 @@
             if (view === 'top' && (notInTop(group) || !inLanguage(card))) { dropFromTop(group); return; }
             var asking = moreDetails(group, card);
             // A book no site tells anything of (no synopsis, no tags) leaves the top list for the next.
-            if (view === 'top' && !asking && thin(group)) { thinSite(group.sources[0].site); dropFromTop(group); return; }
+            // (Not the one whose panel is open: it would vanish under the reader's eyes.)
+            if (view === 'top' && !asking && thin(group) && !(openGroup === group && $('dialog').open)) {
+                thinSite(group.sources[0].site);
+                dropFromTop(group);
+                return;
+            }
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
         },

@@ -1325,7 +1325,7 @@
 
     // -- the details cache and covers --------------------------------------------------------------
 
-    var DETAILS_KEY = 'noveldb.generic.details.v3', DETAILS_DAYS = 3;  // v3: none from before a site's blurb gave way
+    var DETAILS_KEY = 'noveldb.generic.details.v4', DETAILS_DAYS = 3;  // v3: none from before a site's blurb gave way
     // Read from storage once and written back a second after the last change: the whole cache is one
     // stored value (hundreds of synopses), too big to parse or write for every card.
     var detailsKept = null, detailsTimer = 0;
