@@ -28,7 +28,7 @@
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
         'Romance', 'Romantic Comedy', 'School Life', 'Sci-fi', 'Seinen', 'Shoujo', 'Shounen', 'Slice of Life', 'Sports',
         'Supernatural', 'System', 'Thriller', 'Time Travel', 'Tragedy', 'Transmigration', 'Villainess', 'Wuxia', 'Xianxia',
-        'Xuanhuan', 'Yuri', 'BL', 'Yaoi'];  // BL last: a niche the tag menu doesn't lead with
+        'Xuanhuan', 'Yuri', 'Completed', 'Ongoing', 'Hiatus', 'BL', 'Yaoi'];  // BL last: a niche the tag menu doesn't lead with
     // A site's "nothing matched your search" page (the app drops these too; see generic_search.NO_RESULTS).
     var NO_RESULTS = /(no (items?|results?|books?|novels?|titles?|matches|products?)( were)? (found|matching|match)|nothing (was )?found|did not match any|didn't match any|(found|returned) (0|no) (results?|items?|matches)|\b0 results\b|no results for|見つかりませんでした|該当する.{0,6}(ありません|見つかりません)|検索結果は?0件|검색\s*결과가\s*없|결과가\s*없습니다|일치하는.{0,10}없|没有找到|未找到|沒有找到|找不到相关|暂无(结果|数据|相关)|無結果|无结果|查無|no se encontraron|sin resultados|aucun résultat|ничего не найдено|не найдено|keine (ergebnisse|treffer)|nenhum resultado)/i;
     var JUNK = /^(request|requests|リクエスト|login|log in|sign in|ログイン|search|検索|more|もっと見る|home|top|next|prev(ious)?|menu|contact( us)?|about( us)?|privacy( policy)?|terms( of (service|use))?|dmca|faq|feedback|support|donate)$/i;
@@ -361,7 +361,11 @@
         return {text: before, tags: tags};
     }
     // A chapter count is a whole number ("436", "1,204", "86 chapters"), not a rating that landed there.
-    function wholeCount(value) { return /^\s*\d[\d,\s]*(chapters?|ch|eps?|episodes?)?\s*$/i.test(String(value || '')); }
+    function wholeCount(value) {
+        var text = String(value || '');
+        // No book has 100,000 chapters: a number that big is a word or character count.
+        return /^\s*\d[\d,\s]*(chapters?|ch|eps?|episodes?)?\s*$/i.test(text) && Number(text.replace(/\D/g, '')) < 100000;
+    }
     function synopsisText(text) {
         text = hashSplit(text).text;
         // Junk before a label: everything up to the label goes (a rating or share buttons say it is junk).
@@ -497,7 +501,8 @@
         if (!group.loaded && !group.asked) { group.asked = true; queue.push(group); pump(); }
     }
     function hasTag(group, card) {
-        var listed = (card.tags || []).concat(group.tags || []).map(tagWords);
+        // A book's status counts as a tag ("Completed", "Ongoing", "Hiatus").
+        var listed = (card.tags || []).concat(group.tags || [], [card.status || '', group.status || '']).map(tagWords);
         return current.tags.some(function (tag) {
             var want = tagWords(tag);
             return listed.some(function (have) { return have === want || have.indexOf(want) >= 0; });
@@ -531,6 +536,14 @@
         if (group.views) out.push('👁 ' + shortCount(group.views));
         if (group.chapters) out.push('📄 ' + shortCount(group.chapters));
         return out;
+    }
+    // A book's status on a card, as one sign (the details panel keeps the word; the tag menu searches it).
+    function statusIcon(status) {
+        var text = String(status || '');
+        if (/hiatus|paused|on hold|휴재|연재\s*중단|断更|停更|休載/i.test(text)) return '⏸️';
+        if (/complet|finished|ended|완결|完结|完結|完本|已完/i.test(text)) return '✅';
+        if (/ongoing|on going|serial|연재|连载|連載/i.test(text)) return '🔄';
+        return text;
     }
     // A count as a card shows it: 3,429,619 is "3.4M", 120,856 "121K" (the details panel keeps every digit).
     function shortCount(value) {
@@ -597,8 +610,8 @@
             // Compact: the author on a row of their own (a tap searches their books), then the status and
             // the figures shortened (the original title, the kind and every digit are in the details panel).
             + (group.author ? '<div class="meta"><a class="author" data-author>' + esc(group.author) + '</a></div>' : '')
-            + ([group.status].concat(figures(group)).filter(Boolean).length
-                ? '<div class="figures">' + esc([group.status].concat(figures(group)).filter(Boolean).join(' · ')) + '</div>' : '')
+            + ([statusIcon(group.status)].concat(figures(group)).filter(Boolean).length
+                ? '<div class="figures">' + esc([statusIcon(group.status)].concat(figures(group)).filter(Boolean).join(' · ')) + '</div>' : '')
             + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 24).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
@@ -1331,27 +1344,39 @@
         var found = Array.from(resultTags.keys()).filter(function (tag) {
             return match(tag) && !TAGS.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); });
         }).sort(function (a, b) { return (isPicked.has(b.toLowerCase()) - isPicked.has(a.toLowerCase())) || resultTags.get(b) - resultTags.get(a); }).slice(0, 60);
+        // NovelDB's own tags only while filtering: they are there to be found, not shown.
+        var shown = new Set(common.concat(found).map(function (t) { return t.toLowerCase(); }));
+        var more = filter ? ndbTagNames.filter(function (tag) { return match(tag) && !shown.has(tag.toLowerCase()); }).slice(0, 40) : [];
         var html = '';
         if (common.length) html += '<h3>Genres and tags</h3>' + chipList(common);
         if (found.length) html += '<h3>In these results</h3>' + chipList(found, resultTags);
-        if (!common.length && !found.length && filter) html += '<p>Press Enter to pick “' + esc($('tagFilter').value.trim()) + '”.</p>';
+        if (more.length) html += '<h3>More tags in NovelDB</h3>' + chipList(more);
+        if (!common.length && !found.length && !more.length && filter) html += '<p>Press Enter to pick “' + esc($('tagFilter').value.trim()) + '”.</p>';
         $('tagLists').innerHTML = html;
         $('tagLists').querySelectorAll('[data-tag]').forEach(function (chip) {
             chip.onclick = function () { togglePick(chip.dataset.tag); };
         });
     }
     function closeTags() { $('tagmenu').classList.remove('open'); }
+    // NovelDB's tag names (asked for the first time the menu opens), offered while filtering.
+    var ndbTagNames = [], ndbTagsAsked = false;
     $('tagsButton').addEventListener('click', function () {
         var menu = $('tagmenu');
         menu.classList.toggle('open');
-        if (menu.classList.contains('open')) { drawTags(); $('tagFilter').focus(); }
+        if (menu.classList.contains('open')) {
+            if (!ndbTagsAsked) { ndbTagsAsked = true; send({type: 'genericNdbTags'}); }
+            drawTags();
+            $('tagFilter').focus();
+        }
     });
     $('tagFilter').addEventListener('input', drawTags);
     $('tagFilter').addEventListener('keydown', function (event) {
         if (event.key === 'Enter') {
             event.preventDefault();
             var text = $('tagFilter').value.trim();
-            if (text) { togglePick(allTags().get(text.toLowerCase()) || text); $('tagFilter').value = ''; drawTags(); }
+            var known = allTags().get(text.toLowerCase())
+                || ndbTagNames.filter(function (tag) { return tag.toLowerCase() === text.toLowerCase(); })[0];
+            if (text) { togglePick(known || text); $('tagFilter').value = ''; drawTags(); }
         } else if (event.key === 'Escape') closeTags();
     });
     // Clear unpicks every tag, empties the filter and searches again at once (the Top list, with no title).
@@ -2069,6 +2094,10 @@
             setTimeout(moreSoon, 300);  // still at the end (few new books): the next page
         },
         // The picked NovelDB sources' page of books is in (their cards came through add()).
+        ndbTags: function (names) {
+            ndbTagNames = Array.isArray(names) ? names.filter(function (n) { return typeof n === 'string' && n; }) : [];
+            if ($('tagmenu').classList.contains('open')) drawTags();
+        },
         ndbTopDone: function (id, state) {
             if (id !== searchId) return;
             setRunning(-1);

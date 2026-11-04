@@ -1546,6 +1546,20 @@
             if (message.page >= 1 && Array.isArray(message.queries)) more(message.id || 0, message.queries, message.page, message.ndbPage, message.sites !== false);
             break;
         case 'genericTopMore': topMore(message.id || 0); break;
+        case 'genericNdbTags':
+            // NovelDB's tag names, for the tag menu's filter (the most used first).
+            ndbManifest().then(function (manifest) {
+                if (!manifest || manifest.tagsAt) return manifest;
+                // A table of contents kept from before the index listed its tags: read it again once.
+                ndb.manifest = null;
+                store(NDB_KEY, null);
+                return ndbManifest();
+            }).then(function (manifest) {
+                return manifest && manifest.tagsAt ? ndbPiece(manifest, 'tags', 0, false, manifest.tagsAt) : null;
+            }).then(function (listed) {
+                call('ndbTags', (listed || []).map(function (entry) { return entry[0]; }));
+            }, function () { call('ndbTags', []); });
+            break;
         case 'genericNdbTop':
             ndbTop(message.id || 0, (Array.isArray(message.sources) ? message.sources : []).filter(function (s) { return /^[a-z0-9_]{1,20}$/.test(s); }).slice(0, 12),
                    Math.max(0, Math.min(10000, Number(message.page) || 0)));

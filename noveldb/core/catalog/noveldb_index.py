@@ -309,6 +309,17 @@ class NovelDBIndex:
             "status": {1: "Completed", 0: "Ongoing"}.get(complete, ""), "updated": str(updated or "")[:10],
         }
 
+    def tag_names(self) -> List[str]:
+        """Every tag name NovelDB's books carry (on a few books or more), the most used first."""
+        manifest = self.manifest() or {}
+        if manifest and not manifest.get("tagsAt"):
+            # A table of contents kept from before the index listed its tags: read it again once.
+            self._forget()
+            manifest = self.manifest() or {}
+        at = manifest.get("tagsAt")
+        listed = self._piece("tags", 0, at=at) if at else None
+        return [str(entry[0]) for entry in listed or [] if isinstance(entry, list) and entry]
+
     def description(self, card: dict) -> str:
         """The book's synopsis from the site's synopsis shard for it (one small file), or ""."""
         ref = card.get("noveldb") or {}

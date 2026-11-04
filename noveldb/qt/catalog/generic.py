@@ -34,7 +34,8 @@ PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
 MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
-                 "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop")
+                 "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
+                 "genericNdbTags")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -244,6 +245,7 @@ class GenericCatalog(QObject):
     _progress = Signal(int, dict)
     _more_done = Signal(int, dict)
     _ndb_top_done = Signal(int, dict)
+    _ndb_tags = Signal(list)
     _reader_status = Signal(int, str)
     _reader_images = Signal(int, dict)
 
@@ -275,6 +277,7 @@ class GenericCatalog(QObject):
         self._progress.connect(lambda sid, item: self._call("progress", sid, item))
         self._more_done.connect(lambda sid, state: self._call("moreDone", sid, state))
         self._ndb_top_done.connect(lambda sid, state: self._call("ndbTopDone", sid, state))
+        self._ndb_tags.connect(lambda names: self._call("ndbTags", names))
         self._top_sites: list = []  # the sites of the Top list shown, for its next pages
         self._reader_status.connect(lambda fid, text: self._call("readerStatus", fid, text))
         self._reader_images.connect(lambda fid, found: self._call("readerImages", fid, found))
@@ -312,6 +315,8 @@ class GenericCatalog(QObject):
             self.more(int(data.get("id") or 0), data["queries"], data["page"], data.get("ndbPage"), data.get("sites", True))
         elif kind == "genericTopMore":
             self.top_more(int(data.get("id") or 0))
+        elif kind == "genericNdbTags":
+            self._background(self.ndb_tags)
         elif kind == "genericNdbTop":
             self._background(self.ndb_top, int(data.get("id") or 0), data["sources"], int(data.get("page") or 0))
         elif kind == "genericStop":
@@ -459,6 +464,15 @@ class GenericCatalog(QObject):
 
         for item in queries:
             threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-more", daemon=True).start()
+
+    def ndb_tags(self) -> None:
+        """NovelDB's tag names, for the tag menu's filter (the page hears `ndbTags`)."""
+        try:
+            names = self.noveldb.tag_names() if self.noveldb is not None else []
+        except Exception as e:
+            log.warning("NovelDB tag list failed: %s", e)
+            names = []
+        self._ndb_tags.emit(names)
 
     def ndb_top(self, search_id: int, sources: list, page: int) -> None:
         """A Top list of NovelDB's sources: page `page` of their books, the most read first, from the

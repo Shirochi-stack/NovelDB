@@ -102,6 +102,8 @@ function tagToken(tag) {
  */
 const BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g;
 const ALIASES = 30, ALIAS_BOOKS = 3;
+// The tag menu's list of NovelDB's tags: those on 5 books or more, at most 4000.
+const TAG_BOOKS = 5, TAG_LIST = 4000;
 function tagConcept(tag) {
     const text = normal(tag);
     const letters = (value) => value.replace(/[^\p{L}\p{N}]+/gu, "");
@@ -214,10 +216,16 @@ function main() {
         if (!counts) aliases.set(key, counts = new Map());
         counts.set(token, (counts.get(token) || 0) + 1);
     };
+    // How many books carry each English tag name: the apps' tag menus offer them (TAG_LIST).
+    const tagCounts = new Map();
     books.forEach((book, number) => {
         // "!source": every book of a source, the most read first (a source's Top list).
         const own = new Set([...tokens(book.titleEn), ...tokens(book.title), "!" + book.source]);
         if (book.author) own.add(authorToken(book.author));
+        // Its status as a tag: "Completed" and "Ongoing" are searched like any tag.
+        const status = book.complete === 1 ? "Completed" : book.complete === 0 ? "Ongoing" : "";
+        if (status) { own.add(tagToken(status)); tagCounts.set(status, (tagCounts.get(status) || 0) + 1); }
+        for (const tag of new Set(book.tags)) if (tag && tag !== status) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
         book.tags.forEach((tag, i) => {
             const original = book.originalTags[i];
             if (tag) alias(tagConcept(tag), tagToken(tag));
@@ -290,10 +298,14 @@ function main() {
             b.views, b.likes, b.chapters, b.complete, b.url, b.updated, b.age, b.originalTags.slice(0, TAGS_PER_CARD)]),
             `c/${blockAt.length}.json.gz`));
     }
+    // The tag names on TAG_BOOKS books or more, the most used first, at most TAG_LIST: [[name, books], ...].
+    const tagList = [...tagCounts].filter(([, n]) => n >= TAG_BOOKS).sort((a, b) => b[1] - a[1]).slice(0, TAG_LIST);
+    const tagsAt = write(tagList, "tags.json.gz");
+    console.log(`${tagList.length} tags listed`);
     fs.closeSync(out);
     const manifest = {
         format: 2, built, books: books.length, buckets: BUCKETS, block: BLOCK,
-        page: PAGE, bin: binName, binSize: offset, bucketAt, blockAt, sources,
+        page: PAGE, bin: binName, binSize: offset, bucketAt, blockAt, tagsAt, sources,
     };
     fs.writeFileSync(path.join(OUT, "noveldb-search.json"), JSON.stringify(manifest));
     // The split copy's table: no offsets, a file per piece.
