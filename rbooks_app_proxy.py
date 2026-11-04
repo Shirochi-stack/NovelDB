@@ -567,12 +567,28 @@ class RbooksAppProxy:
 
     @staticmethod
     def _press_enter_on_dialog(hwnd):
+        """Press the dialog's default button, the one Enter presses. An Enter key posted to the dialog
+        window itself was often ignored (Windows routes Enter through the focused control), which left
+        the popup open; the default button's command is sent to the dialog instead, then Enter as before."""
         try:
             import ctypes
             from ctypes import wintypes
             user32 = ctypes.windll.user32
             user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
                                             wintypes.WPARAM, wintypes.LPARAM]
+            user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                            wintypes.WPARAM, wintypes.LPARAM]
+            user32.SendMessageW.restype = ctypes.c_ssize_t
+            user32.GetDlgItem.argtypes = [wintypes.HWND, ctypes.c_int]
+            user32.GetDlgItem.restype = wintypes.HWND
+            default = user32.SendMessageW(hwnd, 0x0400, 0, 0)  # DM_GETDEFID
+            control = default & 0xFFFF if (default >> 16) & 0xFFFF == 0x534B else 1  # DC_HASDEFID, else IDOK
+            button = user32.GetDlgItem(hwnd, control)
+            if button:
+                user32.PostMessageW(button, 0x00F5, 0, 0)  # BM_CLICK: the button as if clicked
+                return True
+            if user32.PostMessageW(hwnd, 0x0111, control, 0):  # WM_COMMAND for the default button
+                return True
             return bool(user32.PostMessageW(hwnd, 0x100, 0x0D, 0) and
                         user32.PostMessageW(hwnd, 0x101, 0x0D, 0))
         except Exception:
@@ -638,9 +654,23 @@ class RbooksAppProxy:
                 if self._accept_js_dialog():
                     self.log('  [Rbooks] Accepted a RBOOKS PC viewer popup.')
                 self._dismiss_page_popup()
+                self._dismiss_library_popup()
             except Exception:
                 pass
             stop.wait(0.8)
+
+    def _dismiss_library_popup(self):
+        """The library window's own notices (a single OK, or a rental notice), which held a download
+        until someone pressed them: the same safe kinds as in the reader; never buy, extend or delete."""
+        with self._popup_lock:
+            try:
+                kind = self._evaluate('Books', self.PAGE_POPUP_SCRIPT)
+            except Exception:
+                return False
+            if kind not in ('notice', 'rental-notice'):
+                return False
+            self.log('  [Rbooks] Acknowledged a notice in the RBOOKS library.')
+            return True
 
     def _dismiss_page_popup(self):
         """Dismiss overlays only in the reader bound to the requested volume."""
@@ -1101,22 +1131,29 @@ class RbooksAppProxy:
         return re.sub(r'[\s\u200b\u2060\u2063\ufeff]+', '', label)
 
     @classmethod
+    def _title_key(cls, label):
+        """A heading compared with its TOC entry: spaces, invisible marks, punctuation and brackets aside
+        ("[인물 설정]" in the book is the TOC's "인물 설정"; "14." is "14")."""
+        normalized = cls._normalized_label(label)
+        return re.sub(r'[\W_]+', '', normalized) or normalized
+
+    @classmethod
     def _section_matches_title(cls, section, title):
         soup = BeautifulSoup(section.get('html') or '', 'html.parser')
-        expected = cls._normalized_label(title)
+        expected = cls._title_key(title)
         headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
         # Some sources use a styled paragraph instead of a heading element.
         if not headings:
             headings = soup.find_all(['p', 'div'], limit=5)
-        return any(cls._normalized_label(node.get_text()) == expected
+        return any(cls._title_key(node.get_text()) == expected
                    for node in headings)
 
     @classmethod
     def _section_has_content(cls, section, title):
         soup = BeautifulSoup(section.get('html') or '', 'html.parser')
-        expected = cls._normalized_label(title)
+        expected = cls._title_key(title)
         for node in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div']):
-            if cls._normalized_label(node.get_text()) == expected:
+            if cls._title_key(node.get_text()) == expected:
                 node.decompose()
         return bool(cls._normalized_label(soup.get_text()) or soup.find('img'))
 

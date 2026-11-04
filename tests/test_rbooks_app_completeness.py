@@ -302,3 +302,15 @@ def test_failed_volume_blocks_automatic_output_but_preserves_explicit_stop(
     assert bool(generated) is expected_output
     if not expected_output:
         assert any('No partial EPUB was written' in line for line in logs)
+
+
+def test_a_section_heading_in_brackets_matches_its_contents_entry():
+    # The book's own heading of its last section was "[인물 설정]" (with invisible marks) and the TOC's
+    # "인물 설정": the volume failed to export on that section.
+    section = {'html': '<p>⁠⁣[인물 설정]</p><p>&nbsp;</p><p class="sgc-6">레이 / 엘 레이 그레이언</p>'
+                       '<p>1. 키― 173∼175</p>'}
+    assert RbooksAppProxy._section_matches_title(section, '인물 설정')
+    assert RbooksAppProxy._section_has_content(section, '인물 설정')
+    assert RbooksAppProxy._section_matches_title({'html': '<h2>&nbsp;외전 4―지스카르</h2>'}, '외전 4―지스카르')
+    assert RbooksAppProxy._section_matches_title({'html': '<h2>14</h2><p>x</p>'}, '14.')
+    assert not RbooksAppProxy._section_matches_title({'html': '<h2>15</h2><p>x</p>'}, '14.')
