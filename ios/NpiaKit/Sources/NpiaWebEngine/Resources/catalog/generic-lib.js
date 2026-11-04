@@ -496,8 +496,30 @@ const SYNOPSIS = "[class*=detail-info-right-content], " +
     "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], " +
     "[class*=summary], [class*=intro], #intro";
 // A book page's own list of tags or genres (not the site's menu of them).
-const TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags]";
+const TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
+    + ".categories";
+// Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
+const NOT_TAG = /^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$/i;
 const MENU = /(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)/i;
+
+/** `node` sits in the site's own header, menu or footer (one of `tags`, or a menu-like class). The book's
+ *  own header inside its <article> or <main> is not (novelphoenix's genres are in one). */
+function siteChrome(node, tags) {
+    let inBook = !!node.closest("article, main");
+    for (let at = node.parentElement; at; at = at.parentElement) {
+        if (at.tagName === "ARTICLE" || at.tagName === "MAIN") {
+            return false;
+        }
+        let names = at.getAttribute("class") || "";
+        if (inBook && (at.tagName === "HEADER" || /header/i.test(names)) && !/menu|nav/i.test(names)) {
+            continue;
+        }
+        if (tags.includes(at.tagName) || MENU.test(names)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 function inMenu(node) {
     for (let at = node.parentElement; at; at = at.parentElement) {
@@ -573,7 +595,19 @@ function metadata(doc, url) {
         let h1 = doc.querySelector("h1");
         title = h1 ? textOf(h1) : textOf(doc.querySelector("title"));
     }
-    let author = ldText(book.author || book.creator) || meta(doc, "book:author", "author", "og:novel:author");
+    // The book's author: its structured data, the page's itemprop=author, then the meta tags, unless they
+    // name the site itself (novelphoenix's <meta name="author"> is "Novel Phoenix").
+    let author = ldText(book.author || book.creator);
+    if (!author) {
+        let node = doc.querySelector("[itemprop=author]");
+        author = node ? (node.getAttribute("content") || textOf(node)) : "";
+    }
+    if (!author) {
+        author = meta(doc, "book:author", "author", "og:novel:author");
+        if (author && siteName && author.trim().toLowerCase() === siteName.trim().toLowerCase()) {
+            author = "";
+        }
+    }
     if (!author) {
         let label = textNodes(doc, /^\s*(author|writer|作者|저자|작가|著者|autor|auteur|автор)\s*[:：]?\s*$/i, 1)[0];
         let node = label ? label.parentNode : null;
@@ -622,15 +656,17 @@ function metadata(doc, url) {
     // Genre links by their address, and the links of the page's tag or genre list wherever they point
     // (fanfox's /directory/action/); none from the site's own menus.
     let tagLinks = Array.from(doc.querySelectorAll("a[href]"))
-        .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)\//i.test(a.getAttribute("href"))).slice(0, 40);
+        // (A footer's or a menu's genre links list the site's genres, not the book's.)
+        .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)[\/-]/i.test(a.getAttribute("href"))
+            && !siteChrome(a, ["FOOTER"])).slice(0, 40);
     for (let box of doc.querySelectorAll(TAG_LISTS)) {
-        if (!box.closest("header, nav, footer") && !inMenu(box)) {
+        if (!siteChrome(box, ["HEADER", "NAV", "FOOTER"])) {
             tagLinks.push(...Array.from(box.querySelectorAll("a[href]")).slice(0, 40));
         }
     }
     for (let link of tagLinks) {
         let word = textOf(link);
-        if (word.length > 1 && word.length <= 40) {
+        if (word.length > 1 && word.length <= 40 && !NOT_TAG.test(word)) {
             tags.push(word);
         }
     }

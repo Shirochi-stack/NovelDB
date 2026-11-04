@@ -273,8 +273,26 @@ _SYNOPSIS = ("[class*=detail-info-right-content], .summary__content, .descriptio
              "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], "
              "[class*=summary], [class*=intro], #intro")
 # A book page's own list of tags or genres (not the site's menu of them).
-_TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags]"
+_TAG_LISTS = ("[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
+              ".categories")
+# Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
+_NOT_TAG = re.compile(r"^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$", re.I)
 _MENU = re.compile(r"(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)", re.I)
+
+
+def _site_chrome(node, tags) -> bool:
+    """`node` sits in the site's own header, menu or footer (one of `tags`, or a menu-like class). The
+    book's own header inside its <article> or <main> is not (novelphoenix's genres are in one)."""
+    in_book = node.find_parent(["article", "main"]) is not None
+    for parent in node.parents:
+        if parent.name in ("article", "main"):
+            return False
+        names = " ".join(parent.get("class") or [])
+        if in_book and (parent.name == "header" or re.search(r"header", names, re.I)) and not re.search(r"menu|nav", names, re.I):
+            continue
+        if parent.name in tags or _MENU.search(names):
+            return True
+    return False
 
 
 def _prose(text: str) -> bool:
@@ -339,7 +357,16 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     if not title:
         h1 = soup.find("h1")
         title = text_of(h1) if h1 else text_of(soup.title)
-    author = _ld_text(book.get("author") or book.get("creator")) or _meta(soup, "book:author", "author", "og:novel:author")
+    # The book's author: its structured data, the page's itemprop=author, then the meta tags, unless they
+    # name the site itself (novelphoenix's <meta name="author"> is "Novel Phoenix").
+    author = _ld_text(book.get("author") or book.get("creator"))
+    if not author:
+        node = soup.select_one("[itemprop=author]")
+        author = (node.get("content") or text_of(node)) if node else ""
+    if not author:
+        author = _meta(soup, "book:author", "author", "og:novel:author")
+        if author and site_name and author.strip().lower() == site_name.strip().lower():
+            author = ""
     if not author:
         label = soup.find(string=re.compile(r"^\s*(author|writer|作者|저자|작가|著者|autor|auteur|автор)\s*[:：]?\s*$", re.I))
         node = label.find_parent() if label else None
@@ -376,13 +403,15 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         tags.extend(_tag_text(t) for t in re.split(r"[,;|]", _ld_text(genre)) if _tag_text(t))
     # Genre links by their address, and the links of the page's tag or genre list wherever they point
     # (fanfox's /directory/action/); none from the site's own menus.
-    links = soup.find_all("a", href=re.compile(r"[/-](genres?|tags?|categor(y|ies)|keywords?)/", re.I))[:40]
+    # (A footer's or a menu's genre links list the site's genres, not the book's.)
+    links = [link for link in soup.find_all("a", href=re.compile(r"[/-](genres?|tags?|categor(y|ies)|keywords?)[/-]", re.I))
+             if not _site_chrome(link, ("footer",))][:40]
     for box in soup.select(_TAG_LISTS):
-        if not box.find_parent(["header", "nav", "footer"]) and not box.find_parent(class_=_MENU):
+        if not _site_chrome(box, ("header", "nav", "footer")):
             links.extend(box.find_all("a", href=True)[:40])
     for link in links:
         word = text_of(link)
-        if 1 < len(word) <= 40:
+        if 1 < len(word) <= 40 and not _NOT_TAG.match(word):
             tags.append(word)
     status = _meta(soup, "og:novel:status")
     if not status:
