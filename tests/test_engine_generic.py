@@ -183,3 +183,19 @@ def test_a_scrambled_chapter_is_read_again_in_a_real_browser_and_the_site_rememb
     assert "붉은 지붕" in first["contentText"] and "붉은 지붕" in second["contentText"]
     assert rendered == [("https://novels.example/b/1-ep-1", True), ("https://novels.example/b/1-ep-2", True)]
     assert fetched == ["https://novels.example/b/1-ep-1"]  # the second chapter skips the scrambled request
+
+
+def test_run_together_korean_paragraphs_are_split_into_lines_with_dialogue_kept_whole():
+    from noveldb.core.engines.generic import resplit_paragraphs
+
+    run = ("붉은 지붕에 쌓여 있던 눈이 조금씩 높이를 줄였다. 하얀숲을 지나오는 바람에 봄기운이 실려 왔다. "
+           "영지민들은 그곳을 푸른 저택이라 불렀다. “웃겨. 내가 봤을 땐 하도 게으름 피워서 받아줄 곳이 없으니 "
+           "여기 들러붙은 거야.” 유안이 잡초를 뽑으며 종알거렸다. “마님!” 저 멀리서 헤나가 달려오고 있었다. ") * 3
+    content, text = resplit_paragraphs(f"<p>{run.strip()}</p><p>짧은 문단.</p>", run.strip())
+    lines = [line for line in text.split("\n")]
+    assert "“웃겨. 내가 봤을 땐 하도 게으름 피워서 받아줄 곳이 없으니 여기 들러붙은 거야.”" in lines
+    assert "“마님!”" in lines and "영지민들은 그곳을 푸른 저택이라 불렀다." in lines
+    assert content.count("<p>") == len(lines) + 1 and content.endswith("<p>짧은 문단.</p>")
+    # Ordinary paragraphs, and other languages, are left alone.
+    english = "<p>" + "He walked on. She followed. " * 30 + "</p>"
+    assert resplit_paragraphs(english, "x") == (english, "x")

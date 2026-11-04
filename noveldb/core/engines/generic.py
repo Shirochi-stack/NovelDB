@@ -929,6 +929,47 @@ def scrambled_hangul(text: str) -> bool:
     return sum(1 for s in syllables if s % 28) / len(syllables) > 0.8
 
 
+def _sentence_lines(paragraph: str) -> List[str]:
+    """A run-together Korean paragraph as the lines a web novel prints: one sentence each, dialogue apart.
+    [paragraph] for anything else (short, not Korean, already broken into lines)."""
+    hangul = sum(1 for c in paragraph if "\uac00" <= c <= "\ud7a3")
+    if len(paragraph) < 400 or hangul < len(paragraph) * 0.4:
+        return [paragraph]
+    # After a sentence's end (a Korean syllable, then . ? ! or an ellipsis, maybe a closing quote),
+    # and before an opening quote.
+    lines = [part.strip() for part in re.split(
+        r"(?<=[\uac00-\ud7a3][.?!\u2026~])(?:\s+)|(?<=[.?!\u2026~][\u201d\u2019\u300d\u300f\"'])\s+|\s+(?=[\u201c\u2018\u300c\u300e])",
+        paragraph) if part and part.strip()]
+    # A quotation stays on one line, however many sentences it holds.
+    joined, depth = [], 0
+    for line in lines:
+        if depth > 0 and joined:
+            joined[-1] += " " + line
+        else:
+            joined.append(line)
+        depth = max(0, depth + sum(line.count(c) for c in "\u201c\u300c\u300e") - sum(line.count(c) for c in "\u201d\u300d\u300f"))
+    return joined if len(joined) >= 4 else [paragraph]
+
+
+def resplit_paragraphs(content: str, text: str) -> Tuple[str, str]:
+    """(content, text) with run-together Korean paragraphs (bookkor's copies keep none of the original
+    line breaks) split back into sentence and dialogue lines; unchanged when nothing needs it."""
+    def split_markup(found):
+        inner = found.group(2)
+        if "<" in inner:
+            return found.group(0)
+        lines = _sentence_lines(inner)
+        if len(lines) == 1:
+            return found.group(0)
+        return "".join(f"{found.group(1)}{line}</p>" for line in lines)
+
+    new_content = re.sub(r"(<p\b[^>]*>)(.*?)</p>", split_markup, content or "", flags=re.S)
+    if new_content == content:
+        return content, text
+    new_text = "\n".join(line for paragraph in (text or "").split("\n") for line in _sentence_lines(paragraph))
+    return new_content, new_text
+
+
 def app_data_chapter(html: str) -> Optional[str]:
     """The chapter's own page built from an Inertia app's page data, or None.
 
@@ -1498,4 +1539,5 @@ class GenericEngine:
             soup = soup_of(page_html)
         if len(text) < 20 and "<img" not in content:
             raise ValueError("no chapter text found on the page")
+        content, text = resplit_paragraphs(content, text)
         return {"chapterName": name, "contentHtml": content, "contentText": text, "imageCount": 0, "images": []}
