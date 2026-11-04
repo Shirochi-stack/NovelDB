@@ -918,6 +918,17 @@ def _score(node) -> float:
     return score + direct * 0.5
 
 
+def scrambled_hangul(text: str) -> bool:
+    """True when Korean text is random syllables (a site's anti-copy scrambling).
+
+    Real Korean ends about 4 syllables in 10 with a final consonant; syllables drawn at random from
+    all 11,172 end 27 in 28 with one. Needs 200 syllables, so short or non-Korean text never matches."""
+    syllables = [ord(c) - 0xAC00 for c in text or "" if "가" <= c <= "힣"]
+    if len(syllables) < 200:
+        return False
+    return sum(1 for s in syllables if s % 28) / len(syllables) > 0.8
+
+
 def app_data_chapter(html: str) -> Optional[str]:
     """The chapter's own page built from an Inertia app's page data, or None.
 
@@ -1182,6 +1193,7 @@ class GenericEngine:
         # downloader's, whose requests stay on its browser thread).
         self.parallel = parallel
         self.on_images: Callable[[List[str], int], None] = lambda _images, _total: None
+        self._scrambling: set = set()  # hosts that send plain requests scrambled text (bookkor)
 
     @staticmethod
     def knows(url: str) -> bool:
@@ -1429,15 +1441,45 @@ class GenericEngine:
             return None
         return "".join(f'<p><img src="{image}" alt=""/></p>' for image in images)
 
+    def _browser_chapter(self, url: str, final: str, name: str) -> Optional[Tuple[str, str, str]]:
+        """(content, text, page) of a chapter rendered in a real browser, or None when that is not
+        possible or still gives scrambled text."""
+        if self.render is None:
+            return None
+        try:
+            rendered = self.render(url, real_browser=True)
+        except TypeError:  # a render without that choice (the Catalog reader's)
+            rendered = self.render(url)
+        if not rendered:
+            return None
+        content, text = extract_content(app_data_chapter(rendered) or rendered, final, name)
+        if len(text) < 20 or scrambled_hangul(text):
+            return None
+        return content, text, rendered
+
     def parse_chapter(self, chapter_info: dict, book: dict) -> Optional[dict]:
         url = chapter_info.get("url", "")
         name = chapter_info.get("fullName") or chapter_info.get("name", "")
-        html, final = self._page(url, referer=chapter_info.get("bookUrl") or book.get("bookUrl") or "")
-        manga = self._manga_chapter(html, final)
-        if manga is not None:
-            return {"chapterName": name, "contentHtml": manga, "contentText": "", "imageCount": manga.count("<img"),
-                    "images": []}
-        content, text = extract_content(app_data_chapter(html) or html, final, name)
+        host = urlsplit(url).netloc
+        # A site that sent scrambled text before: straight to the browser.
+        known = self._browser_chapter(url, url, name) if host in self._scrambling else None
+        if known:
+            content, text, html = known
+            final = url
+        else:
+            html, final = self._page(url, referer=chapter_info.get("bookUrl") or book.get("bookUrl") or "")
+            manga = self._manga_chapter(html, final)
+            if manga is not None:
+                return {"chapterName": name, "contentHtml": manga, "contentText": "",
+                        "imageCount": manga.count("<img"), "images": []}
+            content, text = extract_content(app_data_chapter(html) or html, final, name)
+            if scrambled_hangul(text) and self.render is not None:
+                # bookkor sends plain requests scrambled text; the browser gets the real chapter.
+                self.log(f"  {name}: the site sent scrambled text; reading the chapter in the browser.")
+                read = self._browser_chapter(url, final, name)
+                if read:
+                    content, text, html = read
+                    self._scrambling.add(host)
         # A chapter split over several pages ("下一页", "Next page"): join them.
         seen = {final}
         soup = soup_of(html)

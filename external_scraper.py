@@ -13134,6 +13134,22 @@ async (ids) => {
                         chapter.get('fullName', '')
                         or chapter.get('name', '')
                     )
+                    # The web viewer's own API first, from a page on the store's address (the main page
+                    # is; new worker pages are blank): webtoons only work this way, and text episodes
+                    # take about 1 s instead of 4. Anything it refuses goes the viewer's way below.
+                    fast = self._rbooks_api_chapter(
+                        self._page if self._rbooks_page_is_usable(self._page) else page, url, name)
+                    if fast:
+                        result_index = chunk_start + offset
+                        chunk_results[result_index] = fast
+                        if (not fast.get('_locked') and success_callback is not None
+                                and result_index not in reported_successes):
+                            reported_successes.add(result_index)
+                            try:
+                                success_callback(result_index, fast)
+                            except Exception:
+                                pass
+                        continue
                     navigation_failed = False
                     try:
                         kwargs = {'wait_until': 'commit', 'timeout': _page_ms(15000)}

@@ -56,16 +56,11 @@ def _sanitize_filename(name):
 
 
 def _scrambled_text(data):
-    """True when a chapter's Korean text is random syllables (a site's anti-copy scrambling).
+    """True when a chapter's Korean text is random syllables (a site's anti-copy scrambling)."""
+    from noveldb.core.engines.generic import scrambled_hangul
 
-    Real Korean ends about 4 syllables in 10 with a final consonant; syllables drawn at random from
-    all 11,172 end 27 in 28 with one. Needs 200 syllables, so short or non-Korean chapters never match."""
-    text = (data or {}).get('contentText') or re.sub(
-        r'<[^>]+>', ' ', (data or {}).get('contentHtml') or '')
-    syllables = [ord(c) - 0xAC00 for c in text if '가' <= c <= '힣']
-    if len(syllables) < 200:
-        return False
-    return sum(1 for s in syllables if s % 28) / len(syllables) > 0.8
+    return scrambled_hangul((data or {}).get('contentText') or re.sub(
+        r'<[^>]+>', ' ', (data or {}).get('contentHtml') or ''))
 
 
 def _format_size(num_bytes):

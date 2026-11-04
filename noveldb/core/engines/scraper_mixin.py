@@ -297,11 +297,17 @@ class SiteEnginesMixin:
         return {"status": status, "statusText": "", "finalUrl": page.url,
                 "responseHeaders": "Content-Type: text/html; charset=utf-8", "responseText": page.content()}
 
-    def render_html(self, url: str, scroll: bool = False) -> Optional[str]:
+    def render_html(self, url: str, scroll: bool = False, real_browser: bool = False) -> Optional[str]:
         """The page as the browser renders it (for sites that build their pages with scripts), or None.
-        `scroll`: scrolled to its end first, "Load more" clicked, for lists that load as you scroll."""
+        `scroll`: scrolled to its end first, "Load more" clicked, for lists that load as you scroll.
+        `real_browser`: in installed Chrome (off-screen, the downloader's profile) rather than the
+        headless one, for sites that send a headless browser other text (bookkor)."""
         lock = self.__dict__.setdefault("_browser_fetch_lock", threading.Lock())
         with lock:
+            if real_browser and not getattr(self, "_rbooks_chrome", False):
+                self.__dict__.pop("_site_pages", None)  # their tabs belong to the browser being replaced
+                if not self._start_rbooks_browser(url, site="Generic"):
+                    return None
             try:
                 page = self._site_page(url)
                 result = self._open_in_tab(page, url)

@@ -817,6 +817,28 @@ def test_rbooks_batch_uses_native_parallel_path():
     assert completed == [(0, 'One'), (1, 'Two')]
 
 
+def test_rbooks_parallel_batch_reads_through_the_web_viewer_api_before_any_viewer_page():
+    scraper, _messages = make_scraper()
+    scraper._page = object()
+    pages = []
+
+    class Worker:
+        def goto(self, *_args, **_kwargs):
+            pages.append('viewer')
+
+    scraper._rbooks_parallel_pages = lambda count: [Worker() for _ in range(count)]
+    scraper._rbooks_page_is_usable = lambda page: page is scraper._page
+    scraper._rbooks_api_chapter = lambda page, url, name: (
+        {'chapterName': name, 'images': [{'url': 'x'}]} if page is scraper._page else None)
+    chapters = [{'url': f'https://ridibooks.com/books/{n}/view',
+                 'name': f'Ep {n}'} for n in (1, 2, 3, 4, 5)]
+    completed = []
+    results = scraper._rbooks_parse_chapter_batch_parallel(
+        chapters, success_callback=lambda index, result: completed.append(index))
+    assert [r['chapterName'] for r in results] == ['Ep 1', 'Ep 2', 'Ep 3', 'Ep 4', 'Ep 5']
+    assert completed == [0, 1, 2, 3, 4] and pages == []
+
+
 def test_rbooks_batch_restarts_when_browser_closes_during_navigation():
     class ClosingPage:
         url = 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/1001'

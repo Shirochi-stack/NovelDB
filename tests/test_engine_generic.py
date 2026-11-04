@@ -159,3 +159,27 @@ def test_the_phone_engine_reads_the_app_page_data_too():
 
     text = (Path(__file__).resolve().parents[1] / "scripts" / "generic" / "generic-lib.js").read_text(encoding="utf-8")
     assert "extractContent(appDataChapter(read.doc) || read.doc" in text
+
+
+def test_a_scrambled_chapter_is_read_again_in_a_real_browser_and_the_site_remembered():
+    import random
+
+    rng = random.Random(3)
+    noise = " ".join("".join(chr(0xAC00 + rng.randrange(11172)) for _ in range(4)) for _ in range(120))
+    real = "붉은 지붕에 쌓여 있던 눈이 조금씩 높이를 줄였다. 하얀숲을 지나오는 바람에 봄기운이 실려 왔다. " * 8
+    fetched, rendered = [], []
+
+    def fetch(url, **_options):
+        fetched.append(url)
+        return page(f"<html><body><article><p>{noise}</p></article></body></html>", url)
+
+    def render(url, scroll=False, real_browser=False):
+        rendered.append((url, real_browser))
+        return f"<html><body><article><p>{real}</p></article></body></html>"
+
+    engine = GenericEngine(fetch=fetch, render=render)
+    first = engine.parse_chapter({"url": "https://novels.example/b/1-ep-1", "name": "1화"}, {})
+    second = engine.parse_chapter({"url": "https://novels.example/b/1-ep-2", "name": "2화"}, {})
+    assert "붉은 지붕" in first["contentText"] and "붉은 지붕" in second["contentText"]
+    assert rendered == [("https://novels.example/b/1-ep-1", True), ("https://novels.example/b/1-ep-2", True)]
+    assert fetched == ["https://novels.example/b/1-ep-1"]  # the second chapter skips the scrambled request
