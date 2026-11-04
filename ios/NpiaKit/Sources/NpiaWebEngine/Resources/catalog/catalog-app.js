@@ -47,7 +47,7 @@
 
     var USER_HEADERS = {'Accept-Language': 'en-US,en;q=0.9,*;q=0.5'};
     var CHALLENGE = /just a moment|attention required|security check|verify you are human/i;
-    var slots = {free: 16, waiting: []};
+    var slots = {free: 24, waiting: []};
     var renders = {free: 2, waiting: []};
 
     function take(pool) {
@@ -799,12 +799,13 @@
                 var position = index++, way = ways[position];
                 return query(way, text, token).then(function (result) {
                     if (result && [401, 403, 429, 503].indexOf(result.status) >= 0) return [];
+                    if (wrongGuess(made, way, result)) return next();
                     if (!result || result.status >= 400) return next();
                     var cards = extractCards(result.text(), result.url || home).filter(function (c) { return relevant(c.title, text); });
                     if (!cards.length) return next();
-                    if (position) {
+                    if (position || way.guess) {
                         made.ways.splice(made.ways.indexOf(way), 1);
-                        made.ways.unshift(way);
+                        made.ways.unshift(Object.assign(way, {guess: false}));  // it answers: no longer a guess
                         savePlans();
                     }
                     rememberNext(home, 'search', text, result);
@@ -832,7 +833,9 @@
                 var ways = made.ways.slice(0, 3), index = 0;
                 function next() {
                     if (index >= ways.length || stopped(token)) return Promise.resolve([]);
-                    return query(ways[index++], tag, token).then(function (result) {
+                    var way = ways[index++];
+                    return query(way, tag, token).then(function (result) {
+                        if (wrongGuess(made, way, result)) return next();
                         if (!result || result.status >= 400 || !searched(result.url || '', made.home, tag)) return next();
                         var found = extractCards(result.text(), result.url || home);
                         if (homeAgain(found, made) || !found.length) return next();
@@ -843,6 +846,16 @@
                 return next();
             });
         });
+    }
+    /** A guessed search address the site has no such page for (404/410, or it leads back to the home
+     *  page): it is wrong for every search, so it leaves the site's plan and is not tried again. */
+    function wrongGuess(made, way, result) {
+        if (!way || !way.guess || !result) return false;
+        var home = String(made.home || '').replace(/\/+$/, ''), final = String(result.url || '').replace(/\/+$/, '');
+        if (result.status !== 404 && result.status !== 410 && !(result.status < 400 && final === home)) return false;
+        var at = made.ways.indexOf(way);
+        if (at >= 0) { made.ways.splice(at, 1); savePlans(); }
+        return true;
     }
     function searched(final, home, text) {
         if (final.replace(/\/+$/, '') === home.replace(/\/+$/, '')) return false;
@@ -1059,7 +1072,33 @@
     }
 
     /** Every site for `text`, for up to 45 seconds; cards reach the page as they come. */
+    // How quickly each site's search answered, remembered across searches: {host: {ms, ok, at}}.
+    var SPEED_KEY = 'noveldb.generic.siteSpeed', SITE_SECONDS = 12, REST_HOURS = 24;
+    var speeds = store(SPEED_KEY) || {}, speedTimer = 0;
+    // Failures count only once some site answered in the search: offline, every one fails and none should rest.
+    var speedAnswered = false, speedFailed = [];
+    function noteSpeed(host, ms, ok) {
+        ok = ok && ms < SITE_SECONDS * 1000;
+        if (ok) { speedAnswered = true; speedFailed.splice(0).forEach(function (f) { speeds[f[0]] = {ms: f[1], ok: false, at: Date.now()}; }); }
+        if (!ok && !speedAnswered) { speedFailed.push([host, ms]); return; }
+        speeds[host] = {ms: ms, ok: ok, at: Date.now()};
+        clearTimeout(speedTimer);
+        speedTimer = setTimeout(function () { store(SPEED_KEY, speeds); }, 1000);
+    }
+    /** A site that failed or was slow in the last day is not asked (the web search still finds its books). */
+    function resting(host) {
+        var known = speeds[host];
+        return !!known && !known.ok && Date.now() - known.at < REST_HOURS * 3600e3;
+    }
+    /** The order sites are asked in: the quickest known first, then the ones not tried yet. */
+    function speedRank(host) {
+        var known = speeds[host];
+        return known && known.ok ? known.ms : SITE_SECONDS * 1000;
+    }
+
     function runSearch(id, text, mode, token) {
+        speedAnswered = false;
+        speedFailed = [];
         var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, details = [];
         function offer(cards) {
             var fresh = cards.filter(function (item) {
@@ -1086,22 +1125,30 @@
         function report(site, started, found, state) {
             call('progress', id, {site: site, ms: Date.now() - started, found: found, state: state || 'ok'});
         }
-        // The busiest sites ("searched"); the rest come up through the web search.
-        var sources = SITES.filter(function (site) { return site.searched !== false && !(site.lnreader || []).length; }).map(function (site) {
+        // The busiest sites ("searched"); the rest come up through the web search. The quickest sites
+        // (remembered from earlier searches) are asked first; one that failed or was slow rests a day.
+        var searchedSites = SITES.filter(function (site) {
+            return site.searched !== false && !(site.lnreader || []).length && !resting(site.host);
+        }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
+        var sources = searchedSites.map(function (site) {
             return function () {
                 var started = Date.now(), home = 'https://' + site.host + '/';
                 var asked = mode === 'name' ? siteSearch(home, text, token) : siteTag(home, text, token);
-                return asked.then(function (hits) {
+                // A site gets SITE_SECONDS: past that its slot goes to the next one (it rests a day).
+                var late = new Promise(function (resolve) { setTimeout(function () { resolve('late'); }, SITE_SECONDS * 1000); });
+                return Promise.race([asked, late]).then(function (hits) {
                     var ms = Date.now() - started;
+                    if (hits === 'late') { noteSpeed(site.host, ms, false); report(site.site, started, 0, 'failed'); return; }
                     var cards = hits.map(function (hit) {
                         return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover), {ms: ms, verified: !!hit.verified});
                     });
                     summary.site += cards.length;
                     var fresh = offer(cards);
                     var refusedSite = plans[home] && plans[home].reachable === false;
+                    noteSpeed(site.host, ms, !refusedSite);
                     report(site.site, started, fresh.length, refusedSite ? 'refused' : 'ok');
                     enrich(fresh.filter(function (c) { return !c.cover; }));
-                }, function () { summary.failed++; report(site.site, started, 0, 'failed'); });
+                }, function () { summary.failed++; noteSpeed(site.host, Date.now() - started, false); report(site.site, started, 0, 'failed'); });
             };
         });
         sources.unshift(function () {
@@ -1133,7 +1180,7 @@
         // An author's books: NovelDB knows them by author; the sites' searches are by title.
         if (mode === 'author') sources = sources.slice(0, 1);
         call('progress', id, {total: sources.length});
-        var all = each(sources, 12, function (source) { return source(); }, token).then(function () {
+        var all = each(sources, 16, function (source) { return source(); }, token).then(function () {
             return Promise.all(details);
         });
         return within(all, 45000, token).then(function (how) {

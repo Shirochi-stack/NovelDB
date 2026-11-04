@@ -255,6 +255,8 @@
         $('siteList').querySelectorAll('[data-site]').forEach(function (box) {
             box.onchange = function () {
                 if (box.checked) picking.add(box.dataset.site); else picking.delete(box.dataset.site);
+                // The last picked site unticked: back to every site's list at once (as All sites does).
+                if (!picking.size && top.only.length) { $('siteAll').click(); return; }
                 $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
                 $('siteShow').disabled = !picking.size;
             };
@@ -1153,18 +1155,44 @@
     }
 
     // -- LNReader: the sites' own search, run here --------------------------------------------------
-    function lnreaderRun(id, jobs, each) {
-        var index = 0, active = 0;
+    // How quickly each LNReader plugin's search answered, remembered across searches: {id: {ms, ok, at}}.
+    // A search asks the quickest first and lets the ones that failed or were slow rest a day.
+    var PLUGIN_SPEED_KEY = 'noveldb.generic.pluginSpeed', PLUGIN_SECONDS = 15, PLUGIN_REST_HOURS = 24;
+    var pluginSpeeds = store(PLUGIN_SPEED_KEY) || {}, pluginSpeedTimer = 0;
+    function notePlugin(id, ms, ok) {
+        pluginSpeeds[id] = {ms: ms, ok: ok, at: Date.now()};
+        clearTimeout(pluginSpeedTimer);
+        pluginSpeedTimer = setTimeout(function () { store(PLUGIN_SPEED_KEY, pluginSpeeds); }, 1000);
+    }
+    function pluginResting(id) {
+        var known = pluginSpeeds[id];
+        return !!known && !known.ok && Date.now() - known.at < PLUGIN_REST_HOURS * 3600e3;
+    }
+    function pluginRank(id) {
+        var known = pluginSpeeds[id];
+        return known && known.ok ? known.ms : PLUGIN_SECONDS * 1000;
+    }
+    // `options`: {active: plugins at once (8), seconds: each one's time (25), remember: note their speeds}.
+    function lnreaderRun(id, jobs, each, options) {
+        options = options || {};
+        var index = 0, active = 0, most = options.active || 8, limit = (options.seconds || 25) * 1000;
+        // Failures count only once some plugin answered: offline, every one fails and none should rest.
+        var answered = false, failed = [];
+        function remember(plugin, ms, ok) {
+            if (ok) { answered = true; failed.splice(0).forEach(function (f) { notePlugin(f[0], f[1], false); }); }
+            if (ok || answered) notePlugin(plugin, ms, ok); else failed.push([plugin, ms]);
+        }
         setRunning(1);
         return new Promise(function (resolve) {
             function next() {
                 if (id !== searchId) { setRunning(-1); resolve(); return; }
-                while (active < 8 && index < jobs.length) {
+                while (active < most && index < jobs.length) {
                     var job = jobs[index++];
                     active++;
                     job.started = Date.now();
-                    within(job.run(), 25000, '"timeout"').then(function (raw) {
+                    within(job.run(), limit, '"timeout"').then(function (raw) {
                         var found = parse(raw), ms = Date.now() - this.started;
+                        if (options.remember) remember(this.plugin.id, ms, Array.isArray(found) && ms < limit);
                         if (Array.isArray(found) && id === searchId) {
                             found.forEach(function (item) { item.ms = ms; });
                             each(this, found);
@@ -1186,7 +1214,8 @@
                 verified: !!item.verified};
     }
     function lnreaderSearch(id, queries) {
-        var every = plugins();
+        var every = plugins().filter(function (plugin) { return !pluginResting(plugin.id); })
+            .sort(function (a, b) { return pluginRank(a.id) - pluginRank(b.id); });
         if (!every.length || !window.__LNR_search) return;
         var jobs = [];
         queries.forEach(function (q) {
@@ -1200,7 +1229,7 @@
         lnreaderRun(id, jobs, function (job, found) {
             if (job.query.mode !== 'tag') found = found.filter(function (item) { return relevant(item.name, job.query.query); });
             add(found.slice(0, 15).map(function (item) { return lnreaderCard(job.plugin, item, job.query.mode); }), id);
-        }).then(function () { finishedSearch(id); });
+        }, {active: 16, seconds: PLUGIN_SECONDS, remember: true}).then(function () { finishedSearch(id); });
     }
 
     // -- the top 100s: the sites' popular lists, the busiest sites counting most ----------------------

@@ -237,9 +237,8 @@ class DownloadManager(private val app: Application) {
 
     /**
      * Looks for rule engine updates in the background. `automatic` is the daily check: only the
-     * engines the user opted in to, each at most once per 24 hours, and only news and failures are
-     * shown (as messages). Otherwise (the button) every engine is checked and the results are kept
-     * for the Site engines screen.
+     * engines the user opted in to, each at most once per 24 hours, and silent (its results wait on
+     * the Site engines screen, no snackbar). Otherwise (the button) every engine is checked anew.
      */
     fun checkEngineUpdates(automatic: Boolean = false) {
         val engines = RuleEngine.ALL.filter { !automatic || _settings.value.engines.autoUpdate(it.engine) }
@@ -250,7 +249,7 @@ class DownloadManager(private val app: Application) {
                 for (engine in engines) {
                     val result = try {
                         if (automatic) {
-                            RuleEngines.updates.checkIfDue(engine, engineFetch, ::message)
+                            RuleEngines.updates.checkIfDue(engine, engineFetch)
                         } else {
                             RuleEngines.updates.check(engine, engineFetch)
                         }
@@ -258,10 +257,12 @@ class DownloadManager(private val app: Application) {
                         throw e
                     } catch (e: Exception) {
                         UpdateResult(engine, UpdateResult.Status.FAILED, "${engine.title} update check failed: ${e.message ?: e}")
-                            .also { if (automatic) message(it.message) }
                     }
                     if (result != null) {
-                        _engineUpdates.update { it.copy(results = if (automatic) it.results else it.results + result, changes = it.changes + 1) }
+                        // One result per engine: the latest check's.
+                        _engineUpdates.update { status ->
+                            status.copy(results = status.results.filter { it.engine != engine } + result, changes = status.changes + 1)
+                        }
                     }
                 }
             } finally {
