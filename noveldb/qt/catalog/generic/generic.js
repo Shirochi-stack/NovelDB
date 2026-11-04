@@ -268,7 +268,7 @@
     function refilter() {
         order.forEach(function (group) {
             if (!group.element) return;
-            group.element.style.display = wanted(group) && !(group.held && !group.verified) ? '' : 'none';
+            show(group, wanted(group) && !(group.held && !group.verified));
             fit(group.element.querySelector('.title'));
         });
         empty();
@@ -343,6 +343,7 @@
         running = Math.max(0, running + delta);
         $('stop').disabled = running === 0;
         showProgress();
+        if (!running) setTimeout(closeSlots, 1500);  // books still being checked may yet fill them
     }
 
     // -- what a book is ----------------------------------------------------------------------------
@@ -602,7 +603,8 @@
         } else {
             groups.delete(group.key);
             order = order.filter(function (g) { return g !== group; });
-            if (group.element) group.element.remove();
+            if (group.element && group.element.parentNode && group.placed && group.element.style.display !== 'none') leaveSlot(group.element);
+            else if (group.element) group.element.remove();
             if ($('dialog').open && group.onDetails) $('dialog').close();
         }
         if (view === 'search') countLine();
@@ -707,7 +709,7 @@
             observer && observer.observe(element);
             element.__group = group;
         }
-        if (element.parentNode !== $('grid')) $('grid').appendChild(element);
+        if (element.parentNode !== $('grid')) $('grid').appendChild(element);  // hidden until show() places it
         var inCart = group.sources.some(function (s) { return cart.has(s.url); });
         var more = group.sources.length > 1 ? ' +' + (group.sources.length - 1) : '';
         var status = statusIcon(group.status), shown = figures(group).filter(Boolean);
@@ -755,8 +757,31 @@
                 shrink(group, image);
             }, {once: true});
         }
-        element.style.display = wanted(group) && !(group.held && !group.verified) ? '' : 'none';
+        show(group, wanted(group) && !(group.held && !group.verified));
         return true;
+    }
+    // Cards keep their places once shown (no reshuffling as books come and go). A card shown for the
+    // first time takes the first free slot (one a removed card left), else goes at the end; a book
+    // that leaves the list leaves its slot to the next one (see drop). The exact order is not kept.
+    function show(group, visible) {
+        var element = group.element;
+        if (visible && !group.placed) {
+            group.placed = true;
+            var hole = $('grid').querySelector('.hole');
+            if (hole) $('grid').replaceChild(element, hole); else $('grid').appendChild(element);
+        }
+        element.style.display = visible ? '' : 'none';
+    }
+    function leaveSlot(element) {
+        var hole = document.createElement('div');
+        hole.className = 'card hole';
+        $('grid').replaceChild(hole, element);
+        setTimeout(closeSlots, 1500);  // nothing loading any more: no book will come to fill it
+    }
+    /** Slots no book came to fill, once nothing more is loading: closed (the cards after them move up). */
+    function closeSlots() {
+        if (running || more.loading) return;
+        $('grid').querySelectorAll('.hole').forEach(function (hole) { hole.remove(); });
     }
 
     // Some sites refuse covers to other pages: the app fetches it with the site's address; then the
@@ -2395,6 +2420,7 @@
                 top.limit = order.length + TOP_STEP;
                 loadTop(searchId);  // a kept list: its sites' lists first, then their next pages
                 more.loading = false;
+                setTimeout(closeSlots, 1500);
             } else if (!isComicKind(top.kind)) {
                 topMoreNovels(searchId);
             } else {
@@ -2432,6 +2458,7 @@
             if (view === 'search' && state && state.ndbOnly) {
                 // NovelDB's page read while the search runs: the sites' next page is still to come.
                 more.loading = false;
+                setTimeout(closeSlots, 1500);
                 countLine();
                 empty();
                 setTimeout(moreSoon, 300);
@@ -2442,6 +2469,7 @@
             if (more.parts > 1) { more.parts--; return; }
             more.parts = 0;
             more.loading = false;
+            setTimeout(closeSlots, 1500);
             more.page++;
             more.has = !!more.any;
             more.any = false;

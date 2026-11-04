@@ -72,6 +72,8 @@
             flex-direction: column; cursor: pointer; position: relative;
             contain: layout style; }  /* a card's layout stays its own: measuring one doesn't lay out the grid */
     .card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.18); }
+    /* A removed card's slot, kept so the cards after it do not move; the next book fills it (generic.js show). */
+    .card.hole { visibility: hidden; box-shadow: none; }
     /* Halgakos stands in while a cover loads, and for a book without one (or one that won't load). */
     .cover { aspect-ratio: 2 / 3; background: var(--chip) url(halgakos-loading.webp) center / cover no-repeat; display: flex; align-items: center; justify-content: center;
              color: var(--ink-2); font-size: 12px; text-align: center; padding: 8px; overflow: hidden; position: relative; }
