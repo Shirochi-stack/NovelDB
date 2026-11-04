@@ -23,6 +23,7 @@ import threading
 import time
 import unicodedata
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -244,15 +245,23 @@ class NovelDBIndex:
     def _streams(self, wanted: List[str]) -> Dict[str, "_List"]:
         """Each source's books with every token: a token's own list, or for several the books in all
         of them (among the first MULTI_PAGES pages of each)."""
-        per_token = [self._lists(token) for token in wanted]
+        # Each word's lists, and then their first pages, are read at once (one after another, a title of
+        # five words took seconds: each a Range request).
+        if len(wanted) == 1:
+            return self._lists(wanted[0])
+        with ThreadPoolExecutor(min(16, len(wanted)), thread_name_prefix="noveldb-words") as pool:
+            per_token = list(pool.map(self._lists, wanted))
         if not per_token or not all(per_token):
             return {}
-        if len(per_token) == 1:
-            return per_token[0]
+        sources = list(set.intersection(*(set(lists) for lists in per_token)))
+        jobs = [(source, at, lists[source]) for source in sources for at, lists in enumerate(per_token)]
+        with ThreadPoolExecutor(min(16, max(1, len(jobs))), thread_name_prefix="noveldb-pages") as pool:
+            pages = dict(zip([(source, at) for source, at, _lst in jobs],
+                             pool.map(lambda job: job[2].numbers(0, MULTI_PAGES * job[2].page), jobs)))
         out = {}
-        for source in set.intersection(*(set(lists) for lists in per_token)):
+        for source in sources:
             lists = [lists[source] for lists in per_token]
-            read = [lst.numbers(0, MULTI_PAGES * lst.page) for lst in lists]
+            read = [pages[(source, at)] for at in range(len(lists))]
             # A list read only in part says nothing of the books after its last one read.
             cutoff = min((nums[-1] for nums, lst in zip(read, lists) if nums and len(nums) < lst.total), default=None)
             found = set(read[0]).intersection(*read[1:])
@@ -292,7 +301,18 @@ class NovelDBIndex:
         order = sorted(streams, key=lambda name: (name != LEAD, streams[name].first))
         picks, more = _round_robin([(name, streams[name].total) for name in order], page * limit, limit)
         numbers = [number for number in (streams[name].number(at) for name, at in picks) if number is not None]
+        self._prefetch_blocks(numbers)
         return [card for card in (self._card(number) for number in numbers) if card], more
+
+    def _prefetch_blocks(self, numbers: List[int]) -> None:
+        """The card blocks these books are in, read at once: one after another, a page's ~40 blocks took
+        10 s (each a Range request to the release file); together they take about as long as one."""
+        manifest = self.manifest()
+        blocks = sorted({number // manifest["block"] for number in numbers}) if manifest else []
+        if len(blocks) < 2:
+            return
+        with ThreadPoolExecutor(min(16, len(blocks)), thread_name_prefix="noveldb-blocks") as pool:
+            list(pool.map(lambda index: self._piece("block", index), blocks))
 
     def _card(self, number: int) -> Optional[dict]:
         manifest = self.manifest()
@@ -402,8 +422,15 @@ class _List:
         if end <= start:
             return []
         out: List[int] = []
-        for number in range(start // self.page, (end - 1) // self.page + 1):
-            out.extend(self._page(number))
+        wanted = range(start // self.page, (end - 1) // self.page + 1)
+        if len(wanted) > 2:
+            # The pages read at once (each a Range request): a word in many titles has dozens.
+            with ThreadPoolExecutor(min(8, len(wanted)), thread_name_prefix="noveldb-list") as pool:
+                pages = list(pool.map(self._page, wanted))
+        else:
+            pages = [self._page(number) for number in wanted]
+        for page in pages:
+            out.extend(page)
         skip = start - (start // self.page) * self.page
         return out[skip:skip + end - start]
 
