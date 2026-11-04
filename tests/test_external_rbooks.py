@@ -1536,3 +1536,52 @@ def test_rbooks_refusal_without_ownership_answer_stays_generic():
     _rbooks_book(scraper)
     result = scraper._rbooks_refused_result('Vol 1', _OwnedPage(None), '6121000538')
     assert result['_lockReason'] == 'verification'
+
+
+def test_rbooks_episode_list_comes_in_batches_following_next_books(monkeypatch):
+    # IDs close together but not contiguous: windows of batch requests, chained by each book's next_books.
+    scraper, _ = make_scraper()
+    chain = ['100', '101', '105', '106', '230', '231']
+    def book(book_id):
+        index = chain.index(book_id)
+        following = chain[index + 1] if index + 1 < len(chain) else None
+        return {'id': book_id, 'title': f'Ep {index}', 'series': {'id': '100', 'property': {
+            'next_books': {following: {'b_id': following}} if following else {}}}}
+    requests = []
+    def fetch_books(page, ids):
+        requests.append(ids[0])
+        return {i: book(i) for i in ids if i in chain} | {'102': {'id': '102', 'series': {'id': '999'}}}
+    monkeypatch.setattr(scraper, '_rbooks_api_fetch_books', fetch_books)
+    monkeypatch.setattr(scraper, '_rbooks_api_fetch_book', lambda page, book_id, retries=3: book(book_id))
+    titles = {}
+    assert scraper._rbooks_batched_episode_ids(object(), '100', book('100'), titles) == chain
+    assert len(requests) == 2  # 101..200, then 230..329
+    assert titles['230'] == 'Ep 4'
+
+
+class _Page:
+    def __init__(self, url, reply):
+        self.url, self.reply = url, reply
+
+    def evaluate(self, script, args):
+        return self.reply
+
+
+def test_rbooks_reads_an_episode_through_the_web_viewer_api():
+    scraper, _ = make_scraper()
+    page = _Page('https://ridibooks.com/books/3049080915', {
+        'status': 200, 'parts': ['<html><body><p>⁠⁣Hello</p><img src="https://cdn.example/a.png"></body></html>']})
+    result = scraper._rbooks_api_chapter(page, 'https://ridibooks.com/books/3049081022/view', 'Ep 2')
+    assert result['contentText'] == 'Hello' and len(result['images']) == 1
+    assert '⁠' not in result['contentHtml']
+
+
+def test_rbooks_web_viewer_api_refusals():
+    scraper, _ = make_scraper()
+    url = 'https://ridibooks.com/books/3049081050/view'
+    here = 'https://ridibooks.com/books/3049080915'
+    # Not bought: locked at once. Not a web-viewer book or logged out: the page's way (None).
+    assert scraper._rbooks_api_chapter(_Page(here, {'status': 403, 'code': 'INVALID_ACCESS', 'parts': []}), url, 'Ep 30')['_locked']
+    assert scraper._rbooks_api_chapter(_Page(here, {'status': 400, 'parts': []}), url, 'Vol 3') is None
+    assert scraper._rbooks_api_chapter(_Page(here, {'status': 401, 'parts': []}), url, 'Ep 1') is None
+    assert scraper._rbooks_api_chapter(_Page('about:blank', {'status': 200, 'parts': ['<p>x</p>']}), url, 'Ep 1') is None
