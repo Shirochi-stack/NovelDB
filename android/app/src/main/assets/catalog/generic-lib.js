@@ -339,14 +339,15 @@ function ldText(value) {
     return value == null ? "" : String(value);
 }
 
+// The last tag of a name wins: a page whose script adds its own (Inertia, React Helmet) keeps the
+// site's default first ("Bookkor - Web novels", then the book's title).
 function meta(doc, ...names) {
+    let tags = Array.from(doc.querySelectorAll("meta[property], meta[name]"));
     for (let name of names) {
-        for (let attribute of ["property", "name"]) {
-            for (let tag of doc.querySelectorAll("meta[" + attribute + "]")) {
-                if (tag.getAttribute(attribute) === name && tag.getAttribute("content")) {
-                    return tag.getAttribute("content").trim();
-                }
-            }
+        let found = tags.filter(tag => (tag.getAttribute("property") === name || tag.getAttribute("name") === name)
+            && (tag.getAttribute("content") || "").trim());
+        if (found.length) {
+            return found[found.length - 1].getAttribute("content").trim();
         }
     }
     return "";
@@ -816,6 +817,39 @@ function listPages(doc, base, seen) {
         let paged = /([?&](page|p|pg|pageNo|epage)=\d+)|(\/page\/\d+\/?$)|(_\d+\/?$)/i.test(href);
         if ((sameBook && paged) || (/next/i.test(rel) && sameBook)) {
             out.push(href);
+        }
+    }
+    // Pages a script draws as buttons (no links): the page's own data names them, as a Laravel
+    // paginator does ("next_page_url", "last_page_url": "...?page=2") in Inertia's data-page JSON.
+    for (let href of dataPageUrls(doc, base)) {
+        let parts = new URL(href);
+        if (parts.host === baseParts.host && !seen.has(href) && !out.includes(href)
+            && parts.pathname.replace(/\/+$/, "").startsWith(prefix) && /[?&](page|p|pg|pageNo)=\d+/i.test(href)) {
+            out.push(href);
+        }
+    }
+    return out;
+}
+
+/** The list page addresses in a page's embedded data (scripts and data-page attributes). */
+function dataPageUrls(doc, base) {
+    let out = [];
+    let texts = Array.from(doc.querySelectorAll("script")).map(s => s.textContent || "")
+        .concat(Array.from(doc.querySelectorAll("[data-page]")).map(el => el.getAttribute("data-page") || ""));
+    for (let text of texts) {
+        if (text.length > 3000000 || !/_page_url/.test(text)) {
+            continue;
+        }
+        for (let match of text.matchAll(/"(?:first|last|next|prev)_page_url"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
+            let url;
+            try {
+                url = cleanUrl(JSON.parse('"' + match[1] + '"'), base);
+            } catch (e) {
+                continue;
+            }
+            if (url && !out.includes(url)) {
+                out.push(url);
+            }
         }
     }
     return out;

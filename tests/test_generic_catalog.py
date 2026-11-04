@@ -44,7 +44,9 @@ def test_the_generic_catalog_address_is_accepted_and_kept():
 
 def test_the_site_list_has_the_top_100_book_sites():
     sites = top_sites()
-    assert len(sites) == 100
+    # The 100 most visited, then the sites added by hand (build_generic_sites.EXTRA_SITES).
+    assert len(sites) == 101
+    assert sites[-1]["site"] == "bookkor.com" and "009.bookkor.com" in sites[-1]["hosts"]
     assert all(site["host"] and site["search"] in ("lnreader", "lncrawl", "web") for site in sites)
     assert sites == sorted(sites, key=lambda site: site["rank"])
     assert not any(site["site"] in ("google.com", "reddit.com", "blogspot.com") for site in sites)

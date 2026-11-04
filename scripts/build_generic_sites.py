@@ -49,6 +49,14 @@ PLATFORMS = {"google.com", "reddit.com", "github.io", "wordpress.com", "blogspot
              "wizards.com", "cmpunjabrashancard.pk"}
 
 
+# Sites no engine lists that the generic engine reads well, added after the ranked ones. Bookkor
+# moves between numbered addresses (each older one sends you to the newest): all of them are its.
+EXTRA_SITES = [
+    {"site": "bookkor.com", "host": "010.bookkor.com",
+     "hosts": ["%03d.bookkor.com" % n for n in range(10, 0, -1)], "comic": False},
+]
+
+
 def _host(url: str) -> str:
     text = str(url or "").strip()
     try:
@@ -154,6 +162,12 @@ def build(hosts: dict, ranks: dict, count: int) -> list:
     return out
 
 
+def extra_sites(listed: set) -> list:
+    """EXTRA_SITES not already among the ranked ones, as entries like theirs (ranked after all of them, a web search)."""
+    return [dict({"rank": 10 ** 6, "engines": ["generic"], "lnreader": [], "lncrawl": [], "search": "web"}, **extra)
+            for extra in EXTRA_SITES if extra["site"] not in listed]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tranco", default=TRANCO, help="the Tranco list (zip) as a file or an address")
@@ -161,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args(argv)
     sites = build(engine_hosts(), tranco_ranks(args.tranco), args.count)
+    sites += extra_sites({site["site"] for site in sites})
     data = {"built": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "ranking": "Tranco top 1M", "sites": sites}
     args.out.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
     kinds = defaultdict(int)

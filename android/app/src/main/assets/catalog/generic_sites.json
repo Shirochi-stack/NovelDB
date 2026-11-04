@@ -1760,6 +1760,30 @@
    ],
    "search": "lncrawl",
    "comic": false
+  },
+  {
+   "rank": 1000000,
+   "engines": [
+    "generic"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "site": "bookkor.com",
+   "host": "010.bookkor.com",
+   "hosts": [
+    "010.bookkor.com",
+    "009.bookkor.com",
+    "008.bookkor.com",
+    "007.bookkor.com",
+    "006.bookkor.com",
+    "005.bookkor.com",
+    "004.bookkor.com",
+    "003.bookkor.com",
+    "002.bookkor.com",
+    "001.bookkor.com"
+   ],
+   "comic": false
   }
  ]
 }

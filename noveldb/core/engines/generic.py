@@ -152,10 +152,13 @@ def _ld_text(value) -> str:
 
 
 def _meta(soup, *names) -> str:
+    # The last tag of a name wins: a page whose script adds its own (Inertia, React Helmet) keeps the
+    # site's default first ("Bookkor - Web novels", then the book's title).
+    tags = soup.find_all("meta")
     for name in names:
-        tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
-        if tag and tag.get("content"):
-            return tag["content"].strip()
+        found = [tag for tag in tags if name in (tag.get("property"), tag.get("name")) and (tag.get("content") or "").strip()]
+        if found:
+            return found[-1]["content"].strip()
     return ""
 
 
@@ -534,6 +537,35 @@ def _list_pages(soup, base: str, seen: set) -> List[str]:
         paged = re.search(r"([?&](page|p|pg|pageNo|epage)=\d+)|(/page/\d+/?$)|(_\d+/?$)", href, re.I)
         if same_book and paged or ("next" in rel and same_book):
             out.append(href)
+    # Pages a script draws as buttons (no links): the page's own data names them, as a Laravel
+    # paginator does ("next_page_url", "last_page_url": "...?page=2") in Inertia's data-page JSON.
+    prefix = re.sub(r"\.\w+$", "", base_parts.path.rstrip("/").split("/page/")[0])
+    for href in _data_page_urls(soup, base):
+        parts = urlsplit(href)
+        if parts.netloc == base_parts.netloc and href not in seen and href not in out \
+                and parts.path.rstrip("/").startswith(prefix) and re.search(r"[?&](page|p|pg|pageNo)=\d+", href, re.I):
+            out.append(href)
+    return out
+
+
+_PAGE_URL = re.compile(r'"(?:first|last|next|prev)_page_url"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _data_page_urls(soup, base: str) -> List[str]:
+    """The list page addresses in a page's embedded data (scripts and data-page attributes)."""
+    texts = [script.string or script.get_text() or "" for script in soup.find_all("script")]
+    texts += [tag.get("data-page") or "" for tag in soup.find_all(attrs={"data-page": True})]
+    out: List[str] = []
+    for text in texts:
+        if len(text) > 3_000_000 or "_page_url" not in text:
+            continue
+        for match in _PAGE_URL.finditer(text):
+            try:
+                url = clean_url(json.loads('"' + match.group(1) + '"'), base)
+            except ValueError:
+                continue
+            if url and url not in out:
+                out.append(url)
     return out
 
 
