@@ -367,6 +367,9 @@ class CatalogPage(QWidget):
         from noveldb.qt.pages.library import library_folder
 
         self.generic.library_folder = lambda: library_folder(self.context)
+        from noveldb.qt.theme import web_theme
+
+        self.generic.theme = lambda: web_theme(self.context.settings.ui.theme, self.context.settings.ui.accent)
         self._pending_local = None
         self.view = CatalogView(self)
         self.view.setPage(self.page)
@@ -618,6 +621,8 @@ class CatalogPage(QWidget):
         self._show_zoom()
         if self.page is not None:
             self.page.setBackgroundColor(self.palette().window().color())
+        if getattr(self, "generic", None) is not None:
+            self.generic.send_theme()  # a new theme or accent: the generic page follows
         if self.view is not None and self.site != self._loaded_url:
             self.go_home()
         else:

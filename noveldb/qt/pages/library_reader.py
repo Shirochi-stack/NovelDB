@@ -68,9 +68,9 @@ def _save_place(key: str, chapter: int, at: float) -> None:
 
 
 class BookView(QWidget):
-    """A Library book's page, laid out like the Catalog's details panel: the cover with Read and Open
-    side by side under it, then Show in folder; the title, what the book is and Delete; its synopsis;
-    then its chapters, with a box to find one."""
+    """A Library book's page, laid out like the Catalog's details panel: the cover with its four
+    buttons under it in two rows (Read | Open, Show in folder | Delete); the title, what the book is
+    and its synopsis; then its chapters, with a box to find one."""
 
     back = Signal()
     readRequested = Signal(object, int)  # the book, the chapter to start at (-1: where it was left)
@@ -104,23 +104,24 @@ class BookView(QWidget):
         actions.addWidget(self.read, 1)
         actions.addWidget(opener, 1)
         opener.setMinimumHeight(self.read.sizeHint().height())  # one row of one height (Read has its icon)
+        delete = QPushButton("🗑 Delete")
+        delete.setToolTip("Move the book's files to the Recycle Bin")
+        delete.clicked.connect(lambda: self.deleteRequested.emit(self.book))
+        files = QHBoxLayout()
+        files.setSpacing(8)
+        files.addWidget(reveal, 1)
+        files.addWidget(delete, 1)
         side = QVBoxLayout()
         side.setSpacing(8)
         side.addWidget(self.cover)
         side.addLayout(actions)
-        side.addWidget(reveal)
+        side.addLayout(files)
         side.addStretch(1)
 
         self.title = bind_title(QLabel(), 24, 700)
         self.title.setWordWrap(True)
         self.title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.meta = hint("")
-        delete = QPushButton("Delete")
-        delete.setToolTip("Move the book's files to the Recycle Bin")
-        delete.clicked.connect(lambda: self.deleteRequested.emit(self.book))
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(delete)
         self.synopsis = QLabel()
         self.synopsis.setWordWrap(True)
         self.synopsis.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -134,7 +135,6 @@ class BookView(QWidget):
         info.setSpacing(8)
         info.addWidget(self.title)
         info.addWidget(self.meta)
-        info.addLayout(buttons)
         info.addWidget(synopsis, 1)
         card = QFrame()
         card.setObjectName("bookCard")

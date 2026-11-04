@@ -258,6 +258,8 @@ class GenericCatalog(QObject):
         super().__init__(parent)
         self.cache = OfflineCache(cache_mb)
         self.run_js = run_js
+        # The app's theme for the page (theme.web_theme); None leaves the page its own colours.
+        self.theme: Callable[[], Optional[dict]] = lambda: None
         self.browser = BrowserFetcher(profile, self)
         self.known_site = known_site
         self._stop = threading.Event()
@@ -349,6 +351,13 @@ class GenericCatalog(QObject):
         self._call("init", {"sites": [site["site"] for site in sites], "comic": [site["site"] for site in sites if site["comic"]],
                             "lnreader": lnreader,
                             "downloadIcon": download_icon()})
+        self.send_theme()
+
+    def send_theme(self) -> None:
+        """The page (and its reader's Auto look) in the app's theme."""
+        colors = self.theme()
+        if colors:
+            self._call("theme", colors)
 
     def search(self, search_id: int, queries: list) -> None:
         """Runs every query at once; the page hears `done` once, when the last one finishes."""

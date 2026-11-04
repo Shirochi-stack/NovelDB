@@ -35,6 +35,14 @@ def scheme_for(theme: str, accent: str) -> dict:
     return scheme
 
 
+def web_theme(theme: str, accent: str) -> dict:
+    """The Catalog's generic page in the app's theme (its `NovelDBGeneric.theme`): #rrggbb colours."""
+    s = scheme_for(theme, accent)
+    return {"dark": bool(s["_dark"]), "bg": s["background"], "panel": s["surfaceContainer"], "ink": s["onBackground"],
+            "ink2": s["onSurfaceVariant"], "line": s["outlineVariant"], "accent": s["primary"], "accentInk": s["onPrimary"],
+            "chip": s["surfaceContainerHighest"]}
+
+
 def palette_for(scheme: dict) -> QPalette:
     c = {key: QColor(value) for key, value in scheme.items() if isinstance(value, str)}
     p = QPalette()
