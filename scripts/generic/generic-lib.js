@@ -1797,6 +1797,35 @@ async function mangaChapter(doc, final) {
     return images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("");
 }
 
+/**
+ * The chapter's own page built from an Inertia app's page data, or null. bookkor draws its chapter text
+ * scrambled (each syllable swapped for a random one) and its script shows the real text from the page
+ * data (props.episode.body.html).
+ */
+function appDataChapter(doc) {
+    let holder = doc.querySelector('script[data-page="app"]');
+    let raw = holder ? holder.textContent : null;
+    if (raw == null) {
+        let element = doc.querySelector("[data-page]");
+        raw = element ? element.getAttribute("data-page") : null;
+    }
+    let props;
+    try {
+        props = (raw && JSON.parse(raw).props) || {};
+    } catch (e) {
+        return null;
+    }
+    let episode = props && typeof props === "object" ? props.episode || props.chapter : null;
+    let body = episode && typeof episode === "object" ? episode.body : null;
+    let markup = body && typeof body === "object" ? body.html : null;
+    if (typeof markup !== "string" || markup.length < 20) {
+        return null;
+    }
+    let built = parse("<html><head><title></title></head><body><article>" + markup + "</article></body></html>");
+    built.title = String(episode.title || "");
+    return built;
+}
+
 async function chapter(item) {
     let url = item.url || "";
     let name = item.fullName || item.name || "";
@@ -1806,7 +1835,7 @@ async function chapter(item) {
         return { chapterName: name, contentHtml: manga, contentText: "", imageCount: 0, images: [] };
     }
     let firstDoc = parse(read.doc.documentElement.outerHTML);
-    let [content, text] = extractContent(read.doc, read.url, name);
+    let [content, text] = extractContent(appDataChapter(read.doc) || read.doc, read.url, name);
     // A chapter split over several pages ("下一页", "Next page"): join them.
     let final = read.url;
     let seen = new Set([final]);

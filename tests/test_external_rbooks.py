@@ -1576,6 +1576,15 @@ def test_rbooks_reads_an_episode_through_the_web_viewer_api():
     assert '\u2060' not in result['contentHtml']
 
 
+def test_rbooks_reads_a_webtoon_episode_as_its_page_images():
+    scraper, _ = make_scraper()
+    pages = [f'https://webview-cache.example/4921002551/webtoon/__ridi__{n}.webp?Expires=1&Signature=x' for n in range(3)]
+    page = _Page('https://ridibooks.com/books/4921002551', {'status': 200, 'parts': [], 'pages': pages})
+    result = scraper._rbooks_api_chapter(page, 'https://ridibooks.com/books/4921002551/view', 'Ep 1')
+    assert [image['url'] for image in result['images']] == pages
+    assert result['contentHtml'].count('<img') == 3 and result['contentText'] == ''
+
+
 def test_rbooks_web_viewer_api_refusals():
     scraper, _ = make_scraper()
     url = 'https://ridibooks.com/books/3049081050/view'

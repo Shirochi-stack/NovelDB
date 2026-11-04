@@ -129,11 +129,12 @@ class DownloadPage(QWidget):
         # profile switch. Enter App (sfc) is in the Tools menu, next to the other sfc session tools.
         enter_browser = QPushButton("Enter Browser")
         bind_size(enter_browser, min_width=150)
-        ok, reason = available("enter_browser")
-        enter_browser.setEnabled(ok)
-        enter_browser.setToolTip(reason or "Open a browser window to sign in to the site of the first link, "
-                                           "then close it before downloading.")
+        self.enter_browser = enter_browser
+        self._enter_browser_ok, self._enter_browser_reason = available("enter_browser")
         enter_browser.clicked.connect(lambda: self.toolRequested.emit("enter_browser"))
+        # Off while a download runs: it would open the same browser profile the download is using.
+        context.hub.jobChanged.connect(lambda _job_id: self._update_enter_browser())
+        self._update_enter_browser()
         self.regular_browser = QCheckBox("Use regular browser")
         self.regular_browser.setToolTip("Use your installed Chrome profile (signed-in sites) instead of the "
                                         "downloader's own browser.")
@@ -475,6 +476,15 @@ class DownloadPage(QWidget):
         lines = [line for line, source in self._lines if source]
         seen = set(lines)
         return lines + [url for url in self.context.cart.urls if url not in seen]
+
+    def _update_enter_browser(self) -> None:
+        downloading = any(job.active for job in self.context.runner.jobs)
+        self.enter_browser.setEnabled(self._enter_browser_ok and not downloading)
+        self.enter_browser.setToolTip(
+            self._enter_browser_reason
+            or ("Available again when the downloads finish (they use the same browser profile)." if downloading
+                else "Open a browser window to sign in to the site of the first link, then close it before "
+                     "downloading."))
 
     def _update_download_button(self) -> None:
         count = len(self._download_lines())

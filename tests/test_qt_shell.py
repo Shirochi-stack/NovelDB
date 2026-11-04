@@ -462,3 +462,23 @@ def test_moving_elsewhere_folds_the_log_while_idle(window, qtbot):
     assert window._log_open
     window._focus_moved(window.log_panel, window.sidebar)  # elsewhere, nothing running: it folds away
     assert not window._log_open
+
+
+def test_enter_browser_is_off_while_a_download_runs(window, context, qtbot, monkeypatch):
+    import threading
+
+    page = window.download
+    page._enter_browser_ok, page._enter_browser_reason = True, ""
+    page._update_enter_browser()
+    assert page.enter_browser.isEnabled()
+    release = threading.Event()
+
+    def slow_executor(job, token):
+        release.wait(5)
+        return {"ok": True, "title": "Book", "outputs": []}
+
+    context.runner._executor = slow_executor
+    context.enqueue_text("https://novelpia.com/novel/1")
+    qtbot.waitUntil(lambda: not page.enter_browser.isEnabled(), timeout=3000)
+    release.set()
+    qtbot.waitUntil(lambda: page.enter_browser.isEnabled(), timeout=5000)

@@ -49,3 +49,17 @@ def test_stop_counts_only_when_pressed_while_the_file_is_built():
     saver._generation_stop_baseline = True  # a build that Stop with "generate on stop" started
     assert not saver._generation_stopped()
     assert issubclass(_OutputStopped, BaseException) and not issubclass(_OutputStopped, Exception)
+
+
+def test_scrambled_korean_text_is_flagged_and_real_text_is_not():
+    import random
+
+    from noveldb.core.external.pipeline import _scrambled_text
+
+    real = "붉은 지붕에 쌓여 있던 눈이 조금씩 높이를 줄였다. 하얀숲을 지나오는 바람에 봄기운이 실려 와서인지 " * 12
+    rng = random.Random(7)
+    scrambled = " ".join("".join(chr(0xAC00 + rng.randrange(11172)) for _ in range(4)) for _ in range(150))
+    assert not _scrambled_text({"contentText": real})
+    assert _scrambled_text({"contentText": scrambled})
+    assert _scrambled_text({"contentHtml": f"<p>{scrambled}</p>"})
+    assert not _scrambled_text({"contentText": scrambled[:100]})  # too short to tell

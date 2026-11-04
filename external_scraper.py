@@ -12927,8 +12927,13 @@ async (ids) => {
                       body: JSON.stringify({book_id: bookId}),
                     });
                     const body = await r.json().catch(() => null);
-                    const spines = (body && body.success && body.data && body.data.spines) || [];
+                    const data = (body && body.success && body.data) || {};
+                    const spines = data.spines || [];
                     const code = body && body.error && body.error.code;
+                    // A webtoon or comic episode: its page images, in order.
+                    if (data.type === 'comic' && Array.isArray(data.pages)) {
+                      return {status: r.status, parts: [], pages: data.pages.map(p => (p && p.src) || '').filter(Boolean)};
+                    }
                     if (!spines.length) return {status: r.status, code, parts: []};
                     const parts = await Promise.all(spines.map(url =>
                       fetch(url).then(x => x.json()).then(j => (j && j.value) || null).catch(() => null)));
@@ -12948,6 +12953,16 @@ async (ids) => {
             # page took a minute to reach the same verdict.
             self.log(f'  [Rbooks] LOCKED or unpurchased (web viewer API): {chapter_name}')
             return {'_locked': True, 'chapterName': chapter_name}
+        pages = [str(src) for src in reply.get('pages') or [] if src]
+        if pages:
+            self.log(f'  [Rbooks] Read {chapter_name} through the web viewer API ({len(pages)} images).')
+            return self._rbooks_build_chapter_result(
+                {'content': ''.join(f'<p><img src="{html.escape(src, quote=True)}" alt=""/></p>' for src in pages),
+                 'contentText': '', 'title': chapter_name,
+                 'imageUrls': [{'original': src, 'absolute': src} for src in pages]},
+                chapter_name,
+                chapter_url,
+            )
         if not parts or any(part is None for part in parts):
             return None  # not a web-viewer book, logged out, or a spine failed: the page's way
         try:

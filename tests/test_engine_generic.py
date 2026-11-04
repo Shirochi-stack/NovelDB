@@ -137,3 +137,25 @@ def test_list_pages_named_in_a_query_are_followed_and_numbers_come_from_the_addr
     engine = GenericEngine(fetch=lambda url, **_o: page(pages[url], url) if url in pages else page("", url, 404))
     names = [c["name"] for c in engine.parse_book(book)["chapters"]]
     assert len(names) == 9 and names[0] == "1 Tech talk" and names[-1] == "9 Part 9"
+
+
+def test_a_chapter_is_read_from_the_app_page_data_not_the_scrambled_markup():
+    # bookkor: the drawn text is random syllables; the app's page data holds the real chapter.
+    data = ('{"component":"contents/View","props":{"episode":{"title":"1화 봄",'
+            '"body":{"type":"html","html":"<p>붉은 지붕에 쌓여 있던 눈이 조금씩 높이를 줄였다.</p>'
+            '<p>하얀숲을 지나오는 바람에 봄기운이 실려 왔다.</p>"}}}}')
+    scrambled = ('<html><body><script data-page="app" type="application/json">' + data + '</script>'
+                 '<div id="app"><article><p>샺톛 쥈깭뭪 웯딈 끝쾚 귓넌 졉슢쉧 믌탹엞 샓츴궉 돂엋켼앱 퍺쁻뭸쉕.</p>'
+                 '</article></div></body></html>')
+    url = "https://novels.example/book/1-ep-1"
+    engine = GenericEngine(fetch=lambda u, **_o: page(scrambled, u))
+    chapter = engine.parse_chapter({"url": url, "name": "1화 봄"}, {})
+    assert "붉은 지붕" in chapter["contentText"] and "봄기운" in chapter["contentText"]
+    assert "샺톛" not in chapter["contentText"]
+
+
+def test_the_phone_engine_reads_the_app_page_data_too():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "scripts" / "generic" / "generic-lib.js").read_text(encoding="utf-8")
+    assert "extractContent(appDataChapter(read.doc) || read.doc" in text

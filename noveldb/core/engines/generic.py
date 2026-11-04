@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+from html import escape, unescape
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -917,6 +918,29 @@ def _score(node) -> float:
     return score + direct * 0.5
 
 
+def app_data_chapter(html: str) -> Optional[str]:
+    """The chapter's own page built from an Inertia app's page data, or None.
+
+    bookkor draws its chapter text scrambled (each syllable swapped for a random one) and its script
+    shows the real text from the page data (props.episode.body.html)."""
+    found = re.search(r'<script[^>]*\bdata-page="app"[^>]*>(.*?)</script>', html or "", re.S)
+    raw = found.group(1) if found else None
+    if raw is None:
+        found = re.search(r'\sdata-page="(\{.*?\})"', html or "", re.S)
+        raw = unescape(found.group(1)) if found else None
+    try:
+        props = json.loads(raw).get("props") or {} if raw else {}
+    except (ValueError, AttributeError):
+        return None
+    episode = props.get("episode") or props.get("chapter") if isinstance(props, dict) else None
+    body = episode.get("body") if isinstance(episode, dict) else None
+    markup = body.get("html") if isinstance(body, dict) else None
+    if not isinstance(markup, str) or len(markup) < 20:
+        return None
+    title = escape(str(episode.get("title") or ""))
+    return f"<html><head><title>{title}</title></head><body><article>{markup}</article></body></html>"
+
+
 def extract_content(html: str, url: str, title: str = "") -> Tuple[str, str]:
     """(content HTML, plain text) of the chapter's main text block."""
     soup = soup_of(html)
@@ -1413,7 +1437,7 @@ class GenericEngine:
         if manga is not None:
             return {"chapterName": name, "contentHtml": manga, "contentText": "", "imageCount": manga.count("<img"),
                     "images": []}
-        content, text = extract_content(html, final, name)
+        content, text = extract_content(app_data_chapter(html) or html, final, name)
         # A chapter split over several pages ("下一页", "Next page"): join them.
         seen = {final}
         soup = soup_of(html)

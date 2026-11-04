@@ -2069,7 +2069,22 @@
       return { status: 'fallback' };
     }
     if (response.status === 403 && body && body.error && body.error.code === 'INVALID_ACCESS') return { status: 'locked' };
-    const spines = (body && body.success && body.data && body.data.spines) || [];
+    const data = (body && body.success && body.data) || {};
+    // A webtoon or comic episode: its page images, in order.
+    if (data.type === 'comic' && Array.isArray(data.pages)) {
+      const pages = document.createElement('div');
+      for (const item of data.pages) {
+        if (!item || !item.src) continue;
+        const paragraph = document.createElement('p');
+        const image = document.createElement('img');
+        image.setAttribute('src', item.src);
+        paragraph.appendChild(image);
+        pages.appendChild(paragraph);
+      }
+      const extract = cleanViewer(pages, options, '');
+      return extract.images.length ? { status: 'ok', extract } : { status: 'fallback' };
+    }
+    const spines = data.spines || [];
     if (!spines.length) return { status: 'fallback' };
     const parts = await Promise.all(spines.map((url) => fetch(url).then((r) => r.json()).then((j) => (j && j.value) || null)
       .catch(() => null)));
