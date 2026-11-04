@@ -508,6 +508,11 @@ function inMenu(node) {
     return false;
 }
 
+/** Text that reads as words (a synopsis), not a box of figures ("5 43 42", a rating and its votes). */
+function prose(text) {
+    return (String(text || "").match(/[\p{L}]{2,}/gu) || []).length >= 4;
+}
+
 /** A description that never names the book: the site's blurb, the same on every page. */
 function siteWide(description, title) {
     let words = (String(title || "").toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || [])
@@ -599,12 +604,12 @@ function metadata(doc, url) {
     }
     cover = cover ? cleanUrl(cover, url) : "";
     let description = ldText(book.description) || meta(doc, "og:description", "description", "twitter:description");
-    if (siteWide(description, title)) {
-        description = "";  // the site's own blurb on every page ("Read your favorite manga online!...")
+    if (siteWide(description, title) || !prose(description)) {
+        description = "";  // the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     }
     for (let block of [...doc.querySelectorAll(FULL_SYNOPSIS), ...doc.querySelectorAll(SYNOPSIS)]) {
         let longer = textOf(block);
-        if (longer.length > description.length && !statsBox(longer)) {
+        if (longer.length > description.length && !statsBox(longer) && prose(longer)) {
             description = longer;
             break;
         }
@@ -617,7 +622,7 @@ function metadata(doc, url) {
     // Genre links by their address, and the links of the page's tag or genre list wherever they point
     // (fanfox's /directory/action/); none from the site's own menus.
     let tagLinks = Array.from(doc.querySelectorAll("a[href]"))
-        .filter(a => /\/(genres?|tags?|categor(y|ies)|keywords?)\//i.test(a.getAttribute("href"))).slice(0, 40);
+        .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)\//i.test(a.getAttribute("href"))).slice(0, 40);
     for (let box of doc.querySelectorAll(TAG_LISTS)) {
         if (!box.closest("header, nav, footer") && !inMenu(box)) {
             tagLinks.push(...Array.from(box.querySelectorAll("a[href]")).slice(0, 40));
