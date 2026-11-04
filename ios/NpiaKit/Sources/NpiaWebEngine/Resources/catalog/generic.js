@@ -210,7 +210,7 @@
         var panel = $('sitespanel');
         if (!picking) picking = new Set(top.only);
         if (!panel.querySelector('#siteList')) {
-            panel.innerHTML = '<h3>Top of chosen sites</h3><p>Pick sites to see their own most read, in their order, with more as you scroll.</p>'
+            panel.innerHTML = '<h3>Top of chosen sites <span id="siteCount"></span></h3><p>Pick sites to see their own most read, in their order, with more as you scroll.</p>'
                 + '<div class="pickbar"><input id="siteFilter" placeholder="Find a site" autocomplete="off">'
                 + '<button type="button" class="primary" id="siteShow">Show</button><button type="button" id="siteAll">All sites</button></div>'
                 + '<div id="siteList"></div>';
@@ -231,6 +231,8 @@
         var filter = $('siteFilter').value.trim().toLowerCase();
         var answered = new Map(progress.sites.map(function (item) { return [item.site, item]; }));
         var candidates = topCandidates();
+        // How many sites there are to pick from (all the engines know of this kind).
+        $('siteCount').textContent = '· ' + candidates.length.toLocaleString() + ' sites';
         var names = candidates.filter(function (site) { return !filter || site.toLowerCase().indexOf(filter) >= 0 || picking.has(site); });
         // A typed address of a site not listed (one whose address keeps moving): offered as it is.
         var typed = filter.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
