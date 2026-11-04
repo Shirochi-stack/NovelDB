@@ -558,6 +558,19 @@
         }).catch(function () { return ''; });
     }
 
+    /** The text names the book (a word of its title): not the site's blurb shown on every page. */
+    function namesBook(text, title) {
+        var words = (String(title || '').toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || [])
+            .filter(function (w) { return ['manga', 'novel', 'read', 'online'].indexOf(w) < 0; });
+        var low = String(text || '').toLowerCase();
+        return !words.length || words.some(function (w) { return low.indexOf(w) >= 0; });
+    }
+    /** `next` replaces `old`: it names the book and `old` doesn't (a site blurb), else it is longer. */
+    function betterSynopsis(next, old, title, fromPage) {
+        if (!old) return true;
+        var a = namesBook(next, title), b = namesBook(old, title);
+        return a !== b ? a : (!b && fromPage) || next.length > old.length;
+    }
     /** The card with what the book's page says. */
     function details(item) {
         if (item.source === 'noveldb') {
@@ -572,7 +585,7 @@
             ['title', 'author', 'cover', 'description', 'tags', 'status'].concat(FIGURES).forEach(function (name) {
                 var value = meta[name];
                 var filled = Array.isArray(value) ? value.length : value;
-                if (filled && (name !== 'description' || value.length > String(item.description || '').length)) merged[name] = value;
+                if (filled && (name !== 'description' || betterSynopsis(value, String(item.description || ''), meta.title || item.title, true))) merged[name] = value;
             });
             return merged;
         });
@@ -1310,7 +1323,7 @@
 
     // -- the details cache and covers --------------------------------------------------------------
 
-    var DETAILS_KEY = 'noveldb.generic.details.v2', DETAILS_DAYS = 3;  // v2: no details read by older code
+    var DETAILS_KEY = 'noveldb.generic.details.v3', DETAILS_DAYS = 3;  // v3: none from before a site's blurb gave way
     // Read from storage once and written back a second after the last change: the whole cache is one
     // stored value (hundreds of synopses), too big to parse or write for every card.
     var detailsKept = null, detailsTimer = 0;

@@ -405,6 +405,19 @@
         // No book has 100,000 chapters: a number that big is a word or character count.
         return /^\s*\d[\d,\s]*(chapters?|ch|eps?|episodes?)?\s*$/i.test(text) && Number(text.replace(/\D/g, '')) < 100000;
     }
+    /** The text names the book (a word of its title): not the site's blurb shown on every page. */
+    function namesBook(text, title) {
+        var words = (String(title || '').toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || [])
+            .filter(function (w) { return ['manga', 'novel', 'read', 'online'].indexOf(w) < 0; });
+        var low = String(text || '').toLowerCase();
+        return !words.length || words.some(function (w) { return low.indexOf(w) >= 0; });
+    }
+    /** `next` replaces `old`: it names the book and `old` doesn't (a site blurb), else it is longer. */
+    function betterSynopsis(next, old, title, fromPage) {
+        if (!old) return !!next;
+        var a = namesBook(next, title), b = namesBook(old, title);
+        return a !== b ? a : (!b && fromPage) || next.length > old.length;
+    }
     function synopsisText(text) {
         text = hashSplit(text).text;
         // Junk before a label: everything up to the label goes (a rating or share buttons say it is junk).
@@ -510,7 +523,7 @@
         if (offered.length && !group.cover) group.cover = offered[0];  // the first site's cover stays
         offered.forEach(function (cover) { if ((group.covers || (group.covers = [])).indexOf(cover) < 0) group.covers.push(cover); });
         // The longest synopsis once cleaned (a page's rating and share buttons do not count).
-        if (card.description && synopsisText(card.description).length > synopsisText(group.description).length) group.description = card.description;
+        if (card.description && betterSynopsis(synopsisText(card.description), synopsisText(group.description), group.title, !!card.complete)) group.description = card.description;
         var cardTags = (card.tags || []).concat(hashSplit(card.description).tags);
         if (cardTags.length) {
             var seen = new Set(group.tags.map(function (t) { return t.toLowerCase(); }));

@@ -241,6 +241,24 @@ def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
 
 # -- the search ------------------------------------------------------------------------------------
 
+def _names_book(text: str, title: str) -> bool:
+    """The text names the book (a word of its title): not the site's blurb shown on every page."""
+    words = [w for w in re.findall(r"\w{4,}", (title or "").lower()) if w not in ("manga", "novel", "read", "online")]
+    return not words or any(word in (text or "").lower() for word in words)
+
+
+def _better_synopsis(new: str, old: str, title: str) -> bool:
+    """`new`, from the book's own page, replaces `old`, from a list: unless `old` names the book and `new`
+    doesn't. A list's text that never names the book is the site's blurb (fanfox: "Read your favorite
+    manga online!..."), whatever its length; a book's synopsis need not name it either."""
+    if not old:
+        return True
+    named_new, named_old = _names_book(new, title), _names_book(old, title)
+    if named_new != named_old:
+        return named_new
+    return not named_old or len(new) > len(old)
+
+
 def search_workers() -> int:
     """How many sites a search asks at once: 32 on 8 cores or more, 16 on 4, 8 on 2.
 
@@ -295,7 +313,8 @@ class GenericSearch:
         merged = dict(card, complete=True)
         for key in ("title", "author", "cover", "description", "tags", "status") + FIGURES:
             value = meta.get(key)
-            if value and (key != "description" or len(value) > len(card.get("description") or "")):
+            if value and (key != "description" or _better_synopsis(value, card.get("description") or "",
+                                                                    meta.get("title") or card.get("title") or "")):
                 merged[key] = value
         return merged
 
