@@ -362,7 +362,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
     engines = replace(
         eng,
         order=engine_order(order) if order is not None else eng.order,
-        disabled=tuple(d for d in disabled if d in SITE_ENGINES) if disabled is not None else eng.disabled,
+        disabled=tuple(d for d in disabled if d in SITE_ENGINES or d.startswith("custom:")) if disabled is not None else eng.disabled,
         nd_auto_update=_first_bool(c, "novel_downloader_auto_update", eng.nd_auto_update),
         webtoepub_auto_update=_first_bool(c, "webtoepub_auto_update", eng.webtoepub_auto_update),
         lnreader_auto_update=_first_bool(c, "lnreader_auto_update", eng.lnreader_auto_update),

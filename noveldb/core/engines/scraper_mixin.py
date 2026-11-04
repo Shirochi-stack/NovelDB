@@ -501,6 +501,15 @@ class SiteEnginesMixin:
 
     def _python_engine(self, engine: str):
         engines = self.__dict__.setdefault("_python_engines", {})
+        if engine.startswith("custom:"):
+            # A user's engine file: one engine for the whole download, made again when the file changes.
+            from noveldb.core.engines import custom_engines
+            stamp = custom_engines.stamp(engine)
+            cached = engines.get(engine)
+            if not cached or cached[0] != stamp:
+                engines[engine] = (stamp, custom_engines.load(engine, fetch=self.engine_fetch, log=self.log,
+                                                               render=self.render_html))
+            return engines[engine][1]
         if engine not in engines:
             if engine == ENGINE_LNC:
                 from noveldb.core.engines.lncrawl_engine import LncrawlEngine
@@ -531,7 +540,10 @@ class SiteEnginesMixin:
             return None
         if not data:
             return None
-        data[PYTHON_FLAGS[engine]] = True
+        if engine in PYTHON_FLAGS:
+            data[PYTHON_FLAGS[engine]] = True
+        else:
+            data["_custom_engine"] = engine  # its chapters go back to the same custom engine
         self._book_data = data
         self._book_url = url
         self.log(
@@ -544,6 +556,8 @@ class SiteEnginesMixin:
 
     def _python_engine_for_book(self) -> Optional[str]:
         data = self._book_data or {}
+        if data.get("_custom_engine"):
+            return data["_custom_engine"]
         for engine, flag in PYTHON_FLAGS.items():
             if data.get(flag):
                 return engine

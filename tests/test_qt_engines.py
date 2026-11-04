@@ -104,3 +104,28 @@ def test_check_now_shows_each_engine(form, context, monkeypatch):
     assert "The WebToEpub parsers are up to date." in shown
     assert "novel-downloader rules: " in shown and "WebToEpub parsers: " in shown
     assert button.text() == "✓ Up to date"
+
+
+def test_a_custom_engine_is_added_listed_before_generic_and_removed(form, context, monkeypatch):
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    example = Path(__file__).resolve().parents[1] / "examples" / "custom_engine_example.py"
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(example), "")))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    engines = form.findChild(QListWidget)
+    _button(form, "Add custom engine…").click()
+    name = "custom:custom_engine_example"
+    assert _names(engines)[-2:] == [name, "generic"]
+    assert "Example Novels (custom)" in engines.item(engines.count() - 2).text()
+    assert "novels.example" in engines.item(engines.count() - 2).text()
+    assert name in context.settings.engines.order
+    remove = _button(form, "Remove")
+    engines.setCurrentRow(0)
+    assert not remove.isEnabled()  # built-in engines cannot be removed
+    engines.setCurrentRow(engines.count() - 2)
+    assert remove.isEnabled()
+    remove.click()
+    assert name not in _names(engines) and name not in context.settings.engines.order

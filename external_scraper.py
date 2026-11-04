@@ -65,6 +65,7 @@ if getattr(sys, 'frozen', False):
     if os.path.exists(_bundled_browsers):
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = _bundled_browsers
 
+from noveldb.core.engines import custom_engines
 from noveldb.core.engines.scraper_mixin import PAGE_SCRIPTS, PYTHON_ENGINES, SiteEnginesMixin
 from noveldb.core.settings.model import (
     ENGINE_GENERIC,
@@ -73,6 +74,7 @@ from noveldb.core.settings.model import (
     ENGINE_ND,
     ENGINE_W2E,
     SITE_ENGINES,
+    engine_label,
 )
 
 # Lite and TurboLite builds ship without Playwright. HTTP-based sources still work there; a
@@ -4325,7 +4327,7 @@ class ExternalScraper(SiteEnginesMixin):
             host = (urllib.parse.urlparse(page.url if page else '').hostname or '').lower()
         except Exception:
             return False
-        domain = self._qdn_global_domain()
+        domain = ExternalScraper._qdn_global_domain()
         return host == domain or host.endswith('.' + domain)
 
     def _on_console(self, msg):
@@ -4336,7 +4338,8 @@ class ExternalScraper(SiteEnginesMixin):
             return
         # Qdn Global's too: its pages are read through page.evaluate, and its console is Cloudflare's
         # check page, styled console art and blocked trackers.
-        if self._book_data and self._book_data.get('_qdn_global') or self._console_from_qdn_global(msg):
+        book = getattr(self, '_book_data', None) or {}
+        if book.get('_qdn_global') or ExternalScraper._console_from_qdn_global(self, msg):
             return
         text = msg.text
         lowered = text.lower()
@@ -21284,7 +21287,8 @@ async (items) => {
         """
         self.abort_reason = ''
         self._stop_requested = False
-        order = [e for e in dict.fromkeys(self.engine_order or ()) if e in SITE_ENGINES]
+        order = [e for e in dict.fromkeys(self.engine_order or ())
+                 if e in SITE_ENGINES or custom_engines.is_custom(e)]
         if not order:
             self.log("ERROR: Every site engine is switched off in Settings.")
             return None
@@ -21304,7 +21308,7 @@ async (items) => {
             listed = [e for e in order if e == ENGINE_GENERIC or self._engine_knows_site(e, url)]
             skipped = [e for e in order if e not in listed]
             if skipped and listed:
-                self.log("Dynamic priority: trying " + ", ".join(ENGINE_LABELS[e] for e in listed)
+                self.log("Dynamic priority: trying " + ", ".join(engine_label(e) for e in listed)
                          + f" ({len(skipped)} other engine(s) don't list this site).")
                 order = listed
         fallback = None
@@ -21319,7 +21323,7 @@ async (items) => {
                 if message:
                     self.log(message)
                 data = parse(url)
-            elif engine in PYTHON_ENGINES:
+            elif engine in PYTHON_ENGINES or custom_engines.is_custom(engine):
                 data = self._python_parse_book(engine, url)
             else:
                 if page is None:
@@ -21349,12 +21353,12 @@ async (items) => {
                 break
             later = [
                 e for e in order[position + 1:]
-                if e == ENGINE_NATIVE or e in PYTHON_ENGINES or page != "failed"
+                if e == ENGINE_NATIVE or e in PYTHON_ENGINES or custom_engines.is_custom(e) or page != "failed"
             ]
             if later:
                 self.log(
-                    f"{ENGINE_LABELS[engine]} found no chapters; trying "
-                    f"{ENGINE_LABELS[later[0]]} next."
+                    f"{engine_label(engine)} found no chapters; trying "
+                    f"{engine_label(later[0])} next."
                 )
         return fallback
 
@@ -21369,6 +21373,8 @@ async (items) => {
 
         if engine == ENGINE_GENERIC:
             return False
+        if custom_engines.is_custom(engine):
+            return custom_engines.knows_site(engine, url)  # the sites its file names
         try:
             if site_index.supports(engine, url):
                 return True  # the cached site lists (fast); a miss is checked against the engine itself

@@ -46,13 +46,39 @@ ENGINE_LABELS = {
 }
 
 
+def _custom_engines() -> tuple[str, ...]:
+    """The custom engines added (``custom:<id>``; noveldb.core.engines.custom_engines)."""
+    try:
+        from noveldb.core.engines import custom_engines
+        return custom_engines.names()
+    except Exception:
+        return ()
+
+
 def engine_order(order, disabled=()) -> tuple[str, ...]:
-    """Known engines in the given order (missing ones appended), minus the switched-off ones."""
+    """Known engines in the given order (missing ones appended; a custom engine not placed yet goes just
+    before the generic fallback), minus the switched-off ones."""
+    custom = _custom_engines()
+    known = set(SITE_ENGINES) | set(custom)
     seen = []
     for name in list(order or ()) + list(SITE_ENGINES):
-        if name in SITE_ENGINES and name not in seen:
+        if name in known and name not in seen:
             seen.append(name)
+    for name in custom:
+        if name not in seen:
+            seen.insert(seen.index(ENGINE_GENERIC) if ENGINE_GENERIC in seen else len(seen), name)
     return tuple(name for name in seen if name not in set(disabled or ()))
+
+
+def engine_label(name: str) -> str:
+    """An engine's name in lists and logs (a custom engine's own label)."""
+    if name in ENGINE_LABELS:
+        return ENGINE_LABELS[name]
+    try:
+        from noveldb.core.engines import custom_engines
+        return custom_engines.label(name)
+    except Exception:
+        return name
 
 NOVELDB_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 # The desktop Catalog's generic search page (noveldb/qt/catalog/generic), shown instead of a site.

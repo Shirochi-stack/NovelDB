@@ -47,6 +47,7 @@ from noveldb.core.settings.model import (
     NAMING_MODES,
     OUTPUT_FORMATS,
     SITE_ENGINES,
+    engine_label,
     THEMES,
     UPLOAD_ZIP_MB_MAX,
     UPLOAD_ZIP_MB_MIN,
@@ -620,6 +621,17 @@ ENGINE_HINTS = {
 }
 
 
+def engine_hint(name: str) -> str:
+    """An engine's line in the list: what it reads (a custom engine: its sites)."""
+    if name in ENGINE_HINTS:
+        return ENGINE_HINTS[name]
+    from noveldb.core.engines import custom_engines
+    found = custom_engines.info(name)
+    if not found:
+        return "Custom engine (its file is missing)."
+    return "Your engine for " + (", ".join(found["sites"]) if found["sites"] else "the sites it knows") + "."
+
+
 def engines_form(context: AppContext) -> Form:
     """The site engines a link tries, in order, and the rule engines' opt-in updates."""
     from noveldb.core import engine_updates
@@ -662,6 +674,54 @@ def engines_form(context: AppContext) -> Form:
     default.clicked.connect(lambda: context.update_settings(
         lambda s: replace(s, engines=replace(s.engines, order=SITE_ENGINES, disabled=()))))
     f.add(flow(up, down, default))
+
+    # Custom engines: a Python file of the user's (noveldb.core.engines.custom_engines has the format).
+    add_custom, remove_custom = QPushButton("Add custom engine…"), QPushButton("Remove")
+    add_custom.setToolTip("A Python file with a class Engine (label, sites, parse_book, parse_chapter). "
+                          "It is copied into NovelDB's data folder and runs on Android too.")
+    remove_custom.setToolTip("Remove the selected custom engine.")
+
+    def add_engine():
+        path, _ = QFileDialog.getOpenFileName(engines, "Add a custom engine", "", "Python engine (*.py)")
+        if not path:
+            return
+        from noveldb.core.engines import custom_engines
+        answer = QMessageBox.question(
+            engines, "Add a custom engine",
+            "A custom engine is Python code that runs inside NovelDB, with NovelDB's access to your files "
+            "and logins. Only add one you wrote or trust.\n\nAdd it?")
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            name = custom_engines.add(path)
+        except ValueError as e:
+            QMessageBox.warning(engines, "Add a custom engine", f"This file is not an engine: {e}.")
+            return
+        show(context.settings)
+        store()  # its place in the order (before the generic fallback) is saved
+        found = custom_engines.info(name) or {}
+        QMessageBox.information(engines, "Add a custom engine",
+                                f"Added {found.get('label', name)}"
+                                + (f" for {', '.join(found['sites'])}." if found.get("sites") else "."))
+
+    def remove_engine():
+        item = engines.currentItem()
+        name = item.data(Qt.UserRole) if item else ""
+        from noveldb.core.engines import custom_engines
+        if not custom_engines.is_custom(name):
+            return
+        custom_engines.remove(name)
+        context.update_settings(lambda s: replace(s, engines=replace(
+            s.engines, order=tuple(e for e in s.engines.order if e != name),
+            disabled=tuple(e for e in s.engines.disabled if e != name))))
+        show(context.settings)
+
+    add_custom.clicked.connect(add_engine)
+    remove_custom.clicked.connect(remove_engine)
+    remove_custom.setEnabled(False)
+    engines.currentItemChanged.connect(lambda item, _old: remove_custom.setEnabled(
+        bool(item) and str(item.data(Qt.UserRole) or "").startswith("custom:")))
+    f.add(flow(add_custom, remove_custom))
     f.check("Dynamic priority", "engines.dynamic_priority")
     dynamic_hint = f.add_hint("")
 
@@ -686,7 +746,7 @@ def engines_form(context: AppContext) -> Form:
             selected = engines.currentItem().data(Qt.UserRole) if engines.currentItem() else None
             engines.clear()
             for position, name in enumerate(s.engines.full_order(), 1):
-                item = QListWidgetItem(f"{position}. {ENGINE_LABELS[name]}  —  {ENGINE_HINTS[name]}")
+                item = QListWidgetItem(f"{position}. {engine_label(name)}  —  {engine_hint(name)}")
                 item.setData(Qt.UserRole, name)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
                 item.setFlags(item.flags() & ~Qt.ItemIsDropEnabled)
