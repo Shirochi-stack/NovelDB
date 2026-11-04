@@ -505,7 +505,7 @@ const SYNOPSIS_HEADING = /^\s*(synopsis|summary|description|story|about( this (n
 // A site's notice where the synopsis goes, not a synopsis.
 const ANNOUNCEMENT = /(📢|📌|🔔|new feature|announcement|join (us on|our) discord|we('ve| have) moved|our new (domain|address)|bookmark (our|this) (site|domain)|reading history for guests)/i;
 // A synopsis box that says there is none, and the buttons that unfold one.
-const NO_SYNOPSIS = /^(n\/?a|none|null|nil|unknown|tbd|-+|no (description|synopsis|summary)( yet| available)?\.?)$/i;
+const NO_SYNOPSIS = /^(n\/?a|none|null|nil|unknown|tbd|updating|coming soon|-+|(description|summary) (updating|not found)\W*|no (description|synopsis|summary)( yet| available)?\.?)$/i;
 const MORE_LESS = /\[?(more|less|show more|show less|read more)\]?/gi;
 // Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
 const NOT_TAG = /^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$/i;
@@ -515,11 +515,12 @@ const MENU = /(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)
  *  own header inside its <article> or <main> is not (novelphoenix's genres are in one). */
 function siteChrome(node, tags) {
     let inBook = !!node.closest("article, main");
-    for (let at = node.parentElement; at; at = at.parentElement) {
-        if (at.tagName === "ARTICLE" || at.tagName === "MAIN") {
-            return false;
+    for (let at = node.parentElement, depth = 0; at; at = at.parentElement, depth++) {
+        if (["ARTICLE", "MAIN", "BODY", "HTML"].includes(at.tagName)) {
+            return false;  // (the body's classes name the theme's parts: WordPress's "header-style-1")
         }
-        let names = at.getAttribute("class") || "";
+        // Class names only near the node: a far wrapper's "header"/"menu" classes say nothing of it.
+        let names = depth < 6 ? (at.getAttribute("class") || "") : "";
         if (inBook && (at.tagName === "HEADER" || /header/i.test(names)) && !/menu|nav/i.test(names)) {
             continue;
         }
@@ -537,6 +538,68 @@ function inMenu(node) {
         }
     }
     return false;
+}
+
+// The label a synopsis starts after, when an info box comes first ("Title: X Author: Y ... Description: ...",
+// "作者：… 关于X：…", "… เรื่องย่อ …").
+const SYNOPSIS_LABEL = /(description|synopsis|summary|sinopsis|sinopse|résumé|resumen|описание|简介|内容简介|あらすじ|줄거리|작품\s*소개|เรื่องย่อ|tóm tắt|giới thiệu|关于[^：:\n]{1,40}|關於[^：:\n]{1,40})\s*[:：]?\s+/i;
+const INFO_LABELS = /(title|author|artist|status|genres?|type|chapters?|year|作者|类型|類型|字数|字數|状态|狀態|人气|更新|分类|分類|大小|时间|時間)\s*[:：]/gi;
+// Page text that is no synopsis at all.
+const NOT_SYNOPSIS = /(\bit has [\d.,]+\s*[kmb]?\s*(monthly\s+)?views?\b|summary not found|description updating|^\s*(updating|coming soon|no summary)\b|^\s*welcome to\b|\bwelcome to [\w.]+, your\b|log ?in to (keep|access|your)|sign in to (access|your)|masuk ke akun|^\s*(read|baca|leia|lee|lire|читать)\s[\s\S]{0,200}\b(online|free|gratis|grátis|bahasa)\b)/i;
+const CHAPTER_REF = /(\bchapter\s*\d+|\bch\.?\s*\d+|\d+\.?\s*bölüm|bölüm\s*\d+|ตอน(ที่)?\s*\d+|chương\s*\d+|capítulo\s*\d+|cap\.?\s*\d+|\d+\s*화|第\s*\d+\s*[话話章])/gi;
+
+/** The synopsis in `text`: after its label when an info box comes first; "" for text that is no synopsis
+ *  (a placeholder, a rank line, a template, a login prompt, a list of figures or chapters). */
+function cleanSynopsis(text) {
+    text = String(text || "").trim();
+    if (!text) {
+        return "";
+    }
+    let head = text.slice(0, 400);
+    let found = SYNOPSIS_LABEL.exec(head);
+    if (found && found.index > 0) {
+        let before = head.slice(0, found.index);
+        if ((before.match(INFO_LABELS) || []).length >= 2 || (before.match(/\d/g) || []).length >= 4) {
+            text = text.slice(found.index + found[0].length).trim();
+        }
+    }
+    if (NOT_SYNOPSIS.test(text.slice(0, 300))) {
+        return "";
+    }
+    let words = text.slice(0, 600).match(/[\p{L}]{2,}/gu) || [];
+    let numbers = text.slice(0, 600).match(/\d[\d.,:]*/g) || [];
+    if (numbers.length >= 4 && numbers.length * 2 >= words.length) {
+        return "";  // mostly figures: ratings, counts, dates ("One Piece 4.7 1197 29 ...")
+    }
+    if ((text.slice(0, 400).match(CHAPTER_REF) || []).length >= 2 && text.length < 400) {
+        return "";  // a list of chapters ("Naruto 700 Naruto 699", "39. Bölüm 38. Bölüm")
+    }
+    return text;
+}
+
+const COUNTED = /[(\[]\s*[\d,.]+\s*[)\]]\s*$/;
+const LINK_WORDS = /^(here|more|click|link|read|download|next|prev(ious)?|home|top|see|view|show)$/i;
+
+/** Tags as a reader wants them: no "#", no counts, no links' words ("here"), no SEO tags naming the book
+ *  ("<title> latest", "<title> mtl"), each once. */
+function cleanTags(tags, title) {
+    let out = [];
+    let seen = new Set();
+    let name = String(title || "").replace(/\s+/g, " ").trim().toLowerCase();
+    for (let tag of tags) {
+        tag = String(tag || "").replace(/^#+\s*/, "").trim();
+        if (!tag || COUNTED.test(tag) || LINK_WORDS.test(tag) || NOT_TAG.test(tag)) {
+            continue;
+        }
+        if (name.length > 3 && tag.toLowerCase().includes(name) && tag.length > name.length) {
+            continue;
+        }
+        if (!seen.has(tag.toLowerCase())) {
+            seen.add(tag.toLowerCase());
+            out.push(tag);
+        }
+    }
+    return out;
 }
 
 /** Text that reads as words (a synopsis), not a box of figures ("5 43 42", a rating and its votes). */
@@ -735,6 +798,9 @@ function metadata(doc, url) {
     }
     for (let box of boxed) {
         let found = Array.from(box.querySelectorAll("a[href]")).slice(0, 40);
+        if (found.length >= 6 && found.filter(link => COUNTED.test(textOf(link))).length * 2 >= found.length) {
+            continue;  // a site-wide genre widget, each genre with its count ("Action (215)")
+        }
         tagLinks.push(...found);
         if (!found.length) {
             // Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
@@ -758,8 +824,8 @@ function metadata(doc, url) {
         title: stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url).slice(0, 300),
         author: String(author || "").replace(/\s+/g, " ").trim().slice(0, 200),
         cover: cover,
-        description: htmlText(String(description || "")).replace(/[ \t]+/g, " ").trim().slice(0, 4000),
-        tags: Array.from(new Set(tags)).slice(0, 30),
+        description: cleanSynopsis(htmlText(String(description || "")).replace(/[ \t]+/g, " ").trim()).slice(0, 4000),
+        tags: cleanTags(tags, stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url)).slice(0, 30),
         status: status,
         site: siteName
     });

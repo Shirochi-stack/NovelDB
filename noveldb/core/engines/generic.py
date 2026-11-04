@@ -285,7 +285,8 @@ _SYNOPSIS_HEADING = re.compile(r"^\s*(synopsis|summary|description|story|about( 
 _ANNOUNCEMENT = re.compile(r"(📢|📌|🔔|new feature|announcement|join (us on|our) discord|we('ve| have) moved|"
                            r"our new (domain|address)|bookmark (our|this) (site|domain)|reading history for guests)", re.I)
 # A synopsis box that says there is none, and the buttons that unfold one.
-_NO_SYNOPSIS = re.compile(r"^(n/?a|none|null|nil|unknown|tbd|-+|no (description|synopsis|summary)( yet| available)?\.?)$", re.I)
+_NO_SYNOPSIS = re.compile(r"^(n/?a|none|null|nil|unknown|tbd|updating|coming soon|-+|"
+                          r"(description|summary) (updating|not found)\W*|no (description|synopsis|summary)( yet| available)?\.?)$", re.I)
 _MORE_LESS = re.compile(r"\[?(more|less|show more|show less|read more)\]?", re.I)
 # Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
 _NOT_TAG = re.compile(r"^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$", re.I)
@@ -296,15 +297,75 @@ def _site_chrome(node, tags) -> bool:
     """`node` sits in the site's own header, menu or footer (one of `tags`, or a menu-like class). The
     book's own header inside its <article> or <main> is not (novelphoenix's genres are in one)."""
     in_book = node.find_parent(["article", "main"]) is not None
-    for parent in node.parents:
-        if parent.name in ("article", "main"):
-            return False
-        names = " ".join(parent.get("class") or [])
+    for depth, parent in enumerate(node.parents):
+        if parent.name in ("article", "main", "body", "html"):
+            return False  # (the body's classes name the theme's parts: WordPress's "header-style-1")
+        # Class names only near the node: a far wrapper's "header"/"menu" classes say nothing of it.
+        names = " ".join(parent.get("class") or []) if depth < 6 else ""
         if in_book and (parent.name == "header" or re.search(r"header", names, re.I)) and not re.search(r"menu|nav", names, re.I):
             continue
         if parent.name in tags or _MENU.search(names):
             return True
     return False
+
+
+# The label a synopsis starts after, when an info box comes first ("Title: X Author: Y ... Description: ...",
+# "作者：… 关于X：…", "… เรื่องย่อ …").
+_SYNOPSIS_LABEL = re.compile(r"(description|synopsis|summary|sinopsis|sinopse|résumé|resumen|описание|简介|内容简介|"
+                             r"あらすじ|줄거리|작품\s*소개|เรื่องย่อ|tóm tắt|giới thiệu|关于[^：:\n]{1,40}|關於[^：:\n]{1,40})\s*[:：]?\s+",
+                             re.I)
+_INFO_LABELS = re.compile(r"(title|author|artist|status|genres?|type|chapters?|year|作者|类型|類型|字数|字數|状态|狀態|"
+                          r"人气|更新|分类|分類|大小|时间|時間)\s*[:：]", re.I)
+# Page text that is no synopsis at all.
+_NOT_SYNOPSIS = re.compile(r"(\bit has [\d.,]+\s*[kmb]?\s*(monthly\s+)?views?\b|summary not found|description updating|"
+                           r"^\s*(updating|coming soon|no summary)\b|^\s*welcome to\b|\bwelcome to [\w.]+, your\b|"
+                           r"log ?in to (keep|access|your)|sign in to (access|your)|masuk ke akun|"
+                           r"^\s*(read|baca|leia|lee|lire|читать)\s.{0,200}\b(online|free|gratis|grátis|bahasa)\b)", re.I | re.S)
+_CHAPTER_REF = re.compile(r"(\bchapter\s*\d+|\bch\.?\s*\d+|\d+\.?\s*bölüm|bölüm\s*\d+|ตอน(ที่)?\s*\d+|chương\s*\d+|"
+                          r"capítulo\s*\d+|cap\.?\s*\d+|\d+\s*화|第\s*\d+\s*[话話章])", re.I)
+
+
+def _clean_synopsis(text: str) -> str:
+    """The synopsis in `text`: after its label when an info box comes first; "" for text that is no synopsis
+    (a placeholder, a rank line, a template, a login prompt, a list of figures or chapters)."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    head = text[:400]
+    found = _SYNOPSIS_LABEL.search(head)
+    if found and found.start() > 0 and (len(_INFO_LABELS.findall(head[:found.start()])) >= 2
+                                        or len(re.findall(r"\d", head[:found.start()])) >= 4):
+        text = text[found.end():].strip()
+    if _NOT_SYNOPSIS.search(text[:300]):
+        return ""
+    words = re.findall(r"[^\W\d_]{2,}", text[:600])
+    numbers = re.findall(r"\d[\d.,:]*", text[:600])
+    if len(numbers) >= 4 and len(numbers) * 2 >= len(words):
+        return ""  # mostly figures: ratings, counts, dates ("One Piece 4.7 1197 29 ...")
+    if len(_CHAPTER_REF.findall(text[:400])) >= 2 and len(text) < 400:
+        return ""  # a list of chapters ("Naruto 700 Naruto 699", "39. Bölüm 38. Bölüm")
+    return text
+
+
+_COUNTED = re.compile(r"[(\[]\s*[\d,.]+\s*[)\]]\s*$")
+_LINK_WORDS = re.compile(r"^(here|more|click|link|read|download|next|prev(ious)?|home|top|see|view|show)$", re.I)
+
+
+def _clean_tags(tags: list, title: str) -> list:
+    """Tags as a reader wants them: no "#", no counts, no links' words ("here"), no SEO tags naming the book
+    ("<title> latest", "<title> mtl"), each once."""
+    out, seen = [], set()
+    name = re.sub(r"\s+", " ", title or "").strip().lower()
+    for tag in tags:
+        tag = re.sub(r"^#+\s*", "", str(tag or "")).strip()
+        if not tag or _COUNTED.search(tag) or _LINK_WORDS.match(tag) or _NOT_TAG.match(tag):
+            continue
+        if name and len(name) > 3 and name in tag.lower() and len(tag) > len(name):
+            continue
+        if tag.lower() not in seen:
+            seen.add(tag.lower())
+            out.append(tag)
+    return out
 
 
 def _prose(text: str) -> bool:
@@ -479,6 +540,8 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         links = []  # the page's genre box is the book's: other genre links are a site-wide table (mangabats)
     for box in boxed:
         found = box.find_all("a", href=True)[:40]
+        if len(found) >= 6 and sum(1 for link in found if _COUNTED.search(text_of(link))) * 2 >= len(found):
+            continue  # a site-wide genre widget, each genre with its count ("Action (215)")
         links.extend(found)
         if not found:
             # Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
@@ -498,8 +561,8 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         "title": _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url)[:300],
         "author": re.sub(r"\s+", " ", author or "").strip()[:200],
         "cover": cover,
-        "description": re.sub(r"[ \t]+", " ", _html_text(description or "")).strip()[:4000],
-        "tags": list(dict.fromkeys(tags))[:30],
+        "description": _clean_synopsis(re.sub(r"[ \t]+", " ", _html_text(description or "")).strip())[:4000],
+        "tags": _clean_tags(tags, _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url))[:30],
         "status": status,
         "site": site_name,
     }
