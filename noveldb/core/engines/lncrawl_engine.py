@@ -165,10 +165,47 @@ def _load_class(entry: dict):
 
 def _patch(module) -> None:
     """Fixes for upstream crawlers, applied as they load (the bundle keeps their files unchanged)."""
+    _patch_soup()
     crawler = getattr(module, "WebToonsCrawler", None)
     if crawler is not None and not getattr(crawler, "_noveldb_patched", False):
         crawler.read_novel_info = _webtoons_novel_info
         crawler._noveldb_patched = True
+
+
+def _patch_soup() -> None:
+    """The runtime's PageSoup fixes for bundles built before them (scripts/lncrawl/runtime/scraper/soup.py):
+    Beautiful Soup takes the tag inside a PageSoup it is handed (webtoons appended one to a plain tag:
+    "property 'parent' of 'PageSoup' object has no setter"), and new_tag passes its arguments by name
+    (Beautiful Soup 4.12 has no `string` argument)."""
+    soup = sys.modules.get("scraper.soup")
+    page_soup = getattr(soup, "PageSoup", None)
+    if page_soup is None or getattr(page_soup, "_noveldb_patched", False):
+        return
+    page_soup._noveldb_patched = True
+    from bs4 import Tag
+
+    if not getattr(Tag.insert, "_unwraps_page_soup", False):
+        insert = Tag.insert
+
+        def unwrapping(self, position, new_child, *rest, **kwargs):
+            if type(new_child).__name__ == "PageSoup":
+                new_child = getattr(new_child, "_tag", None) or ""
+            return insert(self, position, new_child, *rest, **kwargs)
+
+        unwrapping._unwraps_page_soup = True
+        Tag.insert = unwrapping
+
+    def new_tag(self, name, namespace=None, nsprefix=None, attrs=None, sourceline=None, sourcepos=None,
+                string=None, **kwargs):
+        if not self.root:
+            raise ValueError("Cannot create a new tag on an empty soup")
+        tag = self.root.new_tag(name, namespace=namespace, nsprefix=nsprefix, attrs=attrs or {},
+                                sourceline=sourceline, sourcepos=sourcepos, **kwargs)
+        if string is not None:
+            tag.string = string
+        return page_soup(tag)
+
+    page_soup.new_tag = new_tag
 
 
 def _webtoons_novel_info(self) -> None:
