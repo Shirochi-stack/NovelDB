@@ -47,7 +47,8 @@ BLOCKED = ("This page is blocked: the site may need you to sign in, or to buy th
            "Browser (your login is saved), then try again.")
 _reading = threading.local()  # the reader request a worker thread is answering (for its progress notes)
 _CHALLENGE = ("just a moment", "attention required", "security check", "verify you are human")
-_WAITING = ("verifying access", "checking your browser")  # a page's text while it checks the browser
+_WAITING = ("verifying access", "checking your browser", "performing security verification",
+            "enable javascript and cookies")  # text shown while a browser check is still running
 
 
 def download_icon() -> str:
@@ -651,17 +652,23 @@ class GenericCatalog(QObject):
     def _downloader_read(self, url: str, index: Optional[int] = None) -> dict:
         # Its index is None for the book.
         """The book (index None) or one chapter through the downloader's engine chain and saved sessions."""
-        if index is None:
+        # A book can have been opened successfully by the fast LNReader plugin and only fail when a
+        # Cloudflare-protected chapter is requested.  In that case this is the downloader's first request
+        # for the URL, so initialise its book state here before asking it for the matching chapter.
+        if index is None or url not in self._downloader_books:
             self._note("The quick engines couldn't read it; trying the downloader with your saved logins…")
             data = self.downloader(lambda scraper: scraper.parse_book(url)).result(timeout=240)
             if not data or not data.get("chapters"):
                 raise RuntimeError("no chapters (the site may need a login)")
             self._downloader_books[url] = data
-            return {"title": data.get("bookname") or "", "author": data.get("author") or "",
-                    "engine": "downloader (saved logins)",
-                    "chapters": [{"name": c.get("name") or f"Chapter {i + 1}", "section": c.get("sectionName") or ""}
-                                 for i, c in enumerate(data["chapters"])]}
+            if index is None:
+                return {"title": data.get("bookname") or "", "author": data.get("author") or "",
+                        "engine": "downloader (saved logins)",
+                        "chapters": [{"name": c.get("name") or f"Chapter {i + 1}", "section": c.get("sectionName") or ""}
+                                     for i, c in enumerate(data["chapters"])]}
         data = self._downloader_books[url]
+        if index >= len(data["chapters"]):
+            raise RuntimeError("the chapter list changed; reopen the book and try again")
         chapter = data["chapters"][index]
         self._note(f"Scraping {chapter.get('name') or 'the chapter'} with the downloader…")
 
@@ -671,8 +678,9 @@ class GenericCatalog(QObject):
             return scraper.parse_chapter(index, chapter, interval=0)
 
         result = self.downloader(read).result(timeout=240)
-        if not result:
-            raise RuntimeError("the chapter could not be read (it may need a login or a purchase)")
+        if not result or result.get("_locked"):
+            reason = (result or {}).get("_lockReason") or "login or purchase"
+            raise RuntimeError(f"the chapter could not be read ({reason})")
         return {"name": result.get("chapterName") or chapter.get("name") or "", "html": result.get("contentHtml") or "",
                 "text": result.get("contentText") or ""}
 

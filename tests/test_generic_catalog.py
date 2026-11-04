@@ -1,6 +1,7 @@
 """The Catalog's generic search: site search discovery, result cards, the search run and page messages."""
 import json
 import threading
+from pathlib import Path
 
 from noveldb.core.catalog import generic_search, site_search
 from noveldb.core.catalog.generic_search import GenericSearch, looks_like_book, top_sites
@@ -250,3 +251,56 @@ def test_more_messages_are_checked():
     assert parse_message({"type": "genericMore", "id": 2, "page": 0, "queries": [{"query": "dragon"}]}) is None
     assert parse_message({"type": "genericTopMore", "id": 2})
     assert parse_message({"type": "genericFullscreen", "on": True})
+
+
+def test_downloader_can_take_over_on_the_first_failed_chapter():
+    """LNReader may read the TOC before Cloudflare blocks a chapter, so no downloader book is cached yet."""
+    import pytest
+
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    from noveldb.qt.catalog.generic import GenericCatalog
+
+    class Immediate:
+        def __init__(self, value):
+            self.value = value
+
+        def result(self, timeout):
+            assert timeout == 240
+            return self.value
+
+    class Scraper:
+        _book_url = None
+
+        def __init__(self):
+            self.book_calls = 0
+
+        def parse_book(self, url):
+            self.book_calls += 1
+            self._book_url = url
+            return {"bookname": "Cloudflare Book", "chapters": [{"name": "Chapter 1"}]}
+
+        def parse_chapter(self, index, chapter, interval=0):
+            assert index == 0 and chapter["name"] == "Chapter 1" and interval == 0
+            return {"chapterName": "Chapter 1", "contentHtml": "<p>Recovered</p>"}
+
+    scraper = Scraper()
+    catalog = type("Catalog", (), {})()
+    catalog.downloader = lambda operation: Immediate(operation(scraper))
+    catalog._downloader_books = {}
+    catalog._note = lambda _text: None
+
+    chapter = GenericCatalog._downloader_read(catalog, "https://books.example/book/1", 0)
+
+    assert scraper.book_calls == 1
+    assert chapter["html"] == "<p>Recovered</p>"
+    assert catalog._downloader_books["https://books.example/book/1"]["chapters"][0]["name"] == "Chapter 1"
+
+
+def test_catalog_reader_retries_a_failed_lnreader_chapter_through_the_app():
+    source = (Path(__file__).resolve().parents[1] / "noveldb" / "qt" / "catalog" / "generic" / "generic.js") \
+        .read_text(encoding="utf-8")
+
+    chapter = source[source.index("function loadChapter(index)"):source.index("function openChapter(index, at)")]
+    assert "if (result && !result.error) return result" in chapter
+    assert "return appChapter()" in chapter
+    assert "retrying in the browser" in chapter

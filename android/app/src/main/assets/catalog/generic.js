@@ -1985,13 +1985,24 @@
     function loadChapter(index) {
         if (R.cache.has(index)) return R.cache.get(index);
         var source = R.source, promise;
+        // The app-side reader uses the Catalog's hidden browser and, if necessary, the downloader's
+        // saved browser session.  It is also the recovery path when an LNReader request hits Cloudflare.
+        var appChapter = function () {
+            return askWithin({type: 'genericChapter', url: source.url, index: index}, 90,
+                             function (id) { R.chapterIds.set(index, id); });
+        };
         if (R.lnreader) {
             var item = Object.assign({}, R.lnreader.chapters[index]);
-            promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}').then(parse);
+            promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')
+                .then(parse).then(function (result) {
+                    if (result && !result.error) return result;
+                    note('The site blocked the quick reader; retrying in the browser…', 90);
+                    return appChapter().then(function (recovered) { return recovered || result; });
+                });
         } else {
             // Each chapter's request keeps its id: the next chapter read ahead must not take over this one's
             // streamed images and notes.
-            promise = askWithin({type: 'genericChapter', url: source.url, index: index}, 90, function (id) { R.chapterIds.set(index, id); });
+            promise = appChapter();
         }
         promise = promise.then(function (result) {
             if (!result || result.error) {
