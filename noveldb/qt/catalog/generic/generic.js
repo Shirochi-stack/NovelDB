@@ -1225,6 +1225,11 @@
     var NDB_LANGS = {ko: ['npia', 'kpage', 'nweb', 'nseries', 'jara', 'mpia', 'rbooks'], zh: ['sfc']};
     // The built-in scrapers' other sites: their Top lists come from their own popular pages.
     var BUILTIN_SITES = ['\u0071\u0069\u0064\u0069\u0061\u006e.com', '\u0066\u0061\u006c\u006f\u006f.com', 'fenrirealm.com', 'xiyuwx.com', 'yeduji.com', 'kobo.com', '1qxs.com', '69shuba.tw'];
+    // How the shown top list is made: NovelDB's sources, or the sites (by how many the app knows).
+    function topRecipe() {
+        return top.ndbOnly ? 'ndb:' + (top.ndbSources || []).join(',')
+            : 'sites:' + (config.sites || []).length + ':' + TOP_SIZE;
+    }
     function topKind() { var kind = $('kind').value; return kind === 'all' ? 'webnovel' : kind; }
     function isComicKind(kind) { return kind === 'manga' || kind === 'manhwa' || kind === 'comic'; }
     function showTop() {
@@ -1245,6 +1250,9 @@
             top.others = [];
         }
         var cached = !top.only.length && store(TOP_KEY + '.' + top.kind + '.' + language);
+        // A list made another way than this code makes it now (NovelDB's sources or the sites, and how many
+        // sites there are) is not shown: a change of how lists are made shows at once.
+        if (cached && cached.how !== topRecipe()) cached = null;
         if (cached && cached.items && cached.items.length) {
             if (top.ndbOnly) top.ndbPage = Math.ceil(cached.items.length / 40);
             cached.items.forEach(function (item, index) {
@@ -1324,7 +1332,7 @@
                     return {url: s.url, title: group.title, site: s.site, source: s.source, plugin: s.plugin, path: s.path, comic: group.comic, ms: s.ms};
                 })});
         });
-        if (items.length && !top.only.length) store(TOP_KEY + '.' + top.kind + '.' + language, {time: Date.now(), items: items});
+        if (items.length && !top.only.length) store(TOP_KEY + '.' + top.kind + '.' + language, {time: Date.now(), items: items, how: topRecipe()});
     }
     // The LNReader sites a novel top list reads: the picked ones, else the busiest of the language and kind.
     function topPlugins(kind, all) {
