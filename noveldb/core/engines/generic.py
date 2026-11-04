@@ -267,9 +267,25 @@ def _figures(soup, book: dict) -> dict:
 
 # Where a book page keeps its synopsis, the most specific first: Madara's ".summary__content" before its
 # ".summary_content" stats box, which "[class*=summary]" matches too.
-_SYNOPSIS = (".summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, "
+# A synopsis shown short with "more", its full text kept in the page: read before anything else.
+_FULL_SYNOPSIS = ".fullcontent, [class*=fullcontent], [id*=fullcontent], [class*=full-summary], [class*=full-desc]"
+_SYNOPSIS = ("[class*=detail-info-right-content], .summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, "
              "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], "
              "[class*=summary], [class*=intro], #intro")
+# A book page's own list of tags or genres (not the site's menu of them).
+_TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags]"
+_MENU = re.compile(r"(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)", re.I)
+
+
+def _site_wide(description: str, title: str) -> bool:
+    """A description that never names the book: the site's blurb, the same on every page."""
+    words = [w for w in re.findall(r"\w{4,}", (title or "").lower()) if w not in ("manga", "novel", "read", "online")]
+    if not description or not words:
+        return False
+    text = description.lower()
+    return not any(word in text for word in words) and len(description) < 600
+
+
 _STATS_WORDS = re.compile(r"(\brating\b|\baverage\b|\bout of\b|alternative|author\(s\)|artist\(s\)|genre\(s\)|"
                           r"\brelease\b|\bstatus\b|\bcomments?\b|bookmarked|read first|read last|"
                           r"التقييم|التصنيف|الحالة|평점|评分|評価)", re.I)
@@ -342,7 +358,9 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
             cover = image.get("data-src") or image.get("data-original") or image.get("src") or ""
     cover = clean_url(cover, url) if cover else ""
     description = _ld_text(book.get("description")) or _meta(soup, "og:description", "description", "twitter:description")
-    for block in soup.select(_SYNOPSIS):
+    if _site_wide(description, title):
+        description = ""  # the site's own blurb on every page ("Read your favorite manga online!...")
+    for block in soup.select(_FULL_SYNOPSIS) + soup.select(_SYNOPSIS):
         longer = text_of(block)
         if len(longer) > len(description) and not _stats_box(longer):
             description = longer
@@ -351,7 +369,13 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     genre = book.get("genre") or book.get("keywords")
     if genre:
         tags.extend(_tag_text(t) for t in re.split(r"[,;|]", _ld_text(genre)) if _tag_text(t))
-    for link in soup.find_all("a", href=re.compile(r"/(genres?|tags?|categor(y|ies)|keywords?)/", re.I))[:40]:
+    # Genre links by their address, and the links of the page's tag or genre list wherever they point
+    # (fanfox's /directory/action/); none from the site's own menus.
+    links = soup.find_all("a", href=re.compile(r"/(genres?|tags?|categor(y|ies)|keywords?)/", re.I))[:40]
+    for box in soup.select(_TAG_LISTS):
+        if not box.find_parent(["header", "nav", "footer"]) and not box.find_parent(class_=_MENU):
+            links.extend(box.find_all("a", href=True)[:40])
+    for link in links:
         word = text_of(link)
         if 1 < len(word) <= 40:
             tags.append(word)

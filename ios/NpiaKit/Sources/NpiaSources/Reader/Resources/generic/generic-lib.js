@@ -489,9 +489,36 @@ const BOOK_KINDS = ["Book", "CreativeWork", "CreativeWorkSeries", "BookSeries", 
 
 // Where a book page keeps its synopsis, the most specific first: Madara's ".summary__content" before its
 // ".summary_content" stats box, which "[class*=summary]" matches too.
-const SYNOPSIS = ".summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, " +
+// A synopsis shown short with "more", its full text kept in the page: read before anything else.
+const FULL_SYNOPSIS = ".fullcontent, [class*=fullcontent], [id*=fullcontent], [class*=full-summary], [class*=full-desc]";
+const SYNOPSIS = "[class*=detail-info-right-content], " +
+    ".summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, " +
     "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], " +
     "[class*=summary], [class*=intro], #intro";
+// A book page's own list of tags or genres (not the site's menu of them).
+const TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags]";
+const MENU = /(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)/i;
+
+function inMenu(node) {
+    for (let at = node.parentElement; at; at = at.parentElement) {
+        if (MENU.test(at.getAttribute("class") || "")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** A description that never names the book: the site's blurb, the same on every page. */
+function siteWide(description, title) {
+    let words = (String(title || "").toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || [])
+        .filter(w => !["manga", "novel", "read", "online"].includes(w));
+    if (!description || !words.length) {
+        return false;
+    }
+    let text = description.toLowerCase();
+    return !words.some(w => text.includes(w)) && description.length < 600;
+}
+
 const STATS_WORDS = /(\brating\b|\baverage\b|\bout of\b|alternative|author\(s\)|artist\(s\)|genre\(s\)|\brelease\b|\bstatus\b|\bcomments?\b|bookmarked|read first|read last|التقييم|التصنيف|الحالة|평점|评分|評価)/gi;
 
 /** A block of a book page's figures (rating, alternative names, genres, status, bookmarks), not a synopsis. */
@@ -572,7 +599,10 @@ function metadata(doc, url) {
     }
     cover = cover ? cleanUrl(cover, url) : "";
     let description = ldText(book.description) || meta(doc, "og:description", "description", "twitter:description");
-    for (let block of doc.querySelectorAll(SYNOPSIS)) {
+    if (siteWide(description, title)) {
+        description = "";  // the site's own blurb on every page ("Read your favorite manga online!...")
+    }
+    for (let block of [...doc.querySelectorAll(FULL_SYNOPSIS), ...doc.querySelectorAll(SYNOPSIS)]) {
         let longer = textOf(block);
         if (longer.length > description.length && !statsBox(longer)) {
             description = longer;
@@ -584,8 +614,15 @@ function metadata(doc, url) {
     if (genre) {
         tags.push(...ldText(genre).split(/[,;|]/).map(tagText).filter(t => t));
     }
+    // Genre links by their address, and the links of the page's tag or genre list wherever they point
+    // (fanfox's /directory/action/); none from the site's own menus.
     let tagLinks = Array.from(doc.querySelectorAll("a[href]"))
         .filter(a => /\/(genres?|tags?|categor(y|ies)|keywords?)\//i.test(a.getAttribute("href"))).slice(0, 40);
+    for (let box of doc.querySelectorAll(TAG_LISTS)) {
+        if (!box.closest("header, nav, footer") && !inMenu(box)) {
+            tagLinks.push(...Array.from(box.querySelectorAll("a[href]")).slice(0, 40));
+        }
+    }
     for (let link of tagLinks) {
         let word = textOf(link);
         if (word.length > 1 && word.length <= 40) {
