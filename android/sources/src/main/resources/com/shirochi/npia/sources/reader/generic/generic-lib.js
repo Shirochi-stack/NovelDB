@@ -495,7 +495,7 @@ const FULL_SYNOPSIS = ".fullcontent, [class*=fullcontent], [id*=fullcontent], [c
 const SYNOPSIS = "[class*=detail-info-right-content], " +
     ".summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, " +
     "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], " +
-    "[class*=summary], [class*=intro], #intro";
+    "[class*=summary], [class*=intro], #intro, .prose";  // .prose: Tailwind's text box (dragonholic)
 // A book page's own list of tags or genres (not the site's menu of them).
 const TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
     + ".categories, [class*=book-tags], [class*=info--tags], [class*=project-tags], [class*=series-tags], "
@@ -546,31 +546,75 @@ function inMenu(node) {
 const SYNOPSIS_LABEL = /(description|synopsis|summary|sinopsis|sinopse|résumé|resumen|описание|简介|内容简介|あらすじ|줄거리|작품\s*소개|เรื่องย่อ|tóm tắt|giới thiệu|关于[^：:\n]{1,40}|關於[^：:\n]{1,40})\s*[:：]?\s+/i;
 const INFO_LABELS = /(title|author|artist|status|genres?|type|chapters?|year|作者|类型|類型|字数|字數|状态|狀態|人气|更新|分类|分類|大小|时间|時間)\s*[:：]/gi;
 // Page text that is no synopsis at all.
-const NOT_SYNOPSIS = /(\bit has [\d.,]+\s*[kmb]?\s*(monthly\s+)?views?\b|summary not found|description updating|^\s*(updating|coming soon|no summary)\b|^\s*welcome to\b|\bwelcome to [\w.]+, your\b|log ?in to (keep|access|your)|sign in to (access|your)|masuk ke akun|^\s*(read|baca|leia|lee|lire|читать)\s[\s\S]{0,200}\b(online|free|gratis|grátis|bahasa)\b)/i;
+const NOT_SYNOPSIS = /(\bit has [\d.,]+\s*[kmb]?\s*(monthly\s+)?views?\b|summary not found|description updating|^\s*(updating|coming soon|no summary)\b|^\s*welcome to\b|\bwelcome to [\w.]+, your\b|log ?in to (keep|access|your)|sign in to (access|your)|masuk ke akun|^\s*(read|baca|leia|lee|lire|читать)\s[\s\S]{0,200}\b(online|free|gratis|grátis|bahasa)\b|read your favou?rite|当サイト|本站|이 사이트|\b(our|this) site\b|liste des chapitres|\b(manga|manhwa|webtoon|novel|roman)\s+(oku|okuyun)\b|güncel oku|türkçe (oku|manga|manhwa)|\(\s*raw\b[^)]{0,20}\bfree\s*\)|最新章节[\s\S]{0,40}(快速阅览|全文阅读|无弹窗))/i;
 const CHAPTER_REF = /(\bchapter\s*\d+|\bch\.?\s*\d+|\d+\.?\s*bölüm|bölüm\s*\d+|ตอน(ที่)?\s*\d+|chương\s*\d+|capítulo\s*\d+|cap\.?\s*\d+|\d+\s*화|第\s*\d+\s*[话話章])/gi;
+
+// A label the synopsis starts after, cut wherever it stands: a CJK or Thai one, or any with a colon.
+const STRONG_LABEL = /(内容简介|漫画简介|小说简介|作品简介|简介|關於[^：:\n]{1,40}|关于[^：:\n]{1,40}|あらすじ|줄거리|작품\s*소개|เรื่องย่อ)\s*[:：]?\s*|\b(synopsis|summary|description|sinopsis|sinopse|résumé|resumen|описание|novel summary|story summary)\s*[:：]\s*/i;
+// A "label: value" of an info run (one word, or a date and time), and Korean "총 55화".
+const INFO_VALUE = /((title|author|artist|status|genres?|type|year|作者|类型|類型|字数|字數|状态|狀態|人气|人氣|更新|分类|分類|大小|时间|時間|작가|장르)\s*[:：]\s*[^\s]+(\s\d{1,2}:\d{2}(:\d{2})?)?|(총편수\s*)?총\s*\d+\s*화)\s*/gi;
+// An introduction before the synopsis: "A brief description of the manhwa X:", "Novel Summary", "Synopsis".
+const INTRO = /^\s*(an? (brief|short|quick) (description|summary|synopsis|introduction) of (the )?(manga|manhwa|manhua|novel|light novel|web ?novel|webtoon|comic|book|story|series)?[^:：.!?]{0,160}[:：]|(novel |story )?(synopsis|summary)\b\s*[:：]?)\s*/i;
+// A sentence's end: what comes before a label is prose, so the label is inside the synopsis.
+const SENTENCE_END = /[.!?。！？]\s|[.!?。！？]$/g;
+/** Prose comes before a label (so the label is inside the synopsis): two sentences, or one in a long
+ *  stretch; a title ending in "？" is not. */
+function proseBefore(text) {
+    let ends = (text.match(SENTENCE_END) || []).length;
+    return ends >= 2 || (ends === 1 && text.length > 80);
+}
+const INVISIBLE = /[\u200b-\u200d\u2060-\u2064\ufeff]/g;
+// A template sentence before the synopsis ("You're Reading "X" Novel at Site", "Read X for Free (English).").
+const TEMPLATE_SENTENCE = /^\s*((you['’]?re reading|(read|baca|leia|lee)\b)[^.!?。]{0,200}?\b(novel|manga|manhwa|online|free|gratis)\b.{0,120}?[.!?。](?=\s|$))\s*/i;
+// The page's keyword list after the synopsis ("…시작된다!!!웹툰,만화,코믹,무료,Free,W").
+const KEYWORD_TAIL = /(웹툰|만화|코믹|webtoons?|manga|manhwa|comics?|小说|小說|漫画|漫畫)(\s*[,，、]\s*[^,，、\s]{1,20}){3,}\s*$/i;
 
 /** The synopsis in `text`: after its label when an info box comes first; "" for text that is no synopsis
  *  (a placeholder, a rank line, a template, a login prompt, a list of figures or chapters). */
 function cleanSynopsis(text) {
-    text = String(text || "").trim();
+    text = String(text || "").replace(INVISIBLE, "").trim();  // zero-width marks inside words
     if (!text) {
         return "";
     }
+    for (let i = 0; i < 2; i++) {
+        text = text.replace(TEMPLATE_SENTENCE, "").trim();  // "You're Reading "X" Novel ...", "Read X for Free."
+    }
     let head = text.slice(0, 400);
+    let strong = STRONG_LABEL.exec(head);
     let found = SYNOPSIS_LABEL.exec(head);
-    if (found && found.index > 0) {
-        let before = head.slice(0, found.index);
-        if ((before.match(INFO_LABELS) || []).length >= 2 || (before.match(/\d/g) || []).length >= 4) {
-            text = text.slice(found.index + found[0].length).trim();
+    if (strong && !proseBefore(head.slice(0, strong.index))) {
+        // "关于X：", "漫画简介：", "Synopsis:", "เรื่องย่อ" after a title or an info box (not inside the synopsis);
+        // a label with nothing after it means there is no synopsis.
+        text = text.slice(strong.index + strong[0].length).trim();
+        if (!text) {
+            return "";
+        }
+    } else if (found && found.index > 0 && ((head.slice(0, found.index).match(INFO_LABELS) || []).length >= 2
+            || (head.slice(0, found.index).match(/\d/g) || []).length >= 4)) {
+        text = text.slice(found.index + found[0].length).trim();
+    } else {
+        // An info run first ("类型：都市 字数：1787364字 ... 更新：2026/11/4 16:58:01", "총편수 총 55화"): what follows it.
+        let values = Array.from(head.slice(0, 300).matchAll(INFO_VALUE));
+        let last = values[values.length - 1];
+        if (values.length >= 2 && !proseBefore(head.slice(0, values[0].index))) {
+            text = text.slice(last.index + last[0].length).trim();
+            if (!text) {
+                return "";  // only the info run ("作者：… 大小：1.11 MB 时间：2021-10-20")
+            }
         }
     }
-    if (NOT_SYNOPSIS.test(text.slice(0, 300))) {
+    text = text.replace(INTRO, "").trim().replace(KEYWORD_TAIL, "").trim();
+    if (!text || NOT_SYNOPSIS.test(text.slice(0, 300))) {
         return "";
     }
     let words = text.slice(0, 600).match(/[\p{L}]{2,}/gu) || [];
     let numbers = text.slice(0, 600).match(/\d[\d.,:]*/g) || [];
     if (numbers.length >= 4 && numbers.length * 2 >= words.length) {
         return "";  // mostly figures: ratings, counts, dates ("One Piece 4.7 1197 29 ...")
+    }
+    let parts = text.slice(0, 400).split(/[,，、|/]/).map(part => part.trim()).filter(Boolean);
+    if (parts.length >= 3 && parts.every(part => part.split(/\s+/).length <= 3 && part.length <= 30) && text.length < 400) {
+        return "";  // a list of genres or keywords ("Reincarnation , Action , Long Strip , Delinquents")
     }
     if ((text.slice(0, 400).match(CHAPTER_REF) || []).length >= 2 && text.length < 400) {
         return "";  // a list of chapters ("Naruto 700 Naruto 699", "39. Bölüm 38. Bölüm")
@@ -588,7 +632,7 @@ function cleanTags(tags, title) {
     let seen = new Set();
     let name = String(title || "").replace(/\s+/g, " ").trim().toLowerCase();
     for (let tag of tags) {
-        tag = String(tag || "").replace(/^#+\s*/, "").trim();
+        tag = String(tag || "").replace(/^[#,，、;:·•|\s]+|[,，、;:·•|\s]+$/g, "").trim();
         if (!tag || COUNTED.test(tag) || LINK_WORDS.test(tag) || NOT_TAG.test(tag)) {
             continue;
         }
@@ -616,14 +660,25 @@ function template(description) {
 }
 
 /** A description that never names the book: the site's blurb, the same on every page. */
-function siteWide(description, title) {
+// What a site's own blurb talks about (its site, reading, the catalogue), unlike a book's synopsis.
+const BLURB_WORDS = /\b(read(ing)?|online|free|website|site|platform|updated?|daily|latest|library|collection|thousands|hundreds|manga|manhwa|manhua|webtoons?|comics?|novels|upload|translat(ed|ion|ions)|community|discord|favou?rite)\b|サイト|漫画|小说|网站|웹툰|사이트/gi;
+
+/** The site's blurb, the same on every page: it never names the book, and it talks of the site or of
+ *  reading ("Read your favorite manga online!", "Upload your manga / novel on Niadd"). A synopsis that only
+ *  happens not to name the book is kept (kaynscans'). */
+function siteWide(description, title, site) {
     let words = (String(title || "").toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || [])
         .filter(w => !["manga", "novel", "read", "online"].includes(w));
-    if (!description || !words.length) {
+    if (!description || !words.length || description.length >= 600) {
         return false;
     }
     let text = description.toLowerCase();
-    return !words.some(w => text.includes(w)) && description.length < 600;
+    if (words.some(w => text.includes(w))) {
+        return false;
+    }
+    let names = (String(site || "").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])
+        .filter(n => !["com", "net", "org", "www"].includes(n));
+    return names.some(n => text.includes(n)) || (description.match(BLURB_WORDS) || []).length >= 2;
 }
 
 const STATS_WORDS = /(\brating\b|\baverage\b|\bout of\b|alternative|author\(s\)|artist\(s\)|genre\(s\)|\brelease\b|\bstatus\b|\bcomments?\b|bookmarked|read first|read last|التقييم|التصنيف|الحالة|평점|评分|評価)/gi;
@@ -762,13 +817,14 @@ function metadata(doc, url) {
     }
     cover = cover ? cleanUrl(cover, url) : "";
     let description = ldText(book.description) || meta(doc, "og:description", "description", "twitter:description");
-    if (siteWide(description, title) || !prose(description) || template(description)) {
+    if (siteWide(description, title, siteName || new URL(url).host) || !prose(description) || template(description)) {
         description = "";  // the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     }
     let blocks = [...doc.querySelectorAll(FULL_SYNOPSIS), ...doc.querySelectorAll(SYNOPSIS), ...headedSynopsis(doc)];
-    if (blocks.some(block => NO_SYNOPSIS.test(textOf(block).replace(MORE_LESS, "").trim()))) {
-        blocks = [];  // the page's synopsis says there is none ("N/A"): no bigger box of the page instead
-    }
+    // A synopsis box that says there is none ("N/A"): neither it nor a bigger box holding it (that would
+    // be the page around it); other boxes still count (niadd's genres and "N/A" boxes sit beside its text).
+    let empty = blocks.filter(block => NO_SYNOPSIS.test(textOf(block).replace(MORE_LESS, "").trim()));
+    blocks = blocks.filter(block => !empty.some(none => block === none || block.contains(none)));
     if (ANNOUNCEMENT.test(description.slice(0, 200))) {
         description = "";
     }

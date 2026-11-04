@@ -272,7 +272,7 @@ def _figures(soup, book: dict) -> dict:
 _FULL_SYNOPSIS = ".fullcontent, [class*=fullcontent], [id*=fullcontent], [class*=full-summary], [class*=full-desc]"
 _SYNOPSIS = ("[class*=detail-info-right-content], .summary__content, .description-summary, .manga-excerpt, [itemprop=description], .synopsis, "
              "[class*=synopsis], #synopsis, [class*=description], [id*=description], [class*=desc], "
-             "[class*=summary], [class*=intro], #intro")
+             "[class*=summary], [class*=intro], #intro, .prose")  # .prose: Tailwind's text box (dragonholic)
 # A book page's own list of tags or genres (not the site's menu of them).
 _TAG_LISTS = ("[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
               ".categories, [class*=book-tags], [class*=info--tags], [class*=project-tags], [class*=series-tags], "
@@ -322,28 +322,80 @@ _INFO_LABELS = re.compile(r"(title|author|artist|status|genres?|type|chapters?|y
 _NOT_SYNOPSIS = re.compile(r"(\bit has [\d.,]+\s*[kmb]?\s*(monthly\s+)?views?\b|summary not found|description updating|"
                            r"^\s*(updating|coming soon|no summary)\b|^\s*welcome to\b|\bwelcome to [\w.]+, your\b|"
                            r"log ?in to (keep|access|your)|sign in to (access|your)|masuk ke akun|"
-                           r"^\s*(read|baca|leia|lee|lire|читать)\s.{0,200}\b(online|free|gratis|grátis|bahasa)\b)", re.I | re.S)
+                           r"^\s*(read|baca|leia|lee|lire|читать)\s.{0,200}\b(online|free|gratis|grátis|bahasa)\b|"
+                           r"read your favou?rite|当サイト|本站|이 사이트|\b(our|this) site\b|liste des chapitres|"
+                           r"\b(manga|manhwa|webtoon|novel|roman)\s+(oku|okuyun)\b|güncel oku|türkçe (oku|manga|manhwa)|"
+                           r"\(\s*raw\b[^)]{0,20}\bfree\s*\)|最新章节.{0,40}(快速阅览|全文阅读|无弹窗))", re.I | re.S)
 _CHAPTER_REF = re.compile(r"(\bchapter\s*\d+|\bch\.?\s*\d+|\d+\.?\s*bölüm|bölüm\s*\d+|ตอน(ที่)?\s*\d+|chương\s*\d+|"
                           r"capítulo\s*\d+|cap\.?\s*\d+|\d+\s*화|第\s*\d+\s*[话話章])", re.I)
+
+
+# A label the synopsis starts after, cut wherever it stands: a CJK or Thai one, or any with a colon.
+_STRONG_LABEL = re.compile(r"(内容简介|漫画简介|小说简介|作品简介|简介|關於[^：:\n]{1,40}|关于[^：:\n]{1,40}|あらすじ|줄거리|작품\s*소개|"
+                           r"เรื่องย่อ)\s*[:：]?\s*|\b(synopsis|summary|description|sinopsis|sinopse|résumé|resumen|"
+                           r"описание|novel summary|story summary)\s*[:：]\s*", re.I)
+# A "label: value" of an info run (one word, or a date and time), and Korean "총 55화".
+_INFO_VALUE = re.compile(r"((title|author|artist|status|genres?|type|year|作者|类型|類型|字数|字數|状态|狀態|人气|人氣|更新|"
+                         r"分类|分類|大小|时间|時間|작가|장르)\s*[:：]\s*[^\s]+(\s\d{1,2}:\d{2}(:\d{2})?)?|(총편수\s*)?총\s*\d+\s*화)\s*",
+                         re.I)
+# An introduction before the synopsis: "A brief description of the manhwa X:", "Novel Summary", "Synopsis".
+_INTRO = re.compile(r"^\s*(an? (brief|short|quick) (description|summary|synopsis|introduction) of (the )?"
+                    r"(manga|manhwa|manhua|novel|light novel|web ?novel|webtoon|comic|book|story|series)?[^:：.!?]{0,160}[:：]|"
+                    r"(novel |story )?(synopsis|summary)\b\s*[:：]?)\s*", re.I)
+# A sentence's end: what comes before a label is prose, so the label is inside the synopsis.
+_SENTENCE_END = re.compile(r"[.!?。！？]\s|[.!?。！？]$")
+def _prose_before(text: str) -> bool:
+    """Prose comes before a label (so the label is inside the synopsis): two sentences, or one in a long
+    stretch; a title ending in "？" is not."""
+    ends = len(_SENTENCE_END.findall(text))
+    return ends >= 2 or (ends == 1 and len(text) > 80)
+
+
+_INVISIBLE = re.compile("[\u200b-\u200d\u2060-\u2064\ufeff]")
+# A template sentence before the synopsis ("You're Reading "X" Novel at Site", "Read X for Free (English).").
+_TEMPLATE_SENTENCE = re.compile(r"^\s*((you['’]?re reading|(read|baca|leia|lee)\b)[^.!?。]{0,200}?\b(novel|manga|manhwa|online|free|gratis)\b.{0,120}?[.!?。](?=\s|$))\s*", re.I)
+# The page's keyword list after the synopsis ("…시작된다!!!웹툰,만화,코믹,무료,Free,W").
+_KEYWORD_TAIL = re.compile(r"(웹툰|만화|코믹|webtoons?|manga|manhwa|comics?|小说|小說|漫画|漫畫)(\s*[,，、]\s*[^,，、\s]{1,20}){3,}\s*$", re.I)
 
 
 def _clean_synopsis(text: str) -> str:
     """The synopsis in `text`: after its label when an info box comes first; "" for text that is no synopsis
     (a placeholder, a rank line, a template, a login prompt, a list of figures or chapters)."""
-    text = (text or "").strip()
+    text = _INVISIBLE.sub("", text or "").strip()  # zero-width marks inside words ("Imperial​ Sovereign")
     if not text:
         return ""
+    for _ in range(2):
+        text = _TEMPLATE_SENTENCE.sub("", text, count=1).strip()  # "You're Reading "X" Novel ...", "Read X for Free."
     head = text[:400]
+    strong = _STRONG_LABEL.search(head)
     found = _SYNOPSIS_LABEL.search(head)
-    if found and found.start() > 0 and (len(_INFO_LABELS.findall(head[:found.start()])) >= 2
-                                        or len(re.findall(r"\d", head[:found.start()])) >= 4):
+    if strong and not _prose_before(head[:strong.start()]):
+        # "关于X：", "漫画简介：", "Synopsis:", "เรื่องย่อ" after a title or an info box (not inside the synopsis);
+        # a label with nothing after it means there is no synopsis.
+        text = text[strong.end():].strip()
+        if not text:
+            return ""
+    elif found and found.start() > 0 and (len(_INFO_LABELS.findall(head[:found.start()])) >= 2
+                                          or len(re.findall(r"\d", head[:found.start()])) >= 4):
         text = text[found.end():].strip()
-    if _NOT_SYNOPSIS.search(text[:300]):
+    else:
+        # An info run first ("类型：都市 字数：1787364字 ... 更新：2026/11/4 16:58:01", "총편수 총 55화"): what follows it.
+        values = list(_INFO_VALUE.finditer(head[:300]))
+        if len(values) >= 2 and not _prose_before(head[:values[0].start()]):
+            text = text[values[-1].end():].strip()
+            if not text:
+                return ""  # only the info run ("作者：… 大小：1.11 MB 时间：2021-10-20")
+    text = _INTRO.sub("", text, count=1).strip()
+    text = _KEYWORD_TAIL.sub("", text).strip()
+    if not text or _NOT_SYNOPSIS.search(text[:300]):
         return ""
     words = re.findall(r"[^\W\d_]{2,}", text[:600])
     numbers = re.findall(r"\d[\d.,:]*", text[:600])
     if len(numbers) >= 4 and len(numbers) * 2 >= len(words):
         return ""  # mostly figures: ratings, counts, dates ("One Piece 4.7 1197 29 ...")
+    parts = [part.strip() for part in re.split(r"[,，、|/]", text[:400]) if part.strip()]
+    if len(parts) >= 3 and all(len(part.split()) <= 3 and len(part) <= 30 for part in parts) and len(text) < 400:
+        return ""  # a list of genres or keywords ("Reincarnation , Action , Long Strip , Delinquents")
     if len(_CHAPTER_REF.findall(text[:400])) >= 2 and len(text) < 400:
         return ""  # a list of chapters ("Naruto 700 Naruto 699", "39. Bölüm 38. Bölüm")
     return text
@@ -359,7 +411,7 @@ def _clean_tags(tags: list, title: str) -> list:
     out, seen = [], set()
     name = re.sub(r"\s+", " ", title or "").strip().lower()
     for tag in tags:
-        tag = re.sub(r"^#+\s*", "", str(tag or "")).strip()
+        tag = re.sub(r"^[#,，、;:·•|\s]+|[,，、;:·•|\s]+$", "", str(tag or "")).strip()
         if not tag or _COUNTED.search(tag) or _LINK_WORDS.match(tag) or _NOT_TAG.match(tag):
             continue
         if name and len(name) > 3 and name in tag.lower() and len(tag) > len(name):
@@ -385,13 +437,24 @@ def _template(description: str) -> bool:
     return len(description or "") < 260 and bool(_TEMPLATE.search(description or ""))
 
 
-def _site_wide(description: str, title: str) -> bool:
-    """A description that never names the book: the site's blurb, the same on every page."""
+# What a site's own blurb talks about (its site, reading, the catalogue), unlike a book's synopsis.
+_BLURB_WORDS = re.compile(r"\b(read(ing)?|online|free|website|site|platform|updated?|daily|latest|library|"
+                          r"collection|thousands|hundreds|manga|manhwa|manhua|webtoons?|comics?|novels|upload|"
+                          r"translat(ed|ion|ions)|community|discord|favou?rite)\b|サイト|漫画|小说|网站|웹툰|사이트", re.I)
+
+
+def _site_wide(description: str, title: str, site: str = "") -> bool:
+    """The site's blurb, the same on every page: it never names the book, and it talks of the site or of
+    reading ("Read your favorite manga online!", "Upload your manga / novel on Niadd"). A synopsis that only
+    happens not to name the book is kept (kaynscans')."""
     words = [w for w in re.findall(r"\w{4,}", (title or "").lower()) if w not in ("manga", "novel", "read", "online")]
-    if not description or not words:
+    if not description or not words or len(description) >= 600:
         return False
     text = description.lower()
-    return not any(word in text for word in words) and len(description) < 600
+    if any(word in text for word in words):
+        return False
+    names = [n for n in re.findall(r"\w{3,}", (site or "").lower()) if n not in ("com", "net", "org", "www")]
+    return any(name in text for name in names) or len(_BLURB_WORDS.findall(description)) >= 2
 
 
 _STATS_WORDS = re.compile(r"(\brating\b|\baverage\b|\bout of\b|alternative|author\(s\)|artist\(s\)|genre\(s\)|"
@@ -511,11 +574,14 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
                 break
     cover = clean_url(cover, url) if cover else ""
     description = _ld_text(book.get("description")) or _meta(soup, "og:description", "description", "twitter:description")
-    if _site_wide(description, title) or not _prose(description) or _template(description):
+    if _site_wide(description, title, site_name or urlsplit(url).netloc) or not _prose(description) or _template(description):
         description = ""  # the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     blocks = soup.select(_FULL_SYNOPSIS) + soup.select(_SYNOPSIS) + _headed_synopsis(soup)
-    if any(_NO_SYNOPSIS.match(_MORE_LESS.sub("", text_of(block)).strip()) for block in blocks):
-        blocks = []  # the page's synopsis says there is none ("N/A"): no bigger box of the page instead
+    # A synopsis box that says there is none ("N/A"): neither it nor a bigger box holding it (that would
+    # be the page around it); other boxes still count (niadd's genres and "N/A" boxes sit beside its text).
+    empty = [block for block in blocks if _NO_SYNOPSIS.match(_MORE_LESS.sub("", text_of(block)).strip())]
+    blocks = [block for block in blocks
+              if not any(block is none or none in block.descendants for none in empty)]
     if _ANNOUNCEMENT.search(description[:200]):
         description = ""
     for block in blocks:
