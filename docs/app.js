@@ -6249,13 +6249,14 @@
         const NPIA_COVER_R19 = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/img/novel/adult_cover_img.jpg";
         const NPIA_COVER_DEFAULT = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/img/layout/readycover4.png";
 
-        let coverSrc = n.cover;
+        const coverUrls = window.NovelCovers.sourceUrls(n.cover, novelSource);
+        let coverSrc = coverUrls.src;
         if ((!coverSrc || coverSrc === "") && novelSource === "npia") {
             coverSrc = (n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT;
         }
-        const fallbackSrc = (novelSource === "npia")
+        const fallbackSrc = coverUrls.fallback || ((novelSource === "npia")
             ? ((n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT)
-            : "";
+            : "");
 
         const coverHTML = coverSrc
             ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" referrerpolicy="no-referrer">`

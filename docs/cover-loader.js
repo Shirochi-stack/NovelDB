@@ -25,6 +25,32 @@
     const clampQuality=value=>Number.isFinite(Number(value)) ? Math.min(100,Math.max(20,Math.round(Number(value)))) : 72;
     quality=clampQuality(quality);resolution=clampQuality(resolution);
     try {localStorage.setItem('noveldb.imageResolution',String(resolution));} catch (_) {}
+    function sourceUrls(value, source) {
+        const original = value || '';
+        try {
+            const url = new URL(original);
+            if (!['https:','http:'].includes(url.protocol) || url.username || url.password) return {src:original,fallback:''};
+            if (source === 'mpia' && url.hostname === 'cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com'
+                && /^\/v2\/files\/(?:tcover|cover)\//.test(url.pathname)) {
+                // The detail API's originCoverUrl uses this suffix, including
+                // its trailing dot. Keep the catalog thumbnail as a fallback.
+                if (url.pathname.endsWith('.origin.')) {
+                    const fallback = new URL(url);fallback.pathname = fallback.pathname.slice(0,-8);
+                    return {src:original,fallback:fallback.href};
+                }
+                url.pathname += '.origin.';
+            } else if ((source === 'nweb' && url.hostname === 'novel-phinf.pstatic.net')
+                || (source === 'nseries' && url.hostname === 'comicthumb-phinf.pstatic.net')) {
+                url.searchParams.delete('type');
+            } else if (source === 'kpage' && url.hostname === 'dn-img-page.\u006b\u0061\u006b\u0061\u006f.com'
+                && url.pathname === '/download/resource' && url.searchParams.get('filename') === 'th3') {
+                // Preserve the raw resource key: URLSearchParams would rewrite
+                // unescaped '+' characters in existing catalog URLs.
+                url.search = url.search.slice(1).split('&').filter(part=>part !== 'filename=th3').join('&');
+            } else return {src:original,fallback:''};
+            return url.href === original ? {src:original,fallback:''} : {src:url.href,fallback:original};
+        } catch (_) { return {src:original,fallback:''}; }
+    }
     function widthFor(img) {
         const width=Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,1.5)));
         return Math.max(1,Math.floor(width*resolution/100));
@@ -216,6 +242,7 @@
         }
     }
     window.NovelCovers = {
+        sourceUrls,
         get lowResolutionEnabled() { return lowResolution; },
         get resolution() {return resolution;},
         setResolution(value) {

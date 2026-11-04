@@ -60,6 +60,11 @@ def test_detail_keeps_native_counts_status_and_contributor_roles():
     assert date_only["source_dates"]["updated"]["timezone"] == "+09:00"
 
 
+def test_detail_prefers_original_cover_and_keeps_thumbnail_when_absent():
+    assert mpia.normalize_detail(detail(originCoverUrl='https://covers.test/full.jpg'))['cover'] == 'https://covers.test/full.jpg'
+    assert mpia.normalize_detail(detail(originCoverUrl=None))['cover'] == detail()['coverUrl']
+
+
 def test_optional_absence_stays_unknown_and_ebook_count_keeps_unit():
     sparse = mpia.normalize_detail({"id": 1, "title": "제목"})
     for key in ("views", "likes", "episodes", "age", "complete", "updated", "tier", "synopsis"):

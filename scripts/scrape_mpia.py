@@ -106,7 +106,7 @@ def normalize_detail(info):
         "title": title.strip(),
         "author": info.get("authorName") or "",
         "contributors": contributors,
-        "cover": info.get("coverUrl") or "",
+        "cover": info.get("originCoverUrl") or info.get("coverUrl") or "",
         "genres": genres,
         "keywords": keywords,
         "tags": list(dict.fromkeys(genres + keywords)),
