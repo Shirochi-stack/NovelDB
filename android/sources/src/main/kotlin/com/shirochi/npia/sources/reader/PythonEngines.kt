@@ -131,6 +131,9 @@ internal object PythonEngines {
             if (state?.boolean("ready") != true) {
                 throw SourceException.Parse("The Python engines did not start: ${state?.string("error") ?: "no answer"}")
             }
+            // In a worker the Catalog page keeps working while they run; in the page it pauses with them.
+            context.logger.log(LogLevel.INFO, if (state?.boolean("worker") == true) "[Reader] Python engines started (in the background)"
+                else "[Reader] Python engines started (without a worker: the Catalog may pause while they work)")
         } catch (e: Throwable) {
             withContext(NonCancellable) { runCatching { opened.close() } }
             throw e

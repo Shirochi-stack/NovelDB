@@ -4,7 +4,7 @@ lightnovel-crawler, FanFicFare and gallery-dl run on the phones in Pyodide (Pyth
 with the desktop's own engine modules. The folder this writes is what the apps serve to their hidden
 Python page:
 
-    python-host.html, python-host.js      the page
+    python-host.html, python-host.js      the page (the engines run in python-worker.js, python-core.js)
     pyodide/                              Pyodide (pinned below, checked against its hashes) and the
                                           packages the engines need (checked against Pyodide's lock file)
     py/                                   noveldb_mobile.py and the desktop's engine modules
@@ -103,8 +103,8 @@ def pyodide_files() -> dict:
 
 def page_files() -> dict:
     """The page, the modules and the bundles: everything but Pyodide."""
-    out = {"python-host.html": (HOST / "python-host.html").read_bytes(),
-           "python-host.js": (HOST / "python-host.js").read_bytes()}
+    out = {name: (HOST / name).read_bytes()
+           for name in ("python-host.html", "python-host.js", "python-core.js", "python-worker.js")}
     for name, source in MODULES.items():
         out[f"py/{name}"] = source.read_bytes()
     for engine, folder in BUNDLES.items():

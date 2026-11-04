@@ -108,6 +108,9 @@ actor PythonEngines {
             let data = try await opened.evaluateJSON("return await window.NovelDBPython.start();")
             let state = try JSONDecoder().decode(StartState.self, from: data)
             guard state.ready else { throw SourceError.parse("The Python engines did not start: \(state.error ?? "no answer")") }
+            // In a worker the Catalog page keeps working while they run; in the page it pauses with them.
+            context.logger.log(.info, state.worker == true ? "[Reader] Python engines started (in the background)"
+                : "[Reader] Python engines started (without a worker: the Catalog may pause while they work)")
         } catch {
             await opened.close()
             throw error
@@ -197,5 +200,6 @@ actor PythonEngines {
     private struct StartState: Decodable {
         var ready: Bool
         var error: String?
+        var worker: Bool?
     }
 }
