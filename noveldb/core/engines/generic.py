@@ -275,7 +275,8 @@ _SYNOPSIS = ("[class*=detail-info-right-content], .summary__content, .descriptio
              "[class*=summary], [class*=intro], #intro")
 # A book page's own list of tags or genres (not the site's menu of them).
 _TAG_LISTS = ("[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
-              ".categories")
+              ".categories, [class*=book-tags], [class*=info--tags], [class*=project-tags], [class*=series-tags], "
+              ".book-label, [class*=comic-chips], [class*=tagList], [class*=tag-box], [class*=tags-box]")
 _COVER_IMAGES = ("[class*=cover] img, [class*=thumb] img, [class*=poster] img, img[class*=cover], "
                  "[class*=book] img")
 _NOT_COVER = re.compile(r"(gravatar|googleusercontent\.com/a/|/unit/|\.svg($|\?)|(^|/)[^/?]*(logo|icon|flag|avatar|sprite|placeholder|default)[^/]*$)", re.I)
@@ -289,7 +290,8 @@ _NO_SYNOPSIS = re.compile(r"^(n/?a|none|null|nil|unknown|tbd|updating|coming soo
                           r"(description|summary) (updating|not found)\W*|no (description|synopsis|summary)( yet| available)?\.?)$", re.I)
 _MORE_LESS = re.compile(r"\[?(more|less|show more|show less|read more)\]?", re.I)
 # Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
-_NOT_TAG = re.compile(r"^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$", re.I)
+_NOT_TAG = re.compile(r"^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))\s*[:：]?$|"
+                      r"^(\+\s*\d+|(ещё|еще|more|и ещё)\s*\d+|\d+\s*more)$", re.I)
 _MENU = re.compile(r"(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)", re.I)
 
 
@@ -544,9 +546,13 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
             continue  # a site-wide genre widget, each genre with its count ("Action (215)")
         links.extend(found)
         if not found:
-            # Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
-            tags.extend(word.strip() for word in re.split(r"[,/|·•]", text_of(box))
-                        if 1 < len(word.strip()) <= 40 and not _NOT_TAG.match(word.strip()))
+            # Genres with no links: each in an element of its own (zongheng's spans, mhscans' chips), or
+            # written out in one (webtoons' <h2 class="genre">Fantasy</h2>, "Action, Comedy").
+            leaves = [text_of(item) for item in box.find_all(True) if not item.find(True)]
+            if box.name in ("h1", "h2", "h3", "h4", "h5", "h6") and len(leaves) >= 2:
+                continue  # a heading of several parts (linovelib's volume list: "(共3卷) 倒序 | 正序"), not tags
+            words = leaves if len(leaves) >= 2 else re.split(r"[,/|·•]", text_of(box))
+            tags.extend(word.strip() for word in words if 1 < len(word.strip()) <= 40 and not _NOT_TAG.match(word.strip()))
     for link in links:
         word = text_of(link)
         if 1 < len(word) <= 40 and not _NOT_TAG.match(word):

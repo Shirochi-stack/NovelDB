@@ -498,7 +498,8 @@ const SYNOPSIS = "[class*=detail-info-right-content], " +
     "[class*=summary], [class*=intro], #intro";
 // A book page's own list of tags or genres (not the site's menu of them).
 const TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
-    + ".categories";
+    + ".categories, [class*=book-tags], [class*=info--tags], [class*=project-tags], [class*=series-tags], "
+    + ".book-label, [class*=comic-chips], [class*=tagList], [class*=tag-box], [class*=tags-box]";
 const COVER_IMAGES = "[class*=cover] img, [class*=thumb] img, [class*=poster] img, img[class*=cover], [class*=book] img";
 const NOT_COVER = /(gravatar|googleusercontent\.com\/a\/|\/unit\/|\.svg($|\?)|(^|\/)[^\/?]*(logo|icon|flag|avatar|sprite|placeholder|default)[^\/]*$)/i;
 const SYNOPSIS_HEADING = /^\s*(synopsis|summary|description|story|about( this (novel|book|series))?|sinopsis|sinopse|résumé|resumen)\s*[:：]?\s*$/i;
@@ -508,7 +509,7 @@ const ANNOUNCEMENT = /(📢|📌|🔔|new feature|announcement|join (us on|our) 
 const NO_SYNOPSIS = /^(n\/?a|none|null|nil|unknown|tbd|updating|coming soon|-+|(description|summary) (updating|not found)\W*|no (description|synopsis|summary)( yet| available)?\.?)$/i;
 const MORE_LESS = /\[?(more|less|show more|show less|read more)\]?/gi;
 // Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
-const NOT_TAG = /^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$/i;
+const NOT_TAG = /^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))\s*[:：]?$|^(\+\s*\d+|(ещё|еще|more|и ещё)\s*\d+|\d+\s*more)$/i;
 const MENU = /(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)/i;
 
 /** `node` sits in the site's own header, menu or footer (one of `tags`, or a menu-like class). The book's
@@ -803,8 +804,14 @@ function metadata(doc, url) {
         }
         tagLinks.push(...found);
         if (!found.length) {
-            // Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
-            tags.push(...textOf(box).split(/[,/|·•]/).map(word => word.trim())
+            // Genres with no links: each in an element of its own (zongheng's spans, mhscans' chips), or
+            // written out in one (webtoons' <h2 class="genre">Fantasy</h2>, "Action, Comedy").
+            let leaves = Array.from(box.querySelectorAll("*")).filter(item => !item.firstElementChild).map(item => textOf(item));
+            if (/^H[1-6]$/.test(box.tagName) && leaves.length >= 2) {
+                continue;  // a heading of several parts (linovelib's volume list: "(共3卷) 倒序 | 正序"), not tags
+            }
+            let words = leaves.length >= 2 ? leaves : textOf(box).split(/[,/|·•]/);
+            tags.push(...words.map(word => word.trim())
                 .filter(word => word.length > 1 && word.length <= 40 && !NOT_TAG.test(word)));
         }
     }
