@@ -314,3 +314,15 @@ def test_a_section_heading_in_brackets_matches_its_contents_entry():
     assert RbooksAppProxy._section_matches_title({'html': '<h2>&nbsp;외전 4―지스카르</h2>'}, '외전 4―지스카르')
     assert RbooksAppProxy._section_matches_title({'html': '<h2>14</h2><p>x</p>'}, '14.')
     assert not RbooksAppProxy._section_matches_title({'html': '<h2>15</h2><p>x</p>'}, '14.')
+
+
+@pytest.mark.parametrize('title', ['두 개의 제국, 제국의 노예 6권 (완결)', '두 개의 제국, 제국의 노예 3권'])
+def test_a_volume_title_with_a_suffix_finds_its_series_card(monkeypatch, title):
+    # "6권 (완결)" kept its whole title as the series' name: its series card was never found.
+    proxy = RbooksAppProxy(lambda message: None)
+    sent = []
+    monkeypatch.setattr(proxy, '_evaluate', lambda suffix, script: sent.append(script) or {'status': 'group'})
+    proxy._library_volume_state('297035783', title)
+    from scripts.source_names import dumps
+
+    assert 'seriesTitle = ' + dumps('두 개의 제국, 제국의 노예') + ',' in sent[0]

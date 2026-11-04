@@ -120,8 +120,11 @@ class RbooksAppProxy:
         }
         return result;
       }
-      const series = cards.find(c => c.book.layout?.type === 'manyVolume' &&
-        (c.book.title === seriesTitle || c.book.title === title));
+      // The series card by its name, else the one whose name the volume's title starts with.
+      const many = cards.filter(c => c.book.layout?.type === 'manyVolume');
+      const series = many.find(c => c.book.title === seriesTitle || c.book.title === title) ||
+        many.filter(c => c.book.title && title.startsWith(c.book.title))
+          .sort((a, b) => b.book.title.length - a.book.title.length)[0];
       if (series) {
         const result = {status:'group', bookId, seriesId:String(series.book.unitId)};
         if (action === 'expand' || action === 'activate') {
@@ -777,7 +780,8 @@ class RbooksAppProxy:
         })()""")
 
     def _library_volume_state(self, book_id, title, action='observe'):
-        series_title = re.sub(r'\s+\d+\s*권\s*$', '', title).strip()
+        # The series' name: the volume's title without "6권" and what follows it ("6권 (완결)", "3권 (외전)").
+        series_title = re.sub(r'\s+(제\s*)?\d+\s*권(?=\W|$).*$', '', title).strip()
         script = self.LIBRARY_VOLUME_SCRIPT % tuple(
             source_dumps(value) for value in (str(book_id), title, series_title, action))
         return self._evaluate('Books', script) or {
