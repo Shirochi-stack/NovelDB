@@ -23,12 +23,12 @@
     // TOP_KEY's version: a new one drops the top lists saved by older code.
     // A top list shows TOP_SIZE books at first, TOP_STEP more each time it is scrolled to its end.
     var TOP_KEY = 'noveldb.generic.top.v6', TOP_HOURS = 12, TOP_SIZE = 100, TOP_STEP = 50;
-    var TAGS = ['Action', 'Adventure', 'Apocalypse', 'BL', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
+    var TAGS = ['Action', 'Adventure', 'Apocalypse', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
         'Romance', 'Romantic Comedy', 'School Life', 'Sci-fi', 'Seinen', 'Shoujo', 'Shounen', 'Slice of Life', 'Sports',
         'Supernatural', 'System', 'Thriller', 'Time Travel', 'Tragedy', 'Transmigration', 'Villainess', 'Wuxia', 'Xianxia',
-        'Xuanhuan', 'Yaoi', 'Yuri'];
+        'Xuanhuan', 'Yuri', 'BL', 'Yaoi'];  // BL last: a niche the tag menu doesn't lead with
     // A site's "nothing matched your search" page (the app drops these too; see generic_search.NO_RESULTS).
     var NO_RESULTS = /(no (items?|results?|books?|novels?|titles?|matches|products?)( were)? (found|matching|match)|nothing (was )?found|did not match any|didn't match any|(found|returned) (0|no) (results?|items?|matches)|\b0 results\b|no results for|見つかりませんでした|該当する.{0,6}(ありません|見つかりません)|検索結果は?0件|검색\s*결과가\s*없|결과가\s*없습니다|일치하는.{0,10}없|没有找到|未找到|沒有找到|找不到相关|暂无(结果|数据|相关)|無結果|无结果|查無|no se encontraron|sin resultados|aucun résultat|ничего не найдено|не найдено|keine (ergebnisse|treffer)|nenhum resultado)/i;
     var JUNK = /^(request|requests|リクエスト|login|log in|sign in|ログイン|search|検索|more|もっと見る|home|top|next|prev(ious)?|menu|contact( us)?|about( us)?|privacy( policy)?|terms( of (service|use))?|dmca|faq|feedback|support|donate)$/i;
@@ -90,6 +90,26 @@
         if (best === 'zh' && /[\u3040-\u30ff]/.test(text)) best = 'ja';
         return most > letters / 2 ? best : '';
     }
+    // Latin-letter languages told apart by their most common little words (a Spanish site on .org).
+    var LATIN_WORDS = {
+        en: 'the and of to is that his her with was he she for but you they this from have',
+        es: 'el los las y del por con una es su se lo pero más sus al le está ser',
+        pt: 'não um uma os com para ele ela você mais mas seu sua foi é ao dos das',
+        fr: 'le les des et est une du dans pour qui pas au sur il elle avec son ses',
+        de: 'der die und das ist nicht ein eine mit sich auf den dem zu sie er',
+        id: 'yang dan di ini itu dengan untuk tidak dari ke akan dia aku kamu',
+        vi: 'của và là một những không cho người được với này khi đã',
+        tr: 've bir bu için ile çok ama değil olarak daha onun'
+    };
+    var LATIN_SETS = Object.keys(LATIN_WORDS).map(function (lang) { return [lang, new Set(LATIN_WORDS[lang].split(' '))]; });
+    function latinLang(text) {
+        var words = String(text || '').slice(0, 800).toLowerCase().match(/\p{L}+/gu) || [];
+        if (words.length < 6) return '';
+        var counts = LATIN_SETS.map(function (entry) {
+            return [entry[0], words.filter(function (w) { return entry[1].has(w); }).length];
+        }).sort(function (a, b) { return b[1] - a[1]; });
+        return counts[0][1] >= 3 && counts[0][1] > counts[1][1] * 1.3 ? counts[0][0] : '';
+    }
     // Sites whose books turned out to be in another language than their domain says (an Arabic site on
     // .net): learned from their synopses, for their books that show none.
     var siteLangs = new Map();
@@ -97,8 +117,8 @@
     function langOf(card) {
         var plugin = card.plugin && pluginLangs[card.plugin];
         if (plugin) return plugin;
-        var written = scriptLang(card.description);
-        if (written) { if (card.site) siteLangs.set(card.site, written); return written; }
+        var written = scriptLang(card.description) || latinLang(card.description + ' ' + (card.title || ''));
+        if (written) { if (card.site && written !== 'en') siteLangs.set(card.site, written); return written; }
         var title = String(card.title || '');
         if (/[\uac00-\ud7af]/.test(title)) return 'ko';
         if (/[\u3040-\u30ff]/.test(title)) return 'ja';
@@ -489,7 +509,7 @@
         if (group.rating) out.push('★ ' + group.rating + (group.ratings ? ' (' + shortCount(group.ratings) + ')' : ''));
         if (group.likes) out.push('♥ ' + shortCount(group.likes));
         if (group.views) out.push('👁 ' + shortCount(group.views));
-        if (group.chapters) out.push(shortCount(group.chapters) + ' ch');
+        if (group.chapters) out.push('📄 ' + shortCount(group.chapters));
         return out;
     }
     // A count as a card shows it: 3,429,619 is "3.4M", 120,856 "121K" (the details panel keeps every digit).
@@ -1011,7 +1031,7 @@
         var cached = !top.only.length && store(TOP_KEY + '.' + top.kind + '.' + language);
         if (cached && cached.items && cached.items.length) {
             cached.items.forEach(function (item, index) {
-                if (notInTop(item)) return;
+                if (notInTop(item) || !inLanguage(item)) return;
                 var group = merge(item, index + 1);
                 if (group) { (item.more || []).forEach(function (m) { merge(m); }); render(group); }
             });
@@ -1022,7 +1042,7 @@
         loadTop(searchId);
     }
     // Kept out of the top lists (a search still finds them): a book whose tags or title say so.
-    var NOT_IN_TOP = /\b(yaoi|smut)\b/i;
+    var NOT_IN_TOP = /\b(yaoi|smut|bl|boys?'?s? ?love|shounen[- ]?ai|(?<!young )adult[oa]?s?|hentai|r-?18)\b|\b18\+/i;
     function notInTop(item) {
         return NOT_IN_TOP.test(item.title || '') || (item.tags || []).some(function (tag) { return NOT_IN_TOP.test(tag); });
     }
@@ -1697,18 +1717,23 @@
                     fetch(data.dataUrl).then(function (r) { return r.blob(); }).then(function (blob) {
                         var url = URL.createObjectURL(blob);
                         pictures.urls.push(url);
-                        this.src = url;
-                        this.classList.add('ready');
+                        showSlot(this, url);
                     }.bind(this));
                 } else {
-                    this.src = this.dataset.src;  // the browser itself, as a last try
-                    this.classList.add('ready');
+                    showSlot(this, this.dataset.src);  // the browser itself, as a last try
                 }
                 showPictures();
                 pumpPictures();
             }.bind(image));
         }
         showPictures();
+    }
+    // Halgakos stays until the picture is decoded and laid out (a slot never shows empty or collapses
+    // first); one that won't load keeps her.
+    function showSlot(image, src) {
+        image.addEventListener('load', function () { image.classList.add('ready'); }, {once: true});
+        image.addEventListener('error', function () { image.removeAttribute('src'); image.title = 'This image could not be loaded'; }, {once: true});
+        image.src = src;
     }
     // A chapter of images as slots: each shows Halgakos until its image arrives.
     function slotHtml(src) { return '<img class="slot" alt="" data-src="' + esc(src || '') + '">'; }
@@ -1742,7 +1767,8 @@
         R.slots.slice(images.length).forEach(function (slot) { slot.remove(); });
         pictures.total = images.length;
         showPictures();
-        paginate(0);
+        // The reader stays where it is: a scrolled chapter keeps its scroll, pages are counted again.
+        if (layout() === 'scroll') place(); else paginate(readingAt());
         if (R.index + 1 < R.chapters.length) loadChapter(R.index + 1);
     }
 

@@ -7,26 +7,27 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.materialIcon
 import androidx.compose.material.icons.materialPath
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -37,8 +38,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Badge
@@ -68,9 +67,12 @@ import android.app.Activity
 import android.content.ContextWrapper
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.R
 import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.Tab
 
@@ -267,20 +269,41 @@ private val BAR_ITEMS = listOf(
 private fun DownloadSwitch(tab: Tab, onSelect: (Tab) -> Unit, actions: (@Composable () -> Unit)?) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val options = listOf(Tab.CATALOG to "Catalog", Tab.ADD to "Add links")
-            SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
-                options.forEachIndexed { index, (option, label) ->
-                    SegmentedButton(
-                        selected = tab == option,
-                        onClick = { onSelect(option) },
-                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                        icon = {
-                            Icon(if (option == Tab.CATALOG) Icons.Filled.Search else Icons.Filled.Add, contentDescription = null)
-                        },
-                    ) { Text(label) }
+            // A slim pill track; the chosen side is filled. Halgakos mining for the Catalog, in her cart for links.
+            val options = listOf(
+                Triple(Tab.CATALOG, "Catalog", R.drawable.halgakos_mining),
+                Triple(Tab.ADD, "Add links", R.drawable.halgakos_cart),
+            )
+            Row(
+                Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                options.forEach { (option, label, art) ->
+                    val on = tab == option
+                    val fill by animateColorAsState(
+                        if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        label = "download-switch",
+                    )
+                    Row(
+                        Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(17.dp)).background(fill)
+                            .selectable(selected = on, role = Role.Tab, onClick = { onSelect(option) }),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Image(painterResource(art), contentDescription = null, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
             actions?.invoke()

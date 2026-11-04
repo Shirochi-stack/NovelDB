@@ -169,14 +169,10 @@ struct RootView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 // Not over the Catalog's reader in full screen.
                 if !(downloadMode == .catalog && catalog.readerFullScreen) {
-                    Picker("Download", selection: Binding(get: { downloadMode }, set: { downloadMode = $0; selection = $0 })) {
-                        Label("Catalog", systemImage: "books.vertical").tag(Panel.catalog)
-                        Label("Add links", systemImage: "plus.circle").tag(Panel.add)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .background(.bar)
+                    DownloadSwitch(mode: downloadMode) { downloadMode = $0; selection = $0 }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(.bar)
                 }
             }
             .onChange(of: selection) { _, panel in
@@ -187,5 +183,39 @@ struct RootView: View {
         case .queue: QueueView()
         case .settings: SettingsView()
         }
+    }
+}
+
+/// The Download tab's header: a slim pill track whose chosen side is filled. Halgakos mining for the
+/// Catalog, in her cart for links.
+private struct DownloadSwitch: View {
+    let mode: Panel
+    let choose: (Panel) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            side(.catalog, "Catalog", art: "HalgakosMining")
+            side(.add, "Add links", art: "HalgakosCart")
+        }
+        .padding(3)
+        .frame(height: 40)
+        .background(Capsule().fill(Color(.secondarySystemFill)))
+    }
+
+    private func side(_ panel: Panel, _ label: String, art: String) -> some View {
+        let on = mode == panel
+        return Button { choose(panel) } label: {
+            HStack(spacing: 6) {
+                Image(art).resizable().scaledToFit().frame(width: 28, height: 28)
+                Text(label).font(.subheadline.weight(on ? .semibold : .regular)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .foregroundStyle(on ? Color.primary : Color.secondary)
+            .background(Capsule().fill(on ? Color.accentColor.opacity(0.28) : Color.clear))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .animation(.easeOut(duration: 0.15), value: on)
     }
 }
