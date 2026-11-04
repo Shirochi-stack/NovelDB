@@ -505,8 +505,27 @@
         return n >= 1e9 ? unit(1e9, 'B') : n >= 1e6 ? unit(1e6, 'M') : n >= 1e4 ? unit(1e3, 'K') : n.toLocaleString();
     }
 
+    // Cards stream in one by one, and each synopsis redraws its card: they are drawn together once a
+    // frame, then measured together (a measurement lays the page out, so one per card would lag).
+    var dirty = new Set(), frame = 0;
     function render(group) {
         if (groups.get(group.key) !== group) return;  // replaced (the top list re-sorted) or dropped
+        dirty.add(group);
+        if (frame) return;
+        var go = function () { if (frame) { cancelAnimationFrame(frame.raf); clearTimeout(frame.timer); frame = 0; drawCards(); } };
+        frame = {raf: requestAnimationFrame(go), timer: setTimeout(go, 120)};  // a hidden page has no frames
+    }
+    function drawCards() {
+        var drawn = Array.from(dirty).filter(drawCard);
+        dirty.clear();
+        drawn.forEach(function (group) {
+            fit(group.element.querySelector('.title'));
+            fitTags(group.element.querySelector('.tags'));
+        });
+        empty();
+    }
+    function drawCard(group) {
+        if (groups.get(group.key) !== group) return false;
         var element = group.element;
         if (!element) {
             element = group.element = document.createElement('div');
@@ -565,9 +584,7 @@
             }, {once: true});
         }
         element.style.display = wanted(group) && !(group.held && !group.verified) ? '' : 'none';
-        fit(element.querySelector('.title'));
-        fitTags(element.querySelector('.tags'));
-        empty();
+        return true;
     }
 
     // Some sites refuse covers to other pages: the app fetches it with the site's address; then the
@@ -702,7 +719,9 @@
         if (!title || !title.offsetParent) return;
         title.classList.remove('clamp');
         title.style.webkitLineClamp = '';
-        for (var size = 13; size >= 7; size -= 0.5) {
+        title.style.fontSize = '';
+        if (title.scrollHeight <= TITLE_BOX + 1) return;  // most titles fit at full size: one measurement
+        for (var size = 12.5; size >= 7; size -= 0.5) {
             title.style.fontSize = size + 'px';
             if (title.scrollHeight <= TITLE_BOX + 1) return;
         }
@@ -772,12 +791,14 @@
     }, {rootMargin: '200px'}) : null;
     function pump() {
         // A NovelDB book's details are one small read of its synopsis: never behind the sites' book pages.
-        queue = queue.filter(function (group) {
-            var first = group.sources[0];
-            if (!first || !first.noveldb || !groups.has(group.key)) return true;
-            send({type: 'genericDetails', id: searchId, card: strip(group, first)});
-            return false;
-        });
+        // Taken off the queue before any is sent: an answer can come back at once and pump again.
+        var noveldb = queue.filter(function (group) { return group.sources[0] && group.sources[0].noveldb; });
+        if (noveldb.length) {
+            queue = queue.filter(function (group) { return noveldb.indexOf(group) < 0; });
+            noveldb.forEach(function (group) {
+                if (groups.has(group.key)) send({type: 'genericDetails', id: searchId, card: strip(group, group.sources[0])});
+            });
+        }
         while (loading < (tagOnly() ? 8 : 4) && queue.length) {
             var group = queue.shift();
             if (!groups.has(group.key)) continue;
@@ -1921,10 +1942,20 @@
     function moreSoon() {
         if (!nearEnd() || $('reader').classList.contains('open')) return;
         if (view === 'search') {
-            if (more.loading || !more.has || running || !current.queries || current.byId) return;
+            if (more.loading || !current.queries || current.byId) return;
+            // NovelDB's next page (`ndbPage`; 0: it has no more) is read as soon as the list is scrolled to
+            // its end, while the sites still search; their next pages wait for the search to end.
+            var ndbNext = more.ndbHas !== false && progress.noveldb > 0 ? more.ndbPage || 1 : 0;
+            if (running) {
+                if (!ndbNext) return;
+                more.loading = true;
+                send({type: 'genericMore', id: searchId, queries: current.queries, page: more.page, ndbPage: ndbNext, sites: false});
+                return;
+            }
+            if (!more.has) return;
             more.loading = true;
             status('Loading more results…');
-            send({type: 'genericMore', id: searchId, queries: current.queries, page: more.page});
+            send({type: 'genericMore', id: searchId, queries: current.queries, page: more.page, ndbPage: ndbNext});
         } else if (view === 'top') {
             var waiting = Array.from(top.scores.values()).filter(function (entry) { return !entry.group && !entry.excluded; }).length;
             if (waiting) {
@@ -1969,6 +2000,15 @@
         add: add,
         moreDone: function (id, state) {
             if (id !== searchId) return;
+            if (view === 'search' && state && state.ndbPage) { more.ndbPage = state.ndbPage + 1; more.ndbHas = !!state.ndbMore; }
+            if (view === 'search' && state && state.ndbOnly) {
+                // NovelDB's page read while the search runs: the sites' next page is still to come.
+                more.loading = false;
+                countLine();
+                empty();
+                setTimeout(moreSoon, 300);
+                return;
+            }
             // A top list's next page comes in parts: the last one to answer finishes it.
             if (state && state.more) more.any = true;
             if (more.parts > 1) { more.parts--; return; }

@@ -466,16 +466,18 @@ class GenericSearch:
         done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=timed_out or bool(summary.get("late"))))
 
     def more(self, text: str, mode: str, page: int, emit: Callable[[List[dict]], None], stop: threading.Event,
-             done: Callable[[dict], None] = lambda _s: None, deadline: float = 30.0) -> None:
-        """The next results of a search, as it is scrolled: NovelDB's page `page` (1 is the second), and
-        the next page of each site whose results page had one. `done` hears {"more": whether any source
-        has more after these}."""
+             done: Callable[[dict], None] = lambda _s: None, deadline: float = 30.0,
+             ndb_page: Optional[int] = None, sites: bool = True) -> None:
+        """The next results of a search, as it is scrolled: NovelDB's page `ndb_page` (default `page`; 1 is
+        the second, 0 none), and with `sites` the next page of each site whose results page had one. `done`
+        hears {"more": whether any source has more after these, "ndbMore": whether NovelDB has}."""
+        ndb_page = page if ndb_page is None else ndb_page
         text = (text or "").strip()
         mode = mode if mode in MODES else "name"
         kind = "tag" if mode == "tag" else "search"
         lock = threading.Lock()
         seen: set = set()
-        state = {"more": False, "results": 0}
+        state = {"more": False, "ndbMore": False, "results": 0}
 
         def offer(cards: List[dict]) -> None:
             fresh = []
@@ -490,10 +492,10 @@ class GenericSearch:
                 emit(fresh)
 
         def from_noveldb():
-            cards, more = self.noveldb.search_page(text, mode, page)
+            cards, more = self.noveldb.search_page(text, mode, ndb_page)
             offer([dict(card, verified=mode != "name") for card in cards])
             if more:
-                state["more"] = True
+                state["more"] = state["ndbMore"] = True
 
         def from_site(home: str):
             if stop.is_set():
@@ -504,8 +506,8 @@ class GenericSearch:
             if self.site_search.has_more(home, kind, text):
                 state["more"] = True
 
-        jobs = [from_noveldb] if self.noveldb is not None else []
-        for site in self.sites:
+        jobs = [from_noveldb] if self.noveldb is not None and ndb_page >= 1 else []
+        for site in self.sites if sites else []:
             home = f"https://{site['host']}/"
             if self.site_search.has_more(home, kind, text):
                 jobs.append(lambda home=home: from_site(home))

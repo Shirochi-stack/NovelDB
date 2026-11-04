@@ -68,7 +68,8 @@
     h1#heading a { font-size: 13px; font-weight: 400; color: var(--accent); cursor: pointer; }
     #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 14px; }
     .card { background: var(--panel); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; display: flex;
-            flex-direction: column; cursor: pointer; position: relative; }
+            flex-direction: column; cursor: pointer; position: relative;
+            contain: layout style; }  /* a card's layout stays its own: measuring one doesn't lay out the grid */
     .card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.18); }
     /* Halgakos stands in while a cover loads, and for a book without one (or one that won't load). */
     .cover { aspect-ratio: 2 / 3; background: var(--chip) url(halgakos-loading.webp) center / cover no-repeat; display: flex; align-items: center; justify-content: center;

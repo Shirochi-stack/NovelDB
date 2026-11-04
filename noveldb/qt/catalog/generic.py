@@ -78,6 +78,11 @@ def parse_message(data: dict) -> Optional[dict]:
         return None
     if kind == "genericMore" and not (isinstance(data.get("page"), int) and data["page"] >= 1):
         return None
+    # NovelDB's page of the next results (0: none) and whether the sites' next pages come too.
+    if kind == "genericMore" and "ndbPage" in data and not (isinstance(data["ndbPage"], int) and 0 <= data["ndbPage"] <= 10000):
+        return None
+    if kind == "genericMore" and not isinstance(data.get("sites", True), bool):
+        return None
     if kind in ("genericSearch", "genericMore"):
         # A search is one or more queries run together: the title, and each tag picked in the tag menu.
         asked = data.get("queries")
@@ -304,7 +309,7 @@ class GenericCatalog(QObject):
         elif kind == "genericSearch":
             self.search(int(data.get("id") or 0), data["queries"])
         elif kind == "genericMore":
-            self.more(int(data.get("id") or 0), data["queries"], data["page"])
+            self.more(int(data.get("id") or 0), data["queries"], data["page"], data.get("ndbPage"), data.get("sites", True))
         elif kind == "genericTopMore":
             self.top_more(int(data.get("id") or 0))
         elif kind == "genericNdbTop":
@@ -418,14 +423,20 @@ class GenericCatalog(QObject):
 
         threading.Thread(target=run, name="generic-top", daemon=True).start()
 
-    def more(self, search_id: int, queries: list, page: int) -> None:
-        """The search's next results, as the page is scrolled: NovelDB's page `page` and each site's next
-        results page. The page hears `moreDone` with {"more"} once every query has answered."""
+    def more(self, search_id: int, queries: list, page: int, ndb_page=None, sites: bool = True) -> None:
+        """The search's next results, as the page is scrolled: NovelDB's page `ndb_page` (default `page`;
+        0: none) and, with `sites`, each site's next results page. The page hears `moreDone` with
+        {"more", "ndbPage", "ndbMore", "ndbOnly"} once every query has answered."""
         stop = self._stop
+        ndb_page = page if ndb_page is None else ndb_page
         queries = [q for q in queries if q["mode"] in ("name", "tag", "author")]
-        left, more, lock = [len(queries)], [False], threading.Lock()
+        left, more, ndb_more, lock = [len(queries)], [False], [False], threading.Lock()
+
+        def finished():
+            self._more_done.emit(search_id, {"more": more[0], "ndbPage": ndb_page, "ndbMore": ndb_more[0], "ndbOnly": not sites})
+
         if not queries:
-            self._more_done.emit(search_id, {"more": False})
+            finished()
             return
 
         def run(query: str, mode: str):
@@ -434,15 +445,16 @@ class GenericCatalog(QObject):
             state = {}
             try:
                 engine.more(query, mode, page, lambda cards: self._cards.emit(search_id, [dict(c, via=mode) for c in cards]),
-                            stop, state.update)
+                            stop, state.update, ndb_page=ndb_page, sites=sites)
             except Exception as e:
                 log.warning("generic search (more) failed: %s", e)
             with lock:
                 more[0] = more[0] or bool(state.get("more"))
+                ndb_more[0] = ndb_more[0] or bool(state.get("ndbMore"))
                 left[0] -= 1
                 last = left[0] == 0
             if last:
-                self._more_done.emit(search_id, {"more": more[0]})
+                finished()
 
         for item in queries:
             threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-more", daemon=True).start()

@@ -1244,9 +1244,12 @@
         });
     }
     var topSites = [];  // the shown top list's sites, for their next pages
-    /** A search's next results as it is scrolled: NovelDB's page `page`, each site's next results page. */
-    function more(id, queries, page) {
-        var token = current.token || newToken(), state = {more: false};
+    /** A search's next results as it is scrolled: NovelDB's page `ndbPage` (default `page`; 0: none) and,
+     *  with `sites`, each site's next results page. The page hears moreDone(id, {more, ndbPage, ndbMore, ndbOnly}). */
+    function more(id, queries, page, ndbPage, sites) {
+        if (ndbPage == null) ndbPage = page;
+        if (sites === undefined) sites = true;
+        var token = current.token || newToken(), state = {more: false, ndbPage: ndbPage, ndbMore: false, ndbOnly: !sites};
         ready.then(function () {
             return Promise.all(queries.filter(function (q) { return q.mode !== 'id'; }).slice(0, 6).map(function (item) {
                 var mode = item.mode === 'tag' || item.mode === 'author' ? item.mode : 'name', kind = mode === 'tag' ? 'tag' : 'search', text = item.query, seen = {};
@@ -1254,11 +1257,11 @@
                     var fresh = cards.filter(function (c) { var k = c.url.replace(/\/+$/, ''); if (seen[k]) return false; seen[k] = true; return true; });
                     if (fresh.length && !stopped(token)) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
                 }
-                var jobs = [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (page - 1) * NDB_MORE).then(function (found) {
+                var jobs = ndbPage >= 1 ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE).then(function (found) {
                     offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode !== 'name'}); }));
-                    if (found.more) state.more = true;
-                }, function () {})];
-                SITES.forEach(function (site) {
+                    if (found.more) { state.more = true; state.ndbMore = true; }
+                }, function () {})] : [];
+                if (sites) SITES.forEach(function (site) {
                     var home = 'https://' + site.host + '/';
                     if (!hasMore(home, kind, text)) return;
                     jobs.push(siteMore(home, kind, text, token).then(function (hits) {
@@ -1308,23 +1311,28 @@
     // -- the details cache and covers --------------------------------------------------------------
 
     var DETAILS_KEY = 'noveldb.generic.details.v2', DETAILS_DAYS = 3;  // v2: no details read by older code
+    // Read from storage once and written back a second after the last change: the whole cache is one
+    // stored value (hundreds of synopses), too big to parse or write for every card.
+    var detailsKept = null, detailsTimer = 0;
+    function detailsCache() { return detailsKept || (detailsKept = store(DETAILS_KEY) || {}); }
     function cachedDetails(url) {
-        var all = store(DETAILS_KEY) || {};
-        var found = all[url];
+        var found = detailsCache()[url];
         return found && Date.now() - found.at < DETAILS_DAYS * 86400000 ? found.value : null;
     }
     function keepDetails(url, value) {
-        var all = store(DETAILS_KEY) || {};
+        var all = detailsCache();
         all[url] = {at: Date.now(), value: value};
         var keys = Object.keys(all);
         if (keys.length > 400) {
             keys.sort(function (a, b) { return all[a].at - all[b].at; }).slice(0, keys.length - 400).forEach(function (k) { delete all[k]; });
         }
-        store(DETAILS_KEY, all);
+        clearTimeout(detailsTimer);
+        detailsTimer = setTimeout(function () { store(DETAILS_KEY, detailsKept); }, 1000);
     }
     function detailsFor(item) {
         var cached = cachedDetails(item.url);
-        if (cached) { call('details', Object.assign({}, item, cached, {complete: true})); return; }
+        // Answered after the page's call returns, as a read would be: never inside its own loop.
+        if (cached) { Promise.resolve().then(function () { call('details', Object.assign({}, item, cached, {complete: true})); }); return; }
         ready.then(function () { return details(item); }).catch(function () { return Object.assign({}, item, {complete: true}); })
             .then(function (found) {
                 var keep = {};
@@ -1534,7 +1542,9 @@
             top(message.id || 0, message.kind, String(message.language || 'all').slice(0, 5),
                 (Array.isArray(message.sites) ? message.sites : []).filter(function (s) { return typeof s === 'string' && s; }).slice(0, 50));
             break;
-        case 'genericMore': if (message.page >= 1 && Array.isArray(message.queries)) more(message.id || 0, message.queries, message.page); break;
+        case 'genericMore':
+            if (message.page >= 1 && Array.isArray(message.queries)) more(message.id || 0, message.queries, message.page, message.ndbPage, message.sites !== false);
+            break;
         case 'genericTopMore': topMore(message.id || 0); break;
         case 'genericNdbTop':
             ndbTop(message.id || 0, (Array.isArray(message.sources) ? message.sources : []).filter(function (s) { return /^[a-z0-9_]{1,20}$/.test(s); }).slice(0, 12),
