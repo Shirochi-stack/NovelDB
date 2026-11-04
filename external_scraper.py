@@ -295,6 +295,15 @@ class ExternalScraper(SiteEnginesMixin):
         self._rbooks_cdp_port = None
         self._rbooks_app_proxy = None
         self._rbooks_app_lock = threading.Lock()
+        # FuckNovelpia's chapter Cloudflare check must finish in an ordinary,
+        # unattached Chrome window.  Playwright is connected only after the
+        # real reader document is visible.
+        self._fnp_browser = None
+        self._fnp_context = None
+        self._fnp_page = None
+        self._fnp_process = None
+        self._fnp_cdp_port = None
+        self._fnp_profile = None
         # Volumes whose PC viewer export failed in this run, by b_id. A volume is
         # tried at most twice, so one unreadable volume cannot hold up the rest.
         self._rbooks_export_failures = {}
@@ -2696,10 +2705,16 @@ class ExternalScraper(SiteEnginesMixin):
         env_path = os.environ.get("NPIA_CHROME_PATH")
         candidates = [env_path] if env_path else []
         if sys.platform == "win32":
+            system_root = (os.environ.get("SystemDrive") or "C:") + os.sep
             program_files = [
                 os.environ.get("PROGRAMFILES"),
                 os.environ.get("PROGRAMFILES(X86)"),
                 os.environ.get("LOCALAPPDATA"),
+                # GUI/managed launches can omit the usual ProgramFiles variables even though the
+                # browsers are installed in their standard Windows locations.
+                os.path.join(system_root, "Program Files"),
+                os.path.join(system_root, "Program Files (x86)"),
+                os.path.join(os.path.expanduser("~"), "AppData", "Local"),
             ]
             for root in filter(None, program_files):
                 candidates.extend([
@@ -3705,6 +3720,8 @@ class ExternalScraper(SiteEnginesMixin):
                 "--start-minimized",
                 "--window-position=-32000,-32000",
                 "--window-size=1280,900",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
                 "--disable-backgrounding-occluded-windows",
             ])
         else:
@@ -4731,6 +4748,7 @@ class ExternalScraper(SiteEnginesMixin):
 
     def cleanup(self):
         """Release browser resources."""
+        self._fnp_close_browser()
         self._ntk_clear_webtoon_pages()
         self._global_npia_shutdown_ad_worker()
         self._backup_storage_state()
@@ -11989,6 +12007,209 @@ async ({ urls, concurrency }) => {
             self.cleanup()
             return False
 
+    @staticmethod
+    def _is_fucknovelpia_url(url):
+        host = (urllib.parse.urlparse(url or '').hostname or '').lower()
+        return host.removeprefix('www.') == 'fucknovelpia.com'
+
+    def _fnp_close_browser(self):
+        """Close only the isolated Chrome used for FuckNovelpia chapters."""
+        port = getattr(self, '_fnp_cdp_port', None)
+        profile = getattr(self, '_fnp_profile', None)
+        if port:
+            try:
+                self._request_cdp_browser_close(port)
+            except Exception:
+                pass
+        if profile:
+            try:
+                self._wait_for_profile_processes_to_exit(profile, timeout=5)
+            except Exception:
+                pass
+        self._fnp_browser = None
+        self._fnp_context = None
+        self._fnp_page = None
+        self._fnp_process = None
+        self._fnp_cdp_port = None
+
+    @staticmethod
+    def _fnp_cdp_targets(port):
+        try:
+            with urllib.request.urlopen(
+                f'http://127.0.0.1:{port}/json/list', timeout=1
+            ) as response:
+                value = json.loads(response.read().decode('utf-8', errors='ignore'))
+            return value if isinstance(value, list) else []
+        except Exception:
+            return []
+
+    def _fnp_wait_for_verified_target(self, port, chapter_url, timeout=30):
+        """Wait without attaching automation while ordinary Chrome passes CF."""
+        wanted = urllib.parse.urlparse(chapter_url)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and not self._stop_requested:
+            for target in self._fnp_cdp_targets(port):
+                if target.get('type') != 'page':
+                    continue
+                current = urllib.parse.urlparse(target.get('url') or '')
+                if (current.hostname or '').lower() != (wanted.hostname or '').lower():
+                    continue
+                if current.path != wanted.path or current.query != wanted.query:
+                    continue
+                title = str(target.get('title') or '').strip().lower()
+                blocked = (
+                    not title
+                    or title in ('loading', 'loading...')
+                    or 'just a moment' in title
+                    or 'attention required' in title
+                    or 'security verification' in title
+                )
+                if not blocked:
+                    return target.get('id') or ''
+            time.sleep(0.25)
+        return ''
+
+    @staticmethod
+    def _fnp_page_is_challenge(page):
+        try:
+            title = (page.title() or '').lower()
+            text = page.locator('body').inner_text(timeout=1500).lower()[:2000]
+            return (
+                'just a moment' in title
+                or 'attention required' in title
+                or 'performing security verification' in text
+                or 'checking your browser' in text
+            )
+        except Exception:
+            return True
+
+    def _fnp_reader_result(self, page, chapter_name):
+        if self._fnp_page_is_challenge(page):
+            return None
+        try:
+            reader = page.locator('.reader').first
+            reader.wait_for(state='visible', timeout=8000)
+            content = reader.evaluate("""el => {
+                const clone = el.cloneNode(true);
+                clone.querySelectorAll('.reader-nav, script, style').forEach(node => node.remove());
+                return {html: clone.innerHTML, text: clone.innerText};
+            }""")
+        except Exception:
+            return None
+        html_value = str((content or {}).get('html') or '').strip()
+        text_value = str((content or {}).get('text') or '').strip()
+        if not html_value or len(text_value) < 20:
+            return None
+        return {
+            'chapterName': chapter_name,
+            'contentHtml': html_value,
+            'contentText': text_value,
+        }
+
+    def _fnp_attach_verified_chrome(self, port, target_id, chapter_url):
+        browser = self._playwright.chromium.connect_over_cdp(
+            f'http://127.0.0.1:{port}'
+        )
+        contexts = browser.contexts
+        context = contexts[0] if contexts else None
+        if context is None:
+            raise RuntimeError('installed Chrome exposed no browser context')
+        target_page = None
+        for page in context.pages:
+            try:
+                session = context.new_cdp_session(page)
+                info = session.send('Target.getTargetInfo').get('targetInfo') or {}
+                session.detach()
+                if target_id and info.get('targetId') == target_id:
+                    target_page = page
+                    break
+            except Exception:
+                pass
+        if target_page is None:
+            wanted = urllib.parse.urlparse(chapter_url)
+            for page in context.pages:
+                current = urllib.parse.urlparse(page.url or '')
+                if current.hostname == wanted.hostname and current.path == wanted.path:
+                    target_page = page
+                    break
+        if target_page is None:
+            browser.close()
+            raise RuntimeError('verified chapter tab disappeared before attachment')
+        self._fnp_browser = browser
+        self._fnp_context = context
+        self._fnp_page = target_page
+        self._fnp_cdp_port = port
+        return target_page
+
+    def _fnp_launch_verified_chapter(self, chapter_url):
+        profile = os.path.join(self._get_user_data_dir(), 'fucknovelpia_chrome')
+        self._fnp_profile = profile
+        # This is an app-owned, isolated profile. Clean up a previous crashed
+        # session instead of colliding with the user's Enter Browser window.
+        for old_port in self._chrome_remote_debugging_ports_using_profile(profile):
+            self._request_cdp_browser_close(old_port)
+        self._wait_for_profile_processes_to_exit(profile, timeout=4)
+
+        proc, port = self._open_system_chrome(
+            chapter_url,
+            remote_debugging=True,
+            user_data_dir=profile,
+            # Keep a real, headed installed-Chrome process (Cloudflare rejects
+            # headless Chromium), but start its native window minimized and
+            # off-screen so catalog/remote/mobile readers are not interrupted.
+            hidden=True,
+            window_size=(1280, 900),
+        )
+        if not proc or not port:
+            raise RuntimeError('installed Chrome/Edge was not found')
+        self._fnp_process = proc
+        self._fnp_cdp_port = port
+        started = time.monotonic()
+        self.log('[FuckNovelpia] Waiting for Chrome to complete Cloudflare verification…')
+        target_id = self._fnp_wait_for_verified_target(port, chapter_url, timeout=30)
+        if not target_id:
+            raise RuntimeError('Cloudflare verification did not complete within 30 seconds')
+        page = self._fnp_attach_verified_chrome(port, target_id, chapter_url)
+        self.log(
+            f'[FuckNovelpia] Verification completed in '
+            f'{time.monotonic() - started:.1f}s.'
+        )
+        return page
+
+    def _fnp_parse_chapter(self, chapter_url, chapter_name):
+        """Read a protected chapter without attaching until CF has finished."""
+        self.abort_reason = ''
+        page = self._fnp_page
+        if page is not None:
+            try:
+                page.goto(chapter_url, wait_until='domcontentloaded', timeout=15000)
+                result = self._fnp_reader_result(page, chapter_name)
+                if result:
+                    self.log(
+                        f'[FuckNovelpia] Chapter ready: {chapter_name} '
+                        f'({len(result.get("contentText") or ""):,} characters).'
+                    )
+                    return result
+            except Exception:
+                pass
+            self._fnp_close_browser()
+
+        try:
+            page = self._fnp_launch_verified_chapter(chapter_url)
+            result = self._fnp_reader_result(page, chapter_name)
+            if result:
+                self.log(
+                    f'[FuckNovelpia] Chapter ready: {chapter_name} '
+                    f'({len(result.get("contentText") or ""):,} characters).'
+                )
+                return result
+            raise RuntimeError('the verified page did not contain chapter text')
+        except Exception as exc:
+            self._fnp_close_browser()
+            self.abort_reason = f'[FuckNovelpia] Download stopped: {exc}'
+            self.log(self.abort_reason)
+            return None
+
     def _start_rbooks_browser(self, start_url, site='Rbooks'):
         """Run a site in installed Chrome with the saved external profile."""
         if self._context and self._page:
@@ -12009,9 +12230,11 @@ async ({ urls, concurrency }) => {
             self.cleanup()
 
         user_data_dir = self._get_user_data_dir()
+        visible_verification = site == 'FuckNovelpia'
         self.log(
-            f'[{site}] Starting headed installed Chrome off-screen with the '
-            'External Downloader profile...'
+            f'[{site}] Starting headed installed Chrome '
+            f'{"for automatic Cloudflare verification" if visible_verification else "off-screen"} '
+            'with the External Downloader profile...'
         )
         self.log(f'Browser profile: {user_data_dir}')
 
@@ -12051,7 +12274,7 @@ async ({ urls, concurrency }) => {
             user_data_dir=user_data_dir,
             hidden=False,
             window_size=(1280, 900),
-            window_position=(-32000, -32000),
+            window_position=(40, 40) if visible_verification else (-32000, -32000),
         )
         if not proc or not port:
             self.log(f'ERROR: [{site}] Installed Chrome/Edge was not found.')
@@ -12061,7 +12284,8 @@ async ({ urls, concurrency }) => {
         ready = False
         deadline = time.time() + 15
         while time.time() < deadline:
-            self._park_chrome_windows_for_profile(user_data_dir)
+            if not visible_verification:
+                self._park_chrome_windows_for_profile(user_data_dir)
             if self._wait_for_cdp(port, timeout=0.75):
                 ready = True
                 break
@@ -12070,7 +12294,8 @@ async ({ urls, concurrency }) => {
             self.cleanup()
             return False
 
-        self._park_chrome_windows_for_profile(user_data_dir)
+        if not visible_verification:
+            self._park_chrome_windows_for_profile(user_data_dir)
         return (self._rbooks_connect_cdp(port) if site == 'Rbooks'
                 else self._rbooks_connect_cdp(port, site))
 
@@ -21552,6 +21777,19 @@ async (items) => {
                 chapter_info.get('fullName') or chapter_info.get('name', ''),
             )
 
+        if (
+            self._book_data
+            and self._book_data.get('_lnreader')
+            and self._is_fucknovelpia_url(chapter_info.get('url', ''))
+        ):
+            result = self._fnp_parse_chapter(
+                chapter_info.get('url', ''),
+                chapter_info.get('fullName') or chapter_info.get('name', ''),
+            )
+            if result:
+                self._sleep_interval(interval, interval_max)
+            return result
+
         if self._book_data and self._book_data.get('_xiyuwx'):
             name = chapter_info.get('fullName') or chapter_info.get('name', '')
             result = self._xiyuwx_parse_chapter(
@@ -21832,6 +22070,28 @@ async (items) => {
                 success_callback(index, result)
             except Exception:
                 pass
+
+        if (
+            self._book_data
+            and self._book_data.get('_lnreader')
+            and all(self._is_fucknovelpia_url(ch.get('url', '')) for ch in batch_info)
+        ):
+            # One normal Chrome session establishes the clearance, then the
+            # remaining chapters are read sequentially in that same profile.
+            results = []
+            for index, chapter in enumerate(batch_info):
+                if self._stop_requested or self.abort_reason:
+                    results.append(None)
+                    continue
+                result = self._fnp_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName') or chapter.get('name', ''),
+                )
+                results.append(result)
+                report_success(index, result)
+                if result and index < len(batch_info) - 1:
+                    self._sleep_interval(interval, interval_max)
+            return results
 
         if self._book_data and self._book_data.get('_xiyuwx'):
             from concurrent.futures import ThreadPoolExecutor

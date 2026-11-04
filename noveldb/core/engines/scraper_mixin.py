@@ -294,8 +294,18 @@ class SiteEnginesMixin:
         status = page.evaluate("(performance.getEntriesByType('navigation')[0] || {}).responseStatus || 0")
         if not status:
             status = response.status if response is not None else 200
+        html = page.content()
+        title = (page.title() or "").lower()
+        challenge = ("just a moment" in title or "attention required" in title
+                     or "performing security verification" in html.lower()
+                     or "cf-chl-" in html.lower())
+        # `page.goto()` is the initial 403 challenge response. Cloudflare then replaces it with a
+        # successful document, but Chromium can keep the first navigation's status in the timing entry.
+        # The final non-challenge document is the response the engine actually receives.
+        if status in _REFUSED and not challenge:
+            status = 200
         return {"status": status, "statusText": "", "finalUrl": page.url,
-                "responseHeaders": "Content-Type: text/html; charset=utf-8", "responseText": page.content()}
+                "responseHeaders": "Content-Type: text/html; charset=utf-8", "responseText": html}
 
     def render_html(self, url: str, scroll: bool = False, real_browser: bool = False) -> Optional[str]:
         """The page as the browser renders it (for sites that build their pages with scripts), or None.

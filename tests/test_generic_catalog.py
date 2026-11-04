@@ -166,6 +166,11 @@ def test_id_and_top_list_messages_are_checked():
     assert generic.parse_message({"type": "genericTop", "id": 1, "kind": "manga"}) is not None
     assert generic.parse_message({"type": "genericTop", "id": 1, "kind": "bogus"}) is None
     assert generic.parse_message({"type": "genericChapter", "id": 3, "url": "https://a.example/b", "index": -1}) is None
+    recovered = generic.parse_message({"type": "genericChapter", "id": 3, "url": "https://a.example/b", "index": 0,
+                                       "recovery": "cloudflare"})
+    assert recovered["recovery"] == "cloudflare"
+    assert generic.parse_message({"type": "genericChapter", "id": 3, "url": "https://a.example/b", "index": 0,
+                                  "recovery": "unknown"}) is None
     assert generic.download_icon().startswith("data:image/")
 
 
@@ -296,11 +301,73 @@ def test_downloader_can_take_over_on_the_first_failed_chapter():
     assert catalog._downloader_books["https://books.example/book/1"]["chapters"][0]["name"] == "Chapter 1"
 
 
+def test_catalog_reader_reuses_the_downloader_book_already_opened_by_download():
+    import pytest
+
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    from noveldb.qt.catalog.generic import GenericCatalog
+
+    url = "https://fucknovelpia.com/novel/example"
+
+    class Immediate:
+        def __init__(self, value):
+            self.value = value
+
+        def result(self, timeout):
+            assert timeout == 240
+            return self.value
+
+    class Scraper:
+        _book_url = url
+        _book_data = {"bookname": "Already open", "chapters": [{"name": "Chapter 1"}]}
+
+        def parse_book(self, _url):
+            raise AssertionError("Read Now should reuse the downloader's current book")
+
+        def parse_chapter(self, index, chapter, interval=0):
+            assert index == 0 and interval == 0
+            return {"chapterName": chapter["name"], "contentHtml": "<p>Reused</p>"}
+
+    scraper = Scraper()
+    catalog = type("Catalog", (), {})()
+    catalog.downloader = lambda operation: Immediate(operation(scraper))
+    catalog._downloader_books = {}
+    catalog._note = lambda _text: None
+
+    chapter = GenericCatalog._downloader_read(catalog, url, 0)
+
+    assert chapter["html"] == "<p>Reused</p>"
+
+
+def test_cloudflare_recovery_skips_the_quick_reader():
+    import pytest
+
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    from noveldb.qt.catalog.generic import GenericCatalog
+
+    emitted = []
+    catalog = type("Catalog", (), {})()
+    catalog.downloader = object()
+    catalog._fetched = type("Signal", (), {"emit": lambda _self, request_id, value: emitted.append((request_id, value))})()
+    catalog._note = lambda _text: None
+    catalog._downloader_read = lambda url, index: {"name": "Recovered", "html": "<p>Browser result</p>"}
+
+    def quick_reader(_url, _index):
+        raise AssertionError("the quick reader must not run again after a Cloudflare response")
+
+    GenericCatalog._read(catalog, 12, quick_reader, "https://books.example/book/1", 0, force_downloader=True)
+
+    assert emitted == [(12, {"name": "Recovered", "html": "<p>Browser result</p>"})]
+
+
 def test_catalog_reader_retries_a_failed_lnreader_chapter_through_the_app():
     source = (Path(__file__).resolve().parents[1] / "noveldb" / "qt" / "catalog" / "generic" / "generic.js") \
         .read_text(encoding="utf-8")
 
     chapter = source[source.index("function loadChapter(index)"):source.index("function openChapter(index, at)")]
     assert "if (result && !result.error) return result" in chapter
-    assert "return appChapter()" in chapter
-    assert "retrying in the browser" in chapter
+    assert "cloudflare ? 'cloudflare' : null" in chapter
+    assert "Cloudflare detected; switching to the downloader browser" in chapter
+    assert "fucknovelpia\\.com" in chapter
+    assert "promise = appChapter('cloudflare')" in chapter
+    assert "hidden downloader browser…', 45" not in chapter

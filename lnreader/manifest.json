@@ -1,11 +1,11 @@
 {
   "engine": "lnreader",
-  "commit": "393fe556cdefe208671abe81f5ce6c2b5695e1fe",
-  "date": "2026-11-01T10:03:48Z",
-  "ref": "plugins/v3.0.0",
-  "shim": "862bfd5886b3",
+  "commit": "60ed16e12cc161421c27f763bf5fae2892deeb33",
+  "date": "2026-11-03T06:34:55Z",
+  "ref": "60ed16e12cc161421c27f763bf5fae2892deeb33",
+  "shim": "d357c9b64fb2",
   "api": 1,
-  "plugins": 328,
+  "plugins": 326,
   "excluded": [],
   "sites": [
     "http://www.reinowuxia.com/",
@@ -136,7 +136,6 @@
     "https://m.pawread.com/",
     "https://maehwasup.com",
     "https://manga-tr.com/",
-    "https://markazriwayat.com/",
     "https://massnovel.fr/",
     "https://meionovels.com/",
     "https://meownovel.com/",
@@ -163,7 +162,6 @@
     "https://novel4up.com/",
     "https://novel7s.com",
     "https://novelarchive.cc",
-    "https://novelarrow.com/",
     "https://novelasligera.com/",
     "https://novelasligeras.net",
     "https://novelbin.xyz/",
@@ -214,7 +212,7 @@
     "https://ranobelib.me",
     "https://ranobemir.com",
     "https://ranobes.com",
-    "https://ranobes.top",
+    "https://ranobes.net",
     "https://ranovel.com/",
     "https://re-library.com",
     "https://reader.boondollars.com",
@@ -273,7 +271,6 @@
     "https://wntl.net/",
     "https://wooksteahouse.com/",
     "https://wordexcerpt.com/",
-    "https://world-novel.fr/",
     "https://wtr-lab.com/",
     "https://wuxialnscantrad.wordpress.com",
     "https://wuxiaworld.site/",
@@ -335,7 +332,7 @@
     "url"
   ],
   "file": "lnreader-lib.js",
-  "size": 5019643,
-  "sha256": "e0a70d3d25757fb55742bc903fc3df59287bd820e867e10e8c19f27ac62187e3",
-  "built": "2026-11-02T14:48:05Z"
+  "size": 5024838,
+  "sha256": "f0b83e3d44486226795268c6b3b0d442249b592db58432b865994563076d0948",
+  "built": "2026-11-04T22:24:03Z"
 }

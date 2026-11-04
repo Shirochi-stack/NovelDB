@@ -139,7 +139,13 @@ async function fetch(input, init) {
         && !__lnr_hasHeader(headers, "user-agent") && !__lnr_hasHeader(headers, "origin"));
     if (browserOnly) {
         try {
-            return await __lnr_nativeFetch(url, Object.assign({}, init, { headers: headers }));
+            let response = await __lnr_nativeFetch(url, Object.assign({}, init, { headers: headers }));
+            // A same-origin fetch can itself be the request Cloudflare challenges.  Returning its 403
+            // prevents the desktop transport from opening the URL as a top-level browser document,
+            // which is the only form in which the verification can complete and set its cookie.
+            if (transport == null || ![401, 403, 418, 429, 503].includes(response.status)) {
+                return response;
+            }
         } catch (error) {
             // A redirect to another site (CORS) or a refused request: the transport has no such limit.
             if (transport == null) {

@@ -115,6 +115,8 @@ def parse_message(data: dict) -> Optional[dict]:
         return None
     if kind == "genericChapter" and not (isinstance(data.get("index"), int) and data["index"] >= 0):
         return None
+    if kind == "genericChapter" and data.get("recovery") not in (None, "cloudflare"):
+        return None
     if kind in ("genericCover", "genericCoverPut") and not (str(data.get("key", "")) and len(str(data["key"])) < 3000):
         return None
     if kind == "genericCoverPut" and not str(data.get("dataUrl", "")).startswith("data:image/"):
@@ -365,7 +367,8 @@ class GenericCatalog(QObject):
         elif kind == "genericBook":
             self._background(self._read, data["id"], self.reader.book, data["url"])
         elif kind == "genericChapter":
-            self._background(self._read, data["id"], self._chapter, data["url"], data["index"])
+            self._background(self._read, data["id"], self._chapter, data["url"], data["index"],
+                             force_downloader=data.get("recovery") == "cloudflare")
         return True
 
     def init_page(self) -> None:
@@ -539,8 +542,8 @@ class GenericCatalog(QObject):
     def stop(self) -> None:
         self._stop.set()
 
-    def _background(self, function, *args) -> None:
-        threading.Thread(target=function, args=args, name="generic-page", daemon=True).start()
+    def _background(self, function, *args, **kwargs) -> None:
+        threading.Thread(target=function, args=args, kwargs=kwargs, name="generic-page", daemon=True).start()
 
     def _transport(self, fetch_id: int, request: dict) -> None:
         """An LNReader plugin's request, answered in the transport's result shape."""
@@ -612,7 +615,7 @@ class GenericCatalog(QObject):
         if fetch_id is not None:
             self._reader_status.emit(fetch_id, text)
 
-    def _read(self, fetch_id: int, function, *args) -> None:
+    def _read(self, fetch_id: int, function, *args, force_downloader: bool = False) -> None:
         """The reader's book or chapter: the quick engines, then the downloader with its saved sessions;
         else {error, blocked} for the page to show (with Enter Browser)."""
         _reading.id = fetch_id
@@ -620,6 +623,19 @@ class GenericCatalog(QObject):
             url = args[0]
             if url.startswith("file:"):
                 self._fetched.emit(fetch_id, function(*args))  # a Library EPUB: no downloader
+                return
+            if force_downloader:
+                if self.downloader is None:
+                    self._fetched.emit(fetch_id, {"error": "Cloudflare blocked the chapter and no browser downloader is available",
+                                                  "blocked": True, "message": BLOCKED})
+                    return
+                try:
+                    self._note("Cloudflare detected; switching directly to the downloader browser…")
+                    self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
+                except Exception as e:
+                    log.info("generic reader (Cloudflare recovery): %s", e)
+                    self._fetched.emit(fetch_id, {"error": f"Cloudflare recovery failed: {str(e)[:240]}",
+                                                  "blocked": True, "message": BLOCKED})
                 return
             if url in self._downloader_books:
                 self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
@@ -657,7 +673,17 @@ class GenericCatalog(QObject):
         # for the URL, so initialise its book state here before asking it for the matching chapter.
         if index is None or url not in self._downloader_books:
             self._note("The quick engines couldn't read it; trying the downloader with your saved logins…")
-            data = self.downloader(lambda scraper: scraper.parse_book(url)).result(timeout=240)
+            def load_or_reuse(scraper):
+                current = getattr(scraper, "_book_data", None)
+                if (
+                    getattr(scraper, "_book_url", None) == url
+                    and isinstance(current, dict)
+                    and current.get("chapters")
+                ):
+                    return current
+                return scraper.parse_book(url)
+
+            data = self.downloader(load_or_reuse).result(timeout=240)
             if not data or not data.get("chapters"):
                 raise RuntimeError("no chapters (the site may need a login)")
             self._downloader_books[url] = data
