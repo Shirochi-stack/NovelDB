@@ -541,6 +541,13 @@ function prose(text) {
     return (String(text || "").match(/[\p{L}]{2,}/gu) || []).length >= 4;
 }
 
+/** A meta description written from a template for every book ("<title> chapters for free, don't miss out the
+ *  latest updates"), not a synopsis. */
+const TEMPLATE = /(chapters? (for )?free|read (it |the )?(online|for free|now|full)|don'?t miss|latest (chapters?|updates?|releases?)|free online|online for free|in high quality)/i;
+function template(description) {
+    return String(description || "").length < 260 && TEMPLATE.test(description || "");
+}
+
 /** A description that never names the book: the site's blurb, the same on every page. */
 function siteWide(description, title) {
     let words = (String(title || "").toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || [])
@@ -675,7 +682,7 @@ function metadata(doc, url) {
     }
     cover = cover ? cleanUrl(cover, url) : "";
     let description = ldText(book.description) || meta(doc, "og:description", "description", "twitter:description");
-    if (siteWide(description, title) || !prose(description)) {
+    if (siteWide(description, title) || !prose(description) || template(description)) {
         description = "";  // the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     }
     let blocks = [...doc.querySelectorAll(FULL_SYNOPSIS), ...doc.querySelectorAll(SYNOPSIS), ...headedSynopsis(doc)];
@@ -698,11 +705,17 @@ function metadata(doc, url) {
     // (fanfox's /directory/action/); none from the site's own menus.
     let tagLinks = Array.from(doc.querySelectorAll("a[href]"))
         // (A footer's or a menu's genre links list the site's genres, not the book's.)
-        .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)[\/-]|[?&](genres?|tags?|categor(y|ies))=/i.test(a.getAttribute("href"))
+        .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)[\/-]|[?&][\w-]*(genres?|tags?|categor(y|ies))[\w-]*=/i.test(a.getAttribute("href"))
             && !siteChrome(a, ["FOOTER"])).slice(0, 40);
     for (let box of doc.querySelectorAll(TAG_LISTS)) {
         if (!siteChrome(box, ["HEADER", "NAV", "FOOTER"])) {
-            tagLinks.push(...Array.from(box.querySelectorAll("a[href]")).slice(0, 40));
+            let found = Array.from(box.querySelectorAll("a[href]")).slice(0, 40);
+            tagLinks.push(...found);
+            if (!found.length) {
+                // Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
+                tags.push(...textOf(box).split(/[,/|·•]/).map(word => word.trim())
+                    .filter(word => word.length > 1 && word.length <= 40 && !NOT_TAG.test(word)));
+            }
         }
     }
     for (let link of tagLinks) {

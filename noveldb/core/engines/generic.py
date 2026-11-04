@@ -308,6 +308,16 @@ def _prose(text: str) -> bool:
     return len(re.findall(r"[^\W\d_]{2,}", text or "")) >= 4
 
 
+# A meta description written from a template for every book ("<title> chapters for free, don't miss out the
+# latest updates"), not a synopsis.
+_TEMPLATE = re.compile(r"(chapters? (for )?free|read (it |the )?(online|for free|now|full)|don'?t miss|"
+                       r"latest (chapters?|updates?|releases?)|free online|online for free|in high quality)", re.I)
+
+
+def _template(description: str) -> bool:
+    return len(description or "") < 260 and bool(_TEMPLATE.search(description or ""))
+
+
 def _site_wide(description: str, title: str) -> bool:
     """A description that never names the book: the site's blurb, the same on every page."""
     words = [w for w in re.findall(r"\w{4,}", (title or "").lower()) if w not in ("manga", "novel", "read", "online")]
@@ -422,7 +432,7 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
                 break
     cover = clean_url(cover, url) if cover else ""
     description = _ld_text(book.get("description")) or _meta(soup, "og:description", "description", "twitter:description")
-    if _site_wide(description, title) or not _prose(description):
+    if _site_wide(description, title) or not _prose(description) or _template(description):
         description = ""  # the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     blocks = soup.select(_FULL_SYNOPSIS) + soup.select(_SYNOPSIS) + _headed_synopsis(soup)
     if any(_NO_SYNOPSIS.match(_MORE_LESS.sub("", text_of(block)).strip()) for block in blocks):
@@ -439,11 +449,16 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     # Genre links by their address, and the links of the page's tag or genre list wherever they point
     # (fanfox's /directory/action/); none from the site's own menus.
     # (A footer's or a menu's genre links list the site's genres, not the book's.)
-    links = [link for link in soup.find_all("a", href=re.compile(r"[/-](genres?|tags?|categor(y|ies)|keywords?)[/-]|[?&](genres?|tags?|categor(y|ies))=", re.I))
+    links = [link for link in soup.find_all("a", href=re.compile(r"[/-](genres?|tags?|categor(y|ies)|keywords?)[/-]|[?&][\w-]*(genres?|tags?|categor(y|ies))[\w-]*=", re.I))
              if not _site_chrome(link, ("footer",))][:40]
     for box in soup.select(_TAG_LISTS):
         if not _site_chrome(box, ("header", "nav", "footer")):
-            links.extend(box.find_all("a", href=True)[:40])
+            found = box.find_all("a", href=True)[:40]
+            links.extend(found)
+            if not found:
+                # Genres written out with no links (webtoons' <h2 class="genre">Fantasy</h2>).
+                tags.extend(word.strip() for word in re.split(r"[,/|·•]", text_of(box))
+                            if 1 < len(word.strip()) <= 40 and not _NOT_TAG.match(word.strip()))
     for link in links:
         word = text_of(link)
         if 1 < len(word) <= 40 and not _NOT_TAG.match(word):
