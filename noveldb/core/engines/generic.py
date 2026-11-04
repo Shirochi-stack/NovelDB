@@ -701,6 +701,27 @@ def page_images(soup, base: str) -> List[str]:
         url = clean_url(source, base)
         if url and url not in out:
             out.append(url)
+    listed = _data_images(soup, base)
+    return listed if len(listed) > len(out) else out
+
+
+def _data_images(soup, base: str) -> List[str]:
+    """A chapter's images listed in the page's own data (Next.js __NEXT_DATA__, initialChapter.images or
+    .pages): mangak's pages show a few as <img> and load the rest from that list."""
+    script = soup.find("script", id="__NEXT_DATA__")
+    try:
+        props = json.loads(script.string or script.get_text())["props"]["pageProps"] if script else {}
+    except (ValueError, KeyError, TypeError):
+        return []
+    chapter = props.get("initialChapter") or props.get("chapter") or {}
+    if not isinstance(chapter, dict):
+        return []
+    images = chapter.get("images") or [page.get("url") for page in chapter.get("pages") or [] if isinstance(page, dict)]
+    out = []
+    for image in images or []:
+        url = clean_url(image, base) if isinstance(image, str) else ""
+        if url and url not in out:
+            out.append(url)
     return out
 
 
@@ -844,6 +865,30 @@ class GenericEngine:
             raise RuntimeError(f"could not load {url} ({result['status'] if result else 'no answer'})")
         return decode(result), result.get("url") or url
 
+    def _platform_chapters(self, html: str, final: str) -> List[dict]:
+        """Every chapter of a MangaBuddy-platform page (mangak and its sister sites).
+
+        Such a page holds its newest 50 chapters (initialManga in __NEXT_DATA__); the rest come from the
+        site's API (its address in /api/site-config), titles/<id>/chapters. [] for any other page."""
+        found = re.search(r'"initialManga"\s*:\s*\{\s*"id"\s*:\s*"([\w-]+)"', html or "")
+        if not found:
+            return []
+        parts = urlsplit(final)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        try:
+            config, _ = self._page(origin + "/api/site-config", referer=final)
+            api = re.search(r'"apiUrl"\s*:\s*"([^"]+)"', config)
+            api = api.group(1) if api else (re.search(r'__API_URL__\s*=\s*"([^"]+)"', html) or [None, ""])[1]
+            if not api:
+                return []
+            text, _ = self._page(f"{api.rstrip('/')}/titles/{found.group(1)}/chapters", referer=final)
+            listed = (json.loads(text).get("data") or {}).get("chapters") or []
+        except Exception:
+            return []
+        listed = [c for c in listed if isinstance(c, dict) and c.get("url")]
+        listed.sort(key=lambda c: float(c.get("number") or 0))
+        return [{"url": urljoin(origin, c["url"]), "name": c.get("name") or f"Chapter {c.get('number')}"} for c in listed]
+
     def parse_book(self, url: str) -> Optional[dict]:
         html, final = self._page(url)
         soup = soup_of(html)
@@ -886,6 +931,10 @@ class GenericEngine:
                     break
         if chapters:
             chapters = self._more_list_pages(soup, final, chapters, warnings)
+        listed = self._platform_chapters(html, final)
+        if len(listed) > len(chapters):
+            self.log(f"Generic: {len(listed)} chapters from the site's own chapter list.")
+            chapters = listed
         if self.render is not None and (len(chapters) < 2 or (expected and len(chapters) < expected * 0.8)):
             # A list that loads as you scroll, or behind "Load more": the browser, scrolled to the end.
             try:

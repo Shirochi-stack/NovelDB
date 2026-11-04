@@ -1123,6 +1123,33 @@ async function chain(start, doc, warnings) {
     return chapters;
 }
 
+/**
+ * Every chapter of a MangaBuddy-platform page (mangak and its sister sites): the page holds its newest 50
+ * (initialManga in __NEXT_DATA__), the rest come from the site's API (its address in /api/site-config),
+ * titles/<id>/chapters. [] for any other page.
+ */
+async function platformChapters(doc, final) {
+    let data = doc.querySelector("script#__NEXT_DATA__");
+    let found = data ? /"initialManga"\s*:\s*\{\s*"id"\s*:\s*"([\w-]+)"/.exec(data.textContent || "") : null;
+    if (!found) {
+        return [];
+    }
+    try {
+        let origin = new URL(final).origin;
+        let config = await load(origin + "/api/site-config", final);
+        let api = (/"apiUrl"\s*:\s*"([^"]+)"/.exec(config.html) || [])[1];
+        if (!api) {
+            return [];
+        }
+        let answer = await load(api.replace(/\/+$/, "") + "/titles/" + found[1] + "/chapters", final);
+        let listed = ((JSON.parse(answer.html).data || {}).chapters || []).filter(c => c && c.url);
+        listed.sort((a, b) => (Number(a.number) || 0) - (Number(b.number) || 0));
+        return listed.map(c => ({ url: new URL(c.url, origin).href, name: c.name || "Chapter " + c.number }));
+    } catch (e) {
+        return [];
+    }
+}
+
 async function book(url) {
     let doc, final;
     if (sameAddress(url, location.href) || !url) {
@@ -1175,6 +1202,10 @@ async function book(url) {
     }
     if (chapters.length) {
         chapters = await moreListPages(doc, final, chapters, warnings);
+    }
+    let listed = await platformChapters(doc, final);
+    if (listed.length > chapters.length) {
+        chapters = listed;
     }
     if (doc === document && (chapters.length < 2 || (expected && chapters.length < expected * 0.8))) {
         // A list that loads as you scroll, or behind "Load more".
@@ -1359,6 +1390,32 @@ function pageImages(doc, base) {
             continue;
         }
         let url = cleanUrl(source, base);
+        if (url && !out.includes(url)) {
+            out.push(url);
+        }
+    }
+    let listed = dataImages(doc, base);
+    return listed.length > out.length ? listed : out;
+}
+
+/** A chapter's images listed in the page's own data (Next.js __NEXT_DATA__, initialChapter.images or
+ *  .pages): mangak's pages show a few as <img> and load the rest from that list. */
+function dataImages(doc, base) {
+    let script = doc.querySelector("script#__NEXT_DATA__");
+    let props;
+    try {
+        props = script ? JSON.parse(script.textContent).props.pageProps : null;
+    } catch (e) {
+        props = null;
+    }
+    let chapter = props && (props.initialChapter || props.chapter);
+    if (!chapter || typeof chapter !== "object") {
+        return [];
+    }
+    let images = chapter.images || (chapter.pages || []).map(page => page && page.url);
+    let out = [];
+    for (let image of images || []) {
+        let url = typeof image === "string" ? cleanUrl(image, base) : "";
         if (url && !out.includes(url)) {
             out.push(url);
         }
