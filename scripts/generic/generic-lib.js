@@ -498,6 +498,12 @@ const SYNOPSIS = "[class*=detail-info-right-content], " +
 // A book page's own list of tags or genres (not the site's menu of them).
 const TAG_LISTS = "[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
     + ".categories";
+const COVER_IMAGES = "[class*=cover] img, [class*=thumb] img, [class*=poster] img, img[class*=cover], [class*=book] img";
+const NOT_COVER = /(gravatar|googleusercontent\.com\/a\/|\/unit\/|\.svg($|\?)|(^|\/)[^\/?]*(logo|icon|flag|avatar|sprite|placeholder|default)[^\/]*$)/i;
+const SYNOPSIS_HEADING = /^\s*(synopsis|summary|description|story|about( this (novel|book|series))?|sinopsis|sinopse|résumé|resumen)\s*[:：]?\s*$/i;
+// A synopsis box that says there is none, and the buttons that unfold one.
+const NO_SYNOPSIS = /^(n\/?a|none|null|nil|unknown|tbd|-+|no (description|synopsis|summary)( yet| available)?\.?)$/i;
+const MORE_LESS = /\[?(more|less|show more|show less|read more)\]?/gi;
 // Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
 const NOT_TAG = /^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$/i;
 const MENU = /(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)/i;
@@ -575,17 +581,42 @@ function htmlText(text) {
     return root ? plain(root) : text;
 }
 
+/** The block right after a "Synopsis" (or "Summary", "Description") heading. */
+function headedSynopsis(doc) {
+    let out = [];
+    for (let heading of Array.from(doc.querySelectorAll("h2, h3, h4, h5, h6, strong, b")).slice(0, 400)) {
+        if (SYNOPSIS_HEADING.test(textOf(heading)) && !heading.closest("nav, footer") && heading.nextElementSibling) {
+            out.push(heading.nextElementSibling);
+        }
+    }
+    return out;
+}
+
 /** {title, author, cover, description, tags, status, figures...} of any book page. */
 function metadata(doc, url) {
     let book = {};
     let bestScore = -1;
+    let books = [];
     for (let item of jsonLd(doc)) {
         let kinds = Array.isArray(item["@type"]) ? item["@type"] : [item["@type"]];
         if (kinds.some(kind => BOOK_KINDS.includes(String(kind)))) {
+            books.push(item);
             let score = ["author", "image", "genre", "description", "numberOfPages"].filter(key => item[key]).length;
             if (score >= bestScore) {
                 book = item;
                 bestScore = score;
+            }
+        }
+    }
+    // What the chosen block lacks, from the page's other blocks of the same book (wuxiaworld's synopsis is in
+    // its "Product" block, its author in the "Book" one).
+    book = Object.assign({}, book);
+    for (let item of books) {
+        if (ldText(item.name) === ldText(book.name)) {
+            for (let key of ["description", "genre", "keywords", "author", "image"]) {
+                if (!book[key] && item[key]) {
+                    book[key] = item[key];
+                }
             }
         }
     }
@@ -630,10 +661,16 @@ function metadata(doc, url) {
     }
     let cover = ldText(book.image) || meta(doc, "og:image", "twitter:image", "og:novel:image");
     if (!cover) {
-        let image = doc.querySelector("[class*=cover] img, [class*=thumb] img, [class*=poster] img, img[class*=cover], " +
-            "img[itemprop=image], [class*=book] img");
-        if (image) {
-            cover = image.getAttribute("data-src") || image.getAttribute("data-original") || image.getAttribute("src") || "";
+        // The page's marked cover first, then images in a cover-like box; never an icon, a flag or a logo
+        // (novelcool's language flags sit in a "book" box before its cover).
+        for (let image of [...doc.querySelectorAll("img[itemprop=image]"), ...doc.querySelectorAll(COVER_IMAGES)]) {
+            let source = image.getAttribute("data-src") || image.getAttribute("data-original") || image.getAttribute("lazy_url")
+                || image.getAttribute("src") || "";
+            let width = parseInt(image.getAttribute("width") || "", 10);
+            if (source && !NOT_COVER.test(source) && !(width && width <= 60)) {
+                cover = source;
+                break;
+            }
         }
     }
     cover = cover ? cleanUrl(cover, url) : "";
@@ -641,7 +678,11 @@ function metadata(doc, url) {
     if (siteWide(description, title) || !prose(description)) {
         description = "";  // the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     }
-    for (let block of [...doc.querySelectorAll(FULL_SYNOPSIS), ...doc.querySelectorAll(SYNOPSIS)]) {
+    let blocks = [...doc.querySelectorAll(FULL_SYNOPSIS), ...doc.querySelectorAll(SYNOPSIS), ...headedSynopsis(doc)];
+    if (blocks.some(block => NO_SYNOPSIS.test(textOf(block).replace(MORE_LESS, "").trim()))) {
+        blocks = [];  // the page's synopsis says there is none ("N/A"): no bigger box of the page instead
+    }
+    for (let block of blocks) {
         let longer = textOf(block);
         if (longer.length > description.length && !statsBox(longer) && prose(longer)) {
             description = longer;
@@ -657,7 +698,7 @@ function metadata(doc, url) {
     // (fanfox's /directory/action/); none from the site's own menus.
     let tagLinks = Array.from(doc.querySelectorAll("a[href]"))
         // (A footer's or a menu's genre links list the site's genres, not the book's.)
-        .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)[\/-]/i.test(a.getAttribute("href"))
+        .filter(a => /[\/-](genres?|tags?|categor(y|ies)|keywords?)[\/-]|[?&](genres?|tags?|categor(y|ies))=/i.test(a.getAttribute("href"))
             && !siteChrome(a, ["FOOTER"])).slice(0, 40);
     for (let box of doc.querySelectorAll(TAG_LISTS)) {
         if (!siteChrome(box, ["HEADER", "NAV", "FOOTER"])) {

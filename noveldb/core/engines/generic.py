@@ -275,6 +275,14 @@ _SYNOPSIS = ("[class*=detail-info-right-content], .summary__content, .descriptio
 # A book page's own list of tags or genres (not the site's menu of them).
 _TAG_LISTS = ("[class*=tag-list], [class*=tags-list], [class*=genre-list], [class*=genres], .tags, .genre, [class*=manga-tags], "
               ".categories")
+_COVER_IMAGES = ("[class*=cover] img, [class*=thumb] img, [class*=poster] img, img[class*=cover], "
+                 "[class*=book] img")
+_NOT_COVER = re.compile(r"(gravatar|googleusercontent\.com/a/|/unit/|\.svg($|\?)|(^|/)[^/?]*(logo|icon|flag|avatar|sprite|placeholder|default)[^/]*$)", re.I)
+_SYNOPSIS_HEADING = re.compile(r"^\s*(synopsis|summary|description|story|about( this (novel|book|series))?|"
+                               r"sinopsis|sinopse|résumé|resumen)\s*[:：]?\s*$", re.I)
+# A synopsis box that says there is none, and the buttons that unfold one.
+_NO_SYNOPSIS = re.compile(r"^(n/?a|none|null|nil|unknown|tbd|-+|no (description|synopsis|summary)( yet| available)?\.?)$", re.I)
+_MORE_LESS = re.compile(r"\[?(more|less|show more|show less|read more)\]?", re.I)
 # Menu links that point at the tag pages but are no tag ("All Tags", "Browse", "More genres").
 _NOT_TAG = re.compile(r"^(all|browse|more|see all|view all|show all)\b|^(tags?|genres?|categor(y|ies))$", re.I)
 _MENU = re.compile(r"(^|[-_ ])(menu|nav|navbar|dropdown|header|footer|sidebar)([-_ ]|$)", re.I)
@@ -332,6 +340,17 @@ def _tag_text(tag: str) -> str:
     return tag if 1 < len(tag) <= 40 else ""
 
 
+def _headed_synopsis(soup) -> list:
+    """The block right after a "Synopsis" (or "Summary", "Description") heading: [] when there is none."""
+    out = []
+    for heading in soup.find_all(["h2", "h3", "h4", "h5", "h6", "strong", "b"], limit=400):
+        if _SYNOPSIS_HEADING.match(text_of(heading)) and not heading.find_parent(["nav", "footer"]):
+            block = heading.find_next_sibling()
+            if block is not None:
+                out.append(block)
+    return out
+
+
 def _html_text(text: str) -> str:
     """A synopsis that came as HTML (in a page's structured data) as plain text, its paragraphs kept."""
     if not re.search(r"<(p|br|div|span|em|strong|i|b)\b[^>]*>", text or "", re.I):
@@ -344,14 +363,23 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     chapters} read from any book (or search result) page; a figure the page doesn't show is ""."""
     soup = soup or soup_of(html)
     book = {}
+    books = []
     for item in _json_ld(soup):
         kind = item.get("@type")
         kinds = kind if isinstance(kind, list) else [kind]
         if any(str(k) in ("Book", "CreativeWork", "CreativeWorkSeries", "BookSeries", "ComicSeries", "Article",
                           "Product", "Novel", "WebPage") for k in kinds):
+            books.append(item)
             score = sum(1 for key in ("author", "image", "genre", "description", "numberOfPages") if item.get(key))
             if score >= book.get("_score", -1):
                 book = dict(item, _score=score)
+    # What the chosen block lacks, from the page's other blocks of the same book (wuxiaworld's synopsis is in
+    # its "Product" block, its author in the "Book" one).
+    for item in books:
+        if _ld_text(item.get("name")) == _ld_text(book.get("name")):
+            for key in ("description", "genre", "keywords", "author", "image"):
+                if not book.get(key) and item.get(key):
+                    book[key] = item[key]
     site_name = _meta(soup, "og:site_name", "application-name")
     title = _ld_text(book.get("name") or book.get("headline")) or _meta(soup, "og:title", "twitter:title")
     if not title:
@@ -384,15 +412,22 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
             author = re.split(r"[:：]", str(found), 1)[-1].strip()[:80]
     cover = _ld_text(book.get("image")) or _meta(soup, "og:image", "twitter:image", "og:novel:image")
     if not cover:
-        image = soup.select_one("[class*=cover] img, [class*=thumb] img, [class*=poster] img, img[class*=cover], "
-                                "img[itemprop=image], [class*=book] img")
-        if image is not None:
-            cover = image.get("data-src") or image.get("data-original") or image.get("src") or ""
+        # The page's marked cover first, then images in a cover-like box; never an icon, a flag or a logo
+        # (novelcool's language flags sit in a "book" box before its cover).
+        for image in soup.select("img[itemprop=image]") + soup.select(_COVER_IMAGES):
+            source = image.get("data-src") or image.get("data-original") or image.get("lazy_url") or image.get("src") or ""
+            width = re.match(r"\s*(\d+)", str(image.get("width") or ""))
+            if source and not _NOT_COVER.search(source) and not (width and int(width.group(1)) <= 60):
+                cover = source
+                break
     cover = clean_url(cover, url) if cover else ""
     description = _ld_text(book.get("description")) or _meta(soup, "og:description", "description", "twitter:description")
     if _site_wide(description, title) or not _prose(description):
         description = ""  # the site's own blurb on every page ("Read your favorite manga online!..."), or figures
-    for block in soup.select(_FULL_SYNOPSIS) + soup.select(_SYNOPSIS):
+    blocks = soup.select(_FULL_SYNOPSIS) + soup.select(_SYNOPSIS) + _headed_synopsis(soup)
+    if any(_NO_SYNOPSIS.match(_MORE_LESS.sub("", text_of(block)).strip()) for block in blocks):
+        blocks = []  # the page's synopsis says there is none ("N/A"): no bigger box of the page instead
+    for block in blocks:
         longer = text_of(block)
         if len(longer) > len(description) and not _stats_box(longer) and _prose(longer):
             description = longer
@@ -404,7 +439,7 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
     # Genre links by their address, and the links of the page's tag or genre list wherever they point
     # (fanfox's /directory/action/); none from the site's own menus.
     # (A footer's or a menu's genre links list the site's genres, not the book's.)
-    links = [link for link in soup.find_all("a", href=re.compile(r"[/-](genres?|tags?|categor(y|ies)|keywords?)[/-]", re.I))
+    links = [link for link in soup.find_all("a", href=re.compile(r"[/-](genres?|tags?|categor(y|ies)|keywords?)[/-]|[?&](genres?|tags?|categor(y|ies))=", re.I))
              if not _site_chrome(link, ("footer",))][:40]
     for box in soup.select(_TAG_LISTS):
         if not _site_chrome(box, ("header", "nav", "footer")):
