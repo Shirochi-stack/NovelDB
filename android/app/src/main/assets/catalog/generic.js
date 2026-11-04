@@ -690,12 +690,12 @@
             + (inCart ? 'In the link cart (click to remove)' : 'Add to the link cart') + '" type="button"'
             + (config.downloadIcon ? ' style="background-image:url(' + config.downloadIcon + ')"' : '') + '>'
             + (config.downloadIcon ? '' : inCart ? '✓' : '+') + '</button>'
-            // Compact: the status right after the author (a tap searches their books), or the title when
-            // there is no author; then the figures shortened (the original title, the kind and every digit
-            // are in the details panel).
-            + '<div class="body"><div class="title">' + esc(group.title) + (group.author ? '' : statusTag) + '</div>'
+            // Compact: the status right after the author (a tap searches their books); with no author, at the
+            // head of the figures (a long title wraps it onto a row of its own), else after the title. The
+            // figures are shortened (the original title, the kind and every digit are in the details panel).
+            + '<div class="body"><div class="title">' + esc(group.title) + (group.author || shown.length ? '' : statusTag) + '</div>'
             + (group.author ? '<div class="meta"><a class="author" data-author>' + esc(group.author) + '</a>' + statusTag + '</div>' : '')
-            + (shown.length ? '<div class="figures">' + esc(shown.join(' · ')) + '</div>' : '')
+            + (shown.length ? '<div class="figures">' + esc((group.author ? shown : [status].concat(shown).filter(Boolean)).join(' · ')) + '</div>' : '')
             + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 24).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
