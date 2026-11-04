@@ -341,7 +341,8 @@ class GenericCatalog(QObject):
         sites = top_sites()
         lnreader = [{"id": plugin, "site": site["site"], "comic": site["comic"]}
                     for site in sites for plugin in site.get("lnreader", [])[:1]]
-        self._call("init", {"sites": [site["site"] for site in sites], "lnreader": lnreader,
+        self._call("init", {"sites": [site["site"] for site in sites], "comic": [site["site"] for site in sites if site["comic"]],
+                            "lnreader": lnreader,
                             "downloadIcon": download_icon()})
 
     def search(self, search_id: int, queries: list) -> None:

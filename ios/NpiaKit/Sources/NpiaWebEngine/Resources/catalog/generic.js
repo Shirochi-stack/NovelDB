@@ -182,6 +182,10 @@
         if (!isComicKind(top.kind)) topPlugins(top.kind, true).forEach(function (p) { add(p.site); });
         progress.sites.forEach(function (item) { add(item.site); });
         order.forEach(function (group) { group.sources.forEach(function (s) { add(s.site); }); });
+        // Then every other site the search reads (the novel or comic ones, by what they are known as).
+        (config.sites || []).forEach(function (site) {
+            if (((config.comic || []).indexOf(site) >= 0) === isComicKind(top.kind)) add(site);
+        });
         return names;
     }
     function drawTopSites() {
@@ -221,7 +225,7 @@
         });
         $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
         $('siteShow').disabled = !picking.size;
-        $('siteList').innerHTML = names.slice(0, 300).map(function (site) {
+        $('siteList').innerHTML = names.map(function (site) {
             var item = answered.get(site);
             return '<label class="siterow pick ' + esc(item ? item.state || 'ok' : '') + '"><input type="checkbox" data-site="' + esc(site) + '"'
                 + (picking.has(site) ? ' checked' : '') + '><span>' + esc(site) + '</span><span class="ms">'

@@ -1530,7 +1530,7 @@
             SITES.forEach(function (site) {
                 (site.lnreader || []).slice(0, 1).forEach(function (plugin) { lnreader.push({id: plugin, site: site.site, comic: site.comic}); });
             });
-            call('init', {sites: SITES.map(function (s) { return s.site; }), lnreader: lnreader, downloadIcon: window.NovelDBDownloadIcon || ''});
+            call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, downloadIcon: window.NovelDBDownloadIcon || ''});
         });
     }
     function handle(message) {
