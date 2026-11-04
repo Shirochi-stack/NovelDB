@@ -46,6 +46,14 @@ final class AppModel {
     var pendingAddText: String?
     /// Page handed to the Browser tab (from the Catalog tab's "Open novel").
     var pendingBrowserURL: URL?
+    /// A Library EPUB to open in the Catalog's reader; the Catalog takes it once its page is ready.
+    var readRequest: URL?
+
+    /// Opens a Library EPUB in the Catalog's reader (the Catalog tab comes to the front).
+    func readInCatalog(_ epub: URL) {
+        readRequest = epub
+        requestedPanel = .catalog
+    }
     /// Books collected with the Catalog tab's link-cart button.
     let cart = LinkCart()
     /// Downloads that run at once; the rest wait in the queue.

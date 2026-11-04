@@ -1443,7 +1443,139 @@
         if (!value || value.error) throw new Error((value && value.error) || 'no answer');
         return value;
     }
+    // -- a Library EPUB in the reader (file: addresses; the app hands over the file) ----------------
+    /** The files of a ZIP (an EPUB is one): name -> {method, size, local}. */
+    function zipEntries(bytes) {
+        var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), end = -1;
+        for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+            if (view.getUint32(i, true) === 0x06054b50) { end = i; break; }
+        }
+        if (end < 0) throw new Error('not an EPUB (no ZIP directory)');
+        var count = view.getUint16(end + 10, true), at = view.getUint32(end + 16, true), out = new Map();
+        for (var n = 0; n < count && view.getUint32(at, true) === 0x02014b50; n++) {
+            var nameLength = view.getUint16(at + 28, true), extra = view.getUint16(at + 30, true), comment = view.getUint16(at + 32, true);
+            var name = new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nameLength));
+            out.set(name, {method: view.getUint16(at + 10, true), size: view.getUint32(at + 20, true), local: view.getUint32(at + 42, true)});
+            at += 46 + nameLength + extra + comment;
+        }
+        return out;
+    }
+    function zipRead(epub, name) {
+        var entry = epub.entries.get(name);
+        if (!entry) return Promise.resolve(null);
+        var view = new DataView(epub.bytes.buffer, epub.bytes.byteOffset, epub.bytes.byteLength);
+        var start = entry.local + 30 + view.getUint16(entry.local + 26, true) + view.getUint16(entry.local + 28, true);
+        var data = epub.bytes.subarray(start, start + entry.size);
+        if (entry.method === 0) return Promise.resolve(data);
+        return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()
+            .then(function (buffer) { return new Uint8Array(buffer); });
+    }
+    function zipText(epub, name) { return zipRead(epub, name).then(function (data) { return data ? new TextDecoder().decode(data) : ''; }); }
+    function epubPath(base, href) {
+        var parts = (base ? base.split('/') : []).concat(decodeURIComponent(String(href || '').split('#')[0]).split('/')), out = [];
+        parts.forEach(function (part) { if (part === '..') out.pop(); else if (part && part !== '.') out.push(part); });
+        return out.join('/');
+    }
+    function folderOf(path) { return path.indexOf('/') >= 0 ? path.replace(/\/[^\/]*$/, '') : ''; }
+    function xmlDoc(text) { return new DOMParser().parseFromString(text, 'application/xml'); }
+    var epubs = new Map();
+    /** The EPUB at a file: address: its spine (reading order), with names from its table of contents. */
+    function epubOpen(url) {
+        if (epubs.has(url)) return epubs.get(url);
+        var opened = appAsk({op: 'file', url: url}).then(function (reply) {
+            if (!reply || reply.error || !reply.responseBase64) throw new Error((reply && reply.error) || 'the book could not be opened');
+            var epub = {bytes: bytesOf(reply.responseBase64)};
+            epub.entries = zipEntries(epub.bytes);
+            return zipText(epub, 'META-INF/container.xml').then(function (container) {
+                var rootfile = xmlDoc(container).querySelector('rootfile');
+                epub.opf = rootfile ? rootfile.getAttribute('full-path') : '';
+                return zipText(epub, epub.opf);
+            }).then(function (opfText) {
+                var opf = xmlDoc(opfText), items = {}, base = folderOf(epub.opf);
+                Array.prototype.forEach.call(opf.getElementsByTagName('item'), function (item) {
+                    items[item.getAttribute('id')] = {href: epubPath(base, item.getAttribute('href')),
+                        type: item.getAttribute('media-type') || '', props: item.getAttribute('properties') || ''};
+                });
+                var meta = function (tag) { var found = opf.getElementsByTagNameNS('*', tag)[0]; return found ? found.textContent.trim() : ''; };
+                epub.title = meta('title');
+                epub.author = meta('creator');
+                epub.spine = Array.prototype.map.call(opf.getElementsByTagName('itemref'), function (ref) { return items[ref.getAttribute('idref')]; })
+                    .filter(function (item) { return item && /html/.test(item.type); });
+                // Chapter names: the EPUB 3 contents page, else the EPUB 2 one (toc.ncx).
+                epub.names = {};
+                var all = Object.keys(items).map(function (id) { return items[id]; });
+                var nav = all.filter(function (item) { return /\bnav\b/.test(item.props); })[0];
+                var toc = nav || all.filter(function (item) { return /ncx/.test(item.type); })[0];
+                if (!toc) return epub;
+                return zipText(epub, toc.href).then(function (text) {
+                    var name = function (href, label) {
+                        var path = epubPath(folderOf(toc.href), href);
+                        if (!epub.names[path] && label) epub.names[path] = label.replace(/\s+/g, ' ').trim();
+                    };
+                    if (nav) {
+                        Array.prototype.forEach.call(new DOMParser().parseFromString(text, 'text/html').querySelectorAll('nav a[href]'), function (a) {
+                            name(a.getAttribute('href'), a.textContent);
+                        });
+                    } else {
+                        Array.prototype.forEach.call(xmlDoc(text).getElementsByTagName('navPoint'), function (point) {
+                            var content = point.getElementsByTagName('content')[0], label = point.getElementsByTagName('text')[0];
+                            if (content && label) name(content.getAttribute('src'), label.textContent);
+                        });
+                    }
+                    return epub;
+                });
+            });
+        });
+        epubs.set(url, opened);
+        opened.catch(function () { epubs.delete(url); });
+        if (epubs.size > 2) epubs.delete(epubs.keys().next().value);  // a whole book each: few are kept
+        return opened;
+    }
+    function epubBook(url) {
+        return epubOpen(url).then(function (epub) {
+            if (!epub.spine.length) throw new Error('the book has no chapters');
+            var data = {bookname: epub.title, author: epub.author, chapters: epub.spine.map(function (item, i) {
+                return {name: epub.names[item.href] || 'Part ' + (i + 1)};
+            })};
+            books.set(url, {engine: 'epub', data: data});
+            return {title: epub.title || '', author: epub.author || '', engine: 'EPUB',
+                    chapters: data.chapters.map(function (c) { return {name: c.name, section: ''}; })};
+        });
+    }
+    var PICTURE_TYPES = {png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif'};
+    function epubChapter(url, index) {
+        return epubOpen(url).then(function (epub) {
+            var item = epub.spine[index];
+            if (!item) throw new Error('no such chapter');
+            return zipText(epub, item.href).then(function (text) {
+                var doc = new DOMParser().parseFromString(text, 'application/xhtml+xml');
+                if (doc.querySelector('parsererror') || !doc.body) doc = new DOMParser().parseFromString(text, 'text/html');
+                var body = doc.body;
+                // Pictures from inside the book, as data: addresses (the reader cannot reach the file itself).
+                var pictures = Array.prototype.map.call(body.querySelectorAll('img, image'), function (node) {
+                    var href = node.getAttribute('src') || node.getAttribute('href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+                    if (!href || /^(data|https?):/i.test(href)) return null;
+                    var path = epubPath(folderOf(item.href), href);
+                    return zipRead(epub, path).then(function (data) {
+                        if (!data) return;
+                        var binary = '';
+                        for (var i = 0; i < data.length; i += 0x8000) binary += String.fromCharCode.apply(null, data.subarray(i, i + 0x8000));
+                        var img = doc.createElement('img');
+                        img.setAttribute('src', 'data:' + (PICTURE_TYPES[path.split('.').pop().toLowerCase()] || 'image/jpeg') + ';base64,' + btoa(binary));
+                        var svg = node.closest('svg');
+                        (node.tagName.toLowerCase() === 'img' ? node : svg || node).replaceWith(img);
+                    });
+                });
+                Array.prototype.forEach.call(body.querySelectorAll('script, style, link'), function (node) { node.remove(); });
+                return Promise.all(pictures).then(function () {
+                    return {chapterName: epub.names[item.href] || '', contentHtml: body.innerHTML};
+                });
+            });
+        });
+    }
+
     function readBook(url) {
+        if (/^file:/i.test(url)) return epubBook(url);
         var engines = engineFor(url), errors = [];
         function next() {
             if (!engines.length) return Promise.reject(new Error(errors.join('; ') || 'no engine could read the book'));
@@ -1482,6 +1614,9 @@
         var opened = known ? Promise.resolve() : readBook(url);
         return opened.then(function () {
             known = books.get(url);
+            if (known.engine === 'epub') return epubChapter(url, index).then(function (result) {
+                return {name: result.chapterName || known.data.chapters[index].name, html: result.contentHtml, text: ''};
+            });
             var chapters = known.data.chapters;
             if (index < 0 || index >= chapters.length) throw new Error('no such chapter');
             var info = chapters[index];
@@ -1537,6 +1672,8 @@
             call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, downloadIcon: window.NovelDBDownloadIcon || ''});
         });
     }
+    // A web page, or a Library EPUB (the app hands over only EPUBs in its download folder).
+    function readable(url) { return /^https?:/.test(url || '') || /^file:.*\.epub$/i.test(url || ''); }
     function handle(message) {
         switch (message.type) {
         case 'genericReady': init(); break;
@@ -1576,12 +1713,12 @@
         case 'genericCover': coverGet(String(message.key)).then(function (data) { call('fetched', message.id, data ? {dataUrl: data} : null); }); break;
         case 'genericCoverPut': if (/^data:image\//.test(message.dataUrl || '')) coverPut(String(message.key), message.dataUrl); break;
         case 'genericBook':
-            if (/^https?:/.test(message.url || '')) read(message.id, function () { return readBook(message.url); });
-            else call('fetched', message.id, {error: 'only web addresses can be read here'});
+            if (readable(message.url)) read(message.id, function () { return readBook(message.url); });
+            else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
             break;
         case 'genericChapter':
-            if (/^https?:/.test(message.url || '')) read(message.id, function () { return readChapter(message.url, message.index | 0); });
-            else call('fetched', message.id, {error: 'only web addresses can be read here'});
+            if (readable(message.url)) read(message.id, function () { return readChapter(message.url, message.index | 0); });
+            else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
             break;
         default:
             // genericDownload, genericLogin, cartAdd, cartRemove, open: the app's own actions.

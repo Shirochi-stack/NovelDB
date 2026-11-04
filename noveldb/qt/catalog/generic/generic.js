@@ -1963,8 +1963,8 @@
             return;
         }
         var page = R.page + step;
-        if (page >= R.pages) { if (R.index + 1 < R.chapters.length) openChapter(R.index + 1, 0); return; }
-        if (page < 0) { if (R.index > 0) openChapter(R.index - 1, 'end'); return; }
+        if (page >= R.pages) { if (R.index + 1 < R.chapters.length) openChapter(R.index + 1, 0); else place(); return; }
+        if (page < 0) { if (R.index > 0) openChapter(R.index - 1, 'end'); else place(); return; }
         R.page = page;
         place();
     }
@@ -2035,14 +2035,39 @@
     }, {passive: false});
     // A finger swipe turns the page (left: next, right: previous); in the scrolling layout a sideways
     // swipe changes the chapter. Short or mostly vertical moves are taps and scrolls, left alone.
+    // In pages the page follows the finger while it drags; let go past a fifth of the page (or with a
+    // flick) and it slides on, else back. Past a chapter's first or last page the drag gets heavier.
     var swipe = null;
+    var SLIDE = 'transform .3s cubic-bezier(.2, .7, .3, 1)';
     $('reader').addEventListener('touchstart', function (event) {
         var touch = event.touches.length === 1 ? event.touches[0] : null;
-        swipe = touch && !event.target.closest('.bar, #toc, #look') ? {x: touch.clientX, y: touch.clientY, at: Date.now()} : null;
+        swipe = touch && !event.target.closest('.bar, #toc, #look') ? {x: touch.clientX, y: touch.clientY, at: Date.now(), dragging: false} : null;
+    }, {passive: true});
+    $('reader').addEventListener('touchmove', function (event) {
+        if (!swipe || layout() === 'scroll' || event.touches.length !== 1 || !R.pageWidth) return;
+        var touch = event.touches[0], dx = touch.clientX - swipe.x, dy = touch.clientY - swipe.y;
+        if (!swipe.dragging) {
+            if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+            swipe.dragging = true;
+            $('flow').style.transition = 'none';
+        }
+        var edge = (R.page === 0 && dx > 0) || (R.page >= R.pages - 1 && dx < 0);
+        $('flow').style.transform = 'translateX(' + (-R.page * R.pageWidth + (edge ? dx * 0.35 : dx)) + 'px)';
     }, {passive: true});
     $('reader').addEventListener('touchend', function (event) {
         if (!swipe || !event.changedTouches.length) return;
         var touch = event.changedTouches[0], dx = touch.clientX - swipe.x, dy = touch.clientY - swipe.y, quick = Date.now() - swipe.at < 800;
+        if (swipe.dragging) {
+            var flick = Math.abs(dx) > 40 && Date.now() - swipe.at < 300;
+            swipe = null;
+            var flow = $('flow');
+            flow.style.transition = SLIDE;
+            if (Math.abs(dx) > R.pageWidth * 0.2 || flick) turn(dx < 0 ? 1 : -1);
+            else place();  // not far enough: back to the page it was on
+            setTimeout(function () { flow.style.transition = ''; }, 320);
+            R.swiped = Date.now();  // the tap zones ignore the click this swipe ends with
+            return;
+        }
         swipe = null;
         if (!quick || Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
         if (layout() === 'scroll') {

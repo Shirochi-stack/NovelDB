@@ -174,10 +174,33 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         showTheme()
+        showRead()
     }
 
     /// The app theme's colours as the generic page takes them ({dark, bg, panel, ...} as #rrggbb).
     private var theme: String?
+    /// A Library EPUB waiting for the generic page to be ready (its reader opens it).
+    private var pendingRead: URL?
+
+    /// Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot.
+    func readLocal(_ epub: URL) {
+        guard site.absoluteString == CatalogSite.genericAddress else {
+            model?.message = "Books open in the reader of the built-in Catalog page (Settings > Catalog site)"
+            return
+        }
+        pendingRead = epub
+        showRead()
+    }
+
+    private func showRead() {
+        guard let epub = pendingRead,
+              let data = try? JSONSerialization.data(withJSONObject: ["url": epub.absoluteString, "title": epub.deletingPathExtension().lastPathComponent]),
+              let book = String(data: data, encoding: .utf8) else { return }
+        let script = "(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.readLocal) return false; window.NovelDBGeneric.readLocal(b); return true; })(\(book))"
+        webView.evaluateJavaScript(script) { [weak self] done, _ in
+            if (done as? Bool) == true { self?.pendingRead = nil }
+        }
+    }
 
     func setTheme(_ json: String) {
         theme = json
@@ -228,6 +251,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             showMode()
             if let model { showCart(model.cart.items) }
             showTheme()
+            showRead()
         case "location":
             located(url: field("url"), title: field("title"))
         case "cartAdd":
@@ -353,8 +377,19 @@ struct CatalogView: View {
             state.showMode()
             state.showCart(model.cart.items)
             state.setTheme(webTheme)
+            CatalogTransport.libraryFolder = model.outputDirectory
+            if let epub = model.readRequest {
+                state.readLocal(epub)
+                model.readRequest = nil
+            }
         }
         .onChange(of: webTheme) { _, theme in state.setTheme(theme) }
+        // A Library book to read: the page's reader opens it (once the page is ready).
+        .onChange(of: model.readRequest) { _, epub in
+            guard let epub else { return }
+            state.readLocal(epub)
+            model.readRequest = nil
+        }
         .onChange(of: model.cart.items) { _, items in state.showCart(items) }
         .onChange(of: site) { _, _ in
             state.load(CatalogSite.current)

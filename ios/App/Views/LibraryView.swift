@@ -6,6 +6,24 @@ struct LibraryBook: Identifiable {
     let files: [URL]
     let modified: Date
     var id: String { name.lowercased() }
+    var epub: URL? { files.first { $0.pathExtension.lowercased() == "epub" } }
+
+    /// "EPUB · TXT · 5.3 MB": the formats and size, for the shelf tile.
+    var formats: String {
+        let manager = FileManager.default
+        var bytes = 0
+        for file in files {
+            if let inside = manager.enumerator(at: file, includingPropertiesForKeys: [.fileSizeKey]), (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                for case let url as URL in inside { bytes += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+            } else {
+                bytes += (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            }
+        }
+        let kinds = files.map { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true ? "TXT" : $0.pathExtension.uppercased() }
+        var seen: [String] = []
+        for kind in kinds where !seen.contains(kind) { seen.append(kind) }
+        return (seen + [ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)]).joined(separator: " · ")
+    }
 
     static let extensions: Set<String> = ["epub", "pdf", "txt", "html", "htm", "cbz", "zip"]
 
@@ -35,11 +53,14 @@ struct LibraryBook: Identifiable {
     }
 }
 
-/// The Library tab: the books downloaded on this device, with the same actions as a finished download.
+/// The Library tab: the books downloaded on this device, as a shelf of covers. A tap reads an EPUB in
+/// the Catalog's reader; a long press (or ⋯) shows the book's files with the same actions as a
+/// finished download, and Delete.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @State private var books: [LibraryBook] = []
     @State private var query = ""
+    @State private var open: LibraryBook?
     @State private var deleting: LibraryBook?
 
     private var shown: [LibraryBook] {
@@ -48,32 +69,72 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        List {
+        ScrollView {
             if shown.isEmpty {
                 Text(books.isEmpty ? "No books yet. Downloads are saved here and show up as soon as they finish." : "No book matches.")
                     .foregroundStyle(.secondary)
+                    .padding(32)
             }
-            ForEach(shown) { book in
-                Section {
-                    ForEach(book.files, id: \.self) { file in
-                        FileRow(file: file, jobID: model.jobs.first { $0.files(in: model.outputDirectory).contains(file) }?.id)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10)], spacing: 14) {
+                ForEach(shown) { book in
+                    VStack(alignment: .leading, spacing: 2) {
+                        ZStack(alignment: .topTrailing) {
+                            ShelfCover(book: book)
+                            Button { open = book } label: {
+                                Image(systemName: "ellipsis").font(.caption.bold()).frame(width: 28, height: 28)
+                                    .background(.ultraThinMaterial, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(4)
+                            .accessibilityLabel("Files and actions")
+                        }
+                        Text(book.name).font(.footnote.weight(.medium)).lineLimit(2).padding(.top, 4)
+                        Text(book.formats).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
-                } header: {
-                    HStack {
-                        Text(book.name).font(.headline).textCase(nil).lineLimit(3)
-                        Spacer()
-                        Button(role: .destructive) { deleting = book } label: { Image(systemName: "trash") }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if let epub = book.epub { model.readInCatalog(epub) } else { open = book }
                     }
-                } footer: {
-                    Text(book.modified.formatted(date: .abbreviated, time: .shortened))
+                    .onLongPressGesture { open = book }
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 24)
         }
         .searchable(text: $query, prompt: "Find a book")
         .navigationTitle("Library")
         .refreshable { reload() }
         .onAppear { reload() }
         .onChange(of: model.jobs.filter { !$0.state.isActive }.count) { _, _ in reload() }
+        .sheet(item: $open) { book in
+            NavigationStack {
+                List {
+                    Section {
+                        HStack(spacing: 12) {
+                            ShelfCover(book: book).frame(width: 64)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(book.name).font(.headline).lineLimit(3)
+                                Text(book.modified.formatted(date: .abbreviated, time: .omitted) + " · " + book.formats)
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let epub = book.epub {
+                            Button { open = nil; model.readInCatalog(epub) } label: { Label("Read", systemImage: "book") }
+                        }
+                        Button(role: .destructive) { open = nil; deleting = book } label: { Label("Delete", systemImage: "trash") }
+                    }
+                    Section("Files") {
+                        ForEach(book.files, id: \.self) { file in
+                            FileRow(file: file, jobID: model.jobs.first { $0.files(in: model.outputDirectory).contains(file) }?.id)
+                        }
+                    }
+                }
+                .navigationTitle(book.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { open = nil } } }
+            }
+            .presentationDetents([.medium, .large])
+        }
         .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
@@ -86,5 +147,30 @@ struct LibraryView: View {
 
     private func reload() {
         books = LibraryBook.scan(model.outputDirectory)
+    }
+}
+
+/// A book's cover on the shelf: its EPUB's own, else its initial on a tinted tile, at 2:3.
+private struct ShelfCover: View {
+    let book: LibraryBook
+    @State private var cover: UIImage?
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color(uiColor: .secondarySystemFill))
+            .aspectRatio(2 / 3, contentMode: .fit)
+            .overlay {
+                if let cover {
+                    Image(uiImage: cover).resizable().scaledToFill()
+                } else {
+                    Text(book.name.prefix(1).uppercased()).font(.title.bold()).foregroundStyle(Color.accentColor)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+            .task(id: book.epub) {
+                guard let epub = book.epub else { return }
+                cover = await Task.detached(priority: .utility) { EpubCover.image(for: epub) }.value
+            }
     }
 }

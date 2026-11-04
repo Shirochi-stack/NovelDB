@@ -217,7 +217,7 @@
     #reader.full .bar { display: none; z-index: 3; background: var(--r-bg); }
     #reader.full.bars .bar { display: flex; }
     #flow { height: 100%; padding: 28px 0; font: var(--r-size)/var(--r-leading) var(--r-font); color: var(--r-ink);
-            column-fill: auto; transition: transform .18s ease-out; }
+            column-fill: auto; transition: transform .3s cubic-bezier(.2, .7, .3, 1); will-change: transform; }
     #reader.scroll #viewport { overflow-y: auto; }
     #reader.scroll #flow { height: auto; columns: auto !important; max-width: 760px; margin: 0 auto; padding: 28px 24px 80px; transform: none !important; }
     #flow h2.chapter { font-size: 1.35em; margin: 0 0 1.2em; line-height: 1.3; }

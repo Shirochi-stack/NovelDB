@@ -62,6 +62,7 @@ import com.shirochi.npia.app.model.CartItem
 import com.shirochi.npia.app.sameAddress
 import com.shirochi.npia.sources.SourceCatalog
 import com.shirochi.npia.sources.reader.CatalogTransport
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -117,6 +118,10 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         view.evaluateJavascript("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))", null)
     }
     private val main = Handler(Looper.getMainLooper())
+    init {
+        // The reader opens Library EPUBs from the download folder only.
+        CatalogTransport.libraryFolder = model.manager.outputDirectory
+    }
     private val bridge = context.assets.open("catalog-bridge.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     var site = model.manager.preferences.catalogUrl
@@ -184,6 +189,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                 this@CatalogWeb.canBack = view.canGoBack()
                 if (!documentStart) view.evaluateJavascript(bridge, null)
                 showTheme()
+                showRead()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -266,6 +272,29 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setCart($urls)", null)
     }
 
+    /** A Library EPUB waiting for the generic page to be ready (its reader opens it). */
+    private var pendingRead: File? = null
+
+    /** Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot. */
+    fun readLocal(epub: File) {
+        if (!isGenericPage(pageUrl)) {
+            model.manager.message("Books open in the reader of the built-in Catalog page (Settings > Catalog site)")
+            return
+        }
+        pendingRead = epub
+        showRead()
+    }
+
+    private fun showRead() {
+        val epub = pendingRead ?: return
+        val book = buildJsonObject {
+            put("url", epub.toURI().toString())
+            put("title", epub.nameWithoutExtension)
+        }
+        view.evaluateJavascript("(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.readLocal) return false; " +
+            "window.NovelDBGeneric.readLocal(b); return true; })($book)") { done -> if (done == "true") pendingRead = null }
+    }
+
     /** The app theme's colours as the generic page takes them ({dark, bg, panel, ...} as #rrggbb). */
     private var theme: String? = null
 
@@ -329,6 +358,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                         showMode()
                         showCart(model.cart.items.value)
                         showTheme()
+                        showRead()
                     }
                     "location" -> located(field("url"), field("title"))
                     "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { url ->
@@ -373,6 +403,14 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     LaunchedEffect(cart) { web.showCart(cart) }
     val colors = MaterialTheme.colorScheme
     LaunchedEffect(colors) { web.setTheme(colors) }
+    // A Library book to read: the page's reader opens it (once the page is ready).
+    val reading = model.readRequest
+    LaunchedEffect(reading) {
+        if (reading != null) {
+            web.readLocal(reading)
+            model.readRequest = null
+        }
+    }
     BackHandler(enabled = web.canBack) { web.view.goBack() }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {

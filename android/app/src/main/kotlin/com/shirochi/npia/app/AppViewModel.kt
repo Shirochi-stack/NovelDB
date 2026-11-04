@@ -49,6 +49,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         tab = Tab.BROWSER
     }
 
+    /** A Library EPUB to open in the Catalog's reader; the Catalog takes it once its page is ready. */
+    var readRequest by mutableStateOf<java.io.File?>(null)
+
+    /** Opens a Library EPUB in the Catalog's reader (the Catalog tab comes to the front). */
+    fun readInCatalog(epub: java.io.File) {
+        readRequest = epub
+        stacks.getValue(Tab.CATALOG).clear()
+        tab = Tab.CATALOG
+    }
+
     /** Last page open in the Browser tab, so switching tabs does not lose it. */
     var browserUrl: String? = null
 
