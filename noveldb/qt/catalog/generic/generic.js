@@ -113,6 +113,17 @@
     // Sites whose books turned out to be in another language than their domain says (an Arabic site on
     // .net): learned from their synopses, for their books that show none.
     var siteLangs = new Map();
+    var siteTitles = new Map();  // site: the titles of its books seen so far (to tell its language)
+    function titlesLang(card) {
+        if (!card.site || !card.title) return '';
+        var titles = siteTitles.get(card.site);
+        if (!titles) siteTitles.set(card.site, titles = []);
+        if (titles.length < 60 && titles.indexOf(card.title) < 0) titles.push(card.title);
+        if (titles.length < 5) return '';
+        var found = latinLang(titles.join(' '));
+        if (found && found !== 'en') siteLangs.set(card.site, found);
+        return found;
+    }
     // A book's language: its LNReader plugin's, else the script of its title or synopsis, else its site's.
     function langOf(card) {
         var plugin = card.plugin && pluginLangs[card.plugin];
@@ -127,6 +138,7 @@
         if (/[\u0400-\u04ff]/.test(title)) return 'ru';
         if (/[\u0e00-\u0e7f]/.test(title)) return 'th';
         if (/[\u0600-\u06ff]/.test(title)) return 'ar';
+        titlesLang(card);
         return siteLangs.get(card.site) || TLD_LANG[tld] || 'en';
     }
     function inLanguage(card) { return language === 'all' || langOf(card) === language; }
@@ -350,6 +362,12 @@
     var PLAIN_TAGS = new Set(['completed', 'complete', 'ongoing', 'on going', 'hiatus', 'dropped', 'cancelled', 'manga',
         'manhwa', 'manhua', 'manhuwa', 'comic', 'comics', 'webtoon', 'webtoons', 'novel', 'novels', 'web novel', 'webnovel',
         'light novel', 'lightnovel', 'full color', 'colored', 'english', 'raw', 'korean', 'japanese', 'chinese', 'new', 'hot']);
+    // One name for one tag, without a site's "#": "Manhwa BL" (or "Mahwa BL"), "Boys' Love", "BL Manga" are BL.
+    function tagAlias(tag) {
+        var text = String(tag || '').trim().replace(/^#+\s*/, '');  // "# system": the tag is "system"
+        if (/^((man?h?wa|manga|manhua|webtoon|comics?)[\s-]*bl|bl[\s-]*(man?h?wa|manga|manhua|webtoon|comics?)|boys?'?s?[\s-]*love)$/i.test(text)) return 'BL';
+        return text;
+    }
     function shownTags(tags) {
         var plain = function (tag) { return PLAIN_TAGS.has(String(tag).trim().toLowerCase()); };
         return tags.filter(function (t) { return !plain(t); }).concat(tags.filter(plain));
@@ -526,7 +544,7 @@
         offered.forEach(function (cover) { if ((group.covers || (group.covers = [])).indexOf(cover) < 0) group.covers.push(cover); });
         // The longest synopsis once cleaned (a page's rating and share buttons do not count).
         if (card.description && betterSynopsis(synopsisText(card.description), synopsisText(group.description), group.title, !!card.complete)) group.description = card.description;
-        var cardTags = (card.tags || []).concat(hashSplit(card.description).tags);
+        var cardTags = (card.tags || []).concat(hashSplit(card.description).tags).map(tagAlias);
         if (cardTags.length) {
             var seen = new Set(group.tags.map(function (t) { return t.toLowerCase(); }));
             cardTags.forEach(function (tag) {
@@ -657,6 +675,8 @@
         if (element.parentNode !== $('grid')) $('grid').appendChild(element);
         var inCart = group.sources.some(function (s) { return cart.has(s.url); });
         var more = group.sources.length > 1 ? ' +' + (group.sources.length - 1) : '';
+        var status = statusIcon(group.status), shown = figures(group).filter(Boolean);
+        var statusTag = status ? ' <span class="status">' + esc(status) + '</span>' : '';
         var synopsis = group.description
             ? (synopsisText(group.description) ? '<div class="synopsis">' + esc(synopsisText(group.description)) + '</div>' : '')
             : (group.loaded ? '' : '<div class="loading"><i></i><i></i><i></i></div>');
@@ -670,12 +690,12 @@
             + (inCart ? 'In the link cart (click to remove)' : 'Add to the link cart') + '" type="button"'
             + (config.downloadIcon ? ' style="background-image:url(' + config.downloadIcon + ')"' : '') + '>'
             + (config.downloadIcon ? '' : inCart ? '✓' : '+') + '</button>'
-            + '<div class="body"><div class="title">' + esc(group.title) + '</div>'
-            // Compact: the author on a row of their own (a tap searches their books), then the status and
-            // the figures shortened (the original title, the kind and every digit are in the details panel).
-            + (group.author ? '<div class="meta"><a class="author" data-author>' + esc(group.author) + '</a></div>' : '')
-            + ([statusIcon(group.status)].concat(figures(group)).filter(Boolean).length
-                ? '<div class="figures">' + esc([statusIcon(group.status)].concat(figures(group)).filter(Boolean).join(' · ')) + '</div>' : '')
+            // Compact: the status right after the author (a tap searches their books), or the title when
+            // there is no author; then the figures shortened (the original title, the kind and every digit
+            // are in the details panel).
+            + '<div class="body"><div class="title">' + esc(group.title) + (group.author ? '' : statusTag) + '</div>'
+            + (group.author ? '<div class="meta"><a class="author" data-author>' + esc(group.author) + '</a>' + statusTag + '</div>' : '')
+            + (shown.length ? '<div class="figures">' + esc(shown.join(' · ')) + '</div>' : '')
             + (group.tags.length ? '<div class="tags">' + shownTags(group.tags).slice(0, 24).map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') + '</div>' : '')
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
@@ -1143,7 +1163,7 @@
         loadTop(searchId);
     }
     // Kept out of the top lists (a search still finds them): a book whose tags or title say so.
-    var NOT_IN_TOP = /\b(yaoi|smut|bl|boys?'?s? ?love|shounen[- ]?ai|(?<!young )adult[oa]?s?|hentai|r-?18)\b|\b18\+/i;
+    var NOT_IN_TOP = /\b(yaoi|smut|bl|boys?'?s? ?love|shounen[- ]?ai|(?<!young )adult[oa]?s?|hentai|r-?18)\b|\b1[89]\+|\+1[89]\b/i;
     function notInTop(item) {
         return NOT_IN_TOP.test(item.title || '') || (item.tags || []).some(function (tag) { return NOT_IN_TOP.test(tag); });
     }
@@ -1692,7 +1712,7 @@
                 failed(text.replace(/…$/, '') + ' took too long (' + limit + ' s).', retry);
                 return;
             }
-            $('flow').innerHTML = '<p class="note">' + esc(text) + (seconds >= 2 ? ' <span class="clock">' + seconds + ' s</span>' : '')
+            $('flow').innerHTML = '<p class="note">' + esc(text) + (seconds >= 2 ? ' <span class="clock">' + seconds + 's</span>' : '')
                 + (R.noteDetail ? '<br><span class="detail">' + esc(R.noteDetail) + '</span>' : '') + '</p>';
         };
         draw();
@@ -1970,7 +1990,10 @@
         // Each page is `width` wide. CSS columns share one gap, so the gap between pages (the side
         // margins of two pages) is also the gap between the two columns of a spread.
         var width = viewport.clientWidth, cols = columns(), gap, column;
-        if (cols === 2) {
+        if (R.comic) {
+            gap = 0;  // a comic: one image a page, the whole width (no neighbour peeking in at the sides)
+            column = width;
+        } else if (cols === 2) {
             gap = Math.max(48, Math.round(width * 0.05));
             column = width / 2 - gap;
         } else {

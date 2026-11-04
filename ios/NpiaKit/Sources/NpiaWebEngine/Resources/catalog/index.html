@@ -81,6 +81,10 @@
     .title { font-weight: 600; font-size: 13px; line-height: 1.25; max-height: 32.5px; overflow: hidden; word-break: break-word; }
     .title.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .meta { color: var(--ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* The status after the author: a long name shortens, the status stays in view. */
+    .meta:has(.status) { display: flex; align-items: center; gap: 5px; }
+    .meta:has(.status) a.author { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .meta .status, .title .status { flex: none; font-size: 11px; font-weight: normal; }
     .figures { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* An author's name: a tap searches their books. */
     a.author { color: var(--accent); cursor: pointer; text-decoration: none; }
@@ -124,9 +128,9 @@
     #reader.comic #flow img, #reader.comic #flow img.slot { margin: 0 auto !important; vertical-align: top; border: 0; }
     #reader.comic #flow :is(p, figure, div, center):has(> img) { margin: 0 !important; padding: 0 !important;
         line-height: 0; font-size: 0; }
-    #reader.comic #flow br, #reader.comic #flow hr { display: none; }
+    #reader.comic #flow :not(.note) > br, #reader.comic #flow hr { display: none; }  /* the note keeps its line break */
     /* A comic in pages: each image a page of its own, whole on the screen. */
-    #reader.comic:not(.scroll) #flow { max-width: none !important; padding-bottom: 28px !important; }
+    #reader.comic:not(.scroll) #flow { max-width: none !important; padding: 28px 0 !important; }
     #reader.comic:not(.scroll) #flow img { width: auto; max-width: 100%; height: var(--page-h, calc(100vh - 160px));
         max-height: var(--page-h, calc(100vh - 160px)) !important; object-fit: contain; break-after: column; break-inside: avoid;
         margin: 0 auto !important; }
