@@ -1083,6 +1083,21 @@ class RbooksAppProxy:
                     raise
                 self.log(f'  [Rbooks] Retrying source opening pages: {exc}')
 
+    @classmethod
+    def _contents_page(cls, page_html, rows):
+        """A front-matter page that is the book's own contents: a "목차" (or "차례", "Contents") heading
+        and lines that are this volume's TOC titles, nothing else of note."""
+        lines = [line.strip() for line in BeautifulSoup(page_html or '', 'html.parser')
+                 .get_text('\n').splitlines()]
+        keys = [cls._title_key(line) for line in lines if cls._title_key(line)]
+        titles = {cls._title_key(row['title']) for row in rows}
+        heading = {'목차', '차례', 'contents', 'tableofcontents', 'toc', '目次', '目录', '目錄'}
+        if not keys or not any(key.lower() in heading for key in keys[:3]):
+            return False
+        listed = [key for key in keys if key in titles]
+        others = [key for key in keys if key not in titles and key.lower() not in heading]
+        return len(listed) >= min(2, len(titles)) and len(others) <= 2
+
     @staticmethod
     def _part_heading(front_pages):
         for index, page in enumerate(front_pages, 1):
@@ -1277,6 +1292,8 @@ class RbooksAppProxy:
         first_section = self._read_toc_section(rows[0], set())
         front_pages, front_images, cover_data = self._read_front_matter(
             rows[0]['page'], first_section['spine'])
+        # The book's own contents page only repeats the EPUB's table of contents ("목차" and "8. 9. 10.").
+        front_pages = [page for page in front_pages if not self._contents_page(page['html'], rows)]
         sections = []
         seen = set()
         image_data = dict(front_images)
