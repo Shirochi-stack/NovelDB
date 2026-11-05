@@ -239,7 +239,8 @@
         if (!panel.querySelector('#siteList')) {
             panel.innerHTML = '<h3>Top of chosen sites <span id="siteCount"></span></h3><p>Pick sites to see their own most read, in their order, with more as you scroll.</p>'
                 + '<div class="pickbar"><input id="siteFilter" placeholder="Find a site" autocomplete="off">'
-                + '<button type="button" class="primary" id="siteShow">Show</button><button type="button" id="siteAll">All sites</button></div>'
+                + '<button type="button" class="primary" id="siteShow">Show</button><button type="button" id="siteClear">Clear</button>'
+                + '<button type="button" id="siteAll">All sites</button></div>'
                 + '<div id="siteList"></div>';
             $('siteFilter').addEventListener('input', drawTopSites);
             $('siteShow').addEventListener('click', function () {
@@ -253,6 +254,11 @@
                 picking = null;
                 panel.classList.remove('open');
                 showTop();
+            });
+            // Unticks every site; a list of picked sites on show goes back to every site's at once.
+            $('siteClear').addEventListener('click', function () {
+                picking.clear();
+                if (top.only.length) $('siteAll').click(); else drawTopSites();
             });
         }
         var filter = $('siteFilter').value.trim().toLowerCase();
@@ -272,6 +278,7 @@
         });
         $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
         $('siteShow').disabled = !picking.size;
+        $('siteClear').disabled = !picking.size;
         $('siteList').innerHTML = names.map(function (site) {
             var item = answered.get(site);
             return '<label class="siterow pick ' + esc(item ? item.state || 'ok' : '') + '"><input type="checkbox" data-site="' + esc(site) + '"'
@@ -286,6 +293,7 @@
                 if (!picking.size && top.only.length) { $('siteAll').click(); return; }
                 $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
                 $('siteShow').disabled = !picking.size;
+                $('siteClear').disabled = !picking.size;
             };
         });
     }
@@ -339,9 +347,21 @@
         });
         if ($('siteFilterAll')) $('siteFilterAll').onclick = function () { siteFilter.clear(); refilter(); drawSites(); };
     }
+    /** The panel closes (a tap outside it, or on Sites again): the sites ticked in it are shown, as Show does. */
+    function applyPicks() {
+        if (view !== 'top' || !picking || !$('sitespanel').classList.contains('open')) return false;
+        var picked = Array.from(picking), shown = top.only;
+        picking = null;
+        if (picked.length === shown.length && picked.every(function (site) { return shown.indexOf(site) >= 0; })) return false;
+        topOnly[top.kind] = picked;
+        $('sitespanel').classList.remove('open');
+        showTop();
+        return true;
+    }
     $('sitesButton').addEventListener('click', function (event) {
         event.stopPropagation();
         $('settingspanel').classList.remove('open');
+        if (applyPicks()) return;
         $('sitespanel').classList.toggle('open');
         $('sitespanel').innerHTML = '';
         picking = null;
@@ -929,6 +949,7 @@
     // own buttons toggle them on the click that follows.
     document.addEventListener('pointerdown', function (event) {
         if (event.target.closest('.popover, #sitesButton, #settingsButton')) return;
+        applyPicks();
         $('sitespanel').classList.remove('open');
         $('settingspanel').classList.remove('open');
     }, true);

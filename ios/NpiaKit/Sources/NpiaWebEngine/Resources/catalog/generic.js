@@ -239,7 +239,8 @@
         if (!panel.querySelector('#siteList')) {
             panel.innerHTML = '<h3>Top of chosen sites <span id="siteCount"></span></h3><p>Pick sites to see their own most read, in their order, with more as you scroll.</p>'
                 + '<div class="pickbar"><input id="siteFilter" placeholder="Find a site" autocomplete="off">'
-                + '<button type="button" class="primary" id="siteShow">Show</button><button type="button" id="siteAll">All sites</button></div>'
+                + '<button type="button" class="primary" id="siteShow">Show</button><button type="button" id="siteClear">Clear</button>'
+                + '<button type="button" id="siteAll">All sites</button></div>'
                 + '<div id="siteList"></div>';
             $('siteFilter').addEventListener('input', drawTopSites);
             $('siteShow').addEventListener('click', function () {
@@ -253,6 +254,11 @@
                 picking = null;
                 panel.classList.remove('open');
                 showTop();
+            });
+            // Unticks every site; a list of picked sites on show goes back to every site's at once.
+            $('siteClear').addEventListener('click', function () {
+                picking.clear();
+                if (top.only.length) $('siteAll').click(); else drawTopSites();
             });
         }
         var filter = $('siteFilter').value.trim().toLowerCase();
@@ -272,6 +278,7 @@
         });
         $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
         $('siteShow').disabled = !picking.size;
+        $('siteClear').disabled = !picking.size;
         $('siteList').innerHTML = names.map(function (site) {
             var item = answered.get(site);
             return '<label class="siterow pick ' + esc(item ? item.state || 'ok' : '') + '"><input type="checkbox" data-site="' + esc(site) + '"'
@@ -286,6 +293,7 @@
                 if (!picking.size && top.only.length) { $('siteAll').click(); return; }
                 $('siteShow').textContent = picking.size ? 'Show ' + picking.size : 'Show';
                 $('siteShow').disabled = !picking.size;
+                $('siteClear').disabled = !picking.size;
             };
         });
     }
@@ -339,9 +347,21 @@
         });
         if ($('siteFilterAll')) $('siteFilterAll').onclick = function () { siteFilter.clear(); refilter(); drawSites(); };
     }
+    /** The panel closes (a tap outside it, or on Sites again): the sites ticked in it are shown, as Show does. */
+    function applyPicks() {
+        if (view !== 'top' || !picking || !$('sitespanel').classList.contains('open')) return false;
+        var picked = Array.from(picking), shown = top.only;
+        picking = null;
+        if (picked.length === shown.length && picked.every(function (site) { return shown.indexOf(site) >= 0; })) return false;
+        topOnly[top.kind] = picked;
+        $('sitespanel').classList.remove('open');
+        showTop();
+        return true;
+    }
     $('sitesButton').addEventListener('click', function (event) {
         event.stopPropagation();
         $('settingspanel').classList.remove('open');
+        if (applyPicks()) return;
         $('sitespanel').classList.toggle('open');
         $('sitespanel').innerHTML = '';
         picking = null;
@@ -929,6 +949,7 @@
     // own buttons toggle them on the click that follows.
     document.addEventListener('pointerdown', function (event) {
         if (event.target.closest('.popover, #sitesButton, #settingsButton')) return;
+        applyPicks();
         $('sitespanel').classList.remove('open');
         $('settingspanel').classList.remove('open');
     }, true);
@@ -2017,46 +2038,26 @@
         var source = R.source, promise;
         // The app-side reader uses the Catalog's hidden browser and, if necessary, the downloader's
         // saved browser session.  It is also the recovery path when an LNReader request hits Cloudflare.
-        var appChapter = function () {
-            return askWithin({type: 'genericChapter', url: source.url, index: index}, 90,
+        var appChapter = function (recovery) {
+            return askWithin({type: 'genericChapter', url: source.url, index: index, recovery: recovery || null}, 90,
                              function (id) { R.chapterIds.set(index, id); });
         };
-        // This site's chapter endpoint rejects fetch/native HTTP even after its book page works. Use
-        // the app's attached off-screen WKWebView, wait for the real reader DOM, then extract it.
-        var protectedChapter = function (item) {
-            if (typeof window.__noveldb_window_script !== 'function') return appChapter();
-            var address;
-            try { address = new URL(item.url || item.path || '', source.url).href; }
-            catch (e) { return Promise.reject(new Error('The chapter address is invalid.')); }
-            var script = "(async function () {"
-                + "var deadline=Date.now()+30000;"
-                + "while(Date.now()<deadline){"
-                + "var reader=document.querySelector('.reader');"
-                + "if(reader&&(reader.innerText||'').trim().length>20){"
-                + "var clone=reader.cloneNode(true);"
-                + "clone.querySelectorAll('.reader-nav,script,style').forEach(function(n){n.remove();});"
-                + "return {chapterName:" + JSON.stringify(item.name || R.chapters[index].name || '')
-                + ",contentHtml:clone.innerHTML,contentText:clone.innerText};}"
-                + "await new Promise(function(resolve){setTimeout(resolve,250);});}"
-                + "throw new Error('Cloudflare verification did not expose the chapter within 30 seconds.');"
-                + "})()";
-            note('Reading chapter in the hidden browser…', 90);
-            return Promise.resolve(window.__noveldb_window_script({url: address, script: script})).then(function (reply) {
-                if (typeof reply === 'string') reply = parse(reply);
-                if (!reply || reply.error) throw new Error((reply && reply.error) || 'the hidden browser did not answer');
-                if (!reply.value || !reply.value.contentHtml) throw new Error('the hidden browser found no chapter text');
-                return reply.value;
-            });
-        };
         if (R.lnreader && /^https?:\/\/(?:www\.)?fucknovelpia\.com\//i.test(source.url || '')) {
-            promise = protectedChapter(Object.assign({}, R.lnreader.chapters[index]));
+            // FuckNovelpia's book/TOC is safe in LNReader, but its chapter fetch
+            // is always challenged. Do not spend 60 seconds on a request known
+            // to fail; use the app's persistent hidden Chrome session directly.
+            promise = appChapter('cloudflare');
         } else if (R.lnreader) {
             var item = Object.assign({}, R.lnreader.chapters[index]);
             promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')
                 .then(parse).then(function (result) {
                     if (result && !result.error) return result;
-                    note('The site blocked the quick reader; retrying in the browser…', 90);
-                    return appChapter().then(function (recovered) { return recovered || result; });
+                    var detail = ((result && result.error) || '') + ' ' + ((result && result.message) || '');
+                    var cloudflare = /cloudflare|http\s*403|just a moment|verify you are human|checking your browser/i.test(detail);
+                    note(cloudflare ? 'Cloudflare detected; switching to the downloader browser…'
+                                    : 'The quick reader failed; retrying in the browser…', 90);
+                    return appChapter(cloudflare ? 'cloudflare' : null)
+                        .then(function (recovered) { return recovered || result; });
                 });
         } else {
             // Each chapter's request keeps its id: the next chapter read ahead must not take over this one's
