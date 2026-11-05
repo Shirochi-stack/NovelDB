@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovelDB · Novel downloader, catalog and reader</title>
+  <meta name="description" content="NovelDB downloads web novels to EPUB, TXT, PDF and CBZ, searches 1,000+ sites from one catalog, and keeps a library with a built-in reader. Free for Windows, macOS, Linux, Android and iOS.">
+  <meta property="og:title" content="NovelDB · Novel downloader, catalog and reader">
+  <meta property="og:description" content="Download, search and read web novels on desktop and phone.">
+  <meta property="og:image" content="https://shirochi-stack.github.io/NovelDB/apps/shots/desktop-catalog-dark.webp">
+  <link rel="icon" href="../halgakos.ico" type="image/x-icon">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="site.css?v=1">
+  <script>
+    try { var t = localStorage.getItem("noveldb-apps-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="./"><img src="app-icon.webp" alt="" width="30" height="30">NovelDB</a>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#desktop">Desktop</a>
+        <a href="#mobile">Mobile</a>
+        <a href="#engines">How it works</a>
+        <a href="#download">Download</a>
+        <a href="../">Database</a>
+      </nav>
+      <div class="nav-tools">
+        <a class="icon-btn" href="https://github.com/Shirochi-stack/NovelDB" aria-label="Source code on GitHub">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.27 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+        </a>
+        <button class="icon-btn" id="themeToggle" type="button" aria-label="Switch light or dark theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <div>
+          <span class="pill"><span class="dot"></span>Free &amp; open source · <span data-release="tag">latest release</span></span>
+          <h1>Download, find and read <em>web novels</em> anywhere.</h1>
+          <p class="lede">NovelDB saves novels from npia and 1,000+ other sites as EPUB, TXT, PDF or CBZ. Search every site from one catalog, queue whole series, and read what you saved in a built-in library. On Windows, macOS, Linux, Android and iOS.</p>
+          <div class="cta">
+            <a class="btn btn-primary" id="heroDownload" href="#download">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
+              <span>Download NovelDB</span>
+            </a>
+            <a class="btn" href="../">Browse the NovelDB database</a>
+          </div>
+          <p class="small">No account needed. Your sign-ins stay on your device.</p>
+          <div class="platforms"><span>Windows</span><span>macOS</span><span>Linux</span><span>Android</span><span>iOS</span></div>
+        </div>
+        <div class="hero-art">
+          <div class="window">
+            <div class="bar"><i></i><i></i><i></i><b>NovelDB · Catalog</b></div>
+            <img class="shot-light zoomable" src="shots/desktop-catalog-light.webp" width="1600" height="1000" alt="The desktop Catalog page with top web novels as cover cards">
+            <img class="shot-dark zoomable" src="shots/desktop-catalog-dark.webp" width="1600" height="1000" alt="The desktop Catalog page with top web novels as cover cards">
+          </div>
+          <img class="mascot" src="halgakos.webp" alt="" width="520" height="520">
+        </div>
+      </div>
+      <div class="wrap hero-stats">
+        <div class="stats">
+          <div class="stat"><strong>1,000+</strong><span>sites in the Catalog search</span></div>
+          <div class="stat"><strong>3</strong><span>site engines, tried in turn</span></div>
+          <div class="stat"><strong>4</strong><span>output formats: EPUB, TXT, PDF, CBZ</span></div>
+          <div class="stat"><strong>5</strong><span>platforms: desktop and mobile</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="desktop">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Desktop app</div>
+          <h2>One window for downloading, browsing and reading.</h2>
+          <p>Five pages: Download, Catalog, Library, Queue and Settings. These screenshots are the real app, captured from a running copy.</p>
+        </div>
+
+        <div class="feature">
+          <div class="copy">
+            <h3>Download</h3>
+            <p>Paste novel links, npia IDs or <code>Title,ID</code> lines, one per line, and pick the formats you want. A live log sits beside the form.</p>
+            <ul>
+              <li>EPUB, TXT, PDF and CBZ, with tags, author and synopsis written into the book</li>
+              <li>Chapter ranges, skip paid chapters, number chapters, generate on stop</li>
+              <li>WebP, AVIF, PNG or JPEG image compression, and a size target for the whole book</li>
+              <li>A link cart that collects books from the Catalog for one batch</li>
+            </ul>
+          </div>
+          <figure class="window">
+            <div class="bar"><i></i><i></i><i></i><b>Download</b></div>
+            <img class="shot-light zoomable" loading="lazy" src="shots/desktop-download-light.webp" width="1600" height="1000" alt="The Download page: link box, output formats, speed and chapter options, npia login and image settings">
+            <img class="shot-dark zoomable" loading="lazy" src="shots/desktop-download-dark.webp" width="1600" height="1000" alt="The Download page: link box, output formats, speed and chapter options, npia login and image settings">
+          </figure>
+        </div>
+
+        <div class="feature flip">
+          <div class="copy">
+            <h3>Catalog</h3>
+            <p>Search titles, tags, <code>@authors</code> or a novel ID across more than a thousand sites at once, or open the popular lists. Every card has a download button, and books go to the cart in one click.</p>
+            <ul>
+              <li>Top web novels by language, with ratings, chapter counts and tags</li>
+              <li>Tag search across the NovelDB database and the sites' own tags</li>
+              <li>Read a chapter right away, before you download anything</li>
+            </ul>
+          </div>
+          <figure class="window">
+            <div class="bar"><i></i><i></i><i></i><b>Catalog</b></div>
+            <img class="shot-light zoomable" loading="lazy" src="shots/desktop-catalog-light.webp" width="1600" height="1000" alt="The Catalog page: search box over a grid of novel covers with ratings and tags">
+            <img class="shot-dark zoomable" loading="lazy" src="shots/desktop-catalog-dark.webp" width="1600" height="1000" alt="The Catalog page: search box over a grid of novel covers with ratings and tags">
+          </figure>
+        </div>
+
+        <div class="feature">
+          <div class="copy">
+            <h3>Library and reader</h3>
+            <p>Everything you download lands on a cover shelf. Open a book for its synopsis and chapter list, then read it in the app with your own theme and text size. Nothing is downloaded again: the reader opens the EPUB file.</p>
+            <ul>
+              <li>Search by title or author, sort by newest, page through hundreds of books</li>
+              <li>EPUB, TXT folders and PDFs of one book shown together</li>
+              <li>Contents panel, chapter by chapter navigation, light and dark reading themes</li>
+            </ul>
+          </div>
+          <div>
+            <div class="shots-tabs" role="tablist" aria-label="Library screenshots">
+              <button type="button" role="tab" aria-selected="true" aria-controls="lib-reader" id="tab-reader">Reader</button>
+              <button type="button" role="tab" aria-selected="false" aria-controls="lib-book" id="tab-book">Book page</button>
+              <button type="button" role="tab" aria-selected="false" aria-controls="lib-shelf" id="tab-shelf">Shelf</button>
+            </div>
+            <figure class="window shots-panel" id="lib-reader" role="tabpanel" aria-labelledby="tab-reader">
+              <div class="bar"><i></i><i></i><i></i><b>Library · Reader</b></div>
+              <img class="shot-light zoomable" loading="lazy" src="shots/desktop-reader-light.webp" width="1600" height="1000" alt="The Library reader with the contents list on the left and a chapter on the right">
+              <img class="shot-dark zoomable" loading="lazy" src="shots/desktop-reader-dark.webp" width="1600" height="1000" alt="The Library reader with the contents list on the left and a chapter on the right">
+            </figure>
+            <figure class="window shots-panel" id="lib-book" role="tabpanel" aria-labelledby="tab-book" hidden>
+              <div class="bar"><i></i><i></i><i></i><b>Library · Book</b></div>
+              <img class="shot-light zoomable" loading="lazy" src="shots/desktop-book-light.webp" width="1600" height="1000" alt="A book's page in the Library: cover, synopsis, Read and Open buttons and the chapter list">
+              <img class="shot-dark zoomable" loading="lazy" src="shots/desktop-book-dark.webp" width="1600" height="1000" alt="A book's page in the Library: cover, synopsis, Read and Open buttons and the chapter list">
+            </figure>
+            <figure class="window shots-panel" id="lib-shelf" role="tabpanel" aria-labelledby="tab-shelf" hidden>
+              <div class="bar"><i></i><i></i><i></i><b>Library</b></div>
+              <img class="shot-light zoomable" loading="lazy" src="shots/desktop-library-light.webp" width="1600" height="580" alt="The Library shelf: a search box and a row of book covers">
+              <img class="shot-dark zoomable" loading="lazy" src="shots/desktop-library-dark.webp" width="1600" height="580" alt="The Library shelf: a search box and a row of book covers">
+            </figure>
+          </div>
+        </div>
+
+        <div class="feature flip">
+          <div class="copy">
+            <h3>Queue and settings</h3>
+            <p>Downloads run in a queue you can pause, stop and resume after a restart. Settings keep per-source overrides, saved sessions, the site engine order, uploads and app updates in one place.</p>
+            <ul>
+              <li>Several downloads at once, with retries and rate limiting per source</li>
+              <li>Upload finished books and copy a share link</li>
+              <li>Light and dark themes with three accents, and display scaling for any screen</li>
+            </ul>
+          </div>
+          <div>
+            <div class="shots-tabs" role="tablist" aria-label="Queue and settings screenshots">
+              <button type="button" role="tab" aria-selected="true" aria-controls="qs-queue" id="tab-queue">Queue</button>
+              <button type="button" role="tab" aria-selected="false" aria-controls="qs-settings" id="tab-settings">Settings</button>
+            </div>
+            <figure class="window shots-panel" id="qs-queue" role="tabpanel" aria-labelledby="tab-queue">
+              <div class="bar"><i></i><i></i><i></i><b>Queue</b></div>
+              <img class="shot-light zoomable" loading="lazy" src="shots/desktop-queue-light.webp" width="1600" height="1000" alt="The Queue page listing finished and stopped downloads with progress bars">
+              <img class="shot-dark zoomable" loading="lazy" src="shots/desktop-queue-dark.webp" width="1600" height="1000" alt="The Queue page listing finished and stopped downloads with progress bars">
+            </figure>
+            <figure class="window shots-panel" id="qs-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+              <div class="bar"><i></i><i></i><i></i><b>Settings</b></div>
+              <img class="shot-light zoomable" loading="lazy" src="shots/desktop-settings-light.webp" width="1600" height="1000" alt="Settings, General section: theme, accent, display scaling and download options">
+              <img class="shot-dark zoomable" loading="lazy" src="shots/desktop-settings-dark.webp" width="1600" height="1000" alt="Settings, General section: theme, accent, display scaling and download options">
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="mobile" class="alt">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Android &amp; iOS</div>
+          <h2>The same downloader in your pocket.</h2>
+          <p>Native apps for Android (Kotlin, Jetpack Compose) and iOS (Swift) with the same Catalog, sources and settings. A settings file exported on one app imports on the other, and both import the desktop <code>config.json</code>. Screenshots: the Android release on an emulator.</p>
+        </div>
+        <div class="phones">
+          <figure><div class="phone"><img class="zoomable" loading="lazy" src="shots/android-catalog.webp" width="540" height="1200" alt="Android Catalog: search box over novel cards with ratings and tags"></div><figcaption>Catalog</figcaption></figure>
+          <figure><div class="phone"><img class="zoomable" loading="lazy" src="shots/android-details.webp" width="540" height="1200" alt="Android book details: rating, chapters, tags, synopsis, Read now and Download"></div><figcaption>Book details</figcaption></figure>
+          <figure><div class="phone"><img class="zoomable" loading="lazy" src="shots/android-reader.webp" width="540" height="1200" alt="Android reader showing the first chapter of a novel"></div><figcaption>Reader</figcaption></figure>
+          <figure><div class="phone"><img class="zoomable" loading="lazy" src="shots/android-download.webp" width="540" height="1200" alt="Android Add links form with format, speed and chapter range options"></div><figcaption>Add links</figcaption></figure>
+        </div>
+        <div class="mobile-copy">
+          <div class="card"><h3>Read before you download</h3><p>Tap a book in the Catalog to read it straight away, add it to the cart, or download a chapter range. Share a link from your browser to NovelDB to queue it.</p></div>
+          <div class="card"><h3>Sign in where it counts</h3><p>npia login, and Enter App for sfc, qdn and rbooks: sign in once in the app's own browser and downloads use those sessions. Chapters you have not bought are never bypassed.</p></div>
+          <div class="card"><h3>Updates itself</h3><p>Android checks the releases once a day and installs a verified APK after you confirm. On iOS the verified IPA goes to the share sheet for SideStore, AltStore and similar tools.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="engines">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">How it works</div>
+          <h2>Three site engines, tried in turn.</h2>
+          <p>Each link goes through the engines until one finds chapters. Drag them into another order or switch one off in Settings › Site engines.</p>
+        </div>
+        <div class="cards three">
+          <div class="card"><span class="tag">1</span><h3>Built-in scrapers</h3><p>The app's own code for the sites it knows best, including npia, kpage, sfc, qdn, rbooks and floo, with your saved sign-ins.</p></div>
+          <div class="card"><span class="tag">2</span><h3>novel-downloader rules</h3><p>The rule engine from the novel-downloader project, mostly Chinese and Japanese sites, updated daily from the <code>engines</code> release.</p></div>
+          <div class="card"><span class="tag">3</span><h3>WebToEpub parsers</h3><p>650+ parsers, mostly English translation sites. Updates are checked against their SHA-256 and only used after they load.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="alt">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Download</div>
+          <h2>Get NovelDB <span data-release="tag"></span></h2>
+          <p>Every build comes from <a href="https://github.com/Shirochi-stack/NovelDB/releases/latest">GitHub Releases</a> with SHA-256 checksums, and the apps offer updates from there.</p>
+        </div>
+        <div class="dl-grid">
+          <div class="card dl">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Windows</h3>
+            <p>Windows 10/11, 64-bit. SmartScreen may warn about an unknown publisher: choose More info › Run anyway.</p>
+            <div class="files" data-os="windows">
+              <a href="https://github.com/Shirochi-stack/NovelDB/releases/latest">Full, Lite and TurboLite <small>Releases</small></a>
+            </div>
+          </div>
+          <div class="card dl">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>macOS</h3>
+            <p>macOS 13+, Apple silicon or Intel. Not notarised: the first time, right-click the app and choose Open.</p>
+            <div class="files" data-os="macos">
+              <a href="https://github.com/Shirochi-stack/NovelDB/releases/latest">Full, Lite and TurboLite <small>Releases</small></a>
+            </div>
+          </div>
+          <div class="card dl">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Linux</h3>
+            <p>x86_64 AppImage, glibc 2.35+ (Ubuntu 22.04+). <code>chmod +x</code> it and run; needs FUSE 2.</p>
+            <div class="files" data-os="linux">
+              <a href="https://github.com/Shirochi-stack/NovelDB/releases/latest">Full, Lite and TurboLite <small>Releases</small></a>
+            </div>
+          </div>
+          <div class="card dl">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg>Android</h3>
+            <p>One universal APK. Allow installs from your browser or file manager when Android asks.</p>
+            <div class="files">
+              <a href="https://github.com/Shirochi-stack/NovelDB/releases/latest/download/NovelDB-universal.apk">NovelDB-universal.apk <small data-size="NovelDB-universal.apk">APK</small></a>
+            </div>
+          </div>
+          <div class="card dl">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg>iOS</h3>
+            <p>An unsigned IPA to sideload with SideStore, AltStore or a similar tool.</p>
+            <div class="files">
+              <a href="https://github.com/Shirochi-stack/NovelDB/releases/latest/download/NovelDB-unsigned.ipa">NovelDB-unsigned.ipa <small data-size="NovelDB-unsigned.ipa">IPA</small></a>
+            </div>
+          </div>
+          <div class="card dl">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg>From source</h3>
+            <p>Install <code>requirements-full.txt</code> and run <code>python noveldb_app.py</code>. Build with <code>scripts/build_desktop.py</code>.</p>
+            <div class="files">
+              <a href="https://github.com/Shirochi-stack/NovelDB">Shirochi-stack/NovelDB <small>GitHub</small></a>
+            </div>
+          </div>
+        </div>
+        <div class="variants card">
+          <table>
+            <thead><tr><th>Desktop build</th><th>What it includes</th><th>Pick it when</th></tr></thead>
+            <tbody>
+              <tr><td>Full</td><td>A bundled Chromium for browser-based sources and Enter Browser, plus the embedded Catalog</td><td>You want every source to work</td></tr>
+              <tr><td>Lite</td><td>The embedded Catalog and Google sign-in, no bundled Chromium</td><td>You only use sources that need no browser</td></tr>
+              <tr><td>TurboLite</td><td>No browser engine; the Catalog opens in your own browser</td><td>You want the smallest, fastest download</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="db">
+          <div>
+            <div class="eyebrow">NovelDB database</div>
+            <h2>Search over a million novel listings in your browser.</h2>
+            <p>The NovelDB website indexes metadata from eight catalogs, with English titles, tags, synopses and rankings, and links back to each original page. The apps' Catalog reads the same index.</p>
+            <div class="sources">
+              <span><img src="../icons/npia.png" alt="">npia</span>
+              <span><img src="../icons/kpage.png" alt="">kpage</span>
+              <span><img src="../icons/sfc.ico" alt="">sfc</span>
+              <span><img src="../icons/nweb.png" alt="">nweb</span>
+              <span><img src="../icons/mpia.ico" alt="">mpia</span>
+              <span><img src="../icons/jara.ico" alt="">jara</span>
+              <span><img src="../icons/rbooks.png" alt="">rbooks</span>
+              <span><img src="../icons/nseries.png" alt="">nseries</span>
+            </div>
+          </div>
+          <a class="btn btn-primary" href="../">Open the database</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>NovelDB · Download only what your account can access.</span>
+      <nav aria-label="Links">
+        <a href="../">Database</a>
+        <a href="https://github.com/Shirochi-stack/NovelDB/releases">Releases</a>
+        <a href="https://github.com/Shirochi-stack/NovelDB">GitHub</a>
+        <a href="https://github.com/Shirochi-stack/NovelDB/issues">Issues</a>
+      </nav>
+    </div>
+  </footer>
+
+  <div class="lightbox" id="lightbox" hidden><img alt=""></div>
+  <script src="site.js?v=1"></script>
+</body>
+</html>
