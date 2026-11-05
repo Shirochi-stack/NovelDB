@@ -158,6 +158,7 @@ def test_unverified_font_hash_cannot_use_verified_mapping(monkeypatch):
 
 def test_unknown_glyph_and_mirror_state_keep_shape_fallback(monkeypatch):
     monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    _empty_outline_table(monkeypatch)
     payload = _chapter_payload()
     decoder = q.QdnFontDecoder(payload)
     cipher = decoder.fonts[0]
@@ -190,6 +191,7 @@ def test_corrupt_optional_mapping_file_falls_back(tmp_path, monkeypatch):
 def test_component_refinement_still_fixes_unverified_borrow_glyph(monkeypatch):
     monkeypatch.setattr(q, '_VERIFIED_MAPS', {})
     monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    _empty_outline_table(monkeypatch)
     payload = _chapter_payload()
     payload['paragraphs'] = [[{'parts': [{'text': '色', 'fonts': 'cipher0'}]}]]
     lines, stats = q.decode_payload(payload)
@@ -280,6 +282,7 @@ def test_reference_includes_supported_rare_hanzi(tmp_path, monkeypatch):
     assert rare in reference.chars
     monkeypatch.setattr(q._Reference, '_instance', reference)
     monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    _empty_outline_table(monkeypatch)
     data = _cipher_font({'丁': '高'})
     lines, _ = q.decode_payload({
         'faces': [{'family': 'RARE', 'range': 'U+4E00-9FFF', 'url': 'rare'}],
@@ -444,3 +447,62 @@ def test_low_shape_scores_remain_uncertain_on_cache_hits(monkeypatch):
     assert decoder.low_confidence == 2
     assert decoder.diagnostics[0]['reasons'] == ['low_shape_score']
     assert len(decoder.diagnostics) == 1
+
+
+def _empty_outline_table(monkeypatch):
+    table = q._OutlineTable(os.devnull)
+    monkeypatch.setattr(q._OutlineTable, '_instance', table)
+    return table
+
+
+def test_outline_codec_round_trips():
+    contours = [([(10, 20), (-5, 700), (300, 701)], [True, False, True]),
+                ([(0, 0), (1, 1), (2, 0), (3, 1)], [True, True, False, False])]
+    decoded = q.decode_outline(q.encode_outline(contours))
+    assert [(list(map(tuple, p)), f) for p, f in decoded] == contours
+
+
+def _square(x, y, size):
+    return [([(x, y), (x, y + size), (x + size, y + size), (x + size, y)], [True] * 4)]
+
+
+def _table(glyphs, monkeypatch, tmp_path):
+    path = tmp_path / 'outlines.json'
+    path.write_text(json.dumps({'schema': 1, 'tolerance': 20, 'separation': 32, 'glyphs': [
+        [char, q.encode_outline(contours)] for char, contours in glyphs]}), encoding='utf-8')
+    table = q._OutlineTable(str(path))
+    monkeypatch.setattr(q._OutlineTable, '_instance', table)
+    return table
+
+
+def test_outline_table_needs_a_close_and_unique_match(monkeypatch, tmp_path):
+    table = _table([('口', _square(100, 100, 600)), ('日', _square(100, 100, 800))],
+                   monkeypatch, tmp_path)
+    near = q.flatten_outline(_square(103, 98, 601))
+    assert table.match(near)[0] == '口'
+    # Far from every exemplar: unknown, so the decoder falls back and reports it.
+    assert table.match(q.flatten_outline(_square(100, 100, 300))) is None
+    # Within tolerance of one character but also close to another: refused.
+    crowded = _table([('口', _square(100, 100, 600)), ('囗', _square(100, 100, 615))],
+                     monkeypatch, tmp_path)
+    assert crowded.match(near) is None
+
+
+def test_corrupt_outline_table_falls_back(tmp_path):
+    path = tmp_path / 'outlines.json'
+    path.write_text('{broken', encoding='utf-8')
+    table = q._OutlineTable(str(path))
+    assert table.match(q.flatten_outline(_square(0, 0, 500))) is None
+
+
+def test_chapter_decodes_exactly_from_the_outline_table(monkeypatch):
+    """The shipped table alone reproduces the screenshot-checked chapter."""
+    monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    monkeypatch.setattr(q, '_VERIFIED_MAPS', {})
+    monkeypatch.setattr(q._OutlineTable, '_instance', None)
+    expected = json.loads((Path(__file__).parent / 'fixtures' / 'qdn_chapter76_expected.json').read_text(encoding='utf-8'))['paragraphs']
+    lines, stats = q.decode_payload(_chapter_payload())
+    assert lines == expected
+    assert stats['verified_glyphs'] == 0
+    assert stats['outline_table_glyphs'] == stats['decoded'] == 1729
+    assert stats['shape_matched_glyphs'] == stats['low_confidence'] == 0

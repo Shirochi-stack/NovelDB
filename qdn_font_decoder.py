@@ -40,6 +40,7 @@ _CONFIDENCE_MARGIN = 0.03
 _HERE = getattr(sys, '_MEIPASS', None) or os.path.dirname(os.path.abspath(__file__))
 _FREQ_FILE = os.path.join(_HERE, 'data', 'zh_char_frequency.txt')
 _VERIFIED_FILE = os.path.join(_HERE, 'data', 'qdn_verified_maps.json')
+_OUTLINE_FILE = os.path.join(_HERE, 'data', 'qdn_outline_table.json')
 _FONT_EXTENSIONS = ('.otf', '.ttf', '.ttc', '.otc')
 
 
@@ -243,6 +244,7 @@ class _CipherFont:
         self.font = ImageFont.truetype(io.BytesIO(data), _RENDER_SIZE)
         self.cmap = _font_cmap(data)
         self._notdef = _vector(self.font, '\ue000') if self.cmap is None else None
+        self.outlines = _font_outlines(data)
 
     def covers(self, ch):
         cp = ord(ch)
@@ -305,12 +307,241 @@ def _cipher_font(family, unicode_range, data):
     return font
 
 
+# --- Outline table -------------------------------------------------------
+# Every cipher font draws its glyphs from one design (YWHeiTi), and each
+# character keeps its outline across fonts up to contour order, start point,
+# small curve edits and a few units of jitter. Hausdorff distance between
+# flattened outlines separates them cleanly: variants of one character lie
+# within ~4 font units, different characters at least ~50 apart. The table
+# stores one labelled exemplar outline per variant, so a glyph within
+# tolerance of an exemplar is identified exactly instead of shape-guessed.
+
+_OUTLINE_STEP = 12.0
+_OUTLINE_GRID = 24
+_OUTLINE_CANDIDATES = 6
+
+
+def encode_outline(contours):
+    """Pack [(points, on_flags)] contours into a compact base64 string."""
+    parts = [len(contours).to_bytes(2, 'little')]
+    for points, flags in contours:
+        parts.append(len(points).to_bytes(2, 'little'))
+        bits = bytearray((len(points) + 7) // 8)
+        for index, on in enumerate(flags):
+            if on:
+                bits[index // 8] |= 1 << (index % 8)
+        parts.append(bytes(bits))
+        for x, y in points:
+            parts.append(int(x).to_bytes(2, 'little', signed=True))
+            parts.append(int(y).to_bytes(2, 'little', signed=True))
+    return base64.b64encode(b''.join(parts)).decode('ascii')
+
+
+def decode_outline(text):
+    raw = base64.b64decode(text)
+    count, offset, contours = int.from_bytes(raw[:2], 'little'), 2, []
+    for _ in range(count):
+        size = int.from_bytes(raw[offset:offset + 2], 'little')
+        offset += 2
+        nbits = (size + 7) // 8
+        bits = raw[offset:offset + nbits]
+        offset += nbits
+        flags = [bool(bits[i // 8] >> (i % 8) & 1) for i in range(size)]
+        points = []
+        for _ in range(size):
+            points.append((int.from_bytes(raw[offset:offset + 2], 'little', signed=True),
+                           int.from_bytes(raw[offset + 2:offset + 4], 'little', signed=True)))
+            offset += 4
+        contours.append((points, flags))
+    return contours
+
+
+_CURVE_T = np.linspace(0, 1, 7)[1:, None] if np is not None else None
+
+
+def flatten_outline(contours, step=_OUTLINE_STEP):
+    """Sample TrueType quadratic contours into points about ``step`` apart."""
+    rings = []
+    for points, flags in contours:
+        if not points:
+            continue
+        pts = [tuple(map(float, p)) for p in points]
+        on = list(flags)
+        if not any(on):  # all off-curve: start at an implied midpoint
+            pts.insert(0, ((pts[0][0] + pts[-1][0]) / 2, (pts[0][1] + pts[-1][1]) / 2))
+            on.insert(0, True)
+        start = on.index(True)
+        pts, on = pts[start:] + pts[:start], on[start:] + on[:start]
+        n = len(pts)
+        # Polyline vertices: on-curve points plus a few samples per curve.
+        vertices = [pts[0]]
+        index = 1
+        while index <= n:
+            point = pts[index % n]
+            if on[index % n]:
+                vertices.append(point)
+                index += 1
+                continue
+            following, following_on = pts[(index + 1) % n], on[(index + 1) % n]
+            end = following if following_on else ((point[0] + following[0]) / 2,
+                                                   (point[1] + following[1]) / 2)
+            a, c, b = np.array(vertices[-1]), np.array(point), np.array(end)
+            t = _CURVE_T
+            vertices.extend(((1 - t) ** 2 * a + 2 * (1 - t) * t * c + t * t * b).tolist())
+            index += 2 if following_on else 1
+        rings.append(np.asarray(vertices, dtype=np.float64))
+    if not rings:
+        return None
+    # Densify every polyline segment in one vectorized pass.
+    starts = np.concatenate([ring[:-1] for ring in rings])
+    deltas = np.concatenate([np.diff(ring, axis=0) for ring in rings])
+    counts = np.maximum(1, np.ceil(np.hypot(deltas[:, 0], deltas[:, 1]) / step)).astype(int)
+    owner = np.repeat(np.arange(len(starts)), counts)
+    offsets = np.arange(len(owner)) - np.repeat(np.cumsum(counts) - counts, counts)
+    fraction = (offsets / counts[owner])[:, None]
+    return (starts[owner] + deltas[owner] * fraction).astype(np.float32)
+
+
+def _edge_map(points):
+    grid = np.zeros((_OUTLINE_GRID, _OUTLINE_GRID), dtype=np.float32)
+    cells = np.clip(((points - (-50.0, -200.0)) / (1100.0 / _OUTLINE_GRID)).astype(int),
+                    0, _OUTLINE_GRID - 1)
+    np.add.at(grid, (cells[:, 1], cells[:, 0]), 1.0)
+    padded = np.pad(grid, 1)
+    grid = sum(padded[dy:dy + _OUTLINE_GRID, dx:dx + _OUTLINE_GRID]
+               for dy in range(3) for dx in range(3))
+    vec = grid.ravel()
+    norm = float(np.linalg.norm(vec))
+    return vec / norm if norm else vec
+
+
+def outline_distance(a, b, bound=np.inf if np is not None else None):
+    """Symmetric Hausdorff distance between two sampled outlines.
+
+    Returns a lower bound above ``bound`` when the bounding boxes already
+    differ by more than that; a rejection needs nothing more exact.
+    """
+    gap = float(np.abs(np.concatenate([a.min(axis=0) - b.min(axis=0),
+                                       a.max(axis=0) - b.max(axis=0)])).max())
+    if gap > bound:
+        return gap
+    # A subset of either side gives a lower bound; most rivals stop here.
+    coarse = max(_nearest_worst(a[::4], b), _nearest_worst(b[::4], a))
+    if coarse > bound:
+        return coarse
+    d2 = _squared_distances(a, b)
+    worst = max(float(d2.min(axis=1).max()), float(d2.min(axis=0).max()))
+    return max(worst, 0.0) ** 0.5
+
+
+def _squared_distances(a, b):
+    return ((a * a).sum(axis=1)[:, None] + (b * b).sum(axis=1)[None, :]
+            - 2.0 * (a @ b.T))
+
+
+def _nearest_worst(a, b):
+    """Largest distance from a point of ``a`` to its nearest point of ``b``."""
+    return max(float(_squared_distances(a, b).min(axis=1).max()), 0.0) ** 0.5
+
+
+class _OutlineTable:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __init__(self, path):
+        self.tolerance = self.separation = 0.0
+        self.chars, self.points = [], []
+        try:
+            with open(path, encoding='utf-8') as stream:
+                saved = json.load(stream)
+            if saved.get('schema') == 1:
+                self.tolerance = float(saved.get('tolerance', 20))
+                self.separation = float(saved.get('separation', 32))
+                for char, text in saved.get('glyphs', []):
+                    if isinstance(char, str) and len(char) == 1:
+                        pts = flatten_outline(decode_outline(text))
+                        if pts is not None:
+                            self.chars.append(char)
+                            self.points.append(pts)
+        except (OSError, ValueError, TypeError, KeyError, IndexError):
+            # A missing or corrupt optional table must not stop decoding.
+            self.chars, self.points = [], []
+        self.matrix = (np.stack([_edge_map(p) for p in self.points])
+                       if self.points else None)
+
+    @classmethod
+    def get(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls(_OUTLINE_FILE)
+            return cls._instance
+
+    def match(self, points):
+        """Return (character, distance, runner_up) or None when unknown."""
+        if self.matrix is None or points is None:
+            return None
+        order = np.argsort(-(self.matrix @ _edge_map(points)))[:_OUTLINE_CANDIDATES]
+        # Distances past the separation only need to be known as "far".
+        bound = self.separation
+        scored = sorted((outline_distance(points, self.points[i], bound), self.chars[i])
+                        for i in order)
+        distance, char = scored[0]
+        rival = next((d for d, c in scored[1:] if c != char), None)
+        # Accept only a clear, unique hit: other characters must be far away.
+        if distance > self.tolerance or (rival is not None and rival <= self.separation):
+            return None
+        return char, distance, rival
+
+
+def _font_outlines(data):
+    """Code point -> (contours, advance) for a TrueType/WOFF2 font."""
+    try:
+        from fontTools.ttLib import TTFont
+        with TTFont(io.BytesIO(data)) as font:
+            glyf, cmap, metrics = font['glyf'], font.getBestCmap(), font['hmtx'].metrics
+            outlines = {}
+            for cp, name in cmap.items():
+                glyph = glyf[name]
+                if glyph.numberOfContours <= 0:
+                    continue
+                coords, ends, flags = glyph.getCoordinates(glyf)
+                contours, start = [], 0
+                for end in ends:
+                    contours.append((list(coords[start:end + 1]),
+                                     [bool(f & 1) for f in flags[start:end + 1]]))
+                    start = end + 1
+                outlines[cp] = (contours, metrics[name][0])
+            return outlines
+    except Exception:
+        # fontTools/brotli missing or an unreadable font: shape matching only.
+        return None
+
+
+def _outline_points(cipher, ch, mirrored):
+    outlines = getattr(cipher, 'outlines', None)
+    if outlines is None:
+        return None
+    entry = outlines.get(ord(ch))
+    if entry is None:
+        return None
+    contours, advance = entry
+    points = flatten_outline(contours)
+    if points is not None and mirrored:
+        points = points.copy()
+        points[:, 0] = advance - points[:, 0]
+    return points
+
+
 def warm_up():
-    """Build the reference glyphs in the background before chapters arrive."""
+    """Build the outline table and reference glyphs before chapters arrive."""
     if not available():
         return None
-    thread = threading.Thread(target=_Reference.get, name='qdn-ref',
-                              daemon=True)
+
+    def build():
+        _OutlineTable.get()
+        _Reference.get()
+
+    thread = threading.Thread(target=build, name='qdn-ref', daemon=True)
     thread.start()
     return thread
 
@@ -346,6 +577,7 @@ class QdnFontDecoder:
         self.low_confidence = 0
         self.decoded = 0
         self.verified = 0
+        self.outline = 0
 
     def _resolve(self, keys):
         """Match every uncached cipher glyph in one matrix product."""
@@ -362,6 +594,16 @@ class QdnFontDecoder:
                     _GLYPH_CACHE[(cipher.digest, ch, mirrored)] = {
                         'character': verified, 'score': None, 'margin': None,
                         'candidates': [], 'reasons': [], 'method': 'verified_font_map',
+                    }
+                continue
+            known = _OutlineTable.get().match(_outline_points(cipher, ch, mirrored))
+            if known is not None:
+                with _CACHE_LOCK:
+                    _GLYPH_CACHE[(cipher.digest, ch, mirrored)] = {
+                        'character': known[0], 'score': None, 'margin': None,
+                        'outline_distance': round(known[1], 2),
+                        'outline_runner_up': None if known[2] is None else round(known[2], 2),
+                        'candidates': [], 'reasons': [], 'method': 'outline_table',
                     }
                 continue
             vec = _vector(cipher.font, ch, mirrored)
@@ -454,6 +696,8 @@ class QdnFontDecoder:
         self.decoded += 1
         if match.get('method') == 'verified_font_map':
             self.verified += 1
+        elif match.get('method') == 'outline_table':
+            self.outline += 1
         if match['reasons']:
             self.low_confidence += 1
         key = (cipher.digest, ch, mirrored)
@@ -523,7 +767,8 @@ def decode_payload(payload):
     return lines, {
         'decoded': decoder.decoded,
         'verified_glyphs': decoder.verified,
-        'shape_matched_glyphs': decoder.decoded - decoder.verified,
+        'outline_table_glyphs': decoder.outline,
+        'shape_matched_glyphs': decoder.decoded - decoder.verified - decoder.outline,
         'low_confidence': decoder.low_confidence,
         'fonts': [cipher.family for cipher in decoder.fonts],
         'missing_fonts': decoder.missing_fonts,

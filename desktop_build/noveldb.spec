@@ -82,6 +82,7 @@ datas += [
     (here("data", "fonts"), os.path.join("data", "fonts")),
     (here("data", "zh_char_frequency.txt"), "data"),
     (here("data", "qdn_verified_maps.json"), "data"),
+    (here("data", "qdn_outline_table.json"), "data"),
 ]
 if IS_WIN:  # floo VIP image reader renders reference glyphs with Windows GDI+
     datas.append((here("data", "floo_glyph_atlas.ps1"), "data"))
@@ -176,7 +177,8 @@ a = Analysis(
     pathex=[ROOT],
     binaries=binaries,
     datas=datas,
-    hiddenimports=list(VARIANT.all_hidden) + ENGINE_HIDDEN + ["_build_info"],
+    hiddenimports=list(VARIANT.all_hidden) + ENGINE_HIDDEN + ["_build_info",
+                   "fontTools.ttLib.woff2", "brotli"],  # Qdn outline table
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[here("desktop_build", "pyi_rth_noveldb.py")],

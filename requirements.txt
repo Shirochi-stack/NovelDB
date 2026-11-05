@@ -12,6 +12,8 @@ cryptography>=41.0.0
 curl_cffi>=0.14.0,<0.15
 Pillow>=10.0.0
 numpy>=1.24  # Qdn bought-chapter glyph decoder
+fonttools>=4.40  # Qdn outline table (reads cipher font outlines)
+brotli>=1.0  # Qdn cipher fonts are WOFF2
 pillow-avif-plugin>=1.4.3
 weasyprint
 lxml>=5.0                 # lightnovel-crawler sources' HTML parser
