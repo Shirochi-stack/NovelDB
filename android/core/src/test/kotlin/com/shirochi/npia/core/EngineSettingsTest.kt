@@ -54,6 +54,7 @@ class EngineSettingsTest {
         engines = engines.withEnabled(SiteEngine.NATIVE, false).withEnabled(SiteEngine.NOVEL_DOWNLOADER, false)
             .withEnabled(SiteEngine.LNREADER, false).withEnabled(SiteEngine.HARUNEKO, false).withEnabled(SiteEngine.GENERIC, false)
             .withEnabled(SiteEngine.LNCRAWL, false).withEnabled(SiteEngine.FANFICFARE, false).withEnabled(SiteEngine.GALLERYDL, false)
+            .withEnabled(SiteEngine.CUSTOM, false)
         assertEquals(listOf(SiteEngine.WEBTOEPUB), engines.enabled())
         assertSame(engines, engines.withEnabled(SiteEngine.WEBTOEPUB, false))
         assertEquals(listOf(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB), engines.withEnabled(SiteEngine.NATIVE, true).enabled())
