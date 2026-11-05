@@ -2973,9 +2973,19 @@ class ExternalScraper(SiteEnginesMixin):
 
     @staticmethod
     def _chrome_processes_using_profile(user_data_dir):
-        """Return browser PIDs that already have a persistent profile open."""
+        """Return browser PIDs that already have a persistent profile open.
+
+        The profile must match exactly: a profile folder inside another one
+        (the reader's ``browser_data/reader_profile``) is not the outer one.
+        """
         if sys.platform != "win32":
             return []
+        try:
+            from browser_profile import profile_processes
+
+            return [int(record['pid']) for record in profile_processes(user_data_dir)]
+        except Exception:
+            pass
         profile = os.path.abspath(user_data_dir).replace("'", "''")
         script = (
             "$needle = '" + profile + "'.ToLowerInvariant();\n"
@@ -3007,9 +3017,20 @@ class ExternalScraper(SiteEnginesMixin):
 
     @staticmethod
     def _chrome_remote_debugging_ports_using_profile(user_data_dir):
-        """Return CDP ports for browser processes using a profile."""
+        """Return CDP ports for browser processes using exactly this profile."""
         if sys.platform != "win32":
             return []
+        try:
+            from browser_profile import profile_processes
+
+            return sorted({
+                int(match.group(1))
+                for record in profile_processes(user_data_dir)
+                if (match := re.search(r'--remote-debugging-port=(\d+)',
+                                       record.get('command') or ''))
+            })
+        except Exception:
+            pass
         profile = os.path.abspath(user_data_dir).replace("'", "''")
         script = (
             "$needle = '" + profile + "'.ToLowerInvariant();\n"
@@ -3246,6 +3267,17 @@ class ExternalScraper(SiteEnginesMixin):
                 return []
             time.sleep(.25)
         return [int(record['pid']) for record in records]
+
+    def _release_held_profile(self, user_data_dir, site):
+        """Close the browser holding the profile (Enter Browser, or one an
+        app window left behind), saving its session cookies first; the PIDs
+        still holding it after that, or [] once it is free."""
+        self.log(f'[{site}] The browser profile is in use; closing the browser holding it...')
+        try:
+            return self._close_chrome_profile_processes(user_data_dir)
+        except Exception as exc:
+            self.log(f'[{site}] Could not close it: {exc}')
+            return self._chrome_processes_using_profile(user_data_dir)
 
     def prepare_download_browser(self):
         """Keep this worker's session, or close browsers holding its profile."""
@@ -12293,6 +12325,8 @@ async ({ urls, concurrency }) => {
                     return (self._rbooks_connect_cdp(port) if site == 'Rbooks'
                             else self._rbooks_connect_cdp(port, site))
 
+            locked_pids = self._release_held_profile(user_data_dir, site)
+        if locked_pids:
             pids = ', '.join(str(pid) for pid in locked_pids)
             self.log(
                 f'[{site}] The External Downloader browser profile is already '
@@ -14396,6 +14430,8 @@ async (ids) => {
                     )
                     return self._npia_connect_cdp(port)
 
+            locked_pids = self._release_held_profile(user_data_dir, 'Npia')
+        if locked_pids:
             pids = ', '.join(str(pid) for pid in locked_pids)
             self.log(
                 '[Npia] The External Downloader browser profile is '
@@ -14924,6 +14960,8 @@ async (ids) => {
                     )
                     return self._mpia_connect_cdp(port)
 
+            locked_pids = self._release_held_profile(user_data_dir, "Mpia")
+        if locked_pids:
             pids = ", ".join(str(pid) for pid in locked_pids)
             self.log(
                 "[Mpia] Browser profile is already open in process(es): "
