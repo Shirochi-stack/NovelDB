@@ -23,7 +23,8 @@
  *   n = first page on). So a search shows a source's first books from the bucket alone, and reads
  *   further pages only as the results are scrolled.
  * - Card blocks of BLOCK books, in book-number order: [source, id, title, English title, author,
- *   cover, tags, views, likes, chapters, complete, address, updated, age rating, original tags].
+ *   cover, tags, views, likes, chapters, complete, address, updated, age rating, original tags,
+ *   publication date].
  *
  * It also writes the same pieces as separate files (split/: manifest.json, b/<bucket>.json.gz,
  * c/<block>.json.gz) for the NovelDB site, which reads them from the `noveldb-index` branch: a web page
@@ -104,6 +105,8 @@ const BRACKETED = /[(\[{（【][^)\]}）】]*[)\]}）】]/g;
 const ALIASES = 30, ALIAS_BOOKS = 3;
 // The tag menu's list of NovelDB's tags: those on 5 books or more, at most 4000.
 const TAG_BOOKS = 5, TAG_LIST = 4000;
+// The names a site's own tag search is asked for, per tag of that list.
+const NATIVE_NAMES = 3;
 function tagConcept(tag) {
     const text = normal(tag);
     const letters = (value) => value.replace(/[^\p{L}\p{N}]+/gu, "");
@@ -182,6 +185,7 @@ function sourceBooks(source, cfg, tagNames) {
                 views: Number(novel.views) || 0, likes: Number(novel.likes) || 0, chapters: Number(novel.chapters) || 0,
                 complete: novel.complete == null ? null : (novel.complete ? 1 : 0), url, updated: novel.updated || "",
                 age: novel.age == null ? null : Number(novel.age) || 0,
+                published: String(novel.startDate || "").slice(0, 10),
             });
         }
     }
@@ -218,6 +222,17 @@ function main() {
     };
     // How many books carry each English tag name: the apps' tag menus offer them (TAG_LIST).
     const tagCounts = new Map();
+    // alias key -> {source: {original tag: books}}: what each site calls a tag, for the apps' searches of
+    // the sites themselves ("TS" on npia for "Gender Bender").
+    const natives = new Map();
+    const native = (key, source, original) => {
+        if (!key) return;
+        let bySource = natives.get(key);
+        if (!bySource) natives.set(key, bySource = new Map());
+        let counts = bySource.get(source);
+        if (!counts) bySource.set(source, counts = new Map());
+        counts.set(original, (counts.get(original) || 0) + 1);
+    };
     books.forEach((book, number) => {
         // "!source": every book of a source, the most read first (a source's Top list).
         const own = new Set([...tokens(book.titleEn), ...tokens(book.title), "!" + book.source]);
@@ -231,6 +246,7 @@ function main() {
             if (tag) alias(tagConcept(tag), tagToken(tag));
             if (tag && original && original !== tag) alias(tagConcept(tag), tagToken(original));
             if (original && original !== tag) alias(tagConcept(original), tagToken(original));
+            if (tag && original) native(tagConcept(tag), book.source, original);
         });
         for (const tag of new Set([...book.tags, ...book.originalTags])) if (tag) own.add(tagToken(tag));
         for (const token of own) {
@@ -242,6 +258,17 @@ function main() {
     });
     // Synonyms (tag-synonyms.json): every key of a group lists the tags of all of them.
     const synonymKeys = mergeSynonyms(aliases);
+    for (const names of SYNONYMS) {
+        const group = [...new Set(names.map(tagConcept).filter(Boolean))];
+        const merged = new Map();
+        for (const key of group) {
+            for (const [source, counts] of natives.get(key) || []) {
+                const into = merged.get(source) || merged.set(source, new Map()).get(source);
+                for (const [original, n] of counts) into.set(original, (into.get(original) || 0) + n);
+            }
+        }
+        for (const key of group) natives.set(key, merged);
+    }
     // A key with two tags or more (each on ALIAS_BOOKS books or more) goes into its bucket as a list of them.
     let aliasKeys = 0;
     for (const [key, counts] of aliases) {
@@ -295,11 +322,23 @@ function main() {
     for (let start = 0; start < books.length; start += BLOCK) {
         blockAt.push(write(books.slice(start, start + BLOCK).map((b) => [
             b.source, b.id, b.title, b.titleEn, b.author, b.cover, b.tags.slice(0, TAGS_PER_CARD),
-            b.views, b.likes, b.chapters, b.complete, b.url, b.updated, b.age, b.originalTags.slice(0, TAGS_PER_CARD)]),
+            b.views, b.likes, b.chapters, b.complete, b.url, b.updated, b.age, b.originalTags.slice(0, TAGS_PER_CARD),
+            b.published]),
             `c/${blockAt.length}.json.gz`));
     }
-    // The tag names on TAG_BOOKS books or more, the most used first, at most TAG_LIST: [[name, books], ...].
-    const tagList = [...tagCounts].filter(([, n]) => n >= TAG_BOOKS).sort((a, b) => b[1] - a[1]).slice(0, TAG_LIST);
+    // The tag names on TAG_BOOKS books or more, the most used first, at most TAG_LIST: [[name, books,
+    // {source: [what the site calls it, ...]}], ...], each site's names the most used first (NATIVE_NAMES).
+    const tagList = [...tagCounts].filter(([, n]) => n >= TAG_BOOKS).sort((a, b) => b[1] - a[1]).slice(0, TAG_LIST)
+        .map(([name, n]) => {
+            const own = {};
+            for (const [source, counts] of natives.get(tagConcept(name)) || []) {
+                const used = [...counts].filter(([, k]) => k >= ALIAS_BOOKS).sort((a, b) => b[1] - a[1])
+                    .slice(0, NATIVE_NAMES).map(([original]) => original);
+                if (used.length) own[source] = used;
+            }
+            return [name, n, own];
+        });
+    natives.clear();
     const tagsAt = write(tagList, "tags.json.gz");
     console.log(`${tagList.length} tags listed`);
     fs.closeSync(out);

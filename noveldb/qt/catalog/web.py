@@ -362,6 +362,7 @@ class CatalogPage(QWidget):
             lambda script: self.page is not None and self.page.runJavaScript(script, WORLD), self.profile,
             lambda url: sites.supported_site(url, self.context.settings.engines.enabled()), self,
             cache_mb=lambda: self.context.settings.catalog.offline_cache_mb)
+        self.generic.logins.secrets = lambda: self.context.settings.secrets
         # The reader's own browser worker when there is one: it never waits behind a download.
         worker = getattr(self.context, "reader_browser", None) or self.context.browser
         if worker is not None:

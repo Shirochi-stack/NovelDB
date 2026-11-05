@@ -417,12 +417,14 @@ class NovelDBIndex:
             return None
         row = block[number % manifest["block"]]
         source, book_id, title, title_en, author, cover, tags, views, likes, chapters, complete, url, updated = row[:13]
+        published = row[15] if len(row) > 15 else ""  # indexes built before it was added have none
         return {
             "url": url, "title": title_en or title, "originalTitle": title if title_en else "", "author": author or "",
             "cover": cover or "", "description": "", "tags": list(tags or []), "site": _site(url), "comic": False,
             "source": "noveldb", "noveldb": {"source": source, "id": book_id}, "complete": False,
             "views": _count(views), "likes": _count(likes), "chapters": _count(chapters),
             "status": {1: "Completed", 0: "Ongoing"}.get(complete, ""), "updated": str(updated or "")[:10],
+            "published": str(published or "")[:10],
         }
 
     def tag_names(self) -> List[str]:
@@ -435,6 +437,22 @@ class NovelDBIndex:
         at = manifest.get("tagsAt")
         listed = self._piece("tags", 0, at=at) if at else None
         return [str(entry[0]) for entry in listed or [] if isinstance(entry, list) and entry]
+
+    def native_tags(self, tag: str) -> Dict[str, List[str]]:
+        """What each source calls `tag` ({source: [names, the most used first]}), for a search of the
+        sites themselves: the tag list's names for it, by its name or else its alias key. {} when the
+        index has no such tag (or was built before it listed them)."""
+        at = (self.manifest() or {}).get("tagsAt")
+        listed = [entry for entry in (self._piece("tags", 0, at=at) if at else None) or []
+                  if isinstance(entry, list) and len(entry) > 2 and isinstance(entry[2], dict)]
+        want = normal(tag).strip()
+        found = next((entry for entry in listed if normal(str(entry[0])).strip() == want), None)
+        if found is None and tag_concept(tag):
+            found = next((entry for entry in listed if tag_concept(str(entry[0])) == tag_concept(tag)), None)
+        if found is None:
+            return {}
+        return {str(source): [str(name) for name in names if isinstance(name, str) and name]
+                for source, names in found[2].items() if isinstance(names, list)}
 
     def description(self, card: dict) -> str:
         """The book's synopsis from the site's synopsis shard for it (one small file), or ""."""

@@ -60,7 +60,9 @@ import com.shirochi.npia.app.catalogPageMode
 import com.shirochi.npia.app.cleanPageTitle
 import com.shirochi.npia.app.model.CartItem
 import com.shirochi.npia.app.sameAddress
+import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.sources.SourceCatalog
+import com.shirochi.npia.sources.npia.NpiaAuth
 import com.shirochi.npia.sources.reader.CatalogTransport
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -216,6 +218,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     /** Shows `url`'s catalog page; `force` loads it even when it is the site already set (a new view). */
     fun load(url: String, force: Boolean = false) {
         if (url == site && !force) return
+        shareLogins()
         site = url
         pageUrl = catalogPage(url)
         onGenericPage = isGenericPage(pageUrl)
@@ -330,12 +333,31 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
 
     fun destroy() = view.destroy()
 
+    /** The npia login key last given to the web view's cookies (see [shareLogins]). */
+    @Volatile private var sharedNpiaKey: String? = null
+
+    /**
+     * The app's own npia login (Settings) goes into the web view's cookies, which the catalog's requests
+     * and pages share, so a signed-in user's searches and book pages show what npia shows them (19+
+     * books, members' figures). Only a key the app has not shared yet is written: a login made later in
+     * the web view itself stays until the app's key changes.
+     */
+    private fun shareLogins() {
+        val key = model.manager.secrets.get(SecretKey.NPIA_LOGIN_KEY)?.trim().orEmpty()
+        if (key.isEmpty() || key == sharedNpiaKey) return
+        sharedNpiaKey = key
+        val cookies = CookieManager.getInstance()
+        cookies.setCookie("https://${NpiaAuth.HOST}", "${NpiaAuth.COOKIE_NAME}=$key; Domain=.${NpiaAuth.HOST}; Path=/; Secure")
+        cookies.flush()
+    }
+
     /** `window.NovelDBTransport` of the generic search page; the reply goes to `__noveldbTransportReply(id, json)`. */
     private inner class Transport {
         @JavascriptInterface
         fun request(id: String, json: String) {
             if (!onGenericPage) return
             transportScope.launch {
+                shareLogins()
                 val context = model.manager.sourceContext()
                 val reply = CatalogTransport.handle(json, context.http, context.web, context)
                 main.post {

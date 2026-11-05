@@ -24,6 +24,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from noveldb.core import paths
 from noveldb.core.catalog.generic_search import GenericSearch, default_fetch, load_learned, save_learned, top_sites
 from noveldb.core.catalog.live_reader import LiveReader
+from noveldb.core.catalog.logins import SavedLogins
 from noveldb.core.catalog.noveldb_index import NovelDBIndex
 from noveldb.core.catalog.offline_cache import OfflineCache
 from noveldb.core.catalog.site_search import SiteSearch
@@ -287,6 +288,10 @@ class GenericCatalog(QObject):
         # The app's theme for the page (theme.web_theme); None leaves the page its own colours.
         self.theme: Callable[[], Optional[dict]] = lambda: None
         self.browser = BrowserFetcher(profile, self)
+        # The user's logins go with the Catalog's own requests (its profile's, Enter Browser's and the
+        # app's); the Catalog page sets `logins.secrets` to the app's.
+        self.logins = SavedLogins()
+        self._watch_cookies(profile)
         self.known_site = known_site
         self._stop = threading.Event()
         self._search_id = 0
@@ -316,10 +321,32 @@ class GenericCatalog(QObject):
 
     # -- requests ----------------------------------------------------------------------------------
 
+    def _watch_cookies(self, profile) -> None:
+        """Keeps `logins` up to date with the Catalog profile's cookies (those it has and every change)."""
+        store = profile.cookieStore() if profile is not None else None
+        if store is None:
+            return
+
+        def fields(cookie):
+            return cookie.domain(), cookie.path() or "/", bytes(cookie.name()).decode("utf-8", "ignore")
+
+        store.cookieAdded.connect(lambda cookie: self.logins.observe(*fields(cookie), bytes(cookie.value()).decode("utf-8", "ignore")))
+        store.cookieRemoved.connect(lambda cookie: self.logins.forget(*fields(cookie)))
+        store.loadAllCookies()
+
     def fetch(self, url: str, method: str = "GET", data=None, headers=None, binary: bool = False,
               referer: str = "", quick: bool = False) -> Optional[dict]:
-        """Plain HTTP; a page that refuses it is read in a hidden Catalog tab instead (not for `quick` guesses)."""
+        """Plain HTTP with the user's logins for the site; a page that refuses it is read in a hidden
+        Catalog tab instead (not for `quick` guesses)."""
         self._note(f"Fetching {_short(url)}…")
+        if not any(name.lower() == "cookie" for name in (headers or {})):
+            try:
+                cookie = self.logins.header(url)
+            except Exception as e:
+                log.debug("logins for %s unreadable: %s", _short(url), e)
+                cookie = ""
+            if cookie:
+                headers = dict(headers or {}, Cookie=cookie)
         result = default_fetch(url, method=method, data=data, headers=headers, binary=binary, referer=referer, quick=quick)
         if method == "GET" and not binary and not quick and _refused(result):
             self._note(f"{_short(url)} refused a plain request; loading it in a browser tab…")

@@ -488,6 +488,34 @@ class GenericSearch:
             summary["noveldb"] = len(fresh)
             report("NovelDB", started, len(fresh))
 
+        def from_source(source: str, name: str):
+            """NovelDB's own sites, asked directly for the tag (under the site's own name for it) or the author."""
+            if stop.is_set():
+                return
+            from noveldb.core.catalog import source_search
+
+            started = time.monotonic()
+            cards, more = source_search.search(source, mode, name, 0, self.fetch)
+            source_search.remember(source, mode, text, name, 1 if more else None)
+            ms = int((time.monotonic() - started) * 1000)
+            summary["sources"] = summary.get("sources", 0) + len(cards)
+            fresh = offer([dict(card, ms=ms) for card in cards])
+            report(source_search.SOURCE_NAMES.get(source, source), started, len(fresh))
+
+        if mode in ("tag", "author"):
+            from noveldb.core.catalog import source_search
+
+            natives = {}
+            if mode == "tag" and self.noveldb is not None:
+                try:
+                    natives = self.noveldb.native_tags(text)
+                except Exception:
+                    natives = {}
+            asks = source_search.tag_queries(text, natives) if mode == "tag" else \
+                {source: [text] for source in source_search.SEARCHERS}
+            for source, names in asks.items():
+                for name in names:
+                    futures.append(pool.submit(from_source, source, name))
         if self.noveldb is not None:
             # NovelDB first, on a thread of its own: its cards show in about a second when the sites'
             # searches (thousands of them, each parsed in Python) don't start at the same moment.
@@ -503,12 +531,16 @@ class GenericSearch:
 
             threading.Thread(target=noveldb_first, name="generic-noveldb", daemon=True).start()
             futures.append(ndb_future)
-        if mode == "author":  # NovelDB knows books by author; the sites' searches are by title
+        if mode == "author":  # NovelDB and its own sites know books by author; the other sites' searches are by title
             progress({"total": len(futures)})
-            for future in futures:
-                future.result()
-            pool.shutdown(wait=False)
-            done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=False))
+            try:
+                for future in as_completed(futures, timeout=deadline):
+                    future.result()
+            except TimeoutError:
+                summary["late"] = sum(1 for future in futures if not future.done())
+            stop.set()
+            pool.shutdown(wait=False, cancel_futures=True)
+            done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=bool(summary.get("late"))))
             return
         if self.noveldb is not None:
             ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most
@@ -580,11 +612,27 @@ class GenericSearch:
             if self.site_search.has_more(home, kind, text):
                 state["more"] = True
 
+        def from_source(source: str, name: str, at: int):
+            from noveldb.core.catalog import source_search
+
+            if stop.is_set():
+                return
+            cards, more = source_search.search(source, mode, name, at, self.fetch)
+            source_search.remember(source, mode, text, name, at + 1 if more else None)
+            offer(cards)
+            if more:
+                state["more"] = True
+
         jobs = [from_noveldb] if self.noveldb is not None and ndb_page >= 1 else []
         for site in self.sites if sites else []:
             home = f"https://{site['host']}/"
             if self.site_search.has_more(home, kind, text):
                 jobs.append(lambda home=home: from_site(home))
+        if sites and mode in ("tag", "author"):
+            from noveldb.core.catalog import source_search
+
+            for source, name, at in source_search.pending(mode, text):
+                jobs.append(lambda source=source, name=name, at=at: from_source(source, name, at))
         self._run_all(jobs, deadline)
         done(dict(state, stopped=stop.is_set()))
 

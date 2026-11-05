@@ -18,7 +18,7 @@ def deltas(numbers):
     return [n - numbers[i - 1] if i else n for i, n in enumerate(numbers)]
 
 
-def build(books, page=500, aliases=None):
+def build(books, page=500, aliases=None, tag_list=None):
     """An index in the builder's format (2): per-source lists of each token in pages, then card blocks;
     `aliases`: {alias key: [tag token, ...]} as the builder writes them into the buckets."""
     lists = [dict() for _ in range(BUCKETS)]
@@ -51,13 +51,15 @@ def build(books, page=500, aliases=None):
                         pages += 1
                     entry["+" + source] = [len(numbers), first, at]
         bucket_at.append(write(value))
-    # The builder's rows: 13 fields, then the age rating and the original tags.
-    rows = [[b["source"], b["id"], b["title"], b["titleEn"], "", "", b["tags"], 10, 0, 3, 1, b["url"], "", None, b["tags"]]
-            for b in books]
+    # The builder's rows: 13 fields, then the age rating, the original tags and the publication date.
+    rows = [[b["source"], b["id"], b["title"], b["titleEn"], "", "", b["tags"], 10, 0, 3, 1, b["url"], "", None, b["tags"],
+             b.get("published", "")] for b in books]
     block_at.append(write(rows))
     manifest = {"format": 2, "built": "test", "books": len(books), "buckets": BUCKETS, "block": 256, "page": page,
                 "bin": "x.bin", "bucketAt": bucket_at, "blockAt": block_at,
                 "sources": {"npia": {"descriptions": {"prefix": "descriptions_shard_", "count": 128}}}}
+    if tag_list is not None:
+        manifest["tagsAt"] = write(tag_list)
     return manifest, data
 
 
@@ -226,3 +228,17 @@ def test_a_long_title_reads_only_its_shortest_word_lists():
     assert [c["url"] for c in cards] == ["https://example.test/s/elf"]
     pages = sum(1 for url in reads if url.endswith(".bin")) - len(set(tokens("萌妹精灵与她的幸福生活"))) - 1
     assert pages == 0  # buckets and the card block only: no list page of "生活" (or of any piece)
+
+
+def test_a_card_has_its_publication_date_and_a_tag_its_names_on_each_site():
+    books = [dict(BOOKS[0], published="2021-01-18")] + BOOKS[1:]
+    tag_list = [["Gender Bender", 40, {"npia": ["TS"], "sfc": ["性转", "娘化"]}], ["Romance", 9, {}], ["Old entry", 3]]
+    manifest, data = build(books, tag_list=tag_list)
+    index = NovelDBIndex(fetcher(manifest, data, []))
+    assert index.search("omniscient")[0]["published"] == "2021-01-18"
+    assert index.search("another reader")[0]["published"] == ""
+    assert index.native_tags("gender bender") == {"npia": ["TS"], "sfc": ["性转", "娘化"]}
+    # Another spelling of the same tag (its alias key) finds it too; a tag it doesn't list has none.
+    assert index.native_tags("Gender-Bender")["npia"] == ["TS"]
+    assert index.native_tags("Isekai") == {}
+    assert index.tag_names() == ["Gender Bender", "Romance", "Old entry"]

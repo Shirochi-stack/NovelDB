@@ -24,6 +24,9 @@ fun interface NpiaCookieSetting {
 object NpiaAuth {
     const val COOKIE_NAME = "LOGINKEY"
 
+    /** The site the cookie belongs to (for the app's web view cookies). */
+    const val HOST = NpiaParser.HOST
+
     /** "감사합니다", the text the login response contains on success. */
     internal const val SUCCESS_MARKER = "감사합니다"
 

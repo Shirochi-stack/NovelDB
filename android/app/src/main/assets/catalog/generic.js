@@ -1150,13 +1150,15 @@
             dialog.innerHTML = '<div class="details"><div class="side"><div class="cover">'
                 + (full ? '<img referrerpolicy="no-referrer" alt="" src="' + esc(full) + '">' : '') + '</div>'
                 + '<button type="button" data-act="open">Source page</button></div>'
-                + '<div class="info"><h2>' + esc(group.title) + '</h2>'
+                // The head (title, author, kind and the figures) sits beside the cover; on a phone the rest goes
+                // full width under both. The status is in the kind's line, so the figures leave it out.
+                + '<div class="info"><div class="head"><h2>' + esc(group.title) + '</h2>'
                 + (group.rawTitle ? '<div class="rawtitle">' + esc(group.rawTitle) + '</div>' : '')
                 + (group.author ? '<div class="meta"><a class="author" data-author>' + esc(group.author) + '</a></div>' : '')
                 + '<div class="meta">' + esc([KIND_NAMES[kindOf(group)], group.status].filter(Boolean).join(' · ')) + '</div>'
                 + '<div class="facts">' + fact('Rating', rating) + fact('Likes', group.likes) + fact('Views', group.views)
-                + fact('Chapters', group.chapters) + fact('Published', group.published) + fact('Updated', group.updated)
-                + fact('Status', group.status) + '</div>'
+                + fact('Chapters', group.chapters) + '</div>'
+                + '<div class="facts">' + fact('Published', group.published) + fact('Updated', group.updated) + '</div></div>'
                 + '<div class="chips">' + shownTags(group.tags).map(function (tag) { return '<span class="chip">' + esc(tag) + '</span>'; }).join('') + '</div>'
                 + (synopsisText(group.description) ? '<div class="desc">' + esc(synopsisText(group.description)) + '</div>'
                     : group.loaded || group.description ? '<div class="desc">No description on the book page.</div>'
@@ -1586,7 +1588,8 @@
         send({type: 'genericSearch', id: searchId, queries: queries});
         if (!byId) lnreaderSearch(searchId, queries);
     }
-    // An author's books (a tap on an author's name): NovelDB lists books by author. A name of several
+    // An author's books (a tap on an author's name): NovelDB lists books by author, and NovelDB's sites are
+    // asked for their books by that name. A name of several
     // ("Shen Jian, 神见") searches each of them.
     function searchAuthor(name) {
         name = String(name || '').trim();
@@ -1605,7 +1608,7 @@
         $('heading').innerHTML = 'Books by ' + esc(name) + ' <a id="backTop">Top 100</a>';
         $('backTop').onclick = function () { showTop(); };
         startProgress(0);
-        status('Searching NovelDB for books by ' + name + '…');
+        status('Searching NovelDB and its sites for books by ' + name + '…');
         empty();
         window.scrollTo(0, 0);
         send({type: 'genericSearch', id: searchId, queries: queries});

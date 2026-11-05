@@ -104,6 +104,9 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         controller.addScriptMessageHandler(
             CatalogPage.transport(store: configuration.websiteDataStore) { [weak self] json in
                 guard let context = await self?.transportContext() else { return "{\"error\":\"The catalog is closed.\"}" }
+                // The app's own npia login goes with the request (the web view's cookies were just copied
+                // over the shared jar, and a visitor's key there is a random one no login has bound).
+                if let key = await self?.npiaLoginKey() { SharedCookieStorageJar().setLoginKey(key) }
                 return await CatalogTransport.handle(json, context: context)
             },
             contentWorld: .page, name: CatalogPage.transportName
@@ -132,6 +135,15 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     /// The context the generic search page's requests are made in (the app's HTTP client and web engine).
     func transportContext() -> SourceContext? {
         model?.catalogContext()
+    }
+
+    /// The npia login key saved in Settings (read from the keychain at most every 30 seconds).
+    private var npiaKey: (key: String?, read: Date) = (nil, .distantPast)
+    func npiaLoginKey() -> String? {
+        if Date().timeIntervalSince(npiaKey.read) > 30 {
+            npiaKey = (model?.secrets.string(for: .npiaLoginKey).flatMap { $0.isEmpty ? nil : $0 }, Date())
+        }
+        return npiaKey.key
     }
 
     /// The view moved to another address: classify it again. A Download button made for the old

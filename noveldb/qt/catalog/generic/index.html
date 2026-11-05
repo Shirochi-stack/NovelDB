@@ -182,6 +182,9 @@
     .details .desc { white-space: pre-line; max-height: 240px; overflow: auto; color: var(--ink); margin: 8px 0; }
     .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px 14px; margin: 8px 0; font-size: 13px; }
     .facts div span { color: var(--ink-2); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+    .facts div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .facts:empty { display: none; }
+    .facts + .facts { margin-top: -4px; }
     .sources { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
     .sources div { display: flex; gap: 6px; align-items: center; padding: 3px 0; font-size: 13px; }
     .sources div > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -200,15 +203,17 @@
     /* A phone: a small cover beside the title and facts, a short synopsis box, the actions two by two. */
     @media (max-width: 600px) {
         dialog { width: calc(100% - 16px); }
-        /* The info's parts join the grid: title, meta and facts beside the cover, the rest full width. */
+        /* The info's parts join the grid: its head (title, meta and facts) beside the cover, packed at the
+           top as one block, and the rest full width under both. */
         .details { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 0 12px; padding: 12px; align-items: start; }
-        .details .side { width: auto; gap: 6px; grid-row: span 4; margin-bottom: 8px; }
+        .details .side { width: auto; gap: 6px; margin-bottom: 8px; }
         .details .side button { padding: 5px 4px; font-size: 12px; }
         .details .info { display: contents; }
+        .details .head { min-width: 0; }
         .details .chips, .details .desc, .details .loading, .details .sources { grid-column: 1 / -1; }
         .details h2 { font-size: 16px; }
         .details .rawtitle { font-size: 12px; }
-        .facts { grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 6px 0; font-size: 12px; }
+        .facts { grid-template-columns: 1fr 1fr; gap: 4px 10px; margin: 8px 0 6px; font-size: 12px; }
         .facts div span { font-size: 10px; }
         .details .desc { max-height: 120px; font-size: 13px; margin: 6px 0; }
         .actions { display: grid; grid-template-columns: 1fr 1fr; padding: 0 12px 12px; gap: 6px; }
@@ -295,7 +300,7 @@
     <form id="form">
         <div class="searchbox" id="searchbox">
             <span id="picked"></span>
-            <input id="query" type="search" placeholder="Search titles, tags or a novel ID on 1,000+ sites" autocomplete="off" autofocus>
+            <input id="query" type="search" placeholder="Search titles, tags, @authors or a novel ID on 1,000+ sites" autocomplete="off" autofocus>
         </div>
         <button id="tagsButton" type="button" title="Pick tags to search" aria-label="Tags"><svg viewBox="0 0 24 24" width="18" height="18"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
