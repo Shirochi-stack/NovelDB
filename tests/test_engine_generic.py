@@ -154,6 +154,32 @@ def test_a_chapter_is_read_from_the_app_page_data_not_the_scrambled_markup():
     assert "샺톛" not in chapter["contentText"]
 
 
+def test_an_app_book_page_lists_every_episode_from_its_partial_reload():
+    # bookkor: the page data holds the newest 10 episodes; the rest come from a partial reload of the page.
+    import json as _json
+
+    rows = [[n, f"{n}화 제목", f"77-ep-{n}", "2024-04-01"] for n in range(25, 0, -1)]
+    data = {"component": "contents/List", "version": "v1", "url": "/my-book",
+            "props": {"episodes": rows[:10], "episodesTotal": 25, "episodeOrder": "desc"}}
+    links = "".join(f'<li><a href="/my-book/{r[2]}">{r[1]}</a></li>' for r in rows[:10])
+    html = ('<html><body><script data-page="app" type="application/json">' + _json.dumps(data, ensure_ascii=False)
+            + f'</script><ul>{links}</ul></body></html>')
+    asked = []
+
+    def fetch(url, headers=None, **_o):
+        asked.append(dict(headers or {}))
+        if (headers or {}).get("X-Inertia-Partial-Data") == "episodesAll":
+            assert headers["X-Inertia-Version"] == "v1" and headers["X-Inertia-Partial-Component"] == "contents/List"
+            return page(_json.dumps({"component": "contents/List", "props": {"episodesAll": {"rows": rows}}}), url)
+        return page(html, url)
+
+    book = GenericEngine(fetch=fetch).parse_book("https://novels.example/my-book")
+    chapters = book["chapters"]
+    assert len(chapters) == 25
+    assert chapters[0]["name"] == "1화 제목" and chapters[0]["url"] == "https://novels.example/my-book/77-ep-1"
+    assert chapters[-1]["name"] == "25화 제목"
+
+
 def test_the_phone_engine_reads_the_app_page_data_too():
     from pathlib import Path
 

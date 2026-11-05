@@ -21,7 +21,7 @@ import json
 import re
 from html import escape, unescape
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 LABEL = "Generic"
 
@@ -929,20 +929,41 @@ def scrambled_hangul(text: str) -> bool:
     return sum(1 for s in syllables if s % 28) / len(syllables) > 0.8
 
 
-def app_data_chapter(html: str) -> Optional[str]:
-    """The chapter's own page built from an Inertia app's page data, or None.
-
-    bookkor draws its chapter text scrambled (each syllable swapped for a random one) and its script
-    shows the real text from the page data (props.episode.body.html)."""
+def app_page(html: str) -> dict:
+    """An Inertia app's page data ({component, props, version, ...}), or {}."""
     found = re.search(r'<script[^>]*\bdata-page="app"[^>]*>(.*?)</script>', html or "", re.S)
     raw = found.group(1) if found else None
     if raw is None:
         found = re.search(r'\sdata-page="(\{.*?\})"', html or "", re.S)
         raw = unescape(found.group(1)) if found else None
     try:
-        props = json.loads(raw).get("props") or {} if raw else {}
-    except (ValueError, AttributeError):
-        return None
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def app_episode_rows(rows, final: str) -> List[dict]:
+    """Chapters from an Inertia app's episode rows ([id, title, slug, date] or {title, slug}), in list order."""
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, (list, tuple)) and len(row) >= 3:
+            title, slug = row[1], row[2]
+        elif isinstance(row, dict):
+            title, slug = row.get("title"), row.get("slug")
+        else:
+            continue
+        if isinstance(slug, str) and slug:
+            out.append({"url": urljoin(final.rstrip("/") + "/", quote(slug, safe="/-_.~")), "name": str(title or slug)})
+    return out
+
+
+def app_data_chapter(html: str) -> Optional[str]:
+    """The chapter's own page built from an Inertia app's page data, or None.
+
+    bookkor draws its chapter text scrambled (each syllable swapped for a random one) and its script
+    shows the real text from the page data (props.episode.body.html)."""
+    props = app_page(html).get("props") or {}
     episode = props.get("episode") or props.get("chapter") if isinstance(props, dict) else None
     body = episode.get("body") if isinstance(episode, dict) else None
     markup = body.get("html") if isinstance(body, dict) else None
@@ -1229,6 +1250,37 @@ class GenericEngine:
         listed.sort(key=lambda c: float(c.get("number") or 0))
         return [{"url": urljoin(origin, c["url"]), "name": c.get("name") or f"Chapter {c.get('number')}"} for c in listed]
 
+    def _app_chapters(self, html: str, final: str) -> List[dict]:
+        """Every chapter of an Inertia app's book page (bookkor), oldest first, or [].
+
+        The page holds only its newest 10 episodes (props.episodes, out of episodesTotal); the site's script
+        asks the same address for the rest as a partial reload of props.episodesAll."""
+        data = app_page(html)
+        props = data.get("props") if isinstance(data.get("props"), dict) else {}
+        shown = props.get("episodes")
+        if not isinstance(shown, list) or not shown:
+            return []
+        rows = shown
+        try:
+            total = int(props.get("episodesTotal") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        if total > len(shown) and data.get("component"):
+            headers = {"X-Inertia": "true", "X-Inertia-Version": str(data.get("version") or ""),
+                       "X-Inertia-Partial-Component": str(data["component"]),
+                       "X-Inertia-Partial-Data": "episodesAll", "X-Requested-With": "XMLHttpRequest",
+                       "Accept": "text/html, application/xhtml+xml"}
+            try:
+                result = self.fetch(final, referer=final, headers=headers)
+                answer = json.loads(decode(result)) if result and result["status"] < 400 else {}
+                full = ((answer.get("props") or {}).get("episodesAll") or {}).get("rows")
+                if isinstance(full, list) and len(full) > len(shown):
+                    rows = full
+            except Exception:
+                pass
+        chapters = app_episode_rows(rows, final)
+        return chapters[::-1] if str(props.get("episodeOrder") or "").lower() == "desc" else chapters
+
     def parse_book(self, url: str) -> Optional[dict]:
         html, final = self._page(url)
         soup = soup_of(html)
@@ -1274,6 +1326,10 @@ class GenericEngine:
         listed = self._platform_chapters(html, final)
         if len(listed) > len(chapters):
             self.log(f"Generic: {len(listed)} chapters from the site's own chapter list.")
+            chapters = listed
+        listed = self._app_chapters(html, final)
+        if len(listed) > len(chapters):
+            self.log(f"Generic: {len(listed)} chapters from the site's page data.")
             chapters = listed
         if self.render is not None and (len(chapters) < 2 or (expected and len(chapters) < expected * 0.8)):
             # A list that loads as you scroll, or behind "Load more": the browser, scrolled to the end.

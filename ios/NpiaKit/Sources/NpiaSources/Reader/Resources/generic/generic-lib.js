@@ -111,7 +111,7 @@ function base64ToBytes(text) {
 }
 
 /** {html, url} of a page: the browser for the page's own site, the app's transport otherwise (or when refused). */
-async function load(url, referer) {
+async function load(url, referer, extra) {
     let bytes = null;
     let headers = "";
     let finalUrl = url;
@@ -120,7 +120,7 @@ async function load(url, referer) {
     let sameSite = new URL(url).origin === location.origin;
     if (sameSite || carrier == null) {
         try {
-            let response = await nativeFetch(url, { credentials: "include" });
+            let response = await nativeFetch(url, { credentials: "include", headers: extra || {} });
             status = response.status;
             finalUrl = response.url || url;
             headers = "content-type: " + (response.headers.get("content-type") || "");
@@ -133,7 +133,7 @@ async function load(url, referer) {
     }
     if (bytes == null) {
         let request = {
-            url: url, method: "GET", headers: referer ? { Referer: referer } : {},
+            url: url, method: "GET", headers: Object.assign(referer ? { Referer: referer } : {}, extra || {}),
             responseType: "arraybuffer", timeout: 60000
         };
         let result = await carrier(request);
@@ -1473,6 +1473,61 @@ async function platformChapters(doc, final) {
     }
 }
 
+/** An Inertia app's page data ({component, props, version, ...}) in `doc`, or {}. */
+function appPage(doc) {
+    let holder = doc.querySelector('script[data-page="app"]');
+    let raw = holder ? holder.textContent : null;
+    if (raw == null) {
+        let element = doc.querySelector("[data-page]");
+        raw = element ? element.getAttribute("data-page") : null;
+    }
+    try {
+        let data = raw ? JSON.parse(raw) : {};
+        return data && typeof data === "object" ? data : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+/**
+ * Every chapter of an Inertia app's book page (bookkor), oldest first, or []. The page holds only its
+ * newest 10 episodes (props.episodes, out of episodesTotal); the site's script asks the same address for
+ * the rest as a partial reload of props.episodesAll.
+ */
+async function appChapters(doc, final) {
+    let data = appPage(doc);
+    let props = data.props && typeof data.props === "object" ? data.props : {};
+    let rows = Array.isArray(props.episodes) ? props.episodes : [];
+    if (!rows.length) {
+        return [];
+    }
+    if ((Number(props.episodesTotal) || 0) > rows.length && data.component) {
+        try {
+            let answer = await load(final, final, {
+                "X-Inertia": "true", "X-Inertia-Version": String(data.version || ""),
+                "X-Inertia-Partial-Component": String(data.component), "X-Inertia-Partial-Data": "episodesAll",
+                "X-Requested-With": "XMLHttpRequest", "Accept": "text/html, application/xhtml+xml"
+            });
+            let full = ((JSON.parse(answer.html).props || {}).episodesAll || {}).rows;
+            if (Array.isArray(full) && full.length > rows.length) {
+                rows = full;
+            }
+        } catch (e) {
+            // the newest ones only
+        }
+    }
+    let base = final.replace(/\/+$/, "") + "/";
+    let chapters = [];
+    for (let row of rows) {
+        let title = Array.isArray(row) ? row[1] : row && row.title;
+        let slug = Array.isArray(row) ? row[2] : row && row.slug;
+        if (typeof slug === "string" && slug) {
+            chapters.push({ url: new URL(encodeURI(slug), base).href, name: String(title || slug) });
+        }
+    }
+    return String(props.episodeOrder || "").toLowerCase() === "desc" ? chapters.reverse() : chapters;
+}
+
 async function book(url) {
     let doc, final;
     if (sameAddress(url, location.href) || !url) {
@@ -1527,6 +1582,10 @@ async function book(url) {
         chapters = await moreListPages(doc, final, chapters, warnings);
     }
     let listed = await platformChapters(doc, final);
+    if (listed.length > chapters.length) {
+        chapters = listed;
+    }
+    listed = await appChapters(doc, final);
     if (listed.length > chapters.length) {
         chapters = listed;
     }
@@ -1803,18 +1862,7 @@ async function mangaChapter(doc, final) {
  * data (props.episode.body.html).
  */
 function appDataChapter(doc) {
-    let holder = doc.querySelector('script[data-page="app"]');
-    let raw = holder ? holder.textContent : null;
-    if (raw == null) {
-        let element = doc.querySelector("[data-page]");
-        raw = element ? element.getAttribute("data-page") : null;
-    }
-    let props;
-    try {
-        props = (raw && JSON.parse(raw).props) || {};
-    } catch (e) {
-        return null;
-    }
+    let props = appPage(doc).props || {};
     let episode = props && typeof props === "object" ? props.episode || props.chapter : null;
     let body = episode && typeof episode === "object" ? episode.body : null;
     let markup = body && typeof body === "object" ? body.html : null;
