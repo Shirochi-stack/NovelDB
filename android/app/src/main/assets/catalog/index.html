@@ -16,7 +16,10 @@
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
-    header { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+    header { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 14px 16px 10px; border-bottom: 1px solid var(--line);
+             transition: transform .2s ease; }
+    /* Scrolling down the results slides the search bar away; scrolling up brings it back. */
+    header.away { transform: translateY(calc(-100% - 2px)); }
     form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .searchbox { flex: 1 1 300px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px;
                  border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }

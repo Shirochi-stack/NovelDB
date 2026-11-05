@@ -2637,6 +2637,20 @@
         clearTimeout(more.timer);
         more.timer = setTimeout(moreSoon, 150);
     }, {passive: true});
+    // The search bar slides away while the results scroll down (its tag menu closed with it) and comes
+    // back on any scroll up, or at the top; never while the search box has the focus.
+    var lastScroll = window.scrollY;
+    window.addEventListener('scroll', function () {
+        var y = window.scrollY, header = document.querySelector('header');
+        if (!header) return;
+        var down = y > lastScroll + 4, up = y < lastScroll - 4;
+        if (down && y > header.offsetHeight && document.activeElement !== $('query')) {
+            if (!header.classList.contains('away')) { closeTags(); header.classList.add('away'); }
+        } else if (up || y <= header.offsetHeight) {
+            header.classList.remove('away');
+        }
+        if (down || up) lastScroll = y;
+    }, {passive: true});
 
     // The app's theme (Halgakos Rose by default) from the start, even when the app is slow to send it or
     // its message is lost (the page showed the plain default colours).
