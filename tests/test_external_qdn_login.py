@@ -324,6 +324,26 @@ def test_qdn_diagnostic_failure_does_not_discard_text(monkeypatch):
     assert scraper._qdn_decode_encrypted(page, 'Chapter')['contentText'] == 'Keep'
 
 
+@pytest.mark.parametrize('cipher,saved', [(True, False), (False, True)])
+def test_qdn_cipher_chapter_without_cipher_glyphs_is_not_saved(monkeypatch, cipher, saved):
+    """cES 2 text read without its fonts is scrambled; fEnS-only text is plain."""
+    import qdn_font_decoder as decoder
+    logs = []
+    scraper = ExternalScraper(logger=logs.append)
+    monkeypatch.setattr(decoder, 'available', lambda: True)
+    monkeypatch.setattr(scraper, '_qdn_encryption_state',
+                        lambda page: {'rendered': True, 'cipher': cipher})
+    monkeypatch.setattr(decoder, 'decode_payload', lambda payload: (['Text'], {
+        'decoded': 0, 'low_confidence': 0, 'verified_glyphs': 0}))
+    page = SimpleNamespace(bring_to_front=lambda: None, evaluate=lambda script: {})
+    result = scraper._qdn_decode_encrypted(page, 'Chapter')
+    assert (result is not None) is saved
+    if saved:
+        assert any('Decrypted chapter (no cipher font)' in line for line in logs)
+    else:
+        assert any('not saving scrambled text' in line for line in logs)
+
+
 def test_enter_browser_session_login_survives_window_close(monkeypatch, tmp_path):
     import json
     import sys

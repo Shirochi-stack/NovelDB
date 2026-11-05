@@ -6511,6 +6511,9 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   return {
     encrypted: !!cipherMain
       || (Number(info.isBuy) > 0 && (Number(info.cES) > 0 || Number(info.fEnS) > 0)),
+    // Only cES 2 draws text with cipher fonts; fEnS alone is decrypted to
+    // plain characters by the reader.
+    cipher: !!cipherMain || Number(info.cES) === 2,
     rendered: !!main && main.querySelectorAll('p').length > 0
       && (main.innerText || '').trim().length > 50
       && document.fonts.status === 'loaded',
@@ -6593,6 +6596,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         if not lines:
             self.log(f'  [Qdn] No decoded content for {chapter_name}.')
             return None
+        if state.get('cipher') and not stats.get('decoded'):
+            # Cipher-font text read without its fonts is scrambled characters.
+            self.log(f'  [Qdn] Cipher-font chapter but no cipher glyphs were captured; '
+                     f'not saving scrambled text: {chapter_name}')
+            return None
         incomplete = words >= 500 and len(text) < words * 0.8
         warnings = {
             'uncertain_glyphs': stats.get('low_confidence', 0),
@@ -6616,8 +6624,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 self.log(f'  [Qdn] Replay diagnostics saved: {debug_path}')
             except Exception as exc:
                 self.log(f'  [Qdn] Could not save replay diagnostics: {exc}')
+        kind = ('Decoded font-encrypted chapter'
+                if state.get('cipher') or stats.get('decoded')
+                else 'Decrypted chapter (no cipher font)')
         self.log(
-            f"  [Qdn] Decoded font-encrypted chapter: {len(lines)} "
+            f"  [Qdn] {kind}: {len(lines)} "
             f"paragraphs, {stats['decoded']} glyphs"
             + (f", {stats['verified_glyphs']} verified, "
                f"{stats.get('outline_table_glyphs', 0)} from the outline table, "
