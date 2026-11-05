@@ -269,7 +269,7 @@
     .rprogress i::before { content: ""; position: absolute; inset: 0; width: var(--w, 0); background: var(--accent); }
     #flow .next-chapter { text-align: center; margin: 2em 0; }
     /* A failure's buttons (Sign in, Try again, Open the page, other sites): apart on every side when they wrap. */
-    #flow .next-chapter.actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+    #flow .next-chapter.actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; column-span: all; }
     .zone { position: absolute; top: 52px; bottom: 52px; width: 22%; z-index: 1; cursor: pointer; }
     .zone.left { left: 0; } .zone.right { right: 0; }
     #reader.scroll .zone { display: none; }
