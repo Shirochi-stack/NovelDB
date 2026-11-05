@@ -489,7 +489,7 @@ class ExternalScraper(SiteEnginesMixin):
                     cookie_header,
                 )
 
-            response = requests.request(
+            response = self._gm_session().request(
                 method,
                 url,
                 headers=headers,
@@ -516,6 +516,27 @@ class ExternalScraper(SiteEnginesMixin):
             return result
         except Exception as e:
             return {"error": str(e)}
+
+    def _gm_session(self):
+        """One pooled HTTP session for the engines' requests.
+
+        A new connection per request cost up to a second of TLS handshake
+        each (a HaruNeko book is several requests in a row); a kept-alive
+        connection to the site skips it. The session keeps no cookies, so
+        each request still sends only the cookies it was given.
+        """
+        session = self.__dict__.get("_gm_http_session")
+        if session is None:
+            import http.cookiejar
+            import requests
+
+            session = requests.Session()
+            session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+            adapter = requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=16)
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            self.__dict__["_gm_http_session"] = session
+        return session
 
     @staticmethod
     def _gm_response_result(response, response_type=""):

@@ -1763,6 +1763,15 @@
     // e-book (two pages side by side in a wide window) or one long scroll; the place is remembered.
     var R = {group: null, source: null, chapters: [], index: 0, page: 0, pages: 1, cache: new Map(), token: 0, lnreader: null};
     var LOOK_KEY = 'noveldb.reader.look.v2', look = Object.assign({size: 19, leading: 1.75, font: 'serif', theme: 'auto', layout: 'paged'}, store(LOOK_KEY) || {});
+    // A phone reads smaller text by default. The text size stays the default until A− or A+ picks one
+    // (a size saved before that rule counts as picked when it is not the old default, 19).
+    var DEFAULT_SIZE = Math.min(window.screen ? window.screen.width : 9999, window.innerWidth || 9999) < 600 ? 16 : 19;
+    if (look.sizeSet === undefined) look.sizeSet = look.size !== 19;
+    if (!look.sizeSet) look.size = DEFAULT_SIZE;
+    // Comics: Auto (a manga a page per image, a manhwa or other comic one long scroll), Pages or Scroll.
+    // The older single choice (look.comic) came from the bar's switch alone, so it gives way to Auto.
+    delete look.comic;
+    if (['auto', 'paged', 'scroll'].indexOf(look.comicLayout) < 0) look.comicLayout = 'auto';
     var darkPage = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     function theme() {
         if (look.theme === 'auto' && appTheme) return 'app';
@@ -1787,14 +1796,56 @@
         document.documentElement.style.colorScheme = valid ? (valid.dark ? 'dark' : 'light') : '';
         applyLook();
     }
-    // Comics read as one scroll of full-width images; novels in the layout picked.
-    // Comics have a layout of their own (one long scroll by default, or a page per image).
-    function layout() { return R.comic ? (look.comic || 'scroll') : look.layout; }
+    // Novels read in the layout picked; comics in a layout of their own: the bar's switch for this book
+    // (R.comicPick), else the one picked under Aa, where Auto goes by what the book is.
+    function layout() {
+        if (!R.comic) return look.layout;
+        var pick = R.comicPick || look.comicLayout;
+        if (pick !== 'auto') return pick;
+        if (!R.comicKind) R.comicKind = R.group ? kindOf(Object.assign({}, R.group, {comic: true})) : 'comic';
+        return R.comicKind === 'manga' ? 'paged' : 'scroll';
+    }
     if (darkPage && darkPage.addEventListener) darkPage.addEventListener('change', function () { if ($('reader').classList.contains('open')) applyLook(); });
 
     // Full screen: the reader's bars hidden (a tap in the middle shows them), the page's own full screen
     // where the browser allows it, and the app asked to hide its own bars too (genericFullscreen).
-    function setFull(on) {
+    // The change is a fade: the page fades out where it is, the reader and the app change size, and the
+    // page fades back in laid out again on the same text (not a page worked out from a fraction, which
+    // landed somewhere else and looked like a jump). `instant` (the reader closing) skips the fade.
+    function setFull(on, instant) {
+        var reader = $('reader'), open = reader.classList.contains('open');
+        if (!!on === !!R.full && !R.switching) return;
+        if (instant || !open) {
+            R.fullToken = (R.fullToken || 0) + 1;
+            R.switching = false;
+            reader.classList.remove('switching');
+            switchFull(on);
+            return;
+        }
+        var token = R.fullToken = (R.fullToken || 0) + 1;
+        var anchor = R.switching ? R.switchAnchor : anchorAt();
+        R.switching = true;
+        R.switchAnchor = anchor;
+        reader.classList.add('switching');
+        setTimeout(function () {
+            if (token !== R.fullToken) return;
+            switchFull(on);
+            // The app hides or shows its bars after hearing of it: wait for the page to stop changing size.
+            var size = '', still = 0, started = Date.now();
+            (function settle() {
+                if (token !== R.fullToken) return;
+                var v = $('viewport'), now = v.clientWidth + 'x' + v.clientHeight;
+                still = now === size ? still + 1 : 0;
+                size = now;
+                if (still < 12 && Date.now() - started < 900) { requestAnimationFrame(settle); return; }
+                R.switching = false;
+                clearTimeout(R.resizeTimer);
+                if (reader.classList.contains('open')) restoreAnchor(anchor);
+                requestAnimationFrame(function () { if (token === R.fullToken) reader.classList.remove('switching'); });
+            })();
+        }, 140);
+    }
+    function switchFull(on) {
         R.full = !!on;
         var reader = $('reader');
         reader.classList.toggle('full', R.full);
@@ -1811,7 +1862,45 @@
             }
         } catch (e) { /* no full screen in this browser */ }
         send({type: 'genericFullscreen', on: R.full});
-        setTimeout(function () { if ($('reader').classList.contains('open')) paginate(readingAt()); }, 250);
+    }
+    // Where the reader is, as the text on screen: the first block showing (the part of it on the page,
+    // for one split over pages) and how far it sits from the top of a scroll.
+    // Pages are measured from the flow's own left edge, not the screen's: a page turn slides there, so
+    // the screen still shows the page before while it does.
+    function anchorAt() {
+        var flow = $('flow'), box = $('viewport').getBoundingClientRect(), scroll = layout() === 'scroll';
+        var left = flow.getBoundingClientRect().left, width = R.pageWidth || box.width;
+        var from = R.page * width, to = from + width;
+        var blocks = flow.children;
+        for (var i = 0; i < blocks.length; i++) {
+            var parts = blocks[i].getClientRects();
+            for (var k = 0; k < parts.length; k++) {
+                var part = parts[k];
+                if (!part.width && !part.height) continue;
+                if (scroll ? part.bottom > box.top + 1 : part.right - left > from + 1 && part.left - left < to - 1) {
+                    return {el: blocks[i], part: k, dy: part.top - box.top, at: readingAt(), scroll: scroll};
+                }
+            }
+        }
+        return {at: readingAt(), scroll: scroll};
+    }
+    // Lays the reader out again on that text (the old fraction when the text is gone).
+    function restoreAnchor(anchor) {
+        var flow = $('flow'), viewport = $('viewport');
+        if (!anchor || !anchor.el || !flow.contains(anchor.el) || anchor.scroll !== (layout() === 'scroll')) {
+            paginate(anchor ? anchor.at : readingAt());
+            return;
+        }
+        paginate(0);
+        var parts = anchor.el.getClientRects(), part = parts[Math.min(anchor.part, parts.length - 1)];
+        if (!part) return;
+        if (anchor.scroll) {
+            viewport.scrollTop += part.top - viewport.getBoundingClientRect().top - anchor.dy;
+            place();
+        } else if (R.pageWidth) {
+            R.page = Math.max(0, Math.min(R.pages - 1, Math.floor((part.left - flow.getBoundingClientRect().left + 1) / R.pageWidth)));
+            place();
+        }
     }
     function applyLook() {
         var reader = $('reader');
@@ -1826,34 +1915,37 @@
         });
         reader.classList.toggle('scroll', layout() === 'scroll');
         reader.classList.toggle('comic', !!R.comic);
+        // The Layout row shows the choice under Aa (Auto for a comic), not the bar's switch for this book.
+        var picked = !R.comic ? look.layout : look.comicLayout === 'auto' ? 'layout-auto' : look.comicLayout;
         document.querySelectorAll('#look [data-look]').forEach(function (button) {
             var name = button.dataset.look;
-            button.classList.toggle('on', name === look.font || name === look.theme || name === layout());
-
+            button.classList.toggle('on', name === look.font || name === look.theme || name === picked);
         });
         // A comic's own switch in the bar: what a tap turns it into.
         $('rComic').style.display = R.comic ? '' : 'none';
         $('rComic').textContent = layout() === 'scroll' ? '▤ Pages' : '↕ Scroll';
         store(LOOK_KEY, look);
     }
-    // A comic between a page per image and one long scroll, staying on the image being read.
+    // A comic between a page per image and one long scroll, staying on the image being read. The bar's
+    // switch is for this book; Aa picks what every comic opens in.
     function toggleComicLayout() {
         if (!R.comic) return;
-        var at = readingAt();
-        look.comic = layout() === 'scroll' ? 'paged' : 'scroll';
+        var anchor = anchorAt();
+        R.comicPick = layout() === 'scroll' ? 'paged' : 'scroll';
         applyLook();
-        paginate(at);
+        anchor.scroll = layout() === 'scroll';
+        restoreAnchor(anchor);
     }
     document.querySelectorAll('#look [data-look]').forEach(function (button) {
         button.addEventListener('click', function () {
             var name = button.dataset.look, at = readingAt();
-            if (name === 'smaller') look.size = Math.max(12, look.size - 1);
-            else if (name === 'larger') look.size = Math.min(34, look.size + 1);
+            if (name === 'smaller') { look.size = Math.max(12, look.size - 1); look.sizeSet = true; }
+            else if (name === 'larger') { look.size = Math.min(34, look.size + 1); look.sizeSet = true; }
             else if (name === 'tighter') look.leading = Math.max(1.2, Math.round((look.leading - 0.1) * 10) / 10);
             else if (name === 'looser') look.leading = Math.min(2.6, Math.round((look.leading + 0.1) * 10) / 10);
             else if (name === 'serif' || name === 'sans') look.font = name;
             else if (name === 'auto' || name === 'light' || name === 'sepia' || name === 'dark') look.theme = name;
-            else if (R.comic) look.comic = name;
+            else if (name === 'layout-auto' || R.comic) { look.comicLayout = name === 'layout-auto' ? 'auto' : name; R.comicPick = ''; }
             else look.layout = name;
             applyLook();
             paginate(at);
@@ -1912,6 +2004,8 @@
         R.group = group;
         R.blocked = '';
         R.comic = !!group.comic;
+        R.comicPick = '';
+        R.comicKind = '';
         R.token++;
         R.cache = new Map();
         R.chapterIds = new Map();
@@ -1968,7 +2062,7 @@
         clearInterval(R.clock);
         var others = R.group ? R.group.sources.filter(function (s) { return !R.source || s.url !== R.source.url; }) : [];
         var page = R.source || (R.group && R.group.sources[R.tried || 0]);
-        $('flow').innerHTML = '<p class="note">' + esc(message) + '</p><p class="next-chapter">'
+        $('flow').innerHTML = '<p class="note">' + esc(message) + '</p><p class="next-chapter actions">'
             + (blocked && page ? '<button type="button" id="rLogin" class="primary">Sign in with Enter Browser</button> ' : '')
             + (retry ? '<button type="button" id="rRetry">Try again</button> ' : '')
             + (R.source ? '<button type="button" id="rOpen">Open the page</button> ' : '')
@@ -2295,6 +2389,8 @@
         $('rSlider').style.display = layout() === 'scroll' ? 'none' : '';
         if (R.source) store('noveldb.read.' + key(R.source.url), {chapter: R.index, at: readingAt(), time: Date.now()});
         if ($('toc').classList.contains('open') && tocTab === 'pages') drawPages();
+        // The text being read, for laying the page out again when the window changes size.
+        if (layout() !== 'scroll' && !R.switching) R.anchor = anchorAt();
     }
     function turn(step) {
         if (!R.chapters.length) return;
@@ -2423,7 +2519,7 @@
         R.swiped = Date.now();  // the tap zones ignore the click this swipe ends with
     }, {passive: true});
     function closeReader() {
-        if (R.full) setFull(false);
+        if (R.full || R.switching) setFull(false, true);
         R.token++;
         $('reader').classList.remove('open');
         $('toc').classList.remove('open');
@@ -2459,7 +2555,10 @@
         if (!$('reader').classList.contains('open')) return;
         clearTimeout(R.resizeTimer);
         var at = readingAt();
-        R.resizeTimer = setTimeout(function () { paginate(at); }, 120);
+        if (R.switching) return;  // the change to or from full screen lays the reader out itself
+        // Back on the text that was showing (a fraction of the chapter lands a page or two away).
+        var anchor = layout() === 'scroll' ? anchorAt() : R.anchor && R.anchor.el ? R.anchor : {at: at, scroll: false};
+        R.resizeTimer = setTimeout(function () { restoreAnchor(anchor); }, 120);
     });
 
     // -- more as the list is scrolled -------------------------------------------------------------------

@@ -237,7 +237,11 @@
     #reader.full .bar { display: none; z-index: 3; background: var(--r-bg); }
     #reader.full.bars .bar { display: flex; }
     #flow { height: 100%; padding: 28px 0; font: var(--r-size)/var(--r-leading) var(--r-font); color: var(--r-ink);
-            column-fill: auto; transition: transform .3s cubic-bezier(.2, .7, .3, 1); will-change: transform; }
+            column-fill: auto; transition: transform .3s cubic-bezier(.2, .7, .3, 1), opacity .14s ease; will-change: transform; }
+    /* Into or out of full screen: the page fades out, is laid out again at its new size, and fades in. */
+    #reader.switching #flow { opacity: 0; }
+    #reader .bar { transition: opacity .14s ease; }
+    #reader.switching .bar { opacity: 0; }
     #reader.scroll #viewport { overflow-y: auto; }
     #reader.scroll #flow { height: auto; columns: auto !important; max-width: 760px; margin: 0 auto; padding: 28px 24px 80px; transform: none !important; }
     #flow h2.chapter { font-size: 1.35em; margin: 0 0 1.2em; line-height: 1.3; }
@@ -256,6 +260,8 @@
     .rprogress i { display: block; width: 140px; height: 6px; border-radius: 3px; background: var(--r-line); position: relative; overflow: hidden; }
     .rprogress i::before { content: ""; position: absolute; inset: 0; width: var(--w, 0); background: var(--accent); }
     #flow .next-chapter { text-align: center; margin: 2em 0; }
+    /* A failure's buttons (Sign in, Try again, Open the page, other sites): apart on every side when they wrap. */
+    #flow .next-chapter.actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
     .zone { position: absolute; top: 52px; bottom: 52px; width: 22%; z-index: 1; cursor: pointer; }
     .zone.left { left: 0; } .zone.right { right: 0; }
     #reader.scroll .zone { display: none; }
@@ -281,6 +287,7 @@
     #look .row span { flex: 1; font-size: 13px; color: var(--r-ink-2); }
     #look button { background: transparent; border: 1px solid var(--r-line); color: var(--r-ink); padding: 4px 10px; }
     #look button.on { border-color: var(--accent); color: var(--accent); }
+    #reader:not(.comic) #look [data-look=layout-auto] { display: none; }  /* Auto is for comics */
 </style>
 </head>
 <body>
@@ -363,7 +370,7 @@
         <div class="row"><span>Line spacing</span><button data-look="tighter" type="button">−</button><button data-look="looser" type="button">+</button></div>
         <div class="row"><span>Font</span><button data-look="serif" type="button">Serif</button><button data-look="sans" type="button">Sans</button></div>
         <div class="row"><span>Theme</span><button data-look="auto" type="button" title="The same as the page">Auto</button><button data-look="light" type="button">Light</button><button data-look="sepia" type="button">Sepia</button><button data-look="dark" type="button">Dark</button></div>
-        <div class="row"><span>Layout</span><button data-look="paged" type="button">Pages</button><button data-look="scroll" type="button">Scroll</button></div>
+        <div class="row"><span>Layout</span><button data-look="layout-auto" type="button" title="Comics: a page per image for manga, one long scroll for manhwa and other comics">Auto</button><button data-look="paged" type="button">Pages</button><button data-look="scroll" type="button">Scroll</button></div>
     </div>
     <div class="bar bottom">
         <button id="rPrev" type="button" title="Previous page (←)">‹</button>
