@@ -613,7 +613,7 @@
             order.push(group);
         }
         raws.forEach(function (k) { if (!rawTitles.has(k)) rawTitles.set(k, group); });
-        if (card.originalTitle && !group.rawTitle && card.originalTitle !== group.title) group.rawTitle = card.originalTitle;
+        if (card.originalTitle && (!group.rawTitle || card.fresh) && card.originalTitle !== group.title) group.rawTitle = card.originalTitle;
         var source = group.sources.find(function (s) { return key(s.url) === key(card.url); });
         if (!source) {
             // `noveldb`: a NovelDB book's source and id, for its synopsis from NovelDB's own files.
@@ -641,7 +641,8 @@
             byUrl.set(key(other.url), group);
         });
         ['author', 'status', 'published', 'updated', 'rating', 'ratings', 'likes', 'views', 'chapters'].forEach(function (name) {
-            if (card[name] && !group[name] && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
+            // `fresh`: a NovelDB book's figures as its site shows them now (its details): they replace the index's.
+            if (card[name] && (!group[name] || card.fresh) && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
         });
         // The full-size image first, the thumbnail the site listed behind it (if the big one fails).
         var offered = card.cover ? [fullCover(card.cover), card.cover] : [];

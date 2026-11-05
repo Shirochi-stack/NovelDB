@@ -75,3 +75,13 @@ def test_the_same_raw_title_by_another_author_stays_apart(page):
     page.evaluate("cards => window.NovelDBGeneric.add(cards)", [noveldb_card(also=[])])
     page.evaluate("cards => window.NovelDBGeneric.add(cards)", [site_card(url="https://m.example.test/2", author="다른 작가")])
     assert len(titles(page)) == 2
+
+
+def test_live_figures_replace_the_index_ones_but_not_the_english_title(page):
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [noveldb_card(also=[], chapters="123")])
+    page.evaluate("card => window.NovelDBGeneric.details(card)",
+                  noveldb_card(also=[], title="A Military-Trained College Girl's Gaming Stream", chapters="143",
+                               views="667,747", fresh=True, complete=True, description="Synopsis."))
+    page.wait_for_timeout(300)
+    text = page.eval_on_selector("#grid .card", "e => e.textContent")
+    assert "A Military-Trained" in text and "143" in text and "123" not in text

@@ -571,3 +571,144 @@ def _rbooks(mode: str, query: str, page: int, fetch: Fetch) -> Result:
                           [t.get("name") for t in item.get("tags") or [] if isinstance(t, dict) and t.get("name")])
              for item in items if (item.get("bookShell") or {}).get("book")]
     return cards, len(items) >= 20 and (page + 1) * 20 < int(listed.get("totalItemCount") or 0)
+
+
+# -- one book by its id: its live figures, for a NovelDB card as it comes into view ----------------------------
+# One request a book (a detail API or page; npia and rbooks have none that reads one book, so their
+# author's list is read and the book picked from it), at most LOOKUPS_PER_SOURCE at a time on each site.
+# scripts/generic/catalog-app.js has the same lookups: keep the two in step.
+
+LOOKUPS_PER_SOURCE = 2
+LOOKERS: Dict[str, Callable[[str, str, Fetch], Optional[dict]]] = {}
+_lookup_slots: Dict[str, threading.Semaphore] = {}
+
+
+def looker(source: str):
+    def register(function):
+        LOOKERS[source] = function
+        _lookup_slots[source] = threading.Semaphore(LOOKUPS_PER_SOURCE)
+        return function
+    return register
+
+
+def lookup(source: str, book_id: str, fetch: Fetch, author: str = "") -> Optional[dict]:
+    """The book `book_id` of `source` as its site shows it now (a card: its own title and tags, figures,
+    cover), or None when the site doesn't answer. `author`: its author (npia and rbooks find it by them)."""
+    function = LOOKERS.get(source)
+    if function is None or not str(book_id or "").strip():
+        return None
+    with _lookup_slots[source]:
+        try:
+            return function(str(book_id).strip(), author or "", fetch)
+        except Exception as e:
+            log.warning("%s lookup of %s failed: %s", source, book_id, e)
+            return None
+
+
+def _by_author(source: str, book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    if not author.strip():
+        return None
+    cards, _more = search(source, "author", author, 0, fetch)
+    return next((c for c in cards if re.search(rf"/{re.escape(book_id)}(?:[/?#]|$)", c["url"])), None)
+
+
+@looker("npia")
+def _npia_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    # Its search by novel number makes its server fail (scripts/update_rankings.py).
+    return _by_author("npia", book_id, author, fetch)
+
+
+@looker("rbooks")
+def _rbooks_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    return _by_author("rbooks", book_id, author, fetch)  # a book's page has no data of it (its script reads it)
+
+
+@looker("mpia")
+def _mpia_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    data = _json(fetch(f"{MPIA}/api/v1/pc/novel-detail/{quote(book_id)}", headers={"Accept": "application/json"}))
+    info = ((data or {}).get("result") or {}).get("novelInfo")
+    if not isinstance(info, dict) or not info.get("title"):
+        return None
+    tags = [g for g in info.get("genres") or [] if isinstance(g, str)] + \
+        [t.get("title") for t in info.get("tags") or [] if isinstance(t, dict) and t.get("title")]
+    return card("mpia", f"{MPIA}/novel/detail/{book_id}", info["title"], info.get("authorName") or "",
+                info.get("coverUrl") or info.get("originCoverUrl") or "", list(dict.fromkeys(tags)),
+                info.get("introduction") or "", views=info.get("viewCount"), likes=info.get("likeCount"),
+                chapters=info.get("chapterCount"), status="Completed" if info.get("finish") else "Ongoing",
+                updated=info.get("updatedAt"), published=info.get("createdAt"))
+
+
+@looker("kpage")
+def _kpage_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    data = _json(fetch(f"{KPAGE_API}/api/v1/content/overview?" + urlencode({"series_id": book_id}),
+                       headers={"Accept": "application/json", "Referer": KPAGE + "/", "Origin": KPAGE}))
+    content = ((data or {}).get("result") or {}).get("content")
+    if not isinstance(content, dict) or not content.get("title"):
+        return None
+    found = _kpage_card(dict(content, series_id=book_id))
+    chapters = _count(content.get("on_sale_count"))
+    return dict(found, chapters=chapters) if chapters else found
+
+
+@looker("jara")
+def _jara_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    public = _jara_public(fetch)
+    if not public:
+        return None
+    data = _json(fetch(f"{JARA_API}/v1/book/detail.joa?" + urlencode(dict(public, book_code=book_id, promotion_code=""))))
+    book = (data or {}).get("book") if (data or {}).get("status") in (1, "1") else None
+    if not isinstance(book, dict) or not book.get("subject"):
+        return None
+    cover = str(book.get("book_img") or "")
+    return card("jara", f"{JARA}/book/{book_id}", book["subject"], book.get("writer_name") or "",
+                "https:" + cover if cover.startswith("//") else cover,
+                ([book["category_name"]] if book.get("category_name") else []) +
+                [str(t) for t in book.get("keyword") or [] if str(t).strip()], book.get("intro") or "",
+                views=book.get("cnt_page_read"), likes=book.get("cnt_recom"), chapters=book.get("cnt_chapter"),
+                status="Completed" if str(book.get("chk_finish")).upper() in ("Y", "1", "TRUE") else "Ongoing",
+                updated=book.get("updated"), published=book.get("created"))
+
+
+@looker("sfc")
+def _sfc_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    row = _sfc_data(fetch, f"{SFC_API}/novels/{quote(book_id)}?" + urlencode({"expand": SFC_EXPAND}))
+    return _sfc_card(row) if isinstance(row, dict) and row.get("novelId") and row.get("novelName") else None
+
+
+@looker("nseries")
+def _nseries_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    url = f"{NSERIES}/novel/detail.series?" + urlencode({"productNo": book_id})
+    soup = _soup(fetch(url))
+    head = soup.select_one(".end_head h2") if soup is not None else None
+    if head is None or not _text(head):
+        return None
+    info = soup.select_one(".end_info")
+    rows = info.select("li") if info is not None else []
+    writer = next((li for li in rows if _text(li.select_one("span")) == "글"), None)
+    genre = info.select_one("a[href*='genreCode=']") if info is not None else None
+    image = soup.select_one(".pic_area img") or soup.select_one(f"img[alt='{_text(head)}']")
+    chapters = re.search(r"총\s*(\d+)\s*(?:화|권)", soup.get_text(" ", strip=True))
+    status = _text(info.select_one("li.ing")) if info is not None else ""
+    return card("nseries", url, _text(head), _text(writer.select_one("a")) if writer is not None else "",
+                (image.get("src") or "") if image is not None else "", [_text(genre)] if genre is not None else [],
+                chapters=chapters.group(1) if chapters else None,
+                status="Completed" if "완결" in status else "Ongoing" if status else "")
+
+
+@looker("nweb")
+def _nweb_one(book_id: str, author: str, fetch: Fetch) -> Optional[dict]:
+    result = fetch(f"{NWEB}/webnovel/list?" + urlencode({"novelId": book_id}))  # its league's page, by redirect
+    soup = _soup(result)
+    info = soup.select_one(".section_area_info") if soup is not None else None
+    if info is None or not _text(info.select_one("h2.title")):
+        return None
+    url = str((result or {}).get("url") or f"{NWEB}/webnovel/list?novelId={book_id}")
+    genre = info.select_one(".info_top .info_group .item")
+    tags = ([_text(genre)] if genre is not None and _text(genre) else []) + \
+        [_text(a).lstrip("#").strip() for a in soup.select(".end_tag_area .tag_collection a.tag") if _text(a)]
+    image = info.select_one(".thumbnail img[src]")
+    return card("nweb", url, _text(info.select_one("h2.title")),
+                ", ".join(_text(a) for a in info.select('a[href*="target=author"]')),
+                (image.get("src") or "") if image is not None else "", list(dict.fromkeys(tags)),
+                _text(info.select_one("#summaryText")), likes=_text(info.select_one("._reactionModule ._count")),
+                status="Completed" if "완결" in _text(info.select_one(".info_group")) else "")

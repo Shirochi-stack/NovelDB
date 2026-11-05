@@ -586,7 +586,12 @@
     function details(item) {
         if (item.source === 'noveldb') {
             // NovelDB's card has everything but its synopsis.
-            return ndbDescription(item).then(function (text) { return Object.assign({}, item, {complete: true, description: text || item.description}); });
+            // Its site asked for the book as it is now (one request), while its synopsis is read.
+            var ref = item.noveldb || {};
+            var live = Promise.race([sourceLookup(ref.source, ref.id, item.author), new Promise(function (done) { setTimeout(done, 12000, null); })]);
+            return Promise.all([ndbDescription(item), live]).then(function (found) {
+                return ndbRefreshed(Object.assign({}, item, {complete: true, description: found[0] || item.description}), found[1]);
+            });
         }
         return fetchUrl(item.url).then(function (result) {
             if (!result || result.status >= 400) return Object.assign({}, item, {complete: true});
@@ -1494,6 +1499,115 @@
         if (!run || (mode !== 'tag' && mode !== 'author') || !String(query || '').trim()) return Promise.resolve({cards: [], more: false});
         return Promise.resolve().then(function () { return run(mode, String(query).trim(), page, token); })
             .catch(function () { return {cards: [], more: false}; });
+    }
+    // One book by its id: its live figures, for a NovelDB card as it comes into view (source_search.lookup).
+    // One request a book (a detail API or page; npia and rbooks have none that reads one book, so their
+    // author's list is read and the book picked from it), at most two at a time on each site.
+    var SRC_LOOKUP_POOLS = {};
+    function lookupPool(source) { return SRC_LOOKUP_POOLS[source] || (SRC_LOOKUP_POOLS[source] = {free: 2, waiting: []}); }
+    function lookupByAuthor(source, id, author, token) {
+        if (!String(author || '').trim()) return Promise.resolve(null);
+        var own = new RegExp('/' + String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:[/?#]|$)');
+        return sourceSearch(source, 'author', author, 0, token).then(function (found) {
+            return found.cards.filter(function (c) { return own.test(c.url); })[0] || null;
+        });
+    }
+    var SOURCE_LOOKUPS = {
+        // Its search by novel number makes its server fail (scripts/update_rankings.py).
+        npia: function (id, author, token) { return lookupByAuthor('npia', id, author, token); },
+        rbooks: function (id, author, token) { return lookupByAuthor('rbooks', id, author, token); },
+        mpia: function (id, author, token) {
+            return fetchUrl(MPIA + '/api/v1/pc/novel-detail/' + encodeURIComponent(id), {pool: lookupPool('mpia'), stop: token, headers: {Accept: 'application/json'}})
+                .then(function (result) {
+                    var info = ((srcJson(result) || {}).result || {}).novelInfo;
+                    if (!info || !info.title) return null;
+                    var tags = (info.genres || []).concat((info.tags || []).map(function (t) { return t && t.title; }))
+                        .filter(function (t, i, all) { return typeof t === 'string' && t && all.indexOf(t) === i; });
+                    return srcCard('mpia', MPIA + '/novel/detail/' + id, info.title, info.authorName, info.coverUrl || info.originCoverUrl, tags, info.introduction,
+                                   {views: info.viewCount, likes: info.likeCount, chapters: info.chapterCount, status: info.finish ? 'Completed' : 'Ongoing',
+                                    updated: info.updatedAt, published: info.createdAt});
+                });
+        },
+        kpage: function (id, author, token) {
+            return fetchUrl(KPAGE_API + '/api/v1/content/overview?' + srcQuery({series_id: id}),
+                            {pool: lookupPool('kpage'), stop: token, headers: {Accept: 'application/json', Referer: KPAGE + '/', Origin: KPAGE}}).then(function (result) {
+                var content = ((srcJson(result) || {}).result || {}).content;
+                if (!content || !content.title) return null;
+                var found = kpageCard(Object.assign({}, content, {series_id: id})), chapters = srcCount(content.on_sale_count);
+                if (chapters) found.chapters = chapters;
+                return found;
+            });
+        },
+        jara: function (id, author, token) {
+            return Promise.resolve(jaraPublic(token)).then(function (params) {
+                if (!params) return null;
+                return fetchUrl(JARA_API + '/v1/book/detail.joa?' + srcQuery(Object.assign({}, params, {book_code: id, promotion_code: ''})),
+                                {pool: lookupPool('jara'), stop: token}).then(function (result) {
+                    var data = srcJson(result), book = data && String(data.status) === '1' ? data.book : null;
+                    if (!book || !book.subject) return null;
+                    var cover = String(book.book_img || '');
+                    return srcCard('jara', JARA + '/book/' + id, book.subject, book.writer_name, cover.indexOf('//') === 0 ? 'https:' + cover : cover,
+                                   (book.category_name ? [book.category_name] : []).concat((book.keyword || []).map(String)), book.intro,
+                                   {views: book.cnt_page_read, likes: book.cnt_recom, chapters: book.cnt_chapter,
+                                    status: ['Y', '1', 'TRUE'].indexOf(String(book.chk_finish).toUpperCase()) >= 0 ? 'Completed' : 'Ongoing',
+                                    updated: book.updated, published: book.created});
+                });
+            });
+        },
+        sfc: function (id, author, token) {
+            return fetchUrl(SFC_API + '/novels/' + encodeURIComponent(id) + '?' + srcQuery({expand: SFC_EXPAND}),
+                            {pool: lookupPool('sfc'), stop: token, headers: SFC_HEADERS}).then(function (result) {
+                var row = (srcJson(result) || {}).data;
+                return row && row.novelId && row.novelName ? sfcCard(row) : null;
+            });
+        },
+        nseries: function (id, author, token) {
+            var url = NSERIES + '/novel/detail.series?' + srcQuery({productNo: id});
+            return fetchUrl(url, {pool: lookupPool('nseries'), stop: token}).then(function (result) {
+                var doc = srcDoc(result), head = doc && doc.querySelector('.end_head h2');
+                if (!head || !srcText(head)) return null;
+                var info = doc.querySelector('.end_info'), rows = info ? Array.prototype.slice.call(info.querySelectorAll('li')) : [];
+                var writer = rows.filter(function (li) { return srcText(li.querySelector('span')) === '글'; })[0];
+                var genre = info && info.querySelector("a[href*='genreCode=']"), image = doc.querySelector('.pic_area img');
+                var chapters = srcText(doc.body).match(/총\s*(\d+)\s*(?:화|권)/), status = srcText(info && info.querySelector('li.ing'));
+                return srcCard('nseries', url, srcText(head), writer ? srcText(writer.querySelector('a')) : '', image ? image.getAttribute('src') : '',
+                               genre ? [srcText(genre)] : [], '',
+                               {chapters: chapters ? chapters[1] : '', status: status.indexOf('완결') >= 0 ? 'Completed' : status ? 'Ongoing' : ''});
+            });
+        },
+        nweb: function (id, author, token) {
+            // Its league's page, by redirect.
+            return fetchUrl(NWEB + '/webnovel/list?' + srcQuery({novelId: id}), {pool: lookupPool('nweb'), stop: token}).then(function (result) {
+                var doc = srcDoc(result), info = doc && doc.querySelector('.section_area_info');
+                if (!info || !srcText(info.querySelector('h2.title'))) return null;
+                var genre = info.querySelector('.info_top .info_group .item'), image = info.querySelector('.thumbnail img[src]');
+                var tags = (genre && srcText(genre) ? [srcText(genre)] : []).concat(Array.prototype.map.call(
+                    doc.querySelectorAll('.end_tag_area .tag_collection a.tag'), function (a) { return srcText(a).replace(/^#/, '').trim(); }));
+                return srcCard('nweb', (result && result.url) || NWEB + '/webnovel/list?novelId=' + id, srcText(info.querySelector('h2.title')),
+                               Array.prototype.map.call(info.querySelectorAll('a[href*="target=author"]'), srcText).join(', '),
+                               image ? image.getAttribute('src') : '', tags.filter(function (t, i, all) { return t && all.indexOf(t) === i; }),
+                               srcText(info.querySelector('#summaryText')),
+                               {likes: srcText(info.querySelector('._reactionModule ._count')),
+                                status: srcText(info.querySelector('.info_group')).indexOf('완결') >= 0 ? 'Completed' : ''});
+            });
+        }
+    };
+    /** The book `id` of `source` as its site shows it now (a card), or null when the site doesn't answer. */
+    function sourceLookup(source, id, author, token) {
+        var run = SOURCE_LOOKUPS[source];
+        if (!run || !String(id || '').trim()) return Promise.resolve(null);
+        return Promise.resolve().then(function () { return run(String(id).trim(), author || '', token); })
+            .catch(function () { return null; });
+    }
+    /** A NovelDB card with its site's live figures. What NovelDB translated stays: the English title, tags
+     *  and synopsis; the site's own title becomes its raw title (generic_search.refreshed). */
+    function ndbRefreshed(item, live) {
+        if (!live) return item;
+        var out = Object.assign({}, item, {fresh: true});
+        FIGURES.concat(['status', 'author']).forEach(function (name) { if (live[name]) out[name] = live[name]; });
+        if (live.title && live.title !== live.url && (item.originalTitle || live.title !== item.title)) out.originalTitle = live.title;
+        if (live.cover && !item.cover) out.cover = live.cover;
+        return out;
     }
     /** What each source calls a tag ({source: [names]}), from NovelDB's tag list; {} when it doesn't list it. */
     function ndbNativeTags(tag) {

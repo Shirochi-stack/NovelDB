@@ -53,6 +53,26 @@ NO_RESULTS = re.compile(
     re.I)
 
 
+LOOKUP_WAIT = 12.0  # seconds a NovelDB card's details wait for its site's live figures
+
+
+def refreshed(card: dict, live: Optional[dict]) -> dict:
+    """A NovelDB card with its site's live figures (`live`: source_search.lookup's card). What NovelDB
+    translated stays: the English title, tags and synopsis; the site's own title becomes its raw title."""
+    if not live:
+        return card
+    out = dict(card, fresh=True)
+    for key in FIGURES + ("status", "author"):
+        if live.get(key):
+            out[key] = live[key]
+    if live.get("title") and live["title"] != live.get("url"):
+        if card.get("originalTitle") or live["title"] != card.get("title"):
+            out["originalTitle"] = live["title"]
+    if live.get("cover") and not card.get("cover"):
+        out["cover"] = live["cover"]
+    return out
+
+
 def is_no_results(*texts: str) -> bool:
     """A site's empty search page: its title or text says nothing matched."""
     return any(NO_RESULTS.search(text or "") for text in texts)
@@ -325,7 +345,17 @@ class GenericSearch:
         """The card with what the book's page says: title, author, cover, description, tags. A NovelDB
         card has all of that but its synopsis, which comes from NovelDB's synopsis file for it."""
         if card.get("source") == "noveldb" and self.noveldb is not None:
-            return dict(card, complete=True, description=self.noveldb.description(card) or card.get("description", ""))
+            # Its site asked for the book as it is now (one request), while its synopsis is read.
+            from noveldb.core.catalog import source_search
+
+            ref, live = card.get("noveldb") or {}, {}
+            asking = threading.Thread(target=lambda: live.update(card=source_search.lookup(
+                str(ref.get("source") or ""), str(ref.get("id") or ""), self.fetch, card.get("author") or "")),
+                name="generic-lookup", daemon=True)
+            asking.start()
+            description = self.noveldb.description(card) or card.get("description", "")
+            asking.join(LOOKUP_WAIT)
+            return refreshed(dict(card, complete=True, description=description), live.get("card"))
         result = self.fetch(card["url"])
         if not result or result["status"] >= 400:
             return dict(card, complete=True)
