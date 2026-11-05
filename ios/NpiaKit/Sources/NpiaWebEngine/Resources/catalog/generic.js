@@ -1717,10 +1717,20 @@
     // Clearing the search box (and with no tags picked) goes back to the Top 100.
     // Typing searches by itself once it pauses (0.8 s): two letters at least (one CJK character), and
     // not again for the text already searched. Enter or Search still search at once.
-    var typingTimer = 0;
-    $('query').addEventListener('input', function () {
+    // An input method (pinyin, kana, Hangul) composing a word puts partial text in the box: nothing is
+    // searched until it finishes (a pause mid-word started a search that the next keystroke cancelled).
+    var typingTimer = 0, composing = false;
+    $('query').addEventListener('compositionstart', function () { composing = true; clearTimeout(typingTimer); });
+    $('query').addEventListener('compositionend', function () { composing = false; typed(); });
+    $('query').addEventListener('input', function (event) {
+        if (composing || (event && event.isComposing)) { clearTimeout(typingTimer); return; }
+        typed();
+    });
+    function typed() {
         clearTimeout(typingTimer);
         var text = $('query').value.trim();
+        // The text of the search already running (the keyboard sent an event without a change): kept.
+        if (view === 'search' && running && current.text === text) return;
         if (!text && !picked.length && view === 'search') {
             send({type: 'genericStop', id: searchId});
             showTop();
@@ -1728,10 +1738,10 @@
         }
         if (text.length < 2 && !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(text)) return;
         typingTimer = setTimeout(function () {
-            if (view === 'search' && current.text === $('query').value.trim()) return;
+            if (composing || (view === 'search' && current.text === $('query').value.trim())) return;
             search(null);
         }, 800);
-    });
+    }
     $('stop').addEventListener('click', function () {
         send({type: 'genericStop', id: searchId});
         searchId++;
@@ -2042,35 +2052,11 @@
             return askWithin({type: 'genericChapter', url: source.url, index: index, recovery: recovery || null}, 90,
                              function (id) { R.chapterIds.set(index, id); });
         };
-        // This site's chapter endpoint rejects fetch/native HTTP even after its book page works. Use
-        // the app's attached off-screen WKWebView, wait for the real reader DOM, then extract it.
-        var protectedChapter = function (item) {
-            if (typeof window.__noveldb_window_script !== 'function') return appChapter('cloudflare');
-            var address;
-            try { address = new URL(item.url || item.path || '', source.url).href; }
-            catch (e) { return Promise.reject(new Error('The chapter address is invalid.')); }
-            var script = "(async function () {"
-                + "var deadline=Date.now()+30000;"
-                + "while(Date.now()<deadline){"
-                + "var reader=document.querySelector('.reader');"
-                + "if(reader&&(reader.innerText||'').trim().length>20){"
-                + "var clone=reader.cloneNode(true);"
-                + "clone.querySelectorAll('.reader-nav,script,style').forEach(function(n){n.remove();});"
-                + "return {chapterName:" + JSON.stringify(item.name || R.chapters[index].name || '')
-                + ",contentHtml:clone.innerHTML,contentText:clone.innerText};}"
-                + "await new Promise(function(resolve){setTimeout(resolve,250);});}"
-                + "throw new Error('Cloudflare verification did not expose the chapter within 30 seconds.');"
-                + "})()";
-            note('Reading chapter in the hidden browser…', 90);
-            return Promise.resolve(window.__noveldb_window_script({url: address, script: script})).then(function (reply) {
-                if (typeof reply === 'string') reply = parse(reply);
-                if (!reply || reply.error) throw new Error((reply && reply.error) || 'the hidden browser did not answer');
-                if (!reply.value || !reply.value.contentHtml) throw new Error('the hidden browser found no chapter text');
-                return reply.value;
-            });
-        };
         if (R.lnreader && /^https?:\/\/(?:www\.)?fucknovelpia\.com\//i.test(source.url || '')) {
-            promise = protectedChapter(Object.assign({}, R.lnreader.chapters[index]));
+            // FuckNovelpia's book/TOC is safe in LNReader, but its chapter fetch
+            // is always challenged. Do not spend 60 seconds on a request known
+            // to fail; use the app's persistent hidden Chrome session directly.
+            promise = appChapter('cloudflare');
         } else if (R.lnreader) {
             var item = Object.assign({}, R.lnreader.chapters[index]);
             promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')

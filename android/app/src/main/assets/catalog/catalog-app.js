@@ -441,6 +441,7 @@
         });
     }
     /** Each source's books with every token (for several: those in all of them, among their first pages). */
+    var NDB_INTERSECT_LISTS = 4;  // the shortest lists of a search's words intersected (per source)
     function ndbStreams(manifest, wanted) {
         return Promise.all(wanted.map(function (token) { return ndbLists(manifest, token); })).then(function (perToken) {
             if (perToken.some(function (lists) { return !Object.keys(lists).length; })) return {};
@@ -448,7 +449,10 @@
             var sources = Object.keys(perToken[0]).filter(function (source) { return perToken.every(function (lists) { return lists[source]; }); });
             var out = {};
             return Promise.all(sources.map(function (source) {
-                var lists = perToken.map(function (lists) { return lists[source]; });
+                // The source's shortest lists only (a long title's common pieces, such as "生活" in 6,000
+                // titles, are not read page by page): every book with the whole title is in them too.
+                var lists = perToken.map(function (lists) { return lists[source]; })
+                    .sort(function (a, b) { return a.total - b.total; }).slice(0, NDB_INTERSECT_LISTS);
                 return Promise.all(lists.map(function (list) { return list.numbers(0, NDB_MULTI_PAGES * list.page); })).then(function (read) {
                     // A list read only in part says nothing of the books after its last one read.
                     var cutoff = Infinity;

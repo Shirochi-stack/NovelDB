@@ -65,6 +65,7 @@ PIECES = 512  # word buckets, list pages and card blocks kept in memory
 FORMAT = 2
 LEAD = "npia"  # its books come first in each round of results
 MULTI_PAGES = 40  # list pages of each word read to match a search of several words (per source)
+INTERSECT_LISTS = 4  # the shortest lists of a search's words intersected (per source)
 UNION_PAGES = 1  # list pages of each alias of a tag merged (per source): the first, already in its bucket
 
 _STOP = {"the", "a", "an", "of", "to", "in", "and", "is", "on", "at", "for", "with"}
@@ -345,14 +346,18 @@ class NovelDBIndex:
         if not per_token or not all(per_token):
             return {}
         sources = list(set.intersection(*(set(lists) for lists in per_token)))
-        jobs = [(source, at, lists[source]) for source in sources for at, lists in enumerate(per_token)]
+        # Each source's shortest lists only (a long title's common pieces, such as "生活" in 6,000 titles,
+        # are not read page by page): every book with the whole title is in them too.
+        shortest = {source: sorted(range(len(per_token)), key=lambda at: per_token[at][source].total)[:INTERSECT_LISTS]
+                    for source in sources}
+        jobs = [(source, at, per_token[at][source]) for source in sources for at in shortest[source]]
         with ThreadPoolExecutor(min(16, max(1, len(jobs))), thread_name_prefix="noveldb-pages") as pool:
             pages = dict(zip([(source, at) for source, at, _lst in jobs],
                              pool.map(lambda job: job[2].numbers(0, MULTI_PAGES * job[2].page), jobs)))
         out = {}
         for source in sources:
-            lists = [lists[source] for lists in per_token]
-            read = [pages[(source, at)] for at in range(len(lists))]
+            lists = [per_token[at][source] for at in shortest[source]]
+            read = [pages[(source, at)] for at in shortest[source]]
             # A list read only in part says nothing of the books after its last one read.
             cutoff = min((nums[-1] for nums, lst in zip(read, lists) if nums and len(nums) < lst.total), default=None)
             found = set(read[0]).intersection(*read[1:])

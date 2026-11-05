@@ -210,3 +210,19 @@ def test_an_index_of_the_old_format_is_not_read(tmp_path):
     index = NovelDBIndex(fetcher(manifest, data, reads), cache_dir=tmp_path)
     assert [c["title"] for c in index.search("omniscient")] == ["Omniscient Reader's Viewpoint"]
     assert reads[0].endswith(".json")  # the kept old table was read again from the server
+
+
+def test_a_long_title_reads_only_its_shortest_word_lists():
+    """A long Chinese title: its common pieces' long lists (here "生活" in 60 titles, on 15 pages) are
+    not read page by page; the four shortest lists find the book."""
+    books = [{"source": "sfc", "id": f"s{i}", "title": f"某人{i}的生活", "titleEn": "", "tags": [],
+              "url": f"https://example.test/s/{i}"} for i in range(60)]
+    books.append({"source": "sfc", "id": "elf", "title": "萌妹精灵与她的幸福生活", "titleEn": "Cute Elf and Her Happy Life",
+                  "tags": [], "url": "https://example.test/s/elf"})
+    manifest, data = build(books, page=4)
+    reads = []
+    index = NovelDBIndex(fetcher(manifest, data, reads))
+    cards, _more = index.search_page("萌妹精灵与她的幸福生活", "name", 0, 40)
+    assert [c["url"] for c in cards] == ["https://example.test/s/elf"]
+    pages = sum(1 for url in reads if url.endswith(".bin")) - len(set(tokens("萌妹精灵与她的幸福生活"))) - 1
+    assert pages == 0  # buckets and the card block only: no list page of "生活" (or of any piece)

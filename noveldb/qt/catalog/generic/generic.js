@@ -1717,10 +1717,20 @@
     // Clearing the search box (and with no tags picked) goes back to the Top 100.
     // Typing searches by itself once it pauses (0.8 s): two letters at least (one CJK character), and
     // not again for the text already searched. Enter or Search still search at once.
-    var typingTimer = 0;
-    $('query').addEventListener('input', function () {
+    // An input method (pinyin, kana, Hangul) composing a word puts partial text in the box: nothing is
+    // searched until it finishes (a pause mid-word started a search that the next keystroke cancelled).
+    var typingTimer = 0, composing = false;
+    $('query').addEventListener('compositionstart', function () { composing = true; clearTimeout(typingTimer); });
+    $('query').addEventListener('compositionend', function () { composing = false; typed(); });
+    $('query').addEventListener('input', function (event) {
+        if (composing || (event && event.isComposing)) { clearTimeout(typingTimer); return; }
+        typed();
+    });
+    function typed() {
         clearTimeout(typingTimer);
         var text = $('query').value.trim();
+        // The text of the search already running (the keyboard sent an event without a change): kept.
+        if (view === 'search' && running && current.text === text) return;
         if (!text && !picked.length && view === 'search') {
             send({type: 'genericStop', id: searchId});
             showTop();
@@ -1728,10 +1738,10 @@
         }
         if (text.length < 2 && !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(text)) return;
         typingTimer = setTimeout(function () {
-            if (view === 'search' && current.text === $('query').value.trim()) return;
+            if (composing || (view === 'search' && current.text === $('query').value.trim())) return;
             search(null);
         }, 800);
-    });
+    }
     $('stop').addEventListener('click', function () {
         send({type: 'genericStop', id: searchId});
         searchId++;
