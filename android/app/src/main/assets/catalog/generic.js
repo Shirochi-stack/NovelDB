@@ -2042,11 +2042,36 @@
             return askWithin({type: 'genericChapter', url: source.url, index: index, recovery: recovery || null}, 90,
                              function (id) { R.chapterIds.set(index, id); });
         };
+        // This site's chapter endpoint rejects fetch/OkHttp even after its book page works. Android
+        // cannot use desktop Chrome, so open the chapter in the app's attached off-screen WebView,
+        // wait for Cloudflare to replace the challenge document, then extract the real reader DOM.
+        var protectedChapter = function (item) {
+            if (typeof window.__noveldb_window_script !== 'function') return appChapter('cloudflare');
+            var address;
+            try { address = new URL(item.url || item.path || '', source.url).href; }
+            catch (e) { return Promise.reject(new Error('The chapter address is invalid.')); }
+            var script = "(async function () {"
+                + "var deadline=Date.now()+30000;"
+                + "while(Date.now()<deadline){"
+                + "var reader=document.querySelector('.reader');"
+                + "if(reader&&(reader.innerText||'').trim().length>20){"
+                + "var clone=reader.cloneNode(true);"
+                + "clone.querySelectorAll('.reader-nav,script,style').forEach(function(n){n.remove();});"
+                + "return {chapterName:" + JSON.stringify(item.name || R.chapters[index].name || '')
+                + ",contentHtml:clone.innerHTML,contentText:clone.innerText};}"
+                + "await new Promise(function(resolve){setTimeout(resolve,250);});}"
+                + "throw new Error('Cloudflare verification did not expose the chapter within 30 seconds.');"
+                + "})()";
+            note('Reading chapter in the hidden browser…', 90);
+            return Promise.resolve(window.__noveldb_window_script({url: address, script: script})).then(function (reply) {
+                if (typeof reply === 'string') reply = parse(reply);
+                if (!reply || reply.error) throw new Error((reply && reply.error) || 'the hidden browser did not answer');
+                if (!reply.value || !reply.value.contentHtml) throw new Error('the hidden browser found no chapter text');
+                return reply.value;
+            });
+        };
         if (R.lnreader && /^https?:\/\/(?:www\.)?fucknovelpia\.com\//i.test(source.url || '')) {
-            // FuckNovelpia's book/TOC is safe in LNReader, but its chapter fetch
-            // is always challenged. Do not spend 60 seconds on a request known
-            // to fail; use the app's persistent hidden Chrome session directly.
-            promise = appChapter('cloudflare');
+            promise = protectedChapter(Object.assign({}, R.lnreader.chapters[index]));
         } else if (R.lnreader) {
             var item = Object.assign({}, R.lnreader.chapters[index]);
             promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')
