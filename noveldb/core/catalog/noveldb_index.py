@@ -397,6 +397,7 @@ class NovelDBIndex:
         order = sorted(streams, key=lambda name: (name != LEAD, streams[name].first))
         picks, more = _round_robin([(name, streams[name].total) for name in order], page * limit, limit)
         numbers = [number for number in (streams[name].number(at) for name, at in picks) if number is not None]
+        numbers = list(dict.fromkeys(numbers))  # a book on several of the sources asked is in each one's list
         self._prefetch_blocks(numbers)
         return [card for card in (self._card(number) for number in numbers) if card], more
 
@@ -418,13 +419,17 @@ class NovelDBIndex:
         row = block[number % manifest["block"]]
         source, book_id, title, title_en, author, cover, tags, views, likes, chapters, complete, url, updated = row[:13]
         published = row[15] if len(row) > 15 else ""  # indexes built before it was added have none
+        # Its pages on NovelDB's other sources: one book there (the index merged them).
+        also = [{"url": other[2], "noveldb": {"source": other[0], "id": other[1]}}
+                for other in (row[16] if len(row) > 16 and isinstance(row[16], list) else [])
+                if isinstance(other, list) and len(other) > 2 and other[2]]
         return {
             "url": url, "title": title_en or title, "originalTitle": title if title_en else "", "author": author or "",
             "cover": cover or "", "description": "", "tags": list(tags or []), "site": _site(url), "comic": False,
             "source": "noveldb", "noveldb": {"source": source, "id": book_id}, "complete": False,
             "views": _count(views), "likes": _count(likes), "chapters": _count(chapters),
             "status": {1: "Completed", 0: "Ongoing"}.get(complete, ""), "updated": str(updated or "")[:10],
-            "published": str(published or "")[:10],
+            "published": str(published or "")[:10], "also": also,
         }
 
     def tag_names(self) -> List[str]:

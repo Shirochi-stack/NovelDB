@@ -510,7 +510,8 @@
                     return list.pageOf(Math.floor(pick[1] / list.page)).then(function (numbers) { return numbers[pick[1] % list.page]; });
                 }));
             }).then(function (numbers) {
-                numbers = numbers.filter(function (n) { return n != null; });
+                // A book on several of the sources asked is in each one's list: shown once.
+                numbers = numbers.filter(function (n, i) { return n != null && numbers.indexOf(n) === i; });
                 return Promise.all(numbers.map(function (number) {
                     return ndbPiece(manifest, 'block', Math.floor(number / manifest.block)).then(function (block) {
                         var row = block && block[number % manifest.block];
@@ -521,11 +522,16 @@
                                 source: 'noveldb', noveldb: {source: row[0], id: row[1]}, complete: false,
                                 views: ndbCount(row[7]), likes: ndbCount(row[8]), chapters: ndbCount(row[9]),
                                 status: row[10] === 1 ? 'Completed' : row[10] === 0 ? 'Ongoing' : '', updated: String(row[12] || '').slice(0, 10),
-                                published: String(row[15] || '').slice(0, 10)};
+                                published: String(row[15] || '').slice(0, 10), also: ndbAlso(row[16])};
                     }).then(function (card) { if (card && each) each(card); return card; });
                 }));
             });
         }).then(function (cards) { return {cards: (cards || []).filter(Boolean), more: more}; });
+    }
+    // The book's pages on NovelDB's other sources (one book there: the index merged them).
+    function ndbAlso(others) {
+        return (Array.isArray(others) ? others : []).filter(function (o) { return Array.isArray(o) && o[2]; })
+            .map(function (o) { return {url: o[2], noveldb: {source: o[0], id: o[1]}}; });
     }
     function ndbShard(id, count) {
         var text = String(id || '');

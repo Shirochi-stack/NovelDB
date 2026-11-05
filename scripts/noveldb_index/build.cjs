@@ -24,7 +24,8 @@
  *   further pages only as the results are scrolled.
  * - Card blocks of BLOCK books, in book-number order: [source, id, title, English title, author,
  *   cover, tags, views, likes, chapters, complete, address, updated, age rating, original tags,
- *   publication date].
+ *   publication date, other sources]. Books of different sources with the same original title and
+ *   author are one book (mergeSame): its card lists the others' pages, [[source, id, address], ...].
  *
  * It also writes the same pieces as separate files (split/: manifest.json, b/<bucket>.json.gz,
  * c/<block>.json.gz) for the NovelDB site, which reads them from the `noveldb-index` branch: a web page
@@ -192,6 +193,65 @@ function sourceBooks(source, cfg, tagNames) {
     return books;
 }
 
+// -- one book on several sources ----------------------------------------------------------------------
+
+/** A title or author to compare by: its letters and digits ("안현™" and "안현" are one writer; marks go
+ * before NFKC, which would spell ™ "TM"). */
+function sameKey(text) {
+    return normal(String(text || "").replace(/[^\p{L}\p{N}]+/gu, "")).replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/** The fuller of two entries of a book: figures, then tags, then an English title. */
+function richer(a, b) {
+    return ((b.views > 0) - (a.views > 0)) || (b.tags.length - a.tags.length) || (!!b.titleEn - !!a.titleEn)
+        || (b.views - a.views) || (b.chapters - a.chapters);
+}
+
+/**
+ * Books of different sources with the same original title and author are one book: the fullest entry
+ * keeps it, with the others' figures, tags and English titles merged in and their pages listed in
+ * `also` ([[source, id, address], ...]). Short titles name many books, so the author must match too;
+ * a source's own books of one title stay apart (its most read one joins). Returns the books left.
+ */
+function mergeSame(books) {
+    const groups = new Map();
+    for (const book of books) {
+        const title = sameKey(book.title), author = sameKey(book.author);
+        if (!title || !author) continue;
+        const key = title + "\n" + author;
+        let bySource = groups.get(key);
+        if (!bySource) groups.set(key, bySource = new Map());
+        const held = bySource.get(book.source);
+        if (!held || book.views > held.views) bySource.set(book.source, book);
+    }
+    const gone = new Set();
+    for (const bySource of groups.values()) {
+        if (bySource.size < 2) continue;
+        const [lead, ...others] = [...bySource.values()].sort(richer);
+        lead.also = [];
+        lead.otherTitles = [];
+        for (const other of others) {
+            gone.add(other);
+            lead.also.push([other.source, other.id, other.url]);
+            if (other.titleEn && other.titleEn !== lead.titleEn) lead.otherTitles.push(other.titleEn);
+            lead.titleEn = lead.titleEn || other.titleEn;
+            lead.cover = lead.cover || other.cover;
+            other.tags.forEach((tag, i) => {
+                if (tag && !lead.tags.includes(tag)) { lead.tags.push(tag); lead.originalTags.push(other.originalTags[i]); }
+            });
+            lead.views = Math.max(lead.views, other.views);
+            lead.likes = Math.max(lead.likes, other.likes);
+            lead.chapters = Math.max(lead.chapters, other.chapters);
+            if (lead.complete == null) lead.complete = other.complete;
+            if (lead.age == null) lead.age = other.age;
+            if (other.updated > lead.updated) lead.updated = other.updated;
+            if (other.published && (!lead.published || other.published < lead.published)) lead.published = other.published;
+        }
+    }
+    groups.clear();
+    return {books: books.filter((book) => !gone.has(book)), merged: gone.size};
+}
+
 function main() {
     const started = Date.now();
     const tagNames = readPairs(path.join(DATA, "tags_en.txt"));
@@ -207,6 +267,9 @@ function main() {
         sources[source] = {books: found.length, descriptions: {prefix, count: 128}};
         console.log(`${source}: ${found.length} books`);
     }
+    const same = mergeSame(books);
+    books = same.books;
+    console.log(`${same.merged} books merged into the same book on another source`);
     // Book numbers interleave the sources by their place in each, so a token's first books are the most read anywhere.
     books.sort((a, b) => a.rank - b.rank || b.views - a.views);
 
@@ -236,6 +299,7 @@ function main() {
     books.forEach((book, number) => {
         // "!source": every book of a source, the most read first (a source's Top list).
         const own = new Set([...tokens(book.titleEn), ...tokens(book.title), "!" + book.source]);
+        for (const other of book.otherTitles || []) for (const token of tokens(other)) own.add(token);
         if (book.author) own.add(authorToken(book.author));
         // Its status as a tag: "Completed" and "Ongoing" are searched like any tag.
         const status = book.complete === 1 ? "Completed" : book.complete === 0 ? "Ongoing" : "";
@@ -254,6 +318,12 @@ function main() {
             let lists = bucket.get(token);
             if (!lists) bucket.set(token, lists = {});
             (lists[book.source] || (lists[book.source] = [])).push(number);
+        }
+        // A merged book is in the Top list of each of its sources (a search lists it under its own one).
+        for (const [source] of book.also || []) {
+            const bucket = buckets[bucketOf("!" + source)];
+            const lists = bucket.get("!" + source) || bucket.set("!" + source, {}).get("!" + source);
+            (lists[source] || (lists[source] = [])).push(number);
         }
     });
     // Synonyms (tag-synonyms.json): every key of a group lists the tags of all of them.
@@ -323,9 +393,13 @@ function main() {
         blockAt.push(write(books.slice(start, start + BLOCK).map((b) => [
             b.source, b.id, b.title, b.titleEn, b.author, b.cover, b.tags.slice(0, TAGS_PER_CARD),
             b.views, b.likes, b.chapters, b.complete, b.url, b.updated, b.age, b.originalTags.slice(0, TAGS_PER_CARD),
-            b.published]),
+            b.published, b.also || []]),
             `c/${blockAt.length}.json.gz`));
     }
+    // The merged books, for the site's catalog (which lists every source's own entries): [[source, id,
+    // [[source, id, address], ...]], ...]. The site shows each once, under the first.
+    const merged = books.filter((b) => b.also).map((b) => [b.source, b.id, b.also]);
+    fs.writeFileSync(path.join(split, "same.json.gz"), zlib.gzipSync(Buffer.from(JSON.stringify(merged), "utf8"), {level: 9}));
     // The tag names on TAG_BOOKS books or more, the most used first, at most TAG_LIST: [[name, books,
     // {source: [what the site calls it, ...]}], ...], each site's names the most used first (NATIVE_NAMES).
     const tagList = [...tagCounts].filter(([, n]) => n >= TAG_BOOKS).sort((a, b) => b[1] - a[1]).slice(0, TAG_LIST)
@@ -350,9 +424,10 @@ function main() {
     // The split copy's table: no offsets, a file per piece.
     fs.writeFileSync(path.join(split, "manifest.json"), JSON.stringify({
         format: 2, built, books: books.length, buckets: BUCKETS, block: BLOCK, page: PAGE, blocks: blockAt.length, pages, sources,
+        same: merged.length,
     }));
     console.log(`${books.length} books, ${pages} further pages, ${(offset / 1048576).toFixed(1)} MB in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
 if (require.main === module) main();
-module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, BUCKETS, PAGE};
+module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, mergeSame, BUCKETS, PAGE};

@@ -24,8 +24,11 @@ def build(books, page=500, aliases=None, tag_list=None):
     lists = [dict() for _ in range(BUCKETS)]
     for number, book in enumerate(books):
         own = set(tokens(book["titleEn"])) | set(tokens(book["title"])) | {tag_token(t) for t in book["tags"]}
+        own.add("!" + book["source"])
         for token in own:
             lists[bucket_of(token, BUCKETS)].setdefault(token, {}).setdefault(book["source"], []).append(number)
+        for other in book.get("also", []):  # a merged book is in its other sources' Top lists too
+            lists[bucket_of("!" + other[0], BUCKETS)].setdefault("!" + other[0], {}).setdefault(other[0], []).append(number)
     data, bucket_at, block_at, pages = b"", [], [], 0
     keys = {}
     for key, tags in (aliases or {}).items():
@@ -53,7 +56,7 @@ def build(books, page=500, aliases=None, tag_list=None):
         bucket_at.append(write(value))
     # The builder's rows: 13 fields, then the age rating, the original tags and the publication date.
     rows = [[b["source"], b["id"], b["title"], b["titleEn"], "", "", b["tags"], 10, 0, 3, 1, b["url"], "", None, b["tags"],
-             b.get("published", "")] for b in books]
+             b.get("published", ""), b.get("also", [])] for b in books]
     block_at.append(write(rows))
     manifest = {"format": 2, "built": "test", "books": len(books), "buckets": BUCKETS, "block": 256, "page": page,
                 "bin": "x.bin", "bucketAt": bucket_at, "blockAt": block_at,
@@ -242,3 +245,44 @@ def test_a_card_has_its_publication_date_and_a_tag_its_names_on_each_site():
     assert index.native_tags("Gender-Bender")["npia"] == ["TS"]
     assert index.native_tags("Isekai") == {}
     assert index.tag_names() == ["Gender Bender", "Romance", "Old entry"]
+
+
+def test_the_builder_merges_one_book_on_two_sources():
+    """The same original title and author (after marks like ™) on two sources: one book, the fuller entry
+    leading with the other's chapters, tags and English title; a short title by another author stays apart."""
+    script = r"""
+const {mergeSame} = require('./scripts/noveldb_index/build.cjs');
+const book = (o) => Object.assign({tags: [], originalTags: [], views: 0, likes: 0, chapters: 0, titleEn: '', cover: '',
+    complete: null, age: null, updated: '', published: '', url: 'https://example.test/' + o.source + '/' + o.id}, o);
+const out = mergeSame([
+    book({source: 'mpia', id: '573666', title: '군필 여대생의 게임방송', author: '안현™', views: 655161, chapters: 123,
+          tags: ['Modern Fantasy', 'Game'], originalTags: ['현대판타지', '게임'], titleEn: 'A Military-Trained College Girl', updated: '2026-10-05'}),
+    book({source: 'nseries', id: '14672427', title: '군필 여대생의 게임방송', author: '안현', chapters: 134,
+          tags: ['Modern Fantasy', 'Web Novel'], originalTags: ['현판', '웹소설'], titleEn: 'A Military-Veteran College Girl', updated: '2026-10-23'}),
+    book({source: 'jara', id: '1', title: '꿈', author: '박정훈'}),
+    book({source: 'nweb', id: '2', title: '꿈', author: '아무'}),
+]);
+console.log(JSON.stringify(out));
+"""
+    out = json.loads(subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                                    check=True).stdout)
+    assert out["merged"] == 1
+    lead = out["books"][0]
+    assert [b["source"] for b in out["books"]] == ["mpia", "jara", "nweb"]
+    assert lead["also"] == [["nseries", "14672427", "https://example.test/nseries/14672427"]]
+    assert lead["titleEn"] == "A Military-Trained College Girl" and lead["otherTitles"] == ["A Military-Veteran College Girl"]
+    assert lead["views"] == 655161 and lead["chapters"] == 134 and lead["updated"] == "2026-10-23"
+    assert lead["tags"] == ["Modern Fantasy", "Game", "Web Novel"] and lead["originalTags"][-1] == "웹소설"
+
+
+def test_a_merged_card_lists_its_other_sources_and_shows_once():
+    other = ["nseries", "14672427", "https://example.test/nseries/14672427"]
+    books = [dict(BOOKS[0], also=[other]), BOOKS[1]]
+    manifest, data = build(books)
+    index = NovelDBIndex(fetcher(manifest, data, []))
+    card = index.search("omniscient")[0]
+    assert card["also"] == [{"url": other[2], "noveldb": {"source": "nseries", "id": "14672427"}}]
+    assert index.search("another reader")[0]["also"] == []
+    # Both sources' Top lists have it: asked for both, it shows once.
+    cards, _more = index.search_page("npia,nseries", "source", 0)
+    assert [c["url"] for c in cards] == ["https://example.test/novel/7", "https://example.test/novel/8"]

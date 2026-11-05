@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=11");
+importScripts("catalog-import.js?v=11","same-books.js?v=1");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -277,7 +277,10 @@ async function executeQuery(q, token) {
     check();
     const cacheKey = JSON.stringify(q);
     if (pages.has(cacheKey)) { const value = pages.get(cacheKey); pages.delete(cacheKey); pages.set(cacheKey, value); return value; }
-    const revision = JSON.stringify([3,q.sources.map(source => [source,revisions.get(source)])]);
+    // One book on several sources shows once (same-books.js): its first entry, the others when it is missing.
+    const same = await self.NovelSameBooks.load();
+    check();
+    const revision = JSON.stringify([3,q.sources.map(source => [source,revisions.get(source)]),same?.version || null]);
     if (!savedPages) savedPages = await get("meta",["saved-pages"]) || [];
     const saved = savedPages.find(page => page.key === cacheKey && page.revision === revision);
     check();
@@ -293,25 +296,41 @@ async function executeQuery(q, token) {
     }
     let count = 0, seq = 0, beforeFocus = 0, focusFound = false;
     const focus = q.focus ? [plan.map(k => k.get(q.focus)),q.focus._catalogOrdinal] : null;
+    // A book's other entries wait for the end of the scan: they show only when its first one did not match.
+    const shown = new Set(), later = [];
+    function take(entry, n, matching) {
+        count++;
+        if (focus) {
+            if (compare(entry,focus) < 0) beforeFocus++;
+            if (n.id === q.focus.id && n.source === q.focus.source) focusFound = true;
+        }
+        if (deep) matching.push(entry);
+        else if (heap.length < wanted) heapPush(heap, entry, reverse);
+        else if (compare(entry, heap[0]) < 0) { heapPop(heap, reverse); heapPush(heap, entry, reverse); }
+    }
     for (const source of q.sources) {
         for (const key of blocks.get(source) || []) {
             check(); const block = await get("index", key), matching = [];
             for (let i = 0; i < block.entries.length; i++, seq++) {
                 const n = unpack(block.entries[i], block, source);
                 if (!matches(n, q)) continue;
-                count++;
                 const entry = [plan.map(k => k.get(n)), seq, key, i];
-                if (focus) {
-                    if (compare(entry,focus) < 0) beforeFocus++;
-                    if (n.id === q.focus.id && n.source === q.focus.source) focusFound = true;
-                }
-                if (deep) matching.push(entry);
-                else if (heap.length < wanted) heapPush(heap, entry, reverse);
-                else if (compare(entry, heap[0]) < 0) { heapPop(heap, reverse); heapPush(heap, entry, reverse); }
+                const found = same?.find(source, n.id);
+                if (found && !found.lead) { later.push([found.book, entry, {id:n.id, source}]); continue; }
+                if (found) shown.add(found.book);
+                take(entry, n, matching);
             }
             if (matching.length) { matching.sort(compare); runs.push(await saveRun(matching)); }
         }
     }
+    const matching = [];
+    for (const [book, entry, n] of later) {
+        if (shown.has(book)) continue;
+        shown.add(book);
+        take(entry, n, matching);
+    }
+    shown.clear(); later.length = 0;
+    if (matching.length) { matching.sort(compare); runs.push(await saveRun(matching)); }
     check();
     if (focusFound && Math.floor(beforeFocus/q.size)+1 !== q.page) return query({...q,page:Math.floor(beforeFocus/q.size)+1,focus:null},token);
     const page = Math.min(q.page, Math.max(1, Math.ceil(count / q.size))), offset = (page - 1) * q.size;

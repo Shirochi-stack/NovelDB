@@ -5655,6 +5655,12 @@
     // === State ===
     let allNovels = [];
     let filtered = [];
+    // One book on several sources (same-books.js): the cards link its other entries; shown cards get them once it loads.
+    let sameBooks = null;
+    window.NovelSameBooks?.load({addresses: true}).then((table) => {
+        sameBooks = table;
+        if (table) document.querySelectorAll("#results .novel-card").forEach((card) => { if (card._record) renderCard(card._record, card); });
+    });
     let andTags = new Set();
     let orTags = new Set();
     let excludeTags = new Set();
@@ -6310,6 +6316,11 @@
             }).join("")
             : `<span class="stat" title="Views" aria-label="Views: ${fmt(n.views)}"><span aria-hidden="true">👁</span> ${fmt(n.views)}</span><span class="stat" title="Likes" aria-label="Likes: ${fmt(n.likes)}"><span aria-hidden="true">❤</span> ${fmt(n.likes)}</span><span class="stat" title="Episodes" aria-label="Episodes: ${fmt(n.chapters)}"><span aria-hidden="true">📄</span> ${fmt(n.chapters)}</span>`;
 
+        // The same book's entries on other sources: NovelDB shows it once, with links to them.
+        const also = (n.also?.length ? n.also : sameBooks?.also(novelSource, n.id) || [])
+            .map(([source, , url]) => [source, metadata.safeHttpUrl(url)]).filter(([source, url]) => SOURCES[source] && url);
+        const alsoHTML = also.length ? `<div class="card-also">Also on ${also.map(([source, url]) => `<a href="${escHtml(url)}" target="_blank" rel="noopener" title="${escHtml(SOURCES[source].label)}"><img src="${escHtml(window.NovelSourcePicker.iconFor(source))}" alt="${escHtml(SOURCES[source].label)}" width="16" height="16"></a>`).join("")}</div>` : "";
+
         card.innerHTML = `
             <div class="card-cover-area"><a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
                 ${coverHTML}
@@ -6319,7 +6330,7 @@
             <div class="card-body">
                 <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
                 ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
-                <div class="card-author" data-author="${escHtml(n.author)}">Author: ${escHtml(n.author)}</div>
+                <div class="card-author" data-author="${escHtml(n.author)}">Author: ${escHtml(n.author)}</div>${alsoHTML}
                 <div class="card-tags">${tagsHTML}</div>
                 <div class="card-stats">
                     ${statsHTML}
@@ -7299,7 +7310,16 @@
         // Each source contributes its first 300 under the combined comparator.
         // No record outside those prefixes can enter the combined first 300.
         metadata.sortRecords(rows,query.sort);
-        return {rows:rows.slice(start,start+query.size),total,page};
+        // A book on several of these sources shows once: its first entry, else the first other one.
+        const shown=new Set(),found=rows.map(row=>sameBooks?.find(row.source,row.id));
+        found.forEach(entry=>{if(entry?.lead) shown.add(entry.book);});
+        const unique=rows.filter((row,index)=>{
+            const entry=found[index];
+            if(!entry || entry.lead) return true;
+            if(shown.has(entry.book)) return false;
+            shown.add(entry.book);return true;
+        });
+        return {rows:unique.slice(start,start+query.size),total:total-(rows.length-unique.length),page};
     }
     async function loadQueryPreview(query,signal) {
         if (!previewEligible(query)) return;
@@ -7450,7 +7470,7 @@ const worker=new Worker('preview-worker.js?v=4');
     function workerRequest(type, value, progress) {
         clearTimeout(catalogIdleTimer);
         if (!catalogWorker) {
-const worker = new Worker("catalog-worker.js?v=15");
+const worker = new Worker("catalog-worker.js?v=16");
             catalogWorker = worker;
             catalogWorkerTagVersion=null;
             worker.onmessage = ({data}) => {

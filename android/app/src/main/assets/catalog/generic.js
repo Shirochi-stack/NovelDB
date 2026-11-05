@@ -576,8 +576,18 @@
         var text = String(title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
         return /[^\x00-\x7f]/.test(text) ? text : '';
     }
-    // NovelDB's npia books lead their group: their cover and title are the ones shown, whoever answered first.
-    function leads(card) { return !!(card.noveldb && card.noveldb.source === 'npia'); }
+    // NovelDB's books lead their group (npia's first): their English title, cover and figures are the ones
+    // shown, whoever answered first. A site's own card under the raw title joins them.
+    function leadRank(source) { return !source || !source.noveldb ? 0 : source.noveldb.source === 'npia' ? 2 : 1; }
+    // An author's name to compare by: "안현™" and "안현" are one writer.
+    // (Marks go before NFKC, which would spell ™ "TM".)
+    function authorKey(name) {
+        return String(name || '').replace(/[^\p{L}\p{N}]+/gu, '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    }
+    function sameAuthor(a, b) {
+        var x = authorKey(a), y = authorKey(b);
+        return !x || !y || x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+    }
     // A site's list thumbnail ("cover-193x278.jpg", "?resize=175,238") and the full-size image it was made from.
     function fullCover(url) {
         var text = String(url || '');
@@ -593,7 +603,9 @@
         // The same book under its original title: another site's raw title, or NovelDB's for its English one.
         var raws = [rawKey(card.originalTitle), rawKey(card.title)].filter(Boolean);
         var group = byUrl.get(key(card.url)) || groups.get(groupKey(card))
-            || raws.map(function (k) { return rawTitles.get(k); }).filter(function (g) { return g && groups.has(g.key); })[0];
+            || raws.map(function (k) { return rawTitles.get(k); }).filter(function (g) {
+                return g && groups.has(g.key) && sameAuthor(g.author, card.author);
+            })[0];
         if (!group) {
             group = {key: groupKey(card), title: card.title, author: '', cover: '', description: '', tags: [], status: '',
                      comic: isComic(card), sources: [], rank: rank, loaded: false};
@@ -607,17 +619,27 @@
             // `noveldb`: a NovelDB book's source and id, for its synopsis from NovelDB's own files.
             source = {url: card.url, site: card.site || hostOf(card.url), source: card.source || '', plugin: card.plugin || '', path: card.path,
                       ms: card.ms, noveldb: card.noveldb};
-            if (leads(card) && !(group.sources[0] && group.sources[0].noveldb && group.sources[0].noveldb.source === 'npia')) {
+            if (group.sources.length && leadRank(source) > leadRank(group.sources[0])) {
                 group.sources.unshift(source);
                 group.title = card.title;
                 if (card.originalTitle) group.rawTitle = card.originalTitle;
                 if (card.cover) { group.cover = card.cover; group.coverFrom = card.url; }
+                // NovelDB's figures over a site's list card's.
+                ['author', 'status', 'published', 'updated', 'rating', 'ratings', 'likes', 'views', 'chapters'].forEach(function (name) {
+                    if (card[name] && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
+                });
                 group.loaded = false;
             } else {
                 group.sources.push(source);
             }
             byUrl.set(key(card.url), group);
         }
+        // A NovelDB book on several of its sites (one entry in the index): its other sites' pages, after it.
+        (card.also || []).forEach(function (other) {
+            if (!other || !other.url || byUrl.has(key(other.url))) return;
+            group.sources.push({url: other.url, site: hostOf(other.url), source: 'noveldb', plugin: '', ms: card.ms, noveldb: other.noveldb});
+            byUrl.set(key(other.url), group);
+        });
         ['author', 'status', 'published', 'updated', 'rating', 'ratings', 'likes', 'views', 'chapters'].forEach(function (name) {
             if (card[name] && !group[name] && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
         });

@@ -532,6 +532,21 @@ a.card-cover-wrap.cover-ready {
     text-decoration: underline;
 }
 
+/* The same book's entries on NovelDB's other sources. */
+.card-also {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin: -0.35rem 0 0.6rem;
+}
+
+.card-also img {
+    display: block;
+    border-radius: 3px;
+}
+
 .card-tags {
     position: relative;
     display: flex;

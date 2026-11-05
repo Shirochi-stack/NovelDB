@@ -77,12 +77,14 @@
     }
 
     function row(card) {
-        const [source, id, title, titleEn, author, cover, tagsEn, views, likes, chapters, complete, url, updated, age, tags] = card;
+        const [source, id, title, titleEn, author, cover, tagsEn, views, likes, chapters, complete, url, updated, age, tags, , also] = card;
         return {
             id: String(id), source, title: title || "", titleEn: titleEn || "", author: author || "", cover: cover || "",
             tags: Array.isArray(tags) && tags.length ? tags : (tagsEn || []), views: views || 0, likes: likes || 0,
             chapters: chapters || 0, complete: complete, updated: updated || "", age: age == null ? null : age,
             canonicalUrl: url || "", metadataV1: METADATA_V1.has(source), fromIndex: true,
+            // The same book's entries on other sources (the index merged them): [[source, id, address], ...].
+            also: Array.isArray(also) ? also : [],
             tier: null, purchaseUrl: null, metrics: {}, rankings: {}, startDate: null,
         };
     }

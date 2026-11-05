@@ -503,3 +503,52 @@ def test_combined_rankings_include_all_sources_by_likes_after_npia_ranks():
             assert filtered['total'] == 30 and set(await worker.evaluate('readSources')) == {'nweb','npia'}
             await browser.close()
     asyncio.run(scenario())
+
+
+def test_one_book_on_two_sources_shows_once_unless_its_first_entry_is_missing():
+    """same.json (the index's merged books): npia 1 and 2 lead kpage 11 and 12. Both sources: each book once,
+    under npia; a search only kpage 12 matches shows it; kpage alone shows all its own."""
+    first = [row('npia', i) for i in (1, 2, 3)]
+    second = [row('npia', i) for i in (11, 12, 13)]
+    for item in first + second:
+        item[1] = f'Book {item[0]}'
+    second[1][1] = 'Only twelve'
+    same = [['npia', '1', [['kpage', '11', 'https://example.test/11']]], ['npia', '2', [['kpage', '12', 'https://example.test/12']]]]
+
+    class Site(FixtureSite):
+        async def route(self, route):
+            url = urlsplit(route.request.url)
+            if url.path == '/':
+                await route.fulfill(body='<html><body>Worker test</body></html>', content_type='text/html')
+            elif url.path in ('/data/a.json.gz', '/data/b.json.gz'):
+                novels = first if url.path == '/data/a.json.gz' else second
+                await route.fulfill(body=gzip.compress(json.dumps({'novels': novels}).encode()), content_type='application/gzip')
+            elif url.hostname == 'raw.githubusercontent.com' and url.path.endswith('/manifest.json'):
+                await route.fulfill(json={'format': 2, 'built': 'test', 'same': len(same)})
+            elif url.hostname == 'raw.githubusercontent.com' and url.path.endswith('/same.json.gz'):
+                await route.fulfill(body=gzip.compress(json.dumps(same).encode()), content_type='application/gzip')
+            else:
+                await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await (await browser.new_context()).new_page()
+            await page.route('**/*', Site().route)
+            await page.goto('http://metadata.test/')
+            await page.evaluate(BOOT)
+            for source, name in (('npia', 'a'), ('kpage', 'b')):
+                await page.evaluate("v=>rpc('import',{source:v[0],cfg:{format:'array',chunked:true,chunkFiles:['http://metadata.test/data/'+v[1]+'.json.gz'],tagVersion:'v1'},tagLabels:{}})",
+                                    [source, name])
+            options = dict(sources=['npia', 'kpage'], text='', author=None, status='all', audience='all',
+                           **{'and': [], 'or': [], 'exclude': []},
+                           sort={'sortBy': 'views', 'order': 'desc', 'defaultSource': 'npia'}, page=1, size=50)
+            both = await page.evaluate("q=>rpc('query',q)", options)
+            assert both['total'] == 4
+            assert sorted((n['source'], n['id']) for n in both['rows']) == [('kpage', '13'), ('npia', '1'), ('npia', '2'), ('npia', '3')]
+            twelve = await page.evaluate("q=>rpc('query',q)", {**options, 'text': 'only twelve'})
+            assert [(n['source'], n['id']) for n in twelve['rows']] == [('kpage', '12')]
+            own = await page.evaluate("q=>rpc('query',q)", {**options, 'sources': ['kpage']})
+            assert own['total'] == 3
+            await browser.close()
+    asyncio.run(scenario())
