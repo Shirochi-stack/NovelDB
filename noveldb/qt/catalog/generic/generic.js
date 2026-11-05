@@ -54,7 +54,34 @@
             send(message);
         });
     }
-    window.__LNR_transport = function (request) { return ask({type: 'genericFetch', request: request}); };
+    var bookProgress = null;
+    function drawBookProgress() {
+        if (!bookProgress || !R.drawNote) return;
+        var parts = ['Source ' + bookProgress.source + ' of ' + bookProgress.sources];
+        if (bookProgress.page > 1) parts.push('page ' + bookProgress.page);
+        if (bookProgress.requests) parts.push(bookProgress.done + ' of ' + bookProgress.requests + ' requests finished');
+        else parts.push('starting…');
+        R.noteDetail = parts.join(' · ');
+        R.drawNote();
+    }
+    function trackBookRequest(request) {
+        var progress = bookProgress;
+        if (!progress) return null;
+        progress.requests++;
+        try {
+            var page = Number(new URL(request.url || '').searchParams.get('page') || 0);
+            if (page > progress.page) progress.page = page;
+        } catch (e) {}
+        drawBookProgress();
+        return progress;
+    }
+    window.__LNR_transport = function (request) {
+        var progress = trackBookRequest(request || {});
+        return ask({type: 'genericFetch', request: request}).then(function (reply) {
+            if (progress && bookProgress === progress) { progress.done++; drawBookProgress(); }
+            return reply;
+        });
+    };
 
     function status(text) { $('status').textContent = text; }
 
@@ -1940,8 +1967,11 @@
             }
             R.tried = group.sources.indexOf(order[i]);
             var source = order[i];
-            note('Reading the chapter list from ' + source.site + '…', 0);
+            note('Reading the chapter list from ' + source.site + '…', 120);
+            bookProgress = {source: i + 1, sources: order.length, requests: 0, done: 0, page: 0};
+            drawBookProgress();
             loadBook(source).then(function (book) {
+                bookProgress = null;
                 if (token !== R.token) return;
                 if (!book || book.error || !book.chapters || !book.chapters.length) {
                     if (book && book.blocked) R.blocked = book.message;

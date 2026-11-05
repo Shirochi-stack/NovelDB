@@ -54,7 +54,34 @@
             send(message);
         });
     }
-    window.__LNR_transport = function (request) { return ask({type: 'genericFetch', request: request}); };
+    var bookProgress = null;
+    function drawBookProgress() {
+        if (!bookProgress || !R.drawNote) return;
+        var parts = ['Source ' + bookProgress.source + ' of ' + bookProgress.sources];
+        if (bookProgress.page > 1) parts.push('page ' + bookProgress.page);
+        if (bookProgress.requests) parts.push(bookProgress.done + ' of ' + bookProgress.requests + ' requests finished');
+        else parts.push('starting…');
+        R.noteDetail = parts.join(' · ');
+        R.drawNote();
+    }
+    function trackBookRequest(request) {
+        var progress = bookProgress;
+        if (!progress) return null;
+        progress.requests++;
+        try {
+            var page = Number(new URL(request.url || '').searchParams.get('page') || 0);
+            if (page > progress.page) progress.page = page;
+        } catch (e) {}
+        drawBookProgress();
+        return progress;
+    }
+    window.__LNR_transport = function (request) {
+        var progress = trackBookRequest(request || {});
+        return ask({type: 'genericFetch', request: request}).then(function (reply) {
+            if (progress && bookProgress === progress) { progress.done++; drawBookProgress(); }
+            return reply;
+        });
+    };
 
     function status(text) { $('status').textContent = text; }
 
@@ -1940,8 +1967,11 @@
             }
             R.tried = group.sources.indexOf(order[i]);
             var source = order[i];
-            note('Reading the chapter list from ' + source.site + '…', 0);
+            note('Reading the chapter list from ' + source.site + '…', 120);
+            bookProgress = {source: i + 1, sources: order.length, requests: 0, done: 0, page: 0};
+            drawBookProgress();
             loadBook(source).then(function (book) {
+                bookProgress = null;
                 if (token !== R.token) return;
                 if (!book || book.error || !book.chapters || !book.chapters.length) {
                     if (book && book.blocked) R.blocked = book.message;
@@ -1991,7 +2021,36 @@
             return askWithin({type: 'genericChapter', url: source.url, index: index}, 90,
                              function (id) { R.chapterIds.set(index, id); });
         };
-        if (R.lnreader) {
+        // This site's chapter endpoint rejects fetch/native HTTP even after its book page works. Use
+        // the app's attached off-screen WKWebView, wait for the real reader DOM, then extract it.
+        var protectedChapter = function (item) {
+            if (typeof window.__noveldb_window_script !== 'function') return appChapter();
+            var address;
+            try { address = new URL(item.url || item.path || '', source.url).href; }
+            catch (e) { return Promise.reject(new Error('The chapter address is invalid.')); }
+            var script = "(async function () {"
+                + "var deadline=Date.now()+30000;"
+                + "while(Date.now()<deadline){"
+                + "var reader=document.querySelector('.reader');"
+                + "if(reader&&(reader.innerText||'').trim().length>20){"
+                + "var clone=reader.cloneNode(true);"
+                + "clone.querySelectorAll('.reader-nav,script,style').forEach(function(n){n.remove();});"
+                + "return {chapterName:" + JSON.stringify(item.name || R.chapters[index].name || '')
+                + ",contentHtml:clone.innerHTML,contentText:clone.innerText};}"
+                + "await new Promise(function(resolve){setTimeout(resolve,250);});}"
+                + "throw new Error('Cloudflare verification did not expose the chapter within 30 seconds.');"
+                + "})()";
+            note('Reading chapter in the hidden browser…', 90);
+            return Promise.resolve(window.__noveldb_window_script({url: address, script: script})).then(function (reply) {
+                if (typeof reply === 'string') reply = parse(reply);
+                if (!reply || reply.error) throw new Error((reply && reply.error) || 'the hidden browser did not answer');
+                if (!reply.value || !reply.value.contentHtml) throw new Error('the hidden browser found no chapter text');
+                return reply.value;
+            });
+        };
+        if (R.lnreader && /^https?:\/\/(?:www\.)?fucknovelpia\.com\//i.test(source.url || '')) {
+            promise = protectedChapter(Object.assign({}, R.lnreader.chapters[index]));
+        } else if (R.lnreader) {
             var item = Object.assign({}, R.lnreader.chapters[index]);
             promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')
                 .then(parse).then(function (result) {
