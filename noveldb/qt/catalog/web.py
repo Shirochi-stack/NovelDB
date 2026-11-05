@@ -61,6 +61,7 @@ SHIM_JS = """
 (function () {
     var queue = [], bridge = null;
     window.NovelDBQt = {postMessage: function (text) { if (bridge) bridge.post(String(text)); else queue.push(String(text)); }};
+    if (typeof qt === "undefined" || !qt.webChannelTransport) return;  // a page without the app's channel
     new QWebChannel(qt.webChannelTransport, function (channel) {
         bridge = channel.objects.bridge;
         queue.splice(0).forEach(function (text) { bridge.post(text); });
@@ -123,6 +124,14 @@ class Bridge(QObject):
             self.message.emit(data)
 
 
+class QuietPage(QWebEnginePage):
+    """A page of someone else's site read in the background: its console messages (its own CSP
+    refusals, trackers, deprecation notices) are the site's, not the app's, and stay out of the log."""
+
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        pass
+
+
 class CatalogWebPage(QWebEnginePage):
     """Sends clicked links to other sites (and new windows) to `leave`."""
 
@@ -146,7 +155,7 @@ class CatalogWebPage(QWebEnginePage):
 
     def createWindow(self, _window_type):
         # target=_blank and window.open: catch the address, then drop the throwaway page.
-        popup = QWebEnginePage(self.profile(), self)
+        popup = QuietPage(self.profile(), self)
         self._popups.append(popup)
 
         def first_url(url, popup=popup):
@@ -347,8 +356,10 @@ class CatalogPage(QWidget):
         self.profile.setPersistentStoragePath(str(storage))
         self.profile.setCachePath(str(paths.cache_dir() / "webengine" / "catalog"))
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.AllowPersistentCookies)
-        self.profile.scripts().insert(bridge_script())
         self.page = CatalogWebPage(self.profile, self)
+        # The Catalog page's own script, not the profile's: the profile's hidden pages (sites read in the
+        # background) and popups have no channel to the app.
+        self.page.scripts().insert(bridge_script())
         # The theme's colour behind pages that have not painted yet (no white flash).
         self.page.setBackgroundColor(self.palette().window().color())
         self.page.settings().setAttribute(QWebEngineSettings.FocusOnNavigationEnabled, False)

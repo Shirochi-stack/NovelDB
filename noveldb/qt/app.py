@@ -243,7 +243,16 @@ def main(argv=None) -> int:
     # The Catalog zooms like a browser (the page re-lays out); Chromium's pinch zoom only magnifies it.
     flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
     if "--disable-pinch" not in flags.split():
-        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (flags + " --disable-pinch").strip()
+        flags = (flags + " --disable-pinch").strip()
+    # Chromium's own log is about the sites' pages (their WebRTC probes of STUN servers, WebGPU, fonts),
+    # never the app's: only its fatal errors reach the console.
+    if not any(flag.startswith("--log-level") for flag in flags.split()):
+        flags = (flags + " --log-level=3").strip()
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = flags
+    # dpi_setup has set the process's DPI awareness already; Windows refuses Qt's second try, harmlessly.
+    rules = os.environ.get("QT_LOGGING_RULES", "")
+    if "qt.qpa.window" not in rules:
+        os.environ["QT_LOGGING_RULES"] = ";".join(filter(None, [rules, "qt.qpa.window.warning=false"]))
     app = QApplication.instance() or QApplication(sys.argv[:1])
 
     key = _instance_key()

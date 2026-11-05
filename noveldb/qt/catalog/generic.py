@@ -199,7 +199,9 @@ class BrowserFetcher(QObject):
                 job["event"].set()
                 continue
             self._active += 1
-            page = QWebEnginePage(self.profile, self)
+            from noveldb.qt.catalog.web import QuietPage
+
+            page = QuietPage(self.profile, self)
             page.setAudioMuted(True)
             job["page"] = page
             page.loadFinished.connect(lambda ok, job=job: QTimer.singleShot(1200, lambda: self._check(job)))
