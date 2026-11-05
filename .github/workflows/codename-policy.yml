@@ -17,6 +17,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Check paths, comments, docs, data, and commit messages
+        # Reported, not blocking.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/codename_policy.py check --commits

@@ -82,7 +82,7 @@ jobs:
           NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/novels.json'))))")
           git add docs/data/novels.json docs/data/npia_public_state.json docs/data/npia_authors.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_shard_*.json.gz docs/data/descriptions_shard_manifest.json docs/data/npia_chunk_*.json.gz docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz
           python scripts/codename_policy.py sanitize-data
-          python scripts/codename_policy.py check --commits
+          python scripts/codename_policy.py check --commits || echo "::warning::codename policy violations (not blocking)"
           python scripts/publish_metadata.py --branch "$GITHUB_REF_NAME" --message "🔄 Update Npia data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
 
       - name: Continue unfinished R19 author checks

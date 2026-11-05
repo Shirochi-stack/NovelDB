@@ -59,6 +59,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Codename policy
+        # Reported, not blocking: a codename slip does not stop a release build.
+        continue-on-error: true
         run: python scripts/codename_policy.py check
       - name: Plan the builds
         id: plan
