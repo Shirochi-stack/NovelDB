@@ -150,10 +150,13 @@ p { margin: 0 0 1em; }
 .cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 26px 0 14px; }
 .small { font-size: 13px; color: var(--muted); }
 .platforms { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-.platforms span {
+.platforms a {
   font-size: 13px; font-weight: 600; padding: 5px 11px; border-radius: 8px;
-  background: var(--surface-2); color: var(--ink-soft);
+  background: var(--surface-2); color: var(--ink-soft); text-decoration: none;
 }
+.platforms a:hover, .platforms a:focus-visible { background: var(--line); color: var(--ink); }
+/* A platform chip leads to its download card, which lights up on arrival. */
+.dl:target { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent), var(--shadow); }
 .hero-art { position: relative; }
 .hero-art .window { transform: perspective(1600px) rotateY(-6deg) rotateX(2deg); }
 .hero-art .mascot {
