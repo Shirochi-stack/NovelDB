@@ -21355,7 +21355,34 @@ async (items) => {
         Tries the site engines in ``engine_order`` (built-in scrapers, the
         novel-downloader rules, the WebToEpub parsers by default) until one
         returns chapters. Returns the parsed book dict or None on error.
+
+        A chapter's link (``/n1234ab/1/``, ``/works/9/chapters/3``) reads as
+        a book of one chapter or none: the addresses above it are tried, and
+        the first with a longer list is the book.
         """
+        data = self._parse_book_engines(url)
+        if len((data or {}).get('chapters') or []) > 1 or self._stop_requested or self.abort_reason:
+            return data
+        from noveldb.core.engines.generic import is_chapter_address, parent_addresses
+
+        if data is None and not is_chapter_address(url):
+            return data  # the link failed outright: the pages above it are no better
+
+        for parent in parent_addresses(url)[:2]:
+            self.log(f"That link may be a chapter; trying the page above it: {parent}")
+            found = self._parse_book_engines(parent)
+            if len((found or {}).get('chapters') or []) > 1:
+                return found
+            if self._stop_requested:
+                return None
+        if parent_addresses(url)[:1]:
+            # None above it was the book: read the link itself again, so the engine's state is its own.
+            self.abort_reason = ''
+            data = self._parse_book_engines(url)
+        return data
+
+    def _parse_book_engines(self, url):
+        """``parse_book`` for exactly ``url``: the engines in turn."""
         self.abort_reason = ''
         self._stop_requested = False
         order = [e for e in dict.fromkeys(self.engine_order or ())
@@ -21621,16 +21648,56 @@ async (items) => {
         return None
 
     def _open_book_page(self, url):
-        """Load ``url`` in the primary browser page for the JS rule engines."""
+        """Load ``url`` in the primary browser page for the JS rule engines.
+
+        A site behind a bot check (Cloudflare's "Just a moment...") that the
+        headless browser can't pass is opened again in installed Chrome
+        (off-screen, the downloader's profile), which usually passes it.
+        """
         if not self._page:
             self.start()
+        from noveldb.core.engines.scraper_mixin import give_age_cookies
+
+        give_age_cookies(self._context, url)  # an adult site's age check, answered (syosetu's novel18)
         self.log(f"Navigating to: {url}")
         try:
-            self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
+            response = self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
         except Exception as e:
             self.log(f"ERROR: Page load failed: {e}")
             return False
+        if not self._wait_past_bot_check(response, 8):
+            if getattr(self, "_rbooks_chrome", False):
+                self.log("The site's bot check did not clear; reading the page anyway.")
+                return True
+            self.log("The site shows a bot check to the headless browser; opening it in installed Chrome...")
+            try:
+                if not self._start_rbooks_browser(url, site="Site"):
+                    return True  # the headless page, as it is
+                response = self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
+            except Exception as e:
+                self.log(f"ERROR: Page load failed: {e}")
+                return False
+            if not self._wait_past_bot_check(response, 25):
+                self.log("The site's bot check did not clear in installed Chrome either.")
         return True
+
+    def _wait_past_bot_check(self, response, seconds):
+        """True once the page is past a bot check (or never showed one), within ``seconds``."""
+        from noveldb.core.engines.scraper_mixin import bot_check_shown
+
+        status = getattr(response, "status", 200) if response is not None else 200
+        if not bot_check_shown(self._page) and status not in (403, 503):
+            return True
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self._page.wait_for_timeout(1000)
+            if not bot_check_shown(self._page):
+                try:
+                    self._page.wait_for_load_state("domcontentloaded", timeout=5000)
+                except Exception:
+                    pass
+                return True
+        return False
 
     def _nd_parse_book(self, url, navigate=True):
         """Parse the book with the novel-downloader rules (rules-lib.js)."""
@@ -21726,8 +21793,13 @@ async (items) => {
         self._w2e_label = bundle.label
         return True
 
-    def _w2e_parse_book(self, url):
-        """Parse the already-loaded book page with the WebToEpub parsers."""
+    def _w2e_parse_book(self, url, retried=False):
+        """Parse the already-loaded book page with the WebToEpub parsers.
+
+        A site that refuses the parsers' own requests (403: a bot check's
+        clearance belongs to another browser) is read again in installed
+        Chrome, once.
+        """
         page = self._page
         if page is None:
             return None
@@ -21747,6 +21819,19 @@ async (items) => {
             self.log(f"WebToEpub: {data['error']}")
             if data.get('stack') and not data.get('noParser'):
                 self.log(f"  Stack: {data['stack'][:300]}")
+            if not retried and re.search(r"\b(403|503)\b", str(data['error'])):
+                # A clearance the headless browser lacks, or one a moment too new for the parsers'
+                # requests: the page again (in installed Chrome), past its check, then the parsers.
+                self.log("The site refused the parsers' requests; reading the page again in installed Chrome...")
+                try:
+                    if getattr(self, "_rbooks_chrome", False) or self._start_rbooks_browser(url, site="Site"):
+                        self._page.wait_for_timeout(3000)
+                        response = self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
+                        self._wait_past_bot_check(response, 25)
+                        self._page.wait_for_timeout(2000)
+                        return self._w2e_parse_book(url, retried=True)
+                except Exception as e:
+                    self.log(f"ERROR: Page load failed: {e}")
             return None
         data['_webtoepub'] = True
         self._book_data = data

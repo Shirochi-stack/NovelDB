@@ -32,7 +32,8 @@ public struct ReaderAdapter: SourceAdapter {
     }
 
     public func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo {
-        try await ReaderSessions.shared.open(url, context: context).book
+        await AgeChecks.answer(url, cookies: context.web.sessionCookies)
+        return try await ReaderSessions.shared.open(url, context: context).book
     }
 
     public func parseChapter(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> ChapterResult {
@@ -43,6 +44,22 @@ public struct ReaderAdapter: SourceAdapter {
     /// Sites no built-in scraper knows: the rate-limit pause is kept between chapter starts across all threads.
     public func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
         try await parseChaptersSpaced(refs, book: book, context: context)
+    }
+}
+
+/// Sites that show an age check unless a cookie says it was answered (the desktop's `AGE_COOKIES`):
+/// syosetu's adult site (novel18) sends every visitor to nl.syosetu.com/redirect/ageauth without `over18`.
+/// The cookie goes into the store the web views and the HTTP client share, before the engines read the book.
+enum AgeChecks {
+    static let cookies: [String: [String: String]] = ["syosetu.com": ["over18": "yes"]]
+
+    static func answer(_ url: URL, cookies store: any SessionCookieAccess) async {
+        guard let host = url.host?.lowercased(),
+              let (domain, values) = cookies.first(where: { host == $0.key || host.hasSuffix("." + $0.key) })
+        else { return }
+        for (name, value) in values {
+            await store.setCookie(name: name, value: value, url: url, domain: "." + domain)
+        }
     }
 }
 

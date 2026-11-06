@@ -124,6 +124,9 @@ def _fetcher_class():
                 raise NotImplementedError()
             headers = dict(headers or {})
             headers.pop("User-Agent", None)  # the app's own client says who it is
+            cookie = self._jar_cookies(url)
+            if cookie and not any(name.lower() == "cookie" for name in headers):
+                headers["Cookie"] = cookie  # what the adapter set (scribblehub's oldest-first contents)
             data = parameters
             if json is not None:
                 import json as json_module
@@ -142,6 +145,19 @@ def _fetcher_class():
             if result["status"] >= 400:
                 raise exceptions.HTTPErrorFFF(url, result["status"], f"HTTP {result['status']}", result["content"])
             return FetcherResponse(result["content"], result["url"], False, None)
+
+        def _jar_cookies(self, url):
+            """The cookies FanFicFare's own jar holds for `url` (adapters set some, like a sort order)."""
+            if self.cookiejar is None:
+                return ""
+            try:
+                import urllib.request
+
+                probe = urllib.request.Request(url)
+                self.cookiejar.add_cookie_header(probe)
+                return probe.get_header("Cookie") or ""
+            except Exception:
+                return ""
 
     return NovelDBFetcher
 

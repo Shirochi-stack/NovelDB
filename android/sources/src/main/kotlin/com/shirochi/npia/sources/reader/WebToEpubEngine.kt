@@ -11,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -64,6 +65,7 @@ internal class WebToEpubEngine private constructor(
          * is used. The page stays open for the caller to close or keep.
          */
         suspend fun openBook(page: WebPageDriving, context: SourceContext): Pair<ReaderBookPayload, WebToEpubEngine> {
+            waitPastBotCheck(page, context)
             val bundle = loadBundle(page, context)
             val data = page.evaluateJson(
                 "const data = JSON.parse(await window.__W2E_parseBook()); data.pageUrl = location.href; return data;",
@@ -80,6 +82,34 @@ internal class WebToEpubEngine private constructor(
             payload.warnings.orEmpty().forEach { context.logger.log(LogLevel.INFO, "[Reader] WebToEpub: $it") }
             return payload to WebToEpubEngine(page, page.currentUrl() ?: payload.pageUrl.orEmpty())
         }
+
+        /**
+         * A site's bot check (Cloudflare's "Just a moment...", or its newer page titled with the site's
+         * domain) usually clears by itself in the web view: the parsers wait for the real page, as their
+         * own requests are refused (403) until it does.
+         */
+        private suspend fun waitPastBotCheck(page: WebPageDriving, context: SourceContext) {
+            val check = """
+                const title = (document.title || '').toLowerCase();
+                const html = document.documentElement ? document.documentElement.innerHTML.slice(0, 60000).toLowerCase() : '';
+                return /just a moment|attention required|checking your browser|security check/.test(title)
+                    || html.includes('performing security verification') || html.includes('cf-chl-');
+            """.trimIndent()
+            suspend fun checking() = runCatching { page.evaluateJson(check) == "true" }.getOrDefault(false)
+            if (!checking()) return
+            context.logger.log(LogLevel.INFO, "[Reader] Waiting for the site's bot check to clear...")
+            val deadline = System.currentTimeMillis() + BOT_CHECK_SECONDS * 1000
+            while (System.currentTimeMillis() < deadline) {
+                delay(1000)
+                if (!checking()) {
+                    delay(1500) // the real page loads after the check
+                    return
+                }
+            }
+            context.logger.log(LogLevel.WARNING, "[Reader] The site's bot check did not clear.")
+        }
+
+        private const val BOT_CHECK_SECONDS = 30L
 
         /** The bundle that became ready in the page: the one in use, else the shipped copy. */
         private suspend fun loadBundle(page: WebPageDriving, context: SourceContext): EngineBundle {

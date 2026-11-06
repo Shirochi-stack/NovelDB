@@ -111,6 +111,56 @@ function __w2e_absolute(url, base) {
     }
 }
 
+async function __w2e_chapterList(parser, dom) {
+    let chapters = await parser.getChapterUrls(dom, new ChapterUrlsUI(parser)) || [];
+    return parser.cleanWebPageUrls(chapters);
+}
+
+/** The addresses above `url`, nearest first, at most two and never the site's root. */
+function __w2e_parents(url) {
+    let parts = new URL(url);
+    let segments = parts.pathname.split("/").filter(s => s);
+    let out = [];
+    while (segments.length > 1 && out.length < 2) {
+        segments.pop();
+        out.push(parts.origin + "/" + segments.join("/") + "/");
+    }
+    return out;
+}
+
+/** The book at `above` when its parser lists more than one chapter there: {url, dom, parser, chapters}, or null. */
+async function __w2e_bookAbove(above, current) {
+    try {
+        let response = await fetch(above, { credentials: "include" });
+        if (!response.ok) {
+            return null;
+        }
+        let dom = new DOMParser().parseFromString(await response.text(), "text/html");
+        util.setBaseTag(above, dom);
+        let parser = parserFactory.fetchByUrl(above) || current;
+        if (parser !== current) {
+            parser.onUserPreferencesUpdate(__w2e_preferences());
+        }
+        await parser.loadEpubMetaInfo(dom);
+        parser.state.firstPageDom = dom;
+        parser.state.chapterListUrl = above;
+        let chapters = await __w2e_chapterList(parser, dom);
+        return chapters.length > 1 ? { url: above, dom: dom, parser: parser, chapters: chapters } : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/** The page holds a story's text: the parser's content block has a few lines of it. */
+function __w2e_hasStory(parser, dom) {
+    try {
+        let content = parser.findContent(dom);
+        return !!content && (content.textContent || "").trim().length >= 200;
+    } catch (e) {
+        return false;
+    }
+}
+
 function __w2e_meta(parser, dom) {
     try {
         return parser.getEpubMetaInfo(dom, true);
@@ -137,12 +187,38 @@ window.__W2E_parseBook = async function () {
         __w2e_state = { url: url, parser: parser, dom: dom };
 
         // Same order as the extension: metadata first, then the chapter list.
-        await parser.loadEpubMetaInfo(dom);
-        let meta = __w2e_meta(parser, dom);
-        parser.state.firstPageDom = dom;
-        parser.state.chapterListUrl = url;
-        let chapters = await parser.getChapterUrls(dom, new ChapterUrlsUI(parser)) || [];
-        chapters = parser.cleanWebPageUrls(chapters);
+        let meta = {}, chapters = [], failure = null;
+        try {
+            await parser.loadEpubMetaInfo(dom);
+            meta = __w2e_meta(parser, dom);
+            parser.state.firstPageDom = dom;
+            parser.state.chapterListUrl = url;
+            chapters = await __w2e_chapterList(parser, dom);
+        } catch (error) {
+            failure = error;  // a chapter's page the parser can't read as a book: the page above may be it
+        }
+        if (chapters.length <= 1) {
+            // A chapter's link (/n1234ab/1/) reads as a book of one chapter or none: the page above it
+            // is the book when the same site's parser finds a longer list there.
+            for (let above of __w2e_parents(url)) {
+                // With its trailing slash, then without (a parser may read an ID from the last segment).
+                let book = await __w2e_bookAbove(above, parser) || await __w2e_bookAbove(above.replace(/\/$/, ""), parser);
+                if (book != null) {
+                    ({ url, dom, parser, chapters } = book);
+                    __w2e_state = { url: url, parser: parser, dom: dom };
+                    meta = __w2e_meta(parser, dom);
+                    failure = null;
+                    break;
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+        if (!chapters.length && __w2e_hasStory(parser, dom)) {
+            // No list, but the page is a story itself (a one-shot): the page is its one chapter.
+            chapters = parser.singleChapterStory(url, dom);
+        }
         chapters.forEach(chapter => { chapter.title = __w2e_text(chapter.title); });
         parser.state.setPagesToFetch(chapters);
         // Some parsers only learn the description while reading the chapter list.

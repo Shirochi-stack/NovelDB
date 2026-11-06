@@ -34,6 +34,8 @@ public enum SiteEngineRouter {
             Task { await PythonEngines.shared.warm(context) }
         }
         guard !steps.isEmpty else { throw SourceError.unsupportedURL(url) }
+        // An adult site's age check, answered for every engine (syosetu's novel18).
+        await AgeChecks.answer(url, cookies: context.web.sessionCookies)
         let page = EnginePage(url: url, context: context)
         let opened: Opened
         do {

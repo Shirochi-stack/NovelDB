@@ -10,6 +10,7 @@ import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.ImageRef
 import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.SourceAdapter
+import com.shirochi.npia.core.SharedCookies
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
@@ -72,6 +73,22 @@ class ReaderAdapter : SourceAdapter {
         val scheme = runCatching { URI(url.trim()).scheme }.getOrNull()?.lowercase()
         if (scheme != "http" && scheme != "https") return false
         return RuleEngines.store.current(RuleEngine.WEBTOEPUB)?.knows(url) == true
+    }
+}
+
+/**
+ * Sites that show an age check unless a cookie says it was answered (the desktop's `AGE_COOKIES`):
+ * syosetu's adult site (novel18) sends every visitor to nl.syosetu.com/redirect/ageauth without `over18`.
+ * The cookie goes into the store the web view and the HTTP client share, before the engines read the book.
+ */
+internal object AgeChecks {
+    private val cookies = mapOf("syosetu.com" to mapOf("over18" to "yes"))
+
+    fun answer(url: String) {
+        val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase() ?: return
+        val (domain, values) = cookies.entries.firstOrNull { host == it.key || host.endsWith("." + it.key) } ?: return
+        val store = SharedCookies.store ?: return
+        values.forEach { (name, value) -> store.setCookie(url, name, value, ".$domain") }
     }
 }
 

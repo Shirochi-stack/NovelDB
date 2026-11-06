@@ -110,6 +110,55 @@ def _with_text(result: dict) -> dict:
     return result or {}
 
 
+# Sites that show an age check unless a cookie says it was answered: their registered domain -> the cookies.
+# syosetu's adult site (novel18) sends every visitor to nl.syosetu.com/redirect/ageauth without `over18`.
+AGE_COOKIES = {"syosetu.com": {"over18": "yes"}}
+
+
+def age_cookies(url: str) -> dict:
+    """The age-check cookies `url`'s site wants ({} for most sites)."""
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(url).hostname or "").lower()
+    for domain, cookies in AGE_COOKIES.items():
+        if host == domain or host.endswith("." + domain):
+            return dict(cookies)
+    return {}
+
+
+def give_age_cookies(context, url: str) -> None:
+    """The age-check cookies for `url`'s site, set in a browser context (no-op for most sites)."""
+    from urllib.parse import urlsplit
+
+    cookies = age_cookies(url)
+    host = (urlsplit(url).hostname or "").lower()
+    domain = next((d for d in AGE_COOKIES if host == d or host.endswith("." + d)), "")
+    if not cookies or context is None:
+        return
+    try:
+        context.add_cookies([{"name": k, "value": v, "domain": "." + domain, "path": "/"} for k, v in cookies.items()])
+    except Exception:
+        pass
+
+
+# A bot check's page, whatever its title (Cloudflare's newer ones show the site's domain): its markers.
+BOT_CHECK_JS = """() => {
+  const title = (document.title || '').toLowerCase();
+  if (/just a moment|attention required|checking your browser|security check/.test(title)) return true;
+  const html = document.documentElement ? document.documentElement.innerHTML.slice(0, 60000).toLowerCase() : '';
+  return html.includes('performing security verification') || html.includes('cf-chl-')
+    || html.includes('challenges.cloudflare.com/turnstile') && html.length < 60000;
+}"""
+
+
+def bot_check_shown(page) -> bool:
+    """`page` shows a bot check (Cloudflare's interstitial), not the site."""
+    try:
+        return bool(page.evaluate(BOT_CHECK_JS))
+    except Exception:
+        return False
+
+
 def _looks_refused(result: dict) -> bool:
     status = int(result.get("status") or 0)
     if status in _REFUSED:
@@ -265,6 +314,7 @@ class SiteEnginesMixin:
         with lock:
             try:
                 page = self._site_page(url)
+                self._give_browser_cookies(page, url, details.get("headers") or {})
                 method = str(details.get("method") or "GET").upper()
                 result = page.evaluate(_IN_PAGE_FETCH, {
                     "url": url,
@@ -274,21 +324,61 @@ class SiteEnginesMixin:
                     "body": details.get("data"),
                     "bodyBase64": details.get("dataBase64"),
                 })
+                raw = True
                 if method == "GET" and _looks_refused(_with_text(result)):
                     # The page itself is behind the site's check: open it, as a reader would.
-                    result = self._open_in_tab(page, url) or result
+                    result, raw = self._passed_check(page, url, details, result)
+                if method == "GET" and not raw and not getattr(self, "_rbooks_chrome", False):
+                    # A check the headless browser can't pass (or passes only for the page, not for the
+                    # site's own requests): installed Chrome (off-screen, the downloader's profile)
+                    # usually does, and the site's later requests use it too.
+                    self.log("  The site's bot check stops the headless browser; trying installed Chrome...")
+                    self.__dict__.pop("_site_pages", None)  # their tabs belong to the browser being replaced
+                    if self._start_rbooks_browser(url, site="Site"):
+                        result, raw = self._passed_check(self._site_page(url), url, details, result)
                 return result
             except Exception as e:
                 self.log(f"  Could not load {url} in the browser: {str(e).splitlines()[0][:200]}")
                 return None
 
+    @staticmethod
+    def _give_browser_cookies(page, url: str, headers: dict) -> None:
+        """A request's own Cookie header (a page fetch can't send one): its cookies set in the browser for
+        the site, so the request carries them (an engine's settings cookie, like a list's sort order)."""
+        header = next((str(v) for k, v in headers.items() if k.lower() == "cookie"), "")
+        pairs = [part.strip().split("=", 1) for part in header.split(";") if "=" in part]
+        if not pairs:
+            return
+        try:
+            page.context.add_cookies([{"name": name.strip(), "value": value.strip(), "url": url} for name, value in pairs
+                                      if name.strip()])
+        except Exception:
+            pass
+
+    def _passed_check(self, page, url: str, details: dict, earlier: Optional[dict] = None):
+        """`url` opened in `page` past the site's check, then asked for again from there: (result, raw).
+        `raw`: the result is the HTML the site sends (a script-built page can differ: a chapter table cut
+        to its first 20 rows, a list in another order); otherwise it is the opened page (or `earlier`)."""
+        opened = self._open_in_tab(page, url) or earlier
+        if not opened or _looks_refused(_with_text(opened)):
+            return opened, False
+        try:
+            again = page.evaluate(_IN_PAGE_FETCH, {
+                "url": url, "method": "GET",
+                "headers": {k: str(v) for k, v in (details.get("headers") or {}).items()
+                            if k.lower() not in _BROWSER_SETS},
+                "body": None, "bodyBase64": None,
+            })
+        except Exception:
+            again = None
+        if isinstance(again, dict) and not _looks_refused(_with_text(again)):
+            return again, True
+        return opened, False
+
     def _open_in_tab(self, page, url: str) -> Optional[dict]:
         response = page.goto(url, wait_until="domcontentloaded", timeout=_BROWSER_FETCH_SECONDS * 1000)
         deadline = time.monotonic() + _BROWSER_FETCH_SECONDS
-        while time.monotonic() < deadline:
-            title = (page.title() or "").lower()
-            if "just a moment" not in title and "attention required" not in title:
-                break
+        while time.monotonic() < deadline and bot_check_shown(page):
             page.wait_for_timeout(1000)
         # The last document load's status: a passed check reloads the page with the real one.
         status = page.evaluate("(performance.getEntriesByType('navigation')[0] || {}).responseStatus || 0")
@@ -343,6 +433,15 @@ class SiteEnginesMixin:
         """One request for the Python engines: {status, url, text | content, headers}, or None."""
         details = {"url": url, "method": method, "headers": dict(headers or {}),
                    "responseType": "arraybuffer" if binary else "", "timeout": 30000}
+        extra = age_cookies(url)
+        if extra:
+            # An age check's answer goes with the request (it joins the request's own cookies).
+            key = next((k for k in details["headers"] if k.lower() == "cookie"), "Cookie")
+            have = details["headers"].get(key, "")
+            names = {part.split("=", 1)[0].strip() for part in have.split(";") if "=" in part}
+            added = "; ".join(f"{k}={v}" for k, v in extra.items() if k not in names)
+            if added:
+                details["headers"][key] = f"{have}; {added}" if have else added
         if referer:
             details["headers"].setdefault("Referer", referer)
         if data is not None:

@@ -253,3 +253,71 @@ def test_dynamic_priority_skips_the_engines_that_do_not_list_the_site():
     assert s.parse_book("https://site.test/book") is BOOK
     assert s.calls == ["generic"]
     assert EngineSettings().dynamic_priority
+
+
+def test_a_chapter_link_reads_the_book_above_it():
+    # ncode-style /n1234ab/1/: the engine reads the chapter as a book of one; the page above it is the book.
+    chapter, book = "https://site.test/n1234ab/1/", "https://site.test/n1234ab/"
+    s = Recorder({}, native=False, knows=("webtoepub",))
+    s.dynamic_priority = False
+    one = {"bookname": "Prologue", "chapters": [{"url": chapter, "name": "Prologue"}]}
+    full = {"bookname": "Book", "chapters": [{"url": chapter, "name": "1"}, {"url": book + "2/", "name": "2"}]}
+    s._parse_book_engines = lambda url: full if url == book else one
+    assert s.parse_book(chapter) is full
+    assert any("trying the page above it: " + book in line for line in s.lines)
+
+
+def test_a_one_chapter_book_keeps_its_own_page_when_nothing_above_is_longer():
+    link = "https://site.test/works/9/"
+    s = Recorder({}, native=False)
+    one = {"bookname": "One-shot", "chapters": [{"url": link, "name": "One-shot"}]}
+    asked = []
+
+    def engines(url):
+        asked.append(url)
+        return one if url == link else None
+    s._parse_book_engines = engines
+    assert s.parse_book(link) is one
+    assert asked == [link, "https://site.test/works/", link]  # read again last: the engine's state is the link's
+
+
+def test_a_failed_link_that_is_no_chapter_does_not_climb():
+    s = Recorder({}, native=False)
+    asked = []
+    s._parse_book_engines = lambda url: asked.append(url)
+    assert s.parse_book("https://site.test/fiction/21220/some-book") is None
+    assert asked == ["https://site.test/fiction/21220/some-book"]
+
+
+def test_fanficfare_requests_carry_the_cookies_its_adapters_set():
+    import http.cookiejar
+    import time
+
+    from noveldb.core.engines import fanficfare_engine
+
+    sent = []
+    fetcher = fanficfare_engine._fetcher_class()(
+        lambda *_a, **_k: None, lambda *_a, **_k: [],
+        lambda url, **options: sent.append(options["headers"]) or {"status": 200, "url": url, "content": b""})
+    fetcher.get_cookiejar().set_cookie(http.cookiejar.Cookie(
+        0, "toc_sorder", "asc", None, False, "www.example.com", False, False, "/", True, False, time.time() + 100,
+        False, None, None, {}, False))
+    fetcher.request("POST", "https://www.example.com/wp-admin/admin-ajax.php", parameters={"page": 1})
+    assert sent[-1]["Cookie"] == "toc_sorder=asc"
+
+
+def test_a_requests_cookie_header_goes_into_the_browser():
+    from noveldb.core.engines.scraper_mixin import SiteEnginesMixin
+
+    added = []
+
+    class Context:
+        def add_cookies(self, cookies):
+            added.extend(cookies)
+
+    class Page:
+        context = Context()
+
+    SiteEnginesMixin._give_browser_cookies(Page(), "https://www.example.com/x", {"Cookie": "toc_sorder=asc; a=b"})
+    assert added == [{"name": "toc_sorder", "value": "asc", "url": "https://www.example.com/x"},
+                     {"name": "a", "value": "b", "url": "https://www.example.com/x"}]
