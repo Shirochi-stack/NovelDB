@@ -15,7 +15,7 @@ NovelDB downloads web novels and comics from npia and 1,000+ other sites as EPUB
   - [✨ Features](#-features)
   - [📸 Screenshots](#-screenshots)
   - [🌐 NovelDB Metadata Website](#-noveldb-metadata-website)
-  - [🌐 External Novel Downloader](#-external-novel-downloader)
+  - [🧩 Site Engines](#-site-engines)
   - [💻 Desktop Downloads](#-desktop-downloads)
   - [🚀 Usage](#-usage)
   - [💾 Space-Saving Tips](#-space-saving-tips)
@@ -78,68 +78,50 @@ The website metadata pipeline is separate from the desktop novel downloader desc
 
 -----
 
-## 🌐 External Novel Downloader
+## 🧩 Site Engines
 
-In addition to Npia, NovelDB supports downloading novels from **100+ external sites** via the built-in **External Novel** button. This feature is powered by the [novel-downloader](https://github.com/404-novel-project/novel-downloader) project's rule engine.
+A link pasted into **Download** (or a book picked in the Catalog) is read by a *site engine*: code that knows how to find a site's book page, chapter list and chapter text. NovelDB ships with nine, tried in this order until one returns chapters:
 
-### How it works
+| # | Engine | What it covers |
+| :-: | --- | --- |
+| 1 | **Built-in scrapers** | The app's own code for the sites it knows best: npia (Korean and Global), kpage, sfc, nweb, mpia, jara, rbooks, nseries, qdn, floo and others. Handles logins, purchased chapters and each site's protections. |
+| 2 | **novel-downloader rules** | The [novel-downloader](https://github.com/404-novel-project/novel-downloader) rule set, mostly Chinese and Japanese sites. |
+| 3 | **WebToEpub parsers** | [WebToEpub](https://github.com/dteviot/WebToEpub)'s 650+ parsers, mostly English translation sites. |
+| 4 | **lightnovel-crawler sources** | [lightnovel-crawler](https://github.com/lncrawl/lightnovel-crawler)'s sources, many languages. |
+| 5 | **LNReader plugins** | [LNReader](https://github.com/LNReader/lnreader-plugins)'s plugins; they also power part of the Catalog search. |
+| 6 | **FanFicFare adapters** | [FanFicFare](https://github.com/JimmXinu/FanFicFare)'s adapters for fan-fiction archives. |
+| 7 | **HaruNeko websites** | [HaruNeko](https://github.com/manga-download/haruneko)'s manga and webtoon sites. |
+| 8 | **gallery-dl extractors** | [gallery-dl](https://github.com/mikf/gallery-dl)'s extractors, for image-based comics. |
+| 9 | **Generic fallback** | Reads any other site: finds the chapter list (following its pages, "load more" lists and app page data) and each chapter's main text, in a real browser when the site needs one. |
 
-1. Click **External Novel** in the main window.
-2. Paste the novel URL and click **Fetch Info**.
-3. Choose one or more formats (EPUB / TXT / PDF / CBZ), the chapter range,
-   thread count, and minimum/maximum interval.
-4. Click **Download**.
+### How an engine is chosen
 
-The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
+With **Dynamic priority** on (the default), a link only tries the engines that list its site, in the order above, and then the generic fallback. The log says which one it picked, for example `Dynamic priority: trying Generic fallback (7 other engine(s) don't list this site)`. With it off, every engine is tried in turn.
 
-Jara, Nweb, and Nseries use direct HTTP scrapers instead of the browser. Jara downloads free chapters without an account. After logging in to Source URL through **Enter Browser**, it can also download purchased and adult chapters. Nweb episodes are free; adult works need a logged-in Nweb account. Nseries novels can only be read in Nweb's DRM-protected app, so a Series URL is resolved to the work's Nweb edition when the product page links one. Episodes that exist only on Series are not downloadable.
+When a built-in scraper owns a site, the other engines follow only if they list that site too, so a clear failure (a DRM-only book, a missing sign-in) is reported without extra attempts.
 
-The External Downloader chooses a fresh random chapter delay between **Min**
-and **Max**. Setting both to the same value produces a fixed delay. Existing
-configurations containing only `ext_interval` continue to load it as both ends
-of the range.
+**Settings › Site engines** lets you drag the engines into another order, untick one to skip it, and add your own: **Add custom engine** loads a Python file with an `Engine` class (`label`, `sites`, `parse_book`, `parse_chapter`; see `noveldb/core/engines/custom_engines.py`). A custom engine goes just before the generic fallback.
 
-Global Npia support integrates the `pia-scrap` API workflow directly into
-the External Downloader. Free chapters and chapters available to the saved
-browser account are supported, including signed chapter images. Book discovery
-starts directly through the API without loading the website. Current cookies
-are read from the saved installed-Chrome profile: a detected login is converted
-to the API credential before chapter 1, while users without saved login cookies
-continue anonymously without an account request. The slower Global API uses a
-90-second request timeout.
+### Logins and browsers
 
-Rbooks support covers serialized webnovels and owned volume ebooks. Free episodes
-and episodes purchased or rented by the logged-in account can be downloaded;
-other premium episodes are reported as locked. For a volume that Rbooks refuses in
-its web viewer, the downloader passes the saved Chrome login to the official
-RBOOKS Windows PC viewer and reads its rendered sections into the EPUB. Install
-the RBOOKS PC viewer first. Close an already running PC viewer before retrying so
-the downloader can start it with local reader access. Rbooks runs in the saved
-installed-Chrome profile so its product page, book API, and Cloudflare session
-share one browser identity. If Rbooks requests verification, open the URL with
-**Enter Browser**, complete it, close that window, and retry.
+Sites that need an account use your own sessions. Sign in once with **Enter Browser** (an installed-Chrome window with the downloader's own profile) and downloads, the Catalog and its reader reuse those cookies. Books you own or have rented download too; chapters you can't read are reported as locked. If the profile is already open in another window, the app closes it first, saving the session cookies.
 
-### Site engines and fallback
+A few built-in scrapers worth knowing about:
 
-Each link tries three engines in turn until one finds chapters:
+- **jara, nweb, nseries** use direct HTTP requests, no browser. jara downloads free chapters without an account, and purchased and adult ones after you sign in. nweb is free; adult works need a signed-in account. nseries books are resolved to their nweb edition when the product page links one.
+- **Global npia** uses the site's API directly; a saved login is turned into the API credential before chapter 1.
+- **rbooks** covers serialized webnovels and owned volume ebooks. A volume its web viewer refuses is read through the official rbooks PC viewer (install it first). If rbooks asks for verification, open the link with **Enter Browser**, complete it, close the window and retry.
+- **qdn** decodes its cipher-font chapters from a fixed outline table of the characters (`data/qdn_outline_table.json`) and refuses to save a chapter it can't decode.
 
-1. **Built-in scrapers**, the app's own code for the sites it knows best.
-2. **novel-downloader rules** (`rules-lib.js`), mostly Chinese and Japanese sites.
-3. **WebToEpub parsers** (`webtoepub/webtoepub-lib.js`), 650+ sites, mostly English translations.
+Each chapter waits a random delay between **Min** and **Max** interval; set both to the same value for a fixed delay.
 
-**Settings › Site engines** lets you drag the engines into another order or untick one to skip
-it. When a built-in scraper owns a site, the other two only follow it if they list that site, so
-a clear failure (a DRM-only book, a missing sign-in) is reported without extra browser attempts.
-WebToEpub's generic "every link is a chapter" parser is never used.
+### Updating the engines
 
-### Updating Rules
-
-Both rule engines ship with the app. They can also update themselves: tick **Update the
-novel-downloader rules automatically** or **Update the WebToEpub parsers automatically** in
-Settings › Site engines (both are on by default). The app then checks once a day for a newer
+The bundled engines ship with the app and also update themselves: each has its own **Update … automatically**
+box in Settings › Site engines (all on by default). The app then checks once a day for a newer
 build in this repository's [`engines` release](https://github.com/Shirochi-stack/NovelDB/releases/tag/engines),
 which the **Engine Updates** workflow rebuilds daily from the official repositories and only
-publishes after the bundle loads in Chromium. Downloads are checked against their SHA-256, and a
+publishes once the new bundle loads. Downloads are checked against their SHA-256, and a
 build that fails to load in the app is set aside for the shipped copy.
 
 To rebuild the shipped copies yourself:
@@ -151,6 +133,7 @@ To rebuild the shipped copies yourself:
   `webtoepub/webtoepub-lib.js`, between `scripts/webtoepub/prefix.js` (extension API stand-ins
   and the network transport) and `scripts/webtoepub/bridge.js` (the app's entry points).
 
+-----
 
 ## 💻 Desktop Downloads
 
