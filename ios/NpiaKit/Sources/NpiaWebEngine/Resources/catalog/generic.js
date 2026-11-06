@@ -547,10 +547,15 @@
 
     // -- cards -------------------------------------------------------------------------------------
     function reset(nextView) {
+        // The sites picked in the Sites panel stay picked from one search to the next (a tag added, an
+        // author tapped); a search from a top list of picked sites shows those sites' books.
+        var from = view;
         view = nextView;
         more = {page: 1, loading: false, has: true};
         clearTimeout(top.timer);  // a top list still loading draws nothing more
-        groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear(); siteFilter.clear();
+        groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear();
+        if (nextView !== 'search') siteFilter.clear();
+        else if (from === 'top' && top.only.length) { siteFilter.clear(); top.only.forEach(function (site) { siteFilter.add(site); }); }
         $('grid').innerHTML = '';
         queue.length = 0;
     }
@@ -633,6 +638,18 @@
                 group.sources.push(source);
             }
             byUrl.set(key(card.url), group);
+        } else if (card.source === 'noveldb' && source.source !== 'noveldb') {
+            // NovelDB's card of a book a site's card already showed, at the same address (its twin, looked up
+            // in the index): the source becomes NovelDB's, with its English title and original one.
+            source.source = 'noveldb';
+            source.noveldb = card.noveldb;
+            if (group.sources[0] === source || leadRank(source) > leadRank(group.sources[0])) {
+                group.sources.splice(group.sources.indexOf(source), 1);
+                group.sources.unshift(source);
+                group.title = card.title;
+                if (card.originalTitle) group.rawTitle = card.originalTitle;
+                group.loaded = false;
+            }
         }
         // A NovelDB book on several of its sites (one entry in the index): its other sites' pages, after it.
         (card.also || []).forEach(function (other) {
@@ -691,6 +708,7 @@
         group.held = true;
         if (!group.loaded && !group.asked) { group.asked = true; queue.push(group); pump(); }
     }
+    function isAgeTag(tag) { return /^r(19|15)$/i.test(String(tag || '').trim()); }
     // A book's age rating as a tag: "R19" (adults only) and "R15" (teens), as NovelDB's index lists them.
     function ageTags(group, card) {
         var rating = Math.max(group.ageRating || 0, card.ageRating || 0);
@@ -1345,6 +1363,7 @@
         if (!every.length || !window.__LNR_search) return;
         var jobs = [];
         queries.forEach(function (q) {
+            if (q.mode === 'tag' && isAgeTag(q.query)) return;  // NovelDB's own rating: no plugin lists it
             every.forEach(function (plugin) {
                 jobs.push({plugin: plugin, query: q, run: function () {
                     return q.mode === 'tag' && window.__LNR_genre ? window.__LNR_genre(plugin.id, q.query) : window.__LNR_search(plugin.id, q.query, 1);

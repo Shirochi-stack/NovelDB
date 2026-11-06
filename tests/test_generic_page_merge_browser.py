@@ -113,3 +113,12 @@ def test_a_teen_book_gets_the_15_badge_and_others_none(page):
 def test_the_tag_menu_offers_r15_and_r19():
     text = (PAGE / "generic.js").read_text(encoding="utf-8")
     assert "'R15', 'R19'" in text
+
+
+def test_noveldbs_card_at_the_same_address_gives_the_site_card_its_translation(page):
+    # A live site card first, then NovelDB's card of the same book (same address): one card, NovelDB's English
+    # title and its rating, with the site's figures kept where NovelDB has none.
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [site_card(url=MPIA)])
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [noveldb_card(url=MPIA, also=[], ageRating=19)])
+    assert titles(page) == ["A Military-Trained College Girl's Gaming Stream"]
+    assert page.eval_on_selector_all("#grid .card .cover .age", "els => els.map(e => e.textContent)") == ["19+"]

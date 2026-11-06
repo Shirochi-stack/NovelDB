@@ -73,6 +73,13 @@ def refreshed(card: dict, live: Optional[dict]) -> dict:
     return out
 
 
+def is_age_tag(tag: str) -> bool:
+    """R19 or R15: the age ratings NovelDB's index gives books as tags (noveldb_index.AGE_TAGS)."""
+    from noveldb.core.catalog.noveldb_index import AGE_TAGS, normal
+
+    return normal(tag).strip() in AGE_TAGS
+
+
 def is_no_results(*texts: str) -> bool:
     """A site's empty search page: its title or text says nothing matched."""
     return any(NO_RESULTS.search(text or "") for text in texts)
@@ -531,8 +538,14 @@ class GenericSearch:
             summary["sources"] = summary.get("sources", 0) + len(cards)
             fresh = offer([dict(card, ms=ms) for card in cards])
             report(source_search.SOURCE_NAMES.get(source, source), started, len(fresh))
+            twins = [dict(twin, ms=ms) for twin in self.noveldb_twins(fresh)] if not stop.is_set() else []
+            if twins:
+                emit(twins)  # the same addresses as cards already sent: the page merges them in
 
-        if mode in ("tag", "author"):
+        # An age rating (R19, R15) is NovelDB's own tag: the index's rated books, the site's own rule. Sites
+        # asked for it, or for what NovelDB lists beside it ("어른", "Adult"), give books of every rating.
+        rating_only = mode == "tag" and is_age_tag(text)
+        if mode in ("tag", "author") and not rating_only:
             from noveldb.core.catalog import source_search
 
             natives = {}
@@ -561,7 +574,7 @@ class GenericSearch:
 
             threading.Thread(target=noveldb_first, name="generic-noveldb", daemon=True).start()
             futures.append(ndb_future)
-        if mode == "author":  # NovelDB and its own sites know books by author; the other sites' searches are by title
+        if mode == "author" or rating_only:  # NovelDB (and its own sites) know books by author; the others search by title
             progress({"total": len(futures)})
             try:
                 for future in as_completed(futures, timeout=deadline):
@@ -601,6 +614,28 @@ class GenericSearch:
         pool.shutdown(wait=False, cancel_futures=True)
         done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=timed_out or bool(summary.get("late"))))
 
+    def noveldb_twins(self, cards: List[dict]) -> List[dict]:
+        """NovelDB's card of each of `cards` (from NovelDB's own sites) the index has at the same address: sent
+        after the site's card, the page merges the two (its English title, tags and rating join it), whether or
+        not NovelDB's own results reached that book yet."""
+        if self.noveldb is None or not cards:
+            return []
+
+        def same(url: str) -> str:
+            parts = urlsplit(url or "")
+            return (parts.hostname or "").lower().removeprefix("www.") + parts.path.rstrip("/")
+
+        def twin(card: dict) -> Optional[dict]:
+            try:
+                found = self.noveldb.search(card.get("title") or "", "name", limit=8)
+            except Exception:
+                return None
+            want = same(card.get("url") or "")
+            return next((dict(other, verified=True) for other in found if same(other.get("url") or "") == want), None)
+
+        with ThreadPoolExecutor(max_workers=8) as lookups:
+            return [found for found in lookups.map(twin, cards) if found is not None]
+
     def more(self, text: str, mode: str, page: int, emit: Callable[[List[dict]], None], stop: threading.Event,
              done: Callable[[dict], None] = lambda _s: None, deadline: float = 30.0,
              ndb_page: Optional[int] = None, sites: bool = True) -> None:
@@ -615,7 +650,7 @@ class GenericSearch:
         seen: set = set()
         state = {"more": False, "ndbMore": False, "results": 0}
 
-        def offer(cards: List[dict]) -> None:
+        def offer(cards: List[dict]) -> List[dict]:
             fresh = []
             with lock:
                 for card in cards:
@@ -626,6 +661,7 @@ class GenericSearch:
                 state["results"] += len(fresh)
             if fresh:
                 emit(fresh)
+            return fresh
 
         def from_noveldb():
             cards, more = self.noveldb.search_page(text, mode, ndb_page)
@@ -649,7 +685,10 @@ class GenericSearch:
                 return
             cards, more = source_search.search(source, mode, name, at, self.fetch)
             source_search.remember(source, mode, text, name, at + 1 if more else None)
-            offer(cards)
+            fresh = offer(cards)
+            twins = self.noveldb_twins(fresh or []) if not stop.is_set() else []
+            if twins:
+                emit(twins)  # the same addresses as cards already sent: the page merges them in
             if more:
                 state["more"] = True
 

@@ -1506,6 +1506,23 @@
         });
     }
 
+    // NovelDB's card of each of `cards` (from NovelDB's own sites) that the index has at the same address
+    // (generic_search.noveldb_twins): sent after the site's card, the page merges the two (its English
+    // title, tags and rating join it), whether or not NovelDB's own results reached that book yet.
+    function noveldbTwins(cards, token) {
+        var same = function (url) {
+            try { var u = new URL(url); return u.hostname.toLowerCase().replace(/^www\./, '') + u.pathname.replace(/\/+$/, ''); } catch (e) { return ''; }
+        };
+        var twins = [];
+        return each(cards || [], 8, function (card) {
+            if (stopped(token) || !card.title) return null;
+            var want = same(card.url);
+            return ndbSearch(card.title, 'name', 8, 0).then(function (found) {
+                var twin = found.cards.filter(function (other) { return same(other.url) === want; })[0];
+                if (twin) twins.push(Object.assign(twin, {verified: true}));
+            }, function () {});
+        }, token).then(function () { return twins; });
+    }
     var SOURCE_SEARCHERS = {npia: npiaSearch, kpage: kpageSearch, sfc: sfcSearch, nweb: nwebSearch, mpia: mpiaSearch, jara: jaraSearch,
                             rbooks: rbooksSearch, nseries: nseriesSearch};
     function sourceSearch(source, mode, query, page, token) {
@@ -1729,10 +1746,13 @@
             });
         });
         // An author's books: NovelDB and its own sites know them by author; the other sites' searches are by title.
-        if (mode === 'author') sources = sources.slice(0, 1);
+        // An age rating (R19, R15) is NovelDB's own tag: the index's rated books, the site's own rule (sites asked
+        // for it, or for what NovelDB lists beside it, "어른" or "Adult", give books of every rating).
+        var ratingOnly = mode === 'tag' && !!NDB_AGE_TAGS[ndbNormal(text).trim()];
+        if (mode === 'author' || ratingOnly) sources = sources.slice(0, 1);
         // NovelDB's own sites, asked directly: a tag under each site's own name for it, or the author.
         var asks = mode === 'author' ? Promise.resolve(Object.keys(SOURCE_SEARCHERS).reduce(function (all, s) { all[s] = [text]; return all; }, {}))
-            : mode === 'tag' ? ndbNativeTags(text).then(function (natives) { return sourceTagQueries(text, natives); }) : Promise.resolve({});
+            : mode === 'tag' && !ratingOnly ? ndbNativeTags(text).then(function (natives) { return sourceTagQueries(text, natives); }) : Promise.resolve({});
         var direct = asks.then(function (found) {
             var jobs = [];
             Object.keys(found).forEach(function (source) {
@@ -1744,7 +1764,12 @@
                             if (result.more) srcNext[key] = 1; else delete srcNext[key];
                             var ms = Date.now() - started;
                             summary.site += result.cards.length;
-                            report(source, started, offer(result.cards.map(function (c) { return Object.assign(c, {ms: ms}); })).length);
+                            var fresh = offer(result.cards.map(function (c) { return Object.assign(c, {ms: ms}); }));
+                            report(source, started, fresh.length);
+                            return noveldbTwins(fresh, token).then(function (twins) {
+                                // The same addresses as cards already sent: the page merges them in.
+                                if (twins.length && !stopped(token)) call('add', twins.map(function (c) { return Object.assign(c, {ms: ms, via: mode}); }), id);
+                            });
                         });
                     });
                 });
@@ -1890,6 +1915,7 @@
                 function offer(cards) {
                     var fresh = cards.filter(function (c) { var k = c.url.replace(/\/+$/, ''); if (seen[k]) return false; seen[k] = true; return true; });
                     if (fresh.length && !stopped(token)) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
+                    return fresh;
                 }
                 var jobs = ndbPage >= 1 ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE).then(function (found) {
                     offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode !== 'name'}); }));
@@ -1900,7 +1926,9 @@
                     if (parts[1] !== mode || parts[2] !== text) return;
                     jobs.push(sourceSearch(parts[0], mode, parts[3], at, token).then(function (result) {
                         if (result.more) { srcNext[key] = at + 1; state.more = true; } else delete srcNext[key];
-                        offer(result.cards);
+                        return noveldbTwins(offer(result.cards), token).then(function (twins) {
+                            if (twins.length && !stopped(token)) call('add', twins.map(function (c) { return Object.assign(c, {via: mode}); }), id);
+                        });
                     }));
                 });
                 if (sites) SITES.forEach(function (site) {
