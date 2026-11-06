@@ -11,6 +11,9 @@ is asked as typed. Authors are asked as typed.
 `search(source, mode, query, page, fetch)` returns (cards, more): the page's cards, and whether the site
 has a next page. Each site's searcher is a function of (mode, query, page, fetch); scripts/generic/
 catalog-app.js has the same searchers for the mobile apps: keep the two in step.
+
+An age rating (R19, R15) is asked only of the sites in RATED, which say each book's rating: npia, the
+way its signed-in metadata scraper reads it (its search over broad terms, each book's own `novel_age`).
 """
 
 from __future__ import annotations
@@ -85,21 +88,28 @@ def card(source: str, url: str, title: str, author: str = "", cover: str = "", t
 
 
 SEARCHERS: Dict[str, Callable[[str, str, int, Fetch], Result]] = {}
+SORTED: set = set()  # the searchers that take the page's sort ("new", "likes", ...)
+RATED = {"npia"}  # the sites asked for an age rating (R19, R15): their searches say each book's rating
 
 
-def searcher(source: str):
+def searcher(source: str, sorts: bool = False):
     def register(function):
         SEARCHERS[source] = function
+        if sorts:
+            SORTED.add(source)
         return function
     return register
 
 
-def search(source: str, mode: str, query: str, page: int, fetch: Fetch) -> Result:
-    """Page `page` (0 the first) of `source`'s books with the tag (mode "tag") or by the author ("author")."""
+def search(source: str, mode: str, query: str, page: int, fetch: Fetch, sort: str = "") -> Result:
+    """Page `page` (0 the first) of `source`'s books with the tag (mode "tag") or by the author ("author"),
+    in the page's `sort` where the site has it."""
     function = SEARCHERS.get(source)
     if function is None or mode not in ("tag", "author") or not query.strip():
         return [], False
     try:
+        if source in SORTED:
+            return function(mode, query.strip(), page, fetch, sort=sort)
         return function(mode, query.strip(), page, fetch)
     except Exception as e:
         log.warning("%s %s search failed: %s", source, mode, e)
@@ -299,22 +309,80 @@ def _npia_cover(row: dict) -> str:
     return ""
 
 
-@searcher("npia")
-def _npia(mode: str, query: str, page: int, fetch: Fetch) -> Result:
-    # A signed-in user's request (the Catalog sends their login) finds their 19+ books as well.
-    params = {"cmd": "novel_search", "search_type": "novel_genre" if mode == "tag" else "writer_nick",
-              "search_val": query.lstrip("#"), "page": page + 1, "rows": NPIA_ROWS, "sort_col": "count_view",
-              "novel_type": "", "start_count_book": "", "end_count_book": "", "novel_age": "", "start_days": "",
-              "novel_genre": "", "block_out": 0, "block_stop": 0, "is_contest": 0, "is_complete": "",
-              "is_challenge": 0, "list_display": "grid"}
+# The page's sorts (noveldb_index.INDEX_SORTS) as npia's search columns; its own order is by views.
+NPIA_SORTS = {"views": "count_view", "likes": "count_good", "chapters": "count_book", "new": "start_date",
+              "updated": "last_viewdate", "title": "novel_name"}
+# An age rating, read as npia's signed-in metadata scraper reads it (scripts/scrape_npia.py): its search
+# needs a term and has no rating filter, so broad terms are searched and each book's own rating kept.
+# npia shows 19+ books only to a signed-in, age-verified account; 15+ ones to everyone.
+NPIA_RATINGS = {"r19": 19, "r15": 15}
+NPIA_RATED_TERMS = ("판타지", "현대", "로맨스", "무협", "하렘", "로판", "라이트노벨", "대체역사", "일상", "SF")
+NPIA_RATED_PER_PAGE = 3  # searches per page of results: about a fifth of a search's books are 15+
+NPIA_RATED_PAGES = 25  # each term's pages read at most
+
+
+def _npia_search(params: dict, fetch: Fetch) -> Optional[dict]:
     data = None
     for _ in range(2):  # it answers 502 now and then
         data = _json(fetch(f"{NPIA}/proc/novel?" + urlencode(params), referer=NPIA + "/search",
                            headers={"X-Requested-With": "XMLHttpRequest"}))
         if data is not None:
             break
-    rows = [row for row in (data or {}).get("list") or [] if isinstance(row, dict) and row.get("novel_no")]
+    return data
+
+
+def _npia_params(search_type: str, value: str, page: int, sort: str) -> dict:
+    return {"cmd": "novel_search", "search_type": search_type, "search_val": value, "page": page + 1,
+            "rows": NPIA_ROWS, "sort_col": NPIA_SORTS.get(sort, "count_view"),
+            "novel_type": "", "start_count_book": "", "end_count_book": "", "novel_age": "", "start_days": "",
+            "novel_genre": "", "block_out": 0, "block_stop": 0, "is_contest": 0, "is_complete": "",
+            "is_challenge": 0, "list_display": "grid"}
+
+
+def _npia_rows(data: Optional[dict]) -> List[dict]:
+    return [row for row in (data or {}).get("list") or [] if isinstance(row, dict) and row.get("novel_no")]
+
+
+def _npia_card(row: dict) -> dict:
+    tags = [str(tag) for tag in row.get("novel_genre_arr") or [] if str(tag).strip()]
+    return card("npia", f"{NPIA}/novel/{row['novel_no']}", row.get("novel_name") or "", row.get("writer_nick") or "",
+                _npia_cover(row), tags, row.get("novel_story") or "", views=row.get("count_view"),
+                likes=row.get("count_good"), chapters=row.get("count_book"),
+                status="Completed" if str(row.get("is_complete")) in ("1", "True", "true") else "Ongoing",
+                updated=row.get("last_viewdate"), published=row.get("start_date"),
+                ageRating={"19": 19, "15": 15}.get(str(row.get("novel_age")), 0))
+
+
+def _npia_rated(rating: int, page: int, fetch: Fetch, sort: str) -> Result:
+    """Page `page` of npia's books rated `rating`: NPIA_RATED_PER_PAGE searches, the terms in turn (the
+    first page of each, then the second of each, ...), each book kept when its own rating is the one asked."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    slots = range(page * NPIA_RATED_PER_PAGE, (page + 1) * NPIA_RATED_PER_PAGE)
+    asks = [(NPIA_RATED_TERMS[slot % len(NPIA_RATED_TERMS)], slot // len(NPIA_RATED_TERMS)) for slot in slots]
+    asks = [(term, at) for term, at in asks if at < NPIA_RATED_PAGES]
+    with ThreadPoolExecutor(max(1, len(asks))) as pool:
+        found = list(pool.map(lambda ask: _npia_search(_npia_params("all", ask[0], ask[1], sort), fetch), asks))
+    cards, seen = [], set()
+    for data in found:
+        for row in _npia_rows(data):
+            if str(row.get("novel_age")) == str(rating) and row["novel_no"] not in seen:
+                seen.add(row["novel_no"])
+                cards.append(_npia_card(row))
+    last = (page + 1) * NPIA_RATED_PER_PAGE >= len(NPIA_RATED_TERMS) * NPIA_RATED_PAGES
+    # None rated in a page's searches (19+ for an account npia doesn't show them to): no more asked.
+    return cards, bool(cards) and not last
+
+
+@searcher("npia", sorts=True)
+def _npia(mode: str, query: str, page: int, fetch: Fetch, sort: str = "") -> Result:
+    # A signed-in user's request (the Catalog sends their login) finds their 19+ books as well.
     want = query.lstrip("#").lower()
+    if mode == "tag" and want in NPIA_RATINGS:
+        return _npia_rated(NPIA_RATINGS[want], page, fetch, sort)
+    data = _npia_search(_npia_params("novel_genre" if mode == "tag" else "writer_nick", query.lstrip("#"), page, sort),
+                        fetch)
+    rows = _npia_rows(data)
     cards = []
     for row in rows:
         tags = [str(tag) for tag in row.get("novel_genre_arr") or [] if str(tag).strip()]
@@ -322,12 +390,7 @@ def _npia(mode: str, query: str, page: int, fetch: Fetch) -> Result:
         if (mode == "tag" and want not in [tag.lower() for tag in tags]) or \
                 (mode == "author" and str(row.get("writer_nick") or "").lower() != want):
             continue
-        cards.append(card("npia", f"{NPIA}/novel/{row['novel_no']}", row.get("novel_name") or "", row.get("writer_nick") or "",
-                          _npia_cover(row), tags, row.get("novel_story") or "", views=row.get("count_view"),
-                          likes=row.get("count_good"), chapters=row.get("count_book"),
-                          status="Completed" if str(row.get("is_complete")) in ("1", "True", "true") else "Ongoing",
-                          updated=row.get("last_viewdate"), published=row.get("start_date"),
-                          ageRating={"19": 19, "15": 15}.get(str(row.get("novel_age")), 0)))
+        cards.append(_npia_card(row))
     total = int((data or {}).get("total_cnt") or 0)
     return cards, len(rows) >= NPIA_ROWS and (page + 1) * NPIA_ROWS < total
 

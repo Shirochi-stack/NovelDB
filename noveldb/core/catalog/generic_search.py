@@ -534,7 +534,7 @@ class GenericSearch:
             from noveldb.core.catalog import source_search
 
             started = time.monotonic()
-            cards, more = source_search.search(source, mode, name, 0, self.fetch)
+            cards, more = source_search.search(source, mode, name, 0, self.fetch, sort=self.sort)
             source_search.remember(source, mode, text, name, 1 if more else None)
             ms = int((time.monotonic() - started) * 1000)
             summary["sources"] = summary.get("sources", 0) + len(cards)
@@ -545,8 +545,14 @@ class GenericSearch:
                 emit(twins)  # the same addresses as cards already sent: the page merges them in
 
         # An age rating (R19, R15) is NovelDB's own tag: the index's rated books, the site's own rule. Sites
-        # asked for it, or for what NovelDB lists beside it ("어른", "Adult"), give books of every rating.
+        # asked for it, or for what NovelDB lists beside it ("어른", "Adult"), give books of every rating;
+        # only the sites that say each book's rating are asked (npia, live, with the user's login).
         rating_only = mode == "tag" and is_age_tag(text)
+        if rating_only:
+            from noveldb.core.catalog import source_search
+
+            for source in source_search.RATED:
+                futures.append(pool.submit(from_source, source, text))
         if mode in ("tag", "author") and not rating_only:
             from noveldb.core.catalog import source_search
 
@@ -685,7 +691,7 @@ class GenericSearch:
 
             if stop.is_set():
                 return
-            cards, more = source_search.search(source, mode, name, at, self.fetch)
+            cards, more = source_search.search(source, mode, name, at, self.fetch, sort=self.sort)
             source_search.remember(source, mode, text, name, at + 1 if more else None)
             fresh = offer(cards)
             twins = self.noveldb_twins(fresh or []) if not stop.is_set() else []

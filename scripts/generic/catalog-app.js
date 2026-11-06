@@ -1286,9 +1286,18 @@
         }
         return '';
     }
-    function npiaSearch(mode, query, page, token) {
-        var params = {cmd: 'novel_search', search_type: mode === 'tag' ? 'novel_genre' : 'writer_nick', search_val: query.replace(/^#/, ''),
-                      page: page + 1, rows: NPIA_ROWS, sort_col: 'count_view', novel_type: '', start_count_book: '', end_count_book: '',
+    // The page's sorts (NDB_SORTS) as npia's search columns; its own order is by views.
+    var NPIA_SORTS = {views: 'count_view', likes: 'count_good', chapters: 'count_book', 'new': 'start_date',
+                      updated: 'last_viewdate', title: 'novel_name'};
+    // An age rating, read as npia's signed-in metadata scraper reads it: its search needs a term and has no
+    // rating filter, so broad terms are searched and each book's own rating kept (source_search._npia_rated).
+    // npia shows 19+ books only to a signed-in, age-verified account; 15+ ones to everyone.
+    var NPIA_RATINGS = {r19: 19, r15: 15};
+    var NPIA_RATED_TERMS = ['판타지', '현대', '로맨스', '무협', '하렘', '로판', '라이트노벨', '대체역사', '일상', 'SF'];
+    var NPIA_RATED_PER_PAGE = 3, NPIA_RATED_PAGES = 25;
+    function npiaAsk(searchType, value, page, sort, token) {
+        var params = {cmd: 'novel_search', search_type: searchType, search_val: value,
+                      page: page + 1, rows: NPIA_ROWS, sort_col: NPIA_SORTS[sort] || 'count_view', novel_type: '', start_count_book: '', end_count_book: '',
                       novel_age: '', start_days: '', novel_genre: '', block_out: 0, block_stop: 0, is_contest: 0, is_complete: '',
                       is_challenge: 0, list_display: 'grid'};
         var ask = function () {
@@ -1296,20 +1305,51 @@
             return fetchUrl(NPIA + '/proc/novel?' + srcQuery(params), {pool: SRC_POOL, stop: token, referer: NPIA + '/search',
                                                                        headers: {'X-Requested-With': 'XMLHttpRequest', 'User-Agent': SRC_BROWSER}}).then(srcJson);
         };
-        return ask().then(function (data) { return data || ask(); }).then(function (data) {  // it answers 502 now and then
-            var rows = ((data || {}).list || []).filter(function (row) { return row && row.novel_no; });
-            var want = query.replace(/^#/, '').toLowerCase();
+        return ask().then(function (data) { return data || ask(); });  // it answers 502 now and then
+    }
+    function npiaRows(data) { return ((data || {}).list || []).filter(function (row) { return row && row.novel_no; }); }
+    function npiaTags(row) { return (row.novel_genre_arr || []).map(String).filter(function (t) { return t.trim(); }); }
+    function npiaCard(row) {
+        return srcCard('npia', NPIA + '/novel/' + row.novel_no, row.novel_name, row.writer_nick, npiaCover(row), npiaTags(row), row.novel_story,
+                       {views: row.count_view, likes: row.count_good, chapters: row.count_book,
+                        status: ['1', 'True', 'true'].indexOf(String(row.is_complete)) >= 0 ? 'Completed' : 'Ongoing',
+                        updated: row.last_viewdate, published: row.start_date,
+                        ageRating: Number(row.novel_age) === 19 ? 19 : Number(row.novel_age) === 15 ? 15 : 0});
+    }
+    /** Page `page` of npia's books rated `rating`: NPIA_RATED_PER_PAGE searches, the terms in turn (the first
+     *  page of each, then the second of each, ...), each book kept when its own rating is the one asked. */
+    function npiaRated(rating, page, sort, token) {
+        var asks = [];
+        for (var slot = page * NPIA_RATED_PER_PAGE; slot < (page + 1) * NPIA_RATED_PER_PAGE; slot++) {
+            var at = Math.floor(slot / NPIA_RATED_TERMS.length);
+            if (at < NPIA_RATED_PAGES) asks.push(npiaAsk('all', NPIA_RATED_TERMS[slot % NPIA_RATED_TERMS.length], at, sort, token));
+        }
+        return Promise.all(asks).then(function (found) {
+            var cards = [], seen = {};
+            found.forEach(function (data) {
+                npiaRows(data).forEach(function (row) {
+                    if (Number(row.novel_age) !== rating || seen[row.novel_no]) return;
+                    seen[row.novel_no] = true;
+                    cards.push(npiaCard(row));
+                });
+            });
+            var last = (page + 1) * NPIA_RATED_PER_PAGE >= NPIA_RATED_TERMS.length * NPIA_RATED_PAGES;
+            // None rated in a page's searches (19+ for an account npia doesn't show them to): no more asked.
+            return {cards: cards, more: cards.length > 0 && !last};
+        });
+    }
+    function npiaSearch(mode, query, page, token, sort) {
+        var want = query.replace(/^#/, '').toLowerCase();
+        if (mode === 'tag' && NPIA_RATINGS[want]) return npiaRated(NPIA_RATINGS[want], page, sort, token);
+        return npiaAsk(mode === 'tag' ? 'novel_genre' : 'writer_nick', query.replace(/^#/, ''), page, sort, token).then(function (data) {
+            var rows = npiaRows(data);
             var cards = [];
             rows.forEach(function (row) {
-                var tags = (row.novel_genre_arr || []).map(String).filter(function (t) { return t.trim(); });
+                var tags = npiaTags(row);
                 // Its matches are any part of a tag or a nickname ("TS" finds "TS있음"): only the exact one.
                 if (mode === 'tag' && tags.map(function (t) { return t.toLowerCase(); }).indexOf(want) < 0) return;
                 if (mode === 'author' && String(row.writer_nick || '').toLowerCase() !== want) return;
-                cards.push(srcCard('npia', NPIA + '/novel/' + row.novel_no, row.novel_name, row.writer_nick, npiaCover(row), tags, row.novel_story,
-                                   {views: row.count_view, likes: row.count_good, chapters: row.count_book,
-                                    status: ['1', 'True', 'true'].indexOf(String(row.is_complete)) >= 0 ? 'Completed' : 'Ongoing',
-                                    updated: row.last_viewdate, published: row.start_date,
-                                    ageRating: Number(row.novel_age) === 19 ? 19 : Number(row.novel_age) === 15 ? 15 : 0}));
+                cards.push(npiaCard(row));
             });
             return {cards: cards, more: rows.length >= NPIA_ROWS && (page + 1) * NPIA_ROWS < Number((data || {}).total_cnt || 0)};
         });
@@ -1530,10 +1570,12 @@
     }
     var SOURCE_SEARCHERS = {npia: npiaSearch, kpage: kpageSearch, sfc: sfcSearch, nweb: nwebSearch, mpia: mpiaSearch, jara: jaraSearch,
                             rbooks: rbooksSearch, nseries: nseriesSearch};
-    function sourceSearch(source, mode, query, page, token) {
+    // The sites asked for an age rating (R19, R15): their searches say each book's rating (source_search.RATED).
+    var SOURCE_RATED = ['npia'];
+    function sourceSearch(source, mode, query, page, token, sort) {
         var run = SOURCE_SEARCHERS[source];
         if (!run || (mode !== 'tag' && mode !== 'author') || !String(query || '').trim()) return Promise.resolve({cards: [], more: false});
-        return Promise.resolve().then(function () { return run(mode, String(query).trim(), page, token); })
+        return Promise.resolve().then(function () { return run(mode, String(query).trim(), page, token, sort || ''); })
             .catch(function () { return {cards: [], more: false}; });
     }
     // One book by its id: its live figures, for a NovelDB card as it comes into view (source_search.lookup).
@@ -1752,19 +1794,21 @@
         });
         // An author's books: NovelDB and its own sites know them by author; the other sites' searches are by title.
         // An age rating (R19, R15) is NovelDB's own tag: the index's rated books, the site's own rule (sites asked
-        // for it, or for what NovelDB lists beside it, "어른" or "Adult", give books of every rating).
+        // for it, or for what NovelDB lists beside it, "어른" or "Adult", give books of every rating); of the
+        // sites only those that say each book's rating are asked (npia, live, with the user's login).
         var ratingOnly = mode === 'tag' && !!NDB_AGE_TAGS[ndbNormal(text).trim()];
         if (mode === 'author' || ratingOnly) sources = sources.slice(0, 1);
         // NovelDB's own sites, asked directly: a tag under each site's own name for it, or the author.
         var asks = mode === 'author' ? Promise.resolve(Object.keys(SOURCE_SEARCHERS).reduce(function (all, s) { all[s] = [text]; return all; }, {}))
-            : mode === 'tag' && !ratingOnly ? ndbNativeTags(text).then(function (natives) { return sourceTagQueries(text, natives); }) : Promise.resolve({});
+            : ratingOnly ? Promise.resolve(SOURCE_RATED.reduce(function (all, s) { all[s] = [text]; return all; }, {}))
+            : mode === 'tag' ? ndbNativeTags(text).then(function (natives) { return sourceTagQueries(text, natives); }) : Promise.resolve({});
         var direct = asks.then(function (found) {
             var jobs = [];
             Object.keys(found).forEach(function (source) {
                 found[source].forEach(function (name) {
                     jobs.push(function () {
                         var started = Date.now();
-                        return sourceSearch(source, mode, name, 0, token).then(function (result) {
+                        return sourceSearch(source, mode, name, 0, token, sort).then(function (result) {
                             var key = [source, mode, text, name].join('\t');
                             if (result.more) srcNext[key] = 1; else delete srcNext[key];
                             var ms = Date.now() - started;
@@ -1929,7 +1973,7 @@
                 if (sites && (mode === 'tag' || mode === 'author')) Object.keys(srcNext).forEach(function (key) {
                     var parts = key.split('\t'), at = srcNext[key];
                     if (parts[1] !== mode || parts[2] !== text) return;
-                    jobs.push(sourceSearch(parts[0], mode, parts[3], at, token).then(function (result) {
+                    jobs.push(sourceSearch(parts[0], mode, parts[3], at, token, item.sort || '').then(function (result) {
                         if (result.more) { srcNext[key] = at + 1; state.more = true; } else delete srcNext[key];
                         return noveldbTwins(offer(result.cards), token).then(function (twins) {
                             if (twins.length && !stopped(token)) call('add', twins.map(function (c) { return Object.assign(c, {via: mode}); }), id);

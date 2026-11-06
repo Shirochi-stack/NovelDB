@@ -39,6 +39,29 @@ def test_npia_keeps_only_books_with_the_exact_tag():
     assert params["search_type"] == ["novel_genre"] and params["search_val"] == ["TS"] and params["page"] == ["1"]
 
 
+def test_npia_r19_and_r15_search_broad_terms_and_keep_the_books_rating():
+    def reply(url):
+        term = parse_qs(urlsplit(url).query)["search_val"][0]
+        return {"status": 200, "total_cnt": 99, "list": [
+            {"novel_no": term + "19", "novel_name": term, "novel_age": 19},
+            {"novel_no": term + "15", "novel_name": term, "novel_age": 15},
+            {"novel_no": term + "0", "novel_name": term, "novel_age": 0}]}
+    fetch, asked = recording(reply)
+    cards, more = source_search.search("npia", "tag", "R15", 0, fetch, sort="new")
+    assert len(asked) == source_search.NPIA_RATED_PER_PAGE and more
+    assert {c["ageRating"] for c in cards} == {15} and len(cards) == source_search.NPIA_RATED_PER_PAGE
+    params = [parse_qs(urlsplit(url).query) for url, _ in asked]
+    assert {p["search_type"][0] for p in params} == {"all"} and {p["sort_col"][0] for p in params} == {"start_date"}
+    assert [p["search_val"][0] for p in params] == list(source_search.NPIA_RATED_TERMS[:3])
+    # The next page goes on to the next terms; an account npia shows no 19+ books to gets no more pages.
+    fetch, asked = recording(reply)
+    cards, _ = source_search.search("npia", "tag", "#r19", 1, fetch)
+    assert {c["ageRating"] for c in cards} == {19}
+    assert parse_qs(urlsplit(asked[0][0]).query)["search_val"] == [source_search.NPIA_RATED_TERMS[3]]
+    fetch, _ = recording({"status": 200, "total_cnt": 9, "list": [{"novel_no": 1, "novel_age": 15}]})
+    assert source_search.search("npia", "tag", "R19", 0, fetch) == ([], False)
+
+
 def test_an_author_search_keeps_only_that_authors_books():
     rows = [{"series_id": 5, "title": "Mine", "authors": "백덕수", "sub_category": "현판", "state": "ST61"},
             {"series_id": 6, "title": "Not mine", "authors": "백덕수수"}]
