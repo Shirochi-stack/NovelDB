@@ -242,6 +242,8 @@
     #reader .bar.bottom { bottom: 0; border-top: 1px solid var(--r-line); }
     #reader .bar button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
     #reader .bar button { background: transparent; border: 1px solid var(--r-line); color: var(--r-ink); padding: 5px 10px; }
+    /* Google Translate on: the 🌐 button in the accent colour (the reader's and a book's details panel). */
+    #reader .bar button.on, .actions button[data-act=translate].on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     #reader .bar .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
     #reader .bar b { color: var(--r-ink); font-weight: 600; }
     #reader input[type=range] { flex: 1; min-width: 60px; accent-color: var(--accent); }
@@ -380,6 +382,7 @@
         <button id="rToc" type="button" title="Chapters and pages">☰ Contents</button>
         <div class="grow"><b id="rBook"></b> <span id="rChapter"></span></div>
         <button id="rComic" type="button" title="Comics: a page per image, or one long scroll (P)" style="display:none"></button>
+        <button id="rTranslate" type="button" title="Translate with Google (T)" aria-label="Translate with Google">🌐</button>
         <button id="rFull" type="button" title="Full screen (F)">⛶</button>
         <button id="rLook" type="button" title="Text and layout">Aa</button>
     </div>

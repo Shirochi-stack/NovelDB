@@ -870,6 +870,58 @@
         show(group, wanted(group) && !(group.held && !group.verified));
         return true;
     }
+    // -- Google Translate: a book's details and the reader's chapter, in the device's language ----------
+    var TRANSLATE_TO = String(navigator.language || 'en').split('-')[0].toLowerCase() || 'en';
+    var TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=auto&tl=';
+    var translated = new Map();  // text -> its translation, kept for this page
+    // A book's details the site wrote: its title, original title, synopsis and tags (the app's labels stay).
+    var TRANSLATED_PARTS = '.details h2, .details .rawtitle, .details .desc, .details .chips .chip';
+    /** `texts` in TRANSLATE_TO, in their order (a text Google can't translate comes back as it is). Lines go in
+     * batches of about 4,500 characters, one per line, so a chapter is a few requests. */
+    function googleTranslate(texts) {
+        var wanted = texts.filter(function (text) { return text.trim() && !translated.has(text); });
+        var batches = [], batch = [], size = 0;
+        wanted.forEach(function (text) {
+            var one = text.replace(/\s*\n\s*/g, ' ');
+            if (size && size + one.length > 4500) { batches.push(batch); batch = []; size = 0; }
+            batch.push([text, one]); size += one.length + 1;
+        });
+        if (batch.length) batches.push(batch);
+        return Promise.all(batches.map(function (items) {
+            var body = 'q=' + encodeURIComponent(items.map(function (item) { return item[1]; }).join('\n'));
+            return fetch(TRANSLATE_URL + TRANSLATE_TO, {method: 'POST', body: body,
+                                                        headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'}})
+                .then(function (response) { return response.ok ? response.json() : null; })
+                .then(function (data) {
+                    var lines = ((data && data[0]) || []).map(function (part) { return (part && part[0]) || ''; }).join('').split('\n');
+                    if (lines.length !== items.length) return;  // Google merged or split lines: left untranslated
+                    items.forEach(function (item, i) { translated.set(item[0], lines[i].trim() || item[0]); });
+                }, function () {});
+        })).then(function () { return texts.map(function (text) { return translated.get(text) || text; }); });
+    }
+    /** The text nodes of `root` swapped for their translation, or back to the original (`back`). */
+    function translateNodes(root, back) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = [];
+        while (walker.nextNode()) {
+            var node = walker.currentNode;
+            if (node.parentNode && /^(SCRIPT|STYLE|BUTTON)$/.test(node.parentNode.nodeName)) continue;
+            if (back ? node.__original != null : node.nodeValue.trim()) nodes.push(node);
+        }
+        if (back) {
+            nodes.forEach(function (node) { node.nodeValue = node.__original; node.__original = null; });
+            return Promise.resolve();
+        }
+        nodes = nodes.filter(function (node) { return node.__original == null; });
+        return googleTranslate(nodes.map(function (node) { return node.nodeValue; })).then(function (out) {
+            nodes.forEach(function (node, i) {
+                if (out[i] === node.nodeValue) return;
+                node.__original = node.nodeValue;
+                var lead = node.nodeValue.match(/^\s*/)[0], tail = node.nodeValue.match(/\s*$/)[0];
+                node.nodeValue = lead + out[i] + tail;
+            });
+        });
+    }
+
     // NovelDB's age badges, at the cover's bottom right: 19+ (adults only) and 15 (teens).
     function ageBadge(group) {
         if (group.ageRating === 19) return '<span class="age r19" title="Adults only (19+)" aria-label="Rated 19+">19+</span>';
@@ -1245,6 +1297,7 @@
                 + (config.downloadIcon ? '<img src="' + config.downloadIcon + '" alt="">' : '') + 'Download</button>'
                 + '<button type="button" class="icon' + (inCart ? ' on' : '') + '" data-act="cart"><img src="icon-cart.webp" alt="">'
                 + (inCart ? 'In cart' : 'Add to cart') + '</button>'
+                + '<button type="button" data-act="translate" title="Translate with Google" aria-label="Translate with Google">🌐</button>'
                 + '<button type="button" data-act="close">Close</button></div>';
             var image = dialog.querySelector('img');
             if (image) image.addEventListener('error', function () {
@@ -1259,6 +1312,21 @@
             dialog.querySelector('[data-act=download]').onclick = function () { download(group, group.sources[0]); };
             dialog.querySelector('[data-act=cart]').onclick = function () { toggleCart(group); };
             dialog.querySelector('[data-act=close]').onclick = function () { dialog.close(); };
+            // Google Translate for the site's words (title, original title, synopsis, tags; the app's labels
+            // stay). The panel is drawn again as the book's details arrive: a translation asked for is kept.
+            var translateButton = dialog.querySelector('[data-act=translate]');
+            var applyTranslation = function () {
+                var back = !group.translateDetails;
+                translateButton.disabled = true;
+                var parts = Array.prototype.slice.call(dialog.querySelectorAll(TRANSLATED_PARTS));
+                Promise.all(parts.map(function (part) { return translateNodes(part, back); })).then(function () {
+                    translateButton.disabled = false;
+                    translateButton.classList.toggle('on', !back);
+                    translateButton.title = back ? 'Translate with Google' : 'Show the original';
+                });
+            };
+            translateButton.onclick = function () { group.translateDetails = !group.translateDetails; applyTranslation(); };
+            if (group.translateDetails) applyTranslation();
             var openPage = dialog.querySelector('[data-act=open]');
             if (openPage) openPage.onclick = function () { send({type: 'open', url: group.sources[0].url, title: group.title}); };
             dialog.querySelectorAll('[data-read]').forEach(function (button) {
@@ -2292,6 +2360,7 @@
             }
             $('flow').innerHTML = '<h2 class="chapter">' + esc(chapter.name) + '</h2>' + chapter.html
                 + (layout() === 'scroll' && last ? '<p class="next-chapter"><button type="button" id="rNextChapter">Next chapter ›</button></p>' : '');
+            if (R.translate) translateChapter(false);
             if ($('rNextChapter')) $('rNextChapter').onclick = function () { openChapter(index + 1, 0); };
             if (many) {
                 $('flow').querySelectorAll('img.slot').forEach(function (slot) { fetchPicture(slot); });
@@ -2609,11 +2678,24 @@
         else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (paged && event.key === 'ArrowUp') || (event.key === ' ' && event.shiftKey)) { event.preventDefault(); turn(-1); }
         else if (event.key === 'Escape') { if (R.full) setFull(false); else closeReader(); }
         else if (event.key === 'f' || event.key === 'F') setFull(!R.full);
+        else if (event.key === 't' || event.key === 'T') $('rTranslate').click();
         else if (event.key === 'p' || event.key === 'P') toggleComicLayout();
         else if (event.key === 'Home') { R.page = 0; place(); }
         else if (event.key === 'End') { R.page = R.pages - 1; place(); }
     });
     $('rFull').onclick = function () { setFull(!R.full); };
+    // Google Translate for the chapter, in the device's language; on, it stays on for the next chapters.
+    function translateChapter(back) {
+        var at = readingAt(), button = $('rTranslate');
+        button.disabled = true;
+        return translateNodes($('flow'), back).then(function () {
+            button.disabled = false;
+            button.classList.toggle('on', !!R.translate);
+            button.title = R.translate ? 'Show the original (T)' : 'Translate with Google (T)';
+            paginate(at);
+        });
+    }
+    $('rTranslate').onclick = function () { R.translate = !R.translate; translateChapter(!R.translate); };
     $('rComic').onclick = toggleComicLayout;
     // In full screen a tap in the page's middle (not a page-turning edge) shows or hides the bars.
     $('viewport').addEventListener('click', function (event) {

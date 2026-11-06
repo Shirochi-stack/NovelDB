@@ -1,6 +1,7 @@
 """The generic catalogue page (noveldb/qt/catalog/generic/generic.js, the desktop's and the phones') in a
 real browser: a site's card of a book NovelDB has joins NovelDB's card under its English title."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -122,3 +123,27 @@ def test_noveldbs_card_at_the_same_address_gives_the_site_card_its_translation(p
     page.evaluate("cards => window.NovelDBGeneric.add(cards)", [noveldb_card(url=MPIA, also=[], ageRating=19)])
     assert titles(page) == ["A Military-Trained College Girl's Gaming Stream"]
     assert page.eval_on_selector_all("#grid .card .cover .age", "els => els.map(e => e.textContent)") == ["19+"]
+
+
+def test_the_translate_buttons_sit_in_the_rows_they_had():
+    # Google Translate: an icon in the details panel's action row and the reader's top bar, no new row.
+    html = (PAGE / "index.html").read_text(encoding="utf-8")
+    script = (PAGE / "generic.js").read_text(encoding="utf-8")
+    bar = html[html.index('<div class="bar top">'):html.index("</div>", html.index('id="rLook"'))]
+    assert 'id="rTranslate"' in bar and "🌐" in bar
+    assert "data-act=\"translate\"" in script and "translate.googleapis.com/translate_a/single" in script
+
+
+def test_the_reader_translates_its_chapter_and_back(page):
+    page.route("https://translate.googleapis.com/**", lambda route: route.fulfill(
+        status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+        body=json.dumps([[["Chapter one" + chr(10), "x"], ["Hello there.", "y"]]])))
+    page.evaluate("""() => { document.getElementById('flow').innerHTML =
+        '<h2 class="chapter">제1화</h2><p>안녕하세요.</p><p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt=""></p>'; }""")
+    page.evaluate("() => document.getElementById('rTranslate').click()")
+    page.wait_for_timeout(500)
+    assert page.eval_on_selector_all("#flow h2, #flow p", "els => els.map(e => e.textContent)")[:2] == ["Chapter one", "Hello there."]
+    assert page.eval_on_selector_all("#flow img", "els => els.length") == 1
+    page.evaluate("() => document.getElementById('rTranslate').click()")
+    page.wait_for_timeout(300)
+    assert page.eval_on_selector_all("#flow h2, #flow p", "els => els.map(e => e.textContent)")[:2] == ["제1화", "안녕하세요."]
