@@ -39,10 +39,11 @@ sealed interface AppUpdateState {
     /** Android has to be told once that NovelDB may install apps; the dialog explains and opens that settings page. */
     data class NeedsPermission(val offer: UpdateOffer) : AppUpdateState
 
-    data class Downloading(val offer: UpdateOffer, val received: Long, val total: Long) : AppUpdateState
+    /** `notice`: the progress dialog shows; Hide keeps the download going in the background. */
+    data class Downloading(val offer: UpdateOffer, val received: Long, val total: Long, val notice: Boolean = true) : AppUpdateState
 
-    /** The verified file went to Android's installer, which asks the user to confirm. */
-    data class Installing(val offer: UpdateOffer) : AppUpdateState
+    /** The verified file went to Android's installer, which asks the user to confirm. `notice`: the dialog shows. */
+    data class Installing(val offer: UpdateOffer, val notice: Boolean = true) : AppUpdateState
 
     /** The download or install failed; `text` says why. */
     data class Failed(val offer: UpdateOffer, val text: String) : AppUpdateState
@@ -156,14 +157,17 @@ class AppUpdater(
                             reported = step
                             // Only while still downloading: a cancel that just happened must stay cancelled.
                             val current = _state.value
-                            if (current is AppUpdateState.Downloading) _state.compareAndSet(current, AppUpdateState.Downloading(offer, received, total))
+                            if (current is AppUpdateState.Downloading) _state.compareAndSet(current, current.copy(received = received, total = total))
                         }
                     }
                 }
                 // The file sits in app-private storage, but what goes to the installer is checked once more.
                 AppUpdateClient.verify(file, offer.asset)
                 _state.value = AppUpdateState.Installing(offer)
-                AppInstaller.install(app, file)
+                // Android's installer screen, opened by `MainActivity` from the app in front (a download that
+                // finished in the background waits for the app); the session install if it can't be opened.
+                installing = file
+                _confirmation.value = AppInstaller.viewIntent(app, file)
             } catch (e: CancellationException) {
                 directory.deleteRecursively()
                 throw e
@@ -176,6 +180,45 @@ class AppUpdater(
             } catch (e: Exception) {
                 directory.deleteRecursively()
                 _state.value = AppUpdateState.Failed(offer, "Could not start the install: ${e.message ?: e}")
+            }
+        }
+    }
+
+    /** The verified update last handed to Android's installer (kept for Open installer again). */
+    @Volatile private var installing: File? = null
+
+    /** Hide on the progress dialog: the download goes on (the App updates screen shows it); the installer opens when it is done. */
+    fun hideProgress() {
+        val state = _state.value as? AppUpdateState.Downloading ?: return
+        _state.compareAndSet(state, state.copy(notice = false))
+    }
+
+    /** Open installer again: Android's installer was closed without installing; the verified file is still here. */
+    fun reopenInstaller() {
+        val state = _state.value as? AppUpdateState.Installing ?: return
+        val file = installing?.takeIf { it.isFile && runCatching { AppUpdateClient.verify(it, state.offer.asset) }.isSuccess }
+        if (file == null) {
+            startUpdateAgain(state.offer)
+            return
+        }
+        _state.value = state.copy(notice = true)
+        _confirmation.value = AppInstaller.viewIntent(app, file)
+    }
+
+    private fun startUpdateAgain(offer: UpdateOffer) {
+        _state.value = AppUpdateState.Available(offer, notice = false)
+        startUpdate()
+    }
+
+    /** `MainActivity` could not open Android's installer screen: the session install instead. */
+    fun installerUnavailable() {
+        val state = _state.value as? AppUpdateState.Installing ?: return
+        val file = installing ?: return
+        scope.launch {
+            try {
+                AppInstaller.install(app, file)
+            } catch (e: Exception) {
+                _state.value = AppUpdateState.Failed(state.offer, "Could not start the install: ${e.message ?: e}")
             }
         }
     }

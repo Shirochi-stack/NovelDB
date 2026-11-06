@@ -370,14 +370,26 @@ def prepare_install(update: Update, file: Path, info: Optional[BuildInfo] = None
     raise UpdateError("This copy of NovelDB can't update itself.")
 
 
+def restart_environment(environ: Optional[dict] = None) -> dict:
+    """The environment for the helper and the updated app it starts. A PyInstaller app's own variables (_PYI_*,
+    _MEIPASS2) would make the new copy reuse this one's unpacked files, which are deleted as it quits:
+    "Failed to load Python DLL ... _MEI... python312.dll". PYINSTALLER_RESET_ENVIRONMENT has the new copy
+    unpack its own (as Glossarion's updater starts it)."""
+    env = {name: value for name, value in (os.environ if environ is None else environ).items()
+           if not name.startswith("_PYI_") and name != "_MEIPASS2"}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def start_helper(plan: InstallPlan) -> None:
     """Start the helper detached, so it outlives this process."""
+    env = restart_environment()
     if sys.platform == "win32":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-        subprocess.Popen(plan.command, creationflags=flags, close_fds=True,
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | 0x00000008  # DETACHED_PROCESS
+        subprocess.Popen(plan.command, creationflags=flags, env=env,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
-        subprocess.Popen(plan.command, start_new_session=True, close_fds=True,
+        subprocess.Popen(plan.command, start_new_session=True, close_fds=True, env=env,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -397,7 +409,11 @@ function Retry([scriptblock]$step) {{
 try {{ Wait-Process -Id {pid} -Timeout 300 -ErrorAction SilentlyContinue }} catch {{}}
 """
 
-_PS_TAIL = """Start-Process -FilePath {exe}
+# The updated app unpacks its own files, not the quit one's (see restart_environment).
+_PS_TAIL = """Get-ChildItem Env: | Where-Object {{ $_.Name -like '_PYI_*' -or $_.Name -eq '_MEIPASS2' }} |
+  ForEach-Object {{ Remove-Item -LiteralPath ('Env:' + $_.Name) -ErrorAction SilentlyContinue }}
+$env:PYINSTALLER_RESET_ENVIRONMENT = '1'
+Start-Process -FilePath {exe}
 Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
 
@@ -461,6 +477,7 @@ Remove-Item -LiteralPath {_ps(file)} -Force -ErrorAction SilentlyContinue
 
 _SH_HEAD = """#!/bin/sh
 log={log}
+export PYINSTALLER_RESET_ENVIRONMENT=1
 while kill -0 {pid} 2>/dev/null; do sleep 0.5; done
 """
 

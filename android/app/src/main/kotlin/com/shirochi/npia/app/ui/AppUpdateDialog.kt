@@ -58,8 +58,8 @@ fun AppUpdateDialog(model: AppViewModel) {
             confirmButton = { TextButton(onClick = { updater.openInstallSettings(context) }) { Text("Open settings") } },
             dismissButton = { TextButton(onClick = { updater.dismissNotice() }) { Text("Cancel") } },
         )
-        is AppUpdateState.Downloading -> AlertDialog(
-            onDismissRequest = { },
+        is AppUpdateState.Downloading -> if (s.notice) AlertDialog(
+            onDismissRequest = { updater.hideProgress() },
             title = { Text("Downloading NovelDB ${s.offer.version}") },
             text = {
                 Column {
@@ -70,14 +70,16 @@ fun AppUpdateDialog(model: AppViewModel) {
                     Text("${formatMegabytes(s.received)} of ${formatMegabytes(s.total)}", Modifier.padding(top = 8.dp))
                 }
             },
-            confirmButton = { },
+            // Hide: the download goes on in the background (Settings > App updates shows it), as in Glossarion.
+            confirmButton = { TextButton(onClick = { updater.hideProgress() }) { Text("Hide") } },
             dismissButton = { TextButton(onClick = { updater.cancel() }) { Text("Cancel") } },
         )
-        is AppUpdateState.Installing -> AlertDialog(
-            onDismissRequest = { },
+        is AppUpdateState.Installing -> if (s.notice) AlertDialog(
+            onDismissRequest = { updater.dismissNotice() },
             title = { Text("Installing NovelDB ${s.offer.version}") },
-            text = { Text("The download matches its checksum. Confirm the update in the Android screen. NovelDB closes when it is installed; open it again afterwards.") },
-            confirmButton = { TextButton(onClick = { updater.dismissNotice() }) { Text("Close") } },
+            text = { Text("The download matches its checksum. Confirm the update in Android's screen. NovelDB closes when it is installed; open it again afterwards.") },
+            confirmButton = { TextButton(onClick = { updater.reopenInstaller() }) { Text("Open installer again") } },
+            dismissButton = { TextButton(onClick = { updater.dismissNotice() }) { Text("Close") } },
         )
         is AppUpdateState.Failed -> AlertDialog(
             onDismissRequest = { updater.dismissNotice() },

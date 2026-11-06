@@ -398,7 +398,10 @@ fun AppUpdatesScreen(model: AppViewModel) {
                 )
                 TextButton(onClick = { updater.cancel() }, modifier = Modifier.padding(start = 8.dp)) { Text("Cancel") }
             }
-            is AppUpdateState.Installing -> Footnote("Waiting for Android to install ${s.offer.version}. NovelDB closes when it is installed; open it again afterwards.")
+            is AppUpdateState.Installing -> {
+                Footnote("Waiting for Android to install ${s.offer.version}. NovelDB closes when it is installed; open it again afterwards.")
+                TextButton(onClick = { updater.reopenInstaller() }, modifier = Modifier.padding(start = 8.dp)) { Text("Open installer again") }
+            }
             is AppUpdateState.Failed -> {
                 Footnote(s.text)
                 TextButton(onClick = { updater.startUpdate() }, modifier = Modifier.padding(start = 8.dp)) { Text("Try again") }

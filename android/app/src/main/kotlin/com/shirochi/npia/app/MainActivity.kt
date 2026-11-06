@@ -134,7 +134,9 @@ class MainActivity : ComponentActivity() {
                     try {
                         startActivity(confirm)
                     } catch (e: Exception) {
-                        updater.installFailed(InstallOutcome.failure(PackageInstaller.STATUS_FAILURE, e.message))
+                        // Android's installer screen (ACTION_VIEW) unavailable: the session install; else the failure.
+                        if (confirm.action == Intent.ACTION_VIEW) updater.installerUnavailable()
+                        else updater.installFailed(InstallOutcome.failure(PackageInstaller.STATUS_FAILURE, e.message))
                     }
                 }
             }

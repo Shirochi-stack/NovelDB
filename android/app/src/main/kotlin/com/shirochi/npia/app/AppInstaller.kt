@@ -16,6 +16,17 @@ import java.io.IOException
  * is installed the system stops the running app, so there is often no "success" to report.
  */
 object AppInstaller {
+    /**
+     * Android's own installer screen for `apk` (as Glossarion's updater opens it): the file shared with it
+     * through the app's FileProvider. It asks the user to confirm, refuses an APK signed with another key,
+     * and closes NovelDB once the update is installed. The session install below is the fallback.
+     */
+    fun viewIntent(context: Context, apk: File): Intent =
+        Intent(Intent.ACTION_VIEW)
+            .setDataAndType(FileActions.uri(context, apk), "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+
     /** Writes `apk` into an install session for this app and commits it; the result comes back to `UpdateInstallReceiver`. */
     fun install(context: Context, apk: File) {
         val installer = context.packageManager.packageInstaller
