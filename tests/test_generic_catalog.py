@@ -415,3 +415,36 @@ def test_a_search_of_picked_sites_asks_only_them(monkeypatch):
     assert engine.noveldb_sources() == ["npia"]
     engine.only = {npia_site, "example.org"}  # a site NovelDB has no source for: NovelDB's books from all
     assert engine.noveldb_sources() is None
+
+
+def test_a_search_asks_its_sites_in_stages_the_web_search_matches_first(monkeypatch):
+    import threading
+    from noveldb.core.catalog import generic_search
+
+    sites = [{"site": f"s{n}.example", "host": f"s{n}.example"} for n in range(170)]
+    monkeypatch.setattr(generic_search, "web_search",
+                        lambda query, fetch: [{"url": "https://s169.example/book/1", "title": "", "snippet": ""}])
+    asked = []
+
+    class Sites:
+        def search(self, home, text):
+            import time
+
+            time.sleep(0.02)  # a site takes a moment: the web search's answer comes while the stage runs
+            asked.append(home)
+            return []
+
+        def has_more(self, home, kind, text):
+            return False
+
+    engine = generic_search.GenericSearch(fetch=lambda *a, **k: None, sites=sites, site_search=Sites(), workers=4)
+    engine.run("A Title", "name", lambda cards: None, threading.Event(), deadline=20)
+    assert len(asked) == generic_search.STAGE_FIRST
+    assert "https://s169.example/" in asked  # the web search's site, though last in the list
+    asked.clear()
+    states = []
+    engine.more("A Title", "name", 1, lambda cards: None, threading.Event(), states.append, ndb_page=0)
+    assert len(asked) == generic_search.STAGE_MORE and states[-1]["more"]
+    asked.clear()
+    engine.more("A Title", "name", 2, lambda cards: None, threading.Event(), states.append, ndb_page=0)
+    assert len(asked) == 170 - generic_search.STAGE_FIRST - generic_search.STAGE_MORE and not states[-1]["more"]

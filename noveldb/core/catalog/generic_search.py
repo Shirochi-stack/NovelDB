@@ -76,6 +76,16 @@ def refreshed(card: dict, live: Optional[dict]) -> dict:
 TWIN_AUTHOR_BOOKS = 200  # an author's books looked through for a site card's NovelDB twin
 
 
+# A search's sites in stages: the first STAGE_FIRST, then STAGE_MORE each time the list is scrolled to its end;
+# a stage starts no more sites once STAGE_ENOUGH books are in. The sites the web search found matching books on
+# are asked first. `_staged`: each search's sites not asked yet, (mode, text) -> [site, ...].
+STAGE_FIRST = 100
+STAGE_MORE = 60
+STAGE_ENOUGH = 90
+_staged: Dict[tuple, list] = {}
+_staged_lock = threading.Lock()
+
+
 def is_age_tag(tag: str) -> bool:
     """R19 or R15: the age ratings NovelDB's index gives books as tags (noveldb_index.AGE_TAGS)."""
     from noveldb.core.catalog.noveldb_index import AGE_TAGS, normal
@@ -455,12 +465,26 @@ class GenericSearch:
         def report(site: str, started: float, found: int, state: str = "ok"):
             progress({"site": site, "ms": int((time.monotonic() - started) * 1000), "found": found, "state": state})
 
+        queue: List[dict] = []
+
+        def web_first(urls: List[str]):
+            """The sites of the web search's hits move to the front of the queue of sites to ask."""
+            with lock:
+                for url in reversed(urls):
+                    root = site_of(_host(url))
+                    site = next((site for site in queue if site_of(site["host"]) == root), None)
+                    if site is not None:
+                        queue.remove(site)
+                        queue.insert(0, site)
+
         def from_web(query: str, open_search: bool):
             if stop.is_set():
                 return
             started = time.monotonic()
             cards = []
-            for hit in web_search(query, self.fetch):
+            hits = web_search(query, self.fetch)
+            web_first([hit["url"] for hit in hits])
+            for hit in hits:
                 url = hit["url"]
                 if not url.startswith(("http://", "https://")) or not looks_like_book(url, hit["title"]):
                     continue
@@ -607,18 +631,55 @@ class GenericSearch:
             return
         if self.noveldb is not None:
             ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most
-        for site in self.sites:
-            if not (self.skip_lnreader and site.get("lnreader")) and self.picked(site["host"]):
-                futures.append(pool.submit(from_site, site))
-        if mode == "name":
-            for entry in self._lncrawl_entries():
-                if self.picked(entry["_site"]["host"]):
-                    futures.append(pool.submit(from_lncrawl, entry))
+        with lock:
+            queue[:] = [site for site in self.sites
+                        if not (self.skip_lnreader and site.get("lnreader")) and self.picked(site["host"])]
+        # The web search first: the sites it found books on move to the front of the queue as it answers.
         if not self.only:  # the web search finds books on every site
             open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
                           else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
             futures.append(pool.submit(from_web, open_words, True))
-        progress({"total": len(futures)})
+        if mode == "name":
+            for entry in self._lncrawl_entries():
+                if self.picked(entry["_site"]["host"]):
+                    futures.append(pool.submit(from_lncrawl, entry))
+        staging = not self.only and mode != "author"
+        stage = min(STAGE_FIRST, len(queue)) if staging else len(queue)
+        started = [0]
+        with _staged_lock:
+            _staged.pop((mode, text), None)
+
+        def next_site() -> Optional[dict]:
+            with lock:
+                if not queue or started[0] >= stage or (staging and len(seen) >= STAGE_ENOUGH):
+                    return None
+                started[0] += 1
+                return queue.pop(0)
+
+        def sites_worker():
+            while not stop.is_set():
+                site = next_site()
+                if site is None:
+                    return
+                from_site(site)
+
+        # Half the pool's threads ask sites; the rest are for the web search, the books' details and the like.
+        site_workers = [pool.submit(sites_worker) for _ in range(max(1, min(stage, self.workers // 2)))]
+        futures.extend(site_workers)
+        progress({"total": stage})
+
+        def stage_left():
+            """The sites not asked: the next stage, as the list is scrolled (the progress counts those asked)."""
+            with lock:
+                left = list(queue)
+                asked = started[0]
+                started[0] = stage  # no more are started
+            if staging and left:
+                with _staged_lock:
+                    _staged[(mode, text)] = left
+            if asked < stage:
+                progress({"total": asked - stage})
+        progress({"total": len(futures) - len(site_workers)})
 
         ends = time.monotonic() + deadline
         try:
@@ -632,6 +693,7 @@ class GenericSearch:
         except TimeoutError:
             summary["late"] = sum(1 for future in futures if not future.done())
         timed_out = stop.is_set() and not outer.is_set()
+        stage_left()
         stop.set()
         pool.shutdown(wait=False, cancel_futures=True)
         done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=timed_out or bool(summary.get("late"))))
@@ -739,6 +801,31 @@ class GenericSearch:
             home = f"https://{site['host']}/"
             if self.picked(site["host"]) and self.site_search.has_more(home, kind, text):
                 jobs.append(lambda home=home: from_site(home))
+        with _staged_lock:
+            waiting = _staged.get((mode, text)) if sites else None
+            stage = waiting[:STAGE_MORE] if waiting else []
+            if waiting:
+                del waiting[:STAGE_MORE]
+                if not waiting:
+                    _staged.pop((mode, text), None)
+
+        def from_new_site(site: dict):
+            if stop.is_set():
+                return
+            home = f"https://{site['host']}/"
+            try:
+                hits = self.site_search.search(home, text) if mode == "name" else self.site_search.tag(home, text)
+            except Exception:
+                return
+            offer([dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")),
+                        verified=bool(hit.get("verified"))) for hit in hits])
+            if self.site_search.has_more(home, kind, text):
+                state["more"] = True
+
+        jobs.extend(lambda site=site: from_new_site(site) for site in stage)
+        with _staged_lock:
+            if (mode, text) in _staged:
+                state["more"] = True
         if sites and mode in ("tag", "author") and self.deep:
             from noveldb.core.catalog import source_search
 

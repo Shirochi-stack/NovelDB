@@ -1765,6 +1765,43 @@
         return out;
     }
 
+    // A search's sites in stages: the first STAGE_FIRST, then STAGE_MORE each time the list is scrolled to its
+    // end; a stage starts no more sites once STAGE_ENOUGH books are in. `staged`: each search's sites not asked yet.
+    var STAGE_FIRST = 100, STAGE_MORE = 60, STAGE_ENOUGH = 90, staged = {};
+    /** Runs `fn` on the queue's items, `limit` at a time, taken from its front as they go (the queue may be
+     *  reordered meanwhile), until it is empty, `full()` says to stop, or the token is stopped. */
+    function drain(queue, limit, fn, full, token) {
+        function worker() {
+            if (!queue.length || full() || stopped(token)) return Promise.resolve();
+            var item = queue.shift();
+            return Promise.resolve().then(function () { return fn(item); })
+                .catch(function () { /* one source failing stops nothing */ }).then(worker);
+        }
+        var workers = [];
+        for (var i = 0; i < limit; i++) workers.push(worker());
+        return Promise.all(workers);
+    }
+    /** One site's search for the text (its search page) or the tag (its tag page): its cards offered. */
+    function siteAsk(site, mode, text, token, offer, report, enrich, summary) {
+        var started = Date.now(), home = 'https://' + site.host + '/';
+        var asked = mode === 'name' ? siteSearch(home, text, token) : siteTag(home, text, token);
+        // A site gets SITE_SECONDS: past that its slot goes to the next one (it rests a day).
+        var late = new Promise(function (resolve) { setTimeout(function () { resolve('late'); }, SITE_SECONDS * 1000); });
+        return Promise.race([asked, late]).then(function (hits) {
+            var ms = Date.now() - started;
+            if (hits === 'late') { noteSpeed(site.host, ms, false); report(site.site, started, 0, 'failed'); return; }
+            var cards = hits.map(function (hit) {
+                return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover), {ms: ms, verified: !!hit.verified});
+            });
+            summary.site += cards.length;
+            var fresh = offer(cards);
+            var refusedSite = plans[home] && plans[home].reachable === false;
+            noteSpeed(site.host, ms, !refusedSite);
+            report(site.site, started, fresh.length, refusedSite ? 'refused' : 'ok');
+            enrich(fresh.filter(function (c) { return !c.cover; }));
+        }, function () { summary.failed++; noteSpeed(site.host, Date.now() - started, false); report(site.site, started, 0, 'failed'); });
+    }
+
     /** `options`: the query's settings switched off, {noveldb: false} (NovelDB's index) or {deep: false}
      *  (NovelDB's sites asked directly). */
     function runSearch(id, text, mode, token, sort, options) {
@@ -1807,27 +1844,20 @@
         var searchedSites = SITES.filter(function (site) {
             return site.searched !== false && !(site.lnreader || []).length && picked(site.host) && (only.length || !resting(site.host));
         }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
-        var sources = searchedSites.map(function (site) {
-            return function () {
-                var started = Date.now(), home = 'https://' + site.host + '/';
-                var asked = mode === 'name' ? siteSearch(home, text, token) : siteTag(home, text, token);
-                // A site gets SITE_SECONDS: past that its slot goes to the next one (it rests a day).
-                var late = new Promise(function (resolve) { setTimeout(function () { resolve('late'); }, SITE_SECONDS * 1000); });
-                return Promise.race([asked, late]).then(function (hits) {
-                    var ms = Date.now() - started;
-                    if (hits === 'late') { noteSpeed(site.host, ms, false); report(site.site, started, 0, 'failed'); return; }
-                    var cards = hits.map(function (hit) {
-                        return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover), {ms: ms, verified: !!hit.verified});
-                    });
-                    summary.site += cards.length;
-                    var fresh = offer(cards);
-                    var refusedSite = plans[home] && plans[home].reachable === false;
-                    noteSpeed(site.host, ms, !refusedSite);
-                    report(site.site, started, fresh.length, refusedSite ? 'refused' : 'ok');
-                    enrich(fresh.filter(function (c) { return !c.cover; }));
-                }, function () { summary.failed++; noteSpeed(site.host, Date.now() - started, false); report(site.site, started, 0, 'failed'); });
-            };
-        });
+        var sources = [];
+        // The sites in stages (STAGE_FIRST, then STAGE_MORE as the list is scrolled): the quickest first, and
+        // first of all the sites the web search found matching books on. A stage stops starting sites once
+        // STAGE_ENOUGH books are in; the sites not asked wait for the next stage (`staged`).
+        var staging = !only.length && mode !== 'author';
+        var siteQueue = searchedSites.slice(), stageKey = [mode, text].join('\t'), startedSites = 0;
+        delete staged[stageKey];
+        function webFirst(urls) {
+            urls.forEach(function (url) {
+                var site = siteFor(url);
+                var at = site ? siteQueue.indexOf(site) : -1;
+                if (at > 0) siteQueue.unshift(siteQueue.splice(at, 1)[0]);
+            });
+        }
         if (useNovelDB) sources.unshift(function () {
             var started = Date.now();
             var shown = 0;
@@ -1844,6 +1874,7 @@
             var started = Date.now();
             var words_ = mode === 'tag' ? '"' + text + '" (novel OR manga OR webtoon)' : '"' + text + '" (novel OR manga OR webtoon OR manhwa)';
             return webSearch(words_, token).then(function (hits) {
+                webFirst(hits.map(function (hit) { return hit.url; }));
                 var cards = hits.filter(function (hit) {
                     return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (siteFor(hit.url) || knownSite(hit.url));
                 }).map(function (hit) { return card(hit.url, hit.title, hit.snippet, 'web'); });
@@ -1886,11 +1917,22 @@
                     });
                 });
             });
-            call('progress', id, {total: sources.length + jobs.length});
+            call('progress', id, {total: jobs.length});
             return each(jobs, 8, function (job) { return job(); }, token);
         });
-        call('progress', id, {total: sources.length});
-        var all = Promise.all([direct, each(sources, 16, function (source) { return source(); }, token)]).then(function () {
+        if (mode === 'author' || ratingOnly) siteQueue = [];
+        var stageSize = staging ? Math.min(STAGE_FIRST, siteQueue.length) : siteQueue.length;
+        call('progress', id, {total: sources.length + stageSize});
+        var enough = function () { return staging && Object.keys(seen).length >= STAGE_ENOUGH; };
+        var sitesRun = drain(siteQueue, 16, function (site) {
+            startedSites++;
+            return siteAsk(site, mode, text, token, offer, report, enrich, summary);
+        }, function () { return startedSites >= stageSize || enough(); }, token).then(function () {
+            // The sites not asked: the next stage, as the list is scrolled (and the progress counts only those asked).
+            if (staging && siteQueue.length) staged[stageKey] = siteQueue;
+            if (stageSize > startedSites) call('progress', id, {total: startedSites - stageSize});
+        });
+        var all = Promise.all([direct, each(sources, 16, function (source) { return source(); }, token), sitesRun]).then(function () {
             return Promise.all(details);
         });
         return within(all, 45000, token).then(function (how) {
@@ -2020,7 +2062,9 @@
     function more(id, queries, page, ndbPage, sites) {
         if (ndbPage == null) ndbPage = page;
         if (sites === undefined) sites = true;
-        var token = current.token || newToken(), state = {more: false, ndbPage: ndbPage, ndbMore: false, ndbOnly: !sites};
+        // A search that ran its time stopped its token: the next results need one that is not stopped.
+        var token = current.token && !current.token.stopped ? current.token : newToken();
+        var state = {more: false, ndbPage: ndbPage, ndbMore: false, ndbOnly: !sites};
         ready.then(function () {
             return Promise.all(queries.filter(function (q) { return q.mode !== 'id'; }).slice(0, 6).map(function (item) {
                 var mode = item.mode === 'tag' || item.mode === 'author' ? item.mode : 'name', kind = mode === 'tag' ? 'tag' : 'search', text = item.query, seen = {};
@@ -2046,6 +2090,20 @@
                         });
                     }));
                 });
+                // The next stage of the search's sites (those its first stages did not ask).
+                var waiting = staged[[mode, text].join('\t')];
+                if (sites && waiting && waiting.length) {
+                    var stage = waiting.splice(0, STAGE_MORE), noop = function () {};
+                    if (!waiting.length) delete staged[[mode, text].join('\t')];
+                    var stageSummary = {site: 0, failed: 0};
+                    var stageReport = function (site, started, found, how) {
+                        call('progress', id, {site: site, ms: Date.now() - started, found: found, state: how || 'ok'});
+                    };
+                    call('progress', id, {total: stage.length});
+                    jobs.push(each(stage, 16, function (site) {
+                        return siteAsk(site, mode, text, token, offer, stageReport, noop, stageSummary);
+                    }, token).then(function () { if (staged[[mode, text].join('\t')]) state.more = true; }));
+                }
                 if (sites) SITES.forEach(function (site) {
                     if (site.searched === false || (only.length && only.indexOf(G().siteOf(site.host)) < 0)) return;
                     var home = 'https://' + site.host + '/';
