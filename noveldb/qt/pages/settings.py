@@ -598,8 +598,10 @@ def sources_form(context: AppContext) -> Form:
     f.spin("Leading images to check", "sources.kpage.dedupe_leading_images", 0, 20)
     f.add_section("ntk")
     f.check("Use the npia cover when the book is also on npia", "sources.ntk_npia_cover")
-    f.add_section("nweb")
-    f.check("Use the store cover", "sources.nweb_store_cover")
+    f.add_section("syosetu")
+    # The setting's name is older than the codenames: it is syosetu's cover, not nweb's.
+    f.check("Look up the Amazon.co.jp cover when the book page has none (ncode only, not novel18)",
+            "sources.nweb_store_cover")
     f.add_section("kobo")
     f.check("Horizontal page layout", "sources.kobo_horizontal_layout")
     f.add_section("Browser")

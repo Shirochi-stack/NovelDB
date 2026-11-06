@@ -226,8 +226,6 @@ struct AddURLView: View {
                             ChipToggle(title: "Dedupe images", isOn: settingsBinding(\.sources.kpage.dedupeImages))
                         case .ntkCover:
                             ChipToggle(title: "Prefer source cover", isOn: settingsBinding(\.sources.ntkNpiaCover))
-                        case .nwebCover:
-                            ChipToggle(title: "Store cover", isOn: settingsBinding(\.sources.nwebStoreCover))
                         case .koboLayout:
                             ChipToggle(title: "Horizontal Japanese text", isOn: settingsBinding(\.sources.koboHorizontalLayout))
                         case .longImages:

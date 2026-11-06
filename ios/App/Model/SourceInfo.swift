@@ -7,7 +7,6 @@ enum SourceOptionGroup: Hashable {
     case npia
     case kpage
     case ntkCover
-    case nwebCover
     case koboLayout
     case longImages
 }
@@ -37,7 +36,6 @@ enum SourceInfo {
         case .npia: return [.npia]
         case .kpage: return [.kpage, .longImages]
         case .ntk: return [.ntkCover, .longImages]
-        case .nweb: return [.nwebCover]
         case .kobo: return [.koboLayout]
         case .floo, .rbooks, .qdn: return [.longImages]
         default: return []

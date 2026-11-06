@@ -9,7 +9,7 @@ import com.shirochi.npia.sources.SourceCatalog
 import java.net.URI
 
 /** Source-specific option groups the Add screen and settings show. */
-enum class SourceOptionGroup { NPIA, KPAGE, NTK_COVER, NWEB_COVER, KOBO_LAYOUT, LONG_IMAGES }
+enum class SourceOptionGroup { NPIA, KPAGE, NTK_COVER, KOBO_LAYOUT, LONG_IMAGES }
 
 object SourceInfo {
     private val urlPattern = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
@@ -36,7 +36,6 @@ object SourceInfo {
         SourceId.NPIA -> listOf(SourceOptionGroup.NPIA)
         SourceId.KPAGE -> listOf(SourceOptionGroup.KPAGE, SourceOptionGroup.LONG_IMAGES)
         SourceId.NTK -> listOf(SourceOptionGroup.NTK_COVER, SourceOptionGroup.LONG_IMAGES)
-        SourceId.NWEB -> listOf(SourceOptionGroup.NWEB_COVER)
         SourceId.KOBO -> listOf(SourceOptionGroup.KOBO_LAYOUT)
         SourceId.FLOO, SourceId.RBOOKS, SourceId.QDN -> listOf(SourceOptionGroup.LONG_IMAGES)
         else -> emptyList()

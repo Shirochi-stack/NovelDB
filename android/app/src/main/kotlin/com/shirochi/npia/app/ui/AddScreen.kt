@@ -323,8 +323,6 @@ fun SourceOptions(source: SourceId, draft: AppSettings, onChange: (AppSettings) 
                 }
                 SourceOptionGroup.NTK_COVER ->
                     ToggleChip("Prefer source cover", s.ntkNpiaCover) { onChange(draft.copy(sources = s.copy(ntkNpiaCover = it))) }
-                SourceOptionGroup.NWEB_COVER ->
-                    ToggleChip("Prefer store cover", s.nwebStoreCover) { onChange(draft.copy(sources = s.copy(nwebStoreCover = it))) }
                 SourceOptionGroup.KOBO_LAYOUT ->
                     ToggleChip("Horizontal Japanese text", s.koboHorizontalLayout) { onChange(draft.copy(sources = s.copy(koboHorizontalLayout = it))) }
                 SourceOptionGroup.LONG_IMAGES ->

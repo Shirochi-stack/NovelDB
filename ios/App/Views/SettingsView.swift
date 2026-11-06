@@ -202,9 +202,6 @@ struct SourceOptionsForm: View {
             Section("ntk") {
                 Toggle("Prefer source cover", isOn: $model.settings.sources.ntkNpiaCover)
             }
-            Section("nweb") {
-                Toggle("Prefer store cover", isOn: $model.settings.sources.nwebStoreCover)
-            }
             Section("kobo") {
                 Toggle("Horizontal Japanese text (kobo)", isOn: $model.settings.sources.koboHorizontalLayout)
             }
