@@ -1,0 +1,50 @@
+name: Data snapshots
+
+# The `data` branch keeps only the latest published data, so once a week the whole of
+# docs/data and metadata/state is archived as an asset of the `data-snapshots` release.
+# The newest five (about a month) are kept. The release is a prerelease and never
+# "latest", so the apps' update check (releases/latest) never sees it.
+on:
+  schedule:
+    - cron: '30 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-snapshots
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: data-snapshots
+      KEEP: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: Archive the published data
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin data
+          name="noveldb-data-$(date -u +%F).tar.gz"
+          git archive --format=tar.gz -o "$name" FETCH_HEAD docs/data metadata/state
+          size=$(stat -c %s "$name")
+          if [ "$size" -ge $((2 * 1024 * 1024 * 1024)) ]; then
+            echo "::error::$name is $size bytes, over the 2 GiB release asset limit"
+            exit 1
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target main --prerelease --latest=false --title "Data snapshots" \
+              --notes "Weekly archives of the published NovelDB data (docs/data and metadata/state). Unpack one in the repository root with tar -xzf to restore that week's data."
+          fi
+          gh release upload "$TAG" "$name" --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep '^noveldb-data-' | sort -r \
+            | tail -n +$((KEEP + 1)) | while read -r old; do gh release delete-asset "$TAG" "$old" --yes; done
+          echo "Uploaded $name ($size bytes) from data $(git rev-parse --short FETCH_HEAD)" >> "$GITHUB_STEP_SUMMARY"
