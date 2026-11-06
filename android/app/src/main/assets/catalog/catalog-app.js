@@ -269,7 +269,7 @@
     var NDB_CJK = /[\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/;
     // Format 2: each token's books per source, in pages (scripts/noveldb_index/build.cjs). Results take
     // the next book of each source in turn, the lead source's (npia) first; more pages as the user scrolls.
-    var NDB_FORMAT = 2, NDB_LEAD = 'npia', NDB_MULTI_PAGES = 40;
+    var NDB_FORMAT = 2, NDB_LEAD = 'npia', NDB_MULTI_PAGES = 40, NDB_PIECES = 160;
     var ndb = {manifest: null, pieces: new Map(), loading: null, reading: 0, idle: []};
     /** The search index's reads in flight: synopses wait until there are none (on a phone every reply
      *  goes through the page, and a synopsis shard is many times an index piece). */
@@ -351,7 +351,8 @@
                 return gunzip(result.bytes).then(JSON.parse);
             }).catch(function () { return null; });
         ndb.pieces.set(key, asked);
-        if (ndb.pieces.size > 512) ndb.pieces.delete(ndb.pieces.keys().next().value);
+        // Each is a decompressed bucket or block (up to a few MB as objects): a phone's page keeps few.
+        if (ndb.pieces.size > NDB_PIECES) ndb.pieces.delete(ndb.pieces.keys().next().value);
         return asked;
     }
     function ndbUndelta(values) {
@@ -1559,15 +1560,20 @@
             try { var u = new URL(url); return u.hostname.toLowerCase().replace(/^www\./, '') + u.pathname.replace(/\/+$/, ''); } catch (e) { return ''; }
         };
         var twins = [];
-        return each(cards || [], 8, function (card) {
+        return each(cards || [], 4, function (card) {
             if (stopped(token) || !card.title) return null;
-            var want = same(card.url);
-            return ndbSearch(card.title, 'name', 8, 0).then(function (found) {
+            var want = same(card.url), author = String(card.author || '').trim();
+            // By its author: one short list from one bucket. A title is read in many pieces (a Korean one in a
+            // bucket for each two letters), which for a page of cards meant hundreds of buckets read and kept:
+            // the app slowed down, and the page ran out of memory.
+            var asked = author ? ndbSearch(author, 'author', NDB_TWIN_AUTHOR_BOOKS, 0) : ndbSearch(card.title, 'name', 8, 0);
+            return asked.then(function (found) {
                 var twin = found.cards.filter(function (other) { return same(other.url) === want; })[0];
                 if (twin) twins.push(Object.assign(twin, {verified: true}));
             }, function () {});
         }, token).then(function () { return twins; });
     }
+    var NDB_TWIN_AUTHOR_BOOKS = 200;  // an author's books looked through for a site card's NovelDB twin
     var SOURCE_SEARCHERS = {npia: npiaSearch, kpage: kpageSearch, sfc: sfcSearch, nweb: nwebSearch, mpia: mpiaSearch, jara: jaraSearch,
                             rbooks: rbooksSearch, nseries: nseriesSearch};
     // The sites asked for an age rating (R19, R15): their searches say each book's rating (source_search.RATED).

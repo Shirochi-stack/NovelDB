@@ -73,6 +73,9 @@ def refreshed(card: dict, live: Optional[dict]) -> dict:
     return out
 
 
+TWIN_AUTHOR_BOOKS = 200  # an author's books looked through for a site card's NovelDB twin
+
+
 def is_age_tag(tag: str) -> bool:
     """R19 or R15: the age ratings NovelDB's index gives books as tags (noveldb_index.AGE_TAGS)."""
     from noveldb.core.catalog.noveldb_index import AGE_TAGS, normal
@@ -634,8 +637,12 @@ class GenericSearch:
             return (parts.hostname or "").lower().removeprefix("www.") + parts.path.rstrip("/")
 
         def twin(card: dict) -> Optional[dict]:
+            # By its author: one short list from one bucket. A title is read in many pieces (a Korean one in a
+            # bucket for each two letters), which for a page of cards meant hundreds of buckets read and kept.
+            author = (card.get("author") or "").strip()
             try:
-                found = self.noveldb.search(card.get("title") or "", "name", limit=8)
+                found = self.noveldb.search(author, "author", limit=TWIN_AUTHOR_BOOKS) if author else \
+                    self.noveldb.search(card.get("title") or "", "name", limit=8)
             except Exception:
                 return None
             want = same(card.get("url") or "")
