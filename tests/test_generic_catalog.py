@@ -172,6 +172,25 @@ def test_id_and_top_list_messages_are_checked():
     assert generic.parse_message({"type": "genericChapter", "id": 3, "url": "https://a.example/b", "index": 0,
                                   "recovery": "unknown"}) is None
     assert generic.download_icon().startswith("data:image/")
+    switched = generic.parse_message({"type": "genericSearch", "queries": [
+        {"query": "TS", "mode": "tag", "noveldb": False, "deep": False}, {"query": "x", "mode": "name", "deep": "no"}]})
+    assert switched["queries"] == [{"query": "TS", "mode": "tag", "noveldb": False, "deep": False}, {"query": "x", "mode": "name"}]
+
+
+def test_the_settings_searches_switch_noveldb_and_the_deep_search_off(monkeypatch):
+    import threading
+    from noveldb.core.catalog import generic_search, source_search
+
+    asked = []
+    monkeypatch.setattr(source_search, "search", lambda source, mode, name, page, fetch, sort="": asked.append(source) or ([], False))
+    engine = generic_search.GenericSearch(fetch=lambda *a, **k: None, sites=[])
+    engine.deep = False
+    engine.run("Gender Bender", "tag", lambda cards: None, threading.Event(), deadline=5)
+    engine.run("R19", "tag", lambda cards: None, threading.Event(), deadline=5)
+    assert asked == []
+    engine.deep = True
+    engine.run("R19", "tag", lambda cards: None, threading.Event(), deadline=5)
+    assert asked == sorted(source_search.RATED)
 
 
 def test_the_offline_cache_keeps_entries_within_its_limit(tmp_path):

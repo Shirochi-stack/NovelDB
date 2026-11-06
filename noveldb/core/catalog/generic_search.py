@@ -334,6 +334,7 @@ class GenericSearch:
         self.site_search = site_search or SiteSearch(fetch)
         self.skip_lnreader = skip_lnreader  # the page searches those sites with their LNReader plugin
         self.noveldb = noveldb  # NovelDB's own books (noveldb_index.NovelDBIndex), when given
+        self.deep = True  # the deep search: NovelDB's own sites asked directly (source_search)
         self.sort = ""  # the page's sort ("new", "updated", "likes", ...): NovelDB's lists in that order where kept
         self._site_hosts = {host: site for site in self._known for host in site.get("hosts", [site["host"]])}
 
@@ -551,12 +552,12 @@ class GenericSearch:
         # asked for it, or for what NovelDB lists beside it ("어른", "Adult"), give books of every rating;
         # only the sites that say each book's rating are asked (npia, live, with the user's login).
         rating_only = mode == "tag" and is_age_tag(text)
-        if rating_only:
+        if rating_only and self.deep:
             from noveldb.core.catalog import source_search
 
             for source in source_search.RATED:
                 futures.append(pool.submit(from_source, source, text))
-        if mode in ("tag", "author") and not rating_only:
+        if mode in ("tag", "author") and not rating_only and self.deep:
             from noveldb.core.catalog import source_search
 
             natives = {}
@@ -712,7 +713,7 @@ class GenericSearch:
             home = f"https://{site['host']}/"
             if self.site_search.has_more(home, kind, text):
                 jobs.append(lambda home=home: from_site(home))
-        if sites and mode in ("tag", "author"):
+        if sites and mode in ("tag", "author") and self.deep:
             from noveldb.core.catalog import source_search
 
             for source, name, at in source_search.pending(mode, text):

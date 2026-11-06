@@ -101,6 +101,9 @@ def parse_message(data: dict) -> Optional[dict]:
                            "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id", "author") else "name"}
                 if item.get("sort") in SORTS:
                     checked["sort"] = item["sort"]  # the page's sort (noveldb_index.INDEX_SORTS); else the default order
+                for switch in ("noveldb", "deep"):  # the settings' searches switched off (both on by default)
+                    if item.get(switch) is False:
+                        checked[switch] = False
                 queries.append(checked)
         if not queries:
             return None
@@ -438,10 +441,8 @@ class GenericCatalog(QObject):
                 save_learned(self._learned_file)
                 self._done.emit(search_id, totals)
 
-        def run(query: str, mode: str, sort: str = ""):
-            engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
-                                   noveldb=self.noveldb)
-            engine.sort = sort  # the page's sort: NovelDB's lists in that order where the index keeps one
+        def run(query: str, mode: str, item: dict):
+            engine = self._engine(item)
             if mode == "id":
                 try:
                     engine.by_id(query, lambda cards: self._cards.emit(search_id, [dict(c, via="id") for c in cards]), stop,
@@ -459,8 +460,16 @@ class GenericCatalog(QObject):
                 finished({"failed": 1})
 
         for item in queries:
-            threading.Thread(target=run, args=(item["query"], item["mode"], str(item.get("sort") or "")),
-                             name="generic-search", daemon=True).start()
+            threading.Thread(target=run, args=(item["query"], item["mode"], item), name="generic-search", daemon=True).start()
+
+    def _engine(self, item: dict) -> GenericSearch:
+        """A search's engine with the query's options: the page's sort (NovelDB's lists in that order where the
+        index keeps one) and the settings' searches (NovelDB's index; the deep search of its sites)."""
+        engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
+                               noveldb=self.noveldb if item.get("noveldb", True) else None)
+        engine.sort = str(item.get("sort") or "")
+        engine.deep = item.get("deep", True) is not False
+        return engine
 
     def top(self, search_id: int, kind: str, language: str = "all", only: Optional[list] = None) -> None:
         """The popular lists of the top sites of one kind (comics: the comic sites; novels: the rest), the
@@ -516,10 +525,8 @@ class GenericCatalog(QObject):
             finished()
             return
 
-        def run(query: str, mode: str, sort: str = ""):
-            engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
-                                   noveldb=self.noveldb)
-            engine.sort = sort
+        def run(query: str, mode: str, item: dict):
+            engine = self._engine(item)
             state = {}
             try:
                 engine.more(query, mode, page, lambda cards: self._cards.emit(search_id, [dict(c, via=mode) for c in cards]),
@@ -535,8 +542,7 @@ class GenericCatalog(QObject):
                 finished()
 
         for item in queries:
-            threading.Thread(target=run, args=(item["query"], item["mode"], str(item.get("sort") or "")),
-                             name="generic-more", daemon=True).start()
+            threading.Thread(target=run, args=(item["query"], item["mode"], item), name="generic-more", daemon=True).start()
 
     def ndb_tags(self) -> None:
         """NovelDB's tag names, for the tag menu's filter (the page hears `ndbTags`)."""

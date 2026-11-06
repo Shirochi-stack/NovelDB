@@ -1088,6 +1088,25 @@
         $('imgResolutionValue').textContent = imaging.resolution + '%';
         $('imgQuality').disabled = $('imgResolution').disabled = !imaging.low;
     }
+    // The settings' two searches (both on unless switched off, for testing one without the other): NovelDB's
+    // index, and the deep search of NovelDB's sites. A query says only the ones that are off.
+    var SEARCHES_KEY = 'noveldb.generic.searches';
+    var searches = Object.assign({noveldb: true, deep: true}, store(SEARCHES_KEY) || {});
+    function searchesIn(query) {
+        if (!searches.noveldb) query.noveldb = false;
+        if (!searches.deep) query.deep = false;
+        return query;
+    }
+    $('useNovelDB').checked = searches.noveldb;
+    $('useDeep').checked = searches.deep;
+    [['useNovelDB', 'noveldb'], ['useDeep', 'deep']].forEach(function (pair) { ['input', 'change'].forEach(function (type) {
+        $(pair[0]).addEventListener(type, function () {
+            if (searches[pair[1]] === this.checked) return;
+            searches[pair[1]] = this.checked;
+            store(SEARCHES_KEY, searches);
+            if (view === 'search' && current.queries && current.queries.length) search();
+        });
+    }); });
     $('language').value = language;
     $('language').addEventListener('change', function () {
         language = $('language').value;
@@ -1770,7 +1789,7 @@
             if (!picked.length && allTags().has(text.toLowerCase())) queries.push({query: text, mode: 'tag'});
         }
         picked.slice(0, 5).forEach(function (tag) { queries.push({query: tag, mode: 'tag'}); });
-        queries.forEach(function (q) { q.sort = sortBy(); });
+        queries.forEach(function (q) { q.sort = sortBy(); searchesIn(q); });
         searchId++;
         reset('search');
         current = {text: text, tags: picked.slice(), queries: queries, byId: byId};
@@ -1797,7 +1816,7 @@
         showPicked();
         $('query').value = '';
         var names = name.split(/\s*[,，、]\s*/).filter(Boolean).slice(0, 3);
-        var queries = names.map(function (one) { return {query: one, mode: 'author', sort: sortBy()}; });
+        var queries = names.map(function (one) { return searchesIn({query: one, mode: 'author', sort: sortBy()}); });
         searchId++;
         reset('search');
         current = {text: '', tags: [], queries: queries, byId: false, author: name};

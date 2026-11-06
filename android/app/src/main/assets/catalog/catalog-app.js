@@ -1717,7 +1717,11 @@
         return out;
     }
 
-    function runSearch(id, text, mode, token, sort) {
+    /** `options`: the query's settings switched off, {noveldb: false} (NovelDB's index) or {deep: false}
+     *  (NovelDB's sites asked directly). */
+    function runSearch(id, text, mode, token, sort, options) {
+        options = options || {};
+        var useNovelDB = options.noveldb !== false, deep = options.deep !== false;
         speedAnswered = false;
         speedFailed = [];
         var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, details = [];
@@ -1772,7 +1776,7 @@
                 }, function () { summary.failed++; noteSpeed(site.host, Date.now() - started, false); report(site.site, started, 0, 'failed'); });
             };
         });
-        sources.unshift(function () {
+        if (useNovelDB) sources.unshift(function () {
             var started = Date.now();
             var shown = 0;
             var mark = function (c) { return Object.assign(c, {ms: Date.now() - started, verified: mode === 'tag' || mode === 'author'}); };
@@ -1803,9 +1807,9 @@
         // for it, or for what NovelDB lists beside it, "어른" or "Adult", give books of every rating); of the
         // sites only those that say each book's rating are asked (npia, live, with the user's login).
         var ratingOnly = mode === 'tag' && !!NDB_AGE_TAGS[ndbNormal(text).trim()];
-        if (mode === 'author' || ratingOnly) sources = sources.slice(0, 1);
+        if (mode === 'author' || ratingOnly) sources = sources.slice(0, useNovelDB ? 1 : 0);
         // NovelDB's own sites, asked directly: a tag under each site's own name for it, or the author.
-        var asks = mode === 'author' ? Promise.resolve(Object.keys(SOURCE_SEARCHERS).reduce(function (all, s) { all[s] = [text]; return all; }, {}))
+        var asks = !deep ? Promise.resolve({}) : mode === 'author' ? Promise.resolve(Object.keys(SOURCE_SEARCHERS).reduce(function (all, s) { all[s] = [text]; return all; }, {}))
             : ratingOnly ? Promise.resolve(SOURCE_RATED.reduce(function (all, s) { all[s] = [text]; return all; }, {}))
             : mode === 'tag' ? ndbNativeTags(text).then(function (natives) { return sourceTagQueries(text, natives); }) : Promise.resolve({});
         var direct = asks.then(function (found) {
@@ -1821,7 +1825,7 @@
                             summary.site += result.cards.length;
                             var fresh = offer(result.cards.map(function (c) { return Object.assign(c, {ms: ms}); }));
                             report(source, started, fresh.length);
-                            return noveldbTwins(fresh, token).then(function (twins) {
+                            return (useNovelDB ? noveldbTwins(fresh, token) : Promise.resolve([])).then(function (twins) {
                                 // The same addresses as cards already sent: the page merges them in.
                                 if (twins.length && !stopped(token)) call('add', twins.map(function (c) { return Object.assign(c, {ms: ms, via: mode}); }), id);
                             });
@@ -1947,7 +1951,7 @@
             var totals = {};
             return Promise.all(queries.slice(0, 6).map(function (item) {
                 var mode = item.mode === 'tag' || item.mode === 'author' ? item.mode : 'name';
-                var run = item.mode === 'id' ? runById(id, item.query, token) : runSearch(id, item.query, mode, token, item.sort || '');
+                var run = item.mode === 'id' ? runById(id, item.query, token) : runSearch(id, item.query, mode, token, item.sort || '', item);
                 return run.catch(function () { return {failed: 1}; }).then(function (summary) {
                     Object.keys(summary).forEach(function (name) {
                         var value = summary[name];
@@ -1972,16 +1976,18 @@
                     if (fresh.length && !stopped(token)) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
                     return fresh;
                 }
-                var jobs = ndbPage >= 1 ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE, null, null, item.sort || '').then(function (found) {
+                var useNovelDB = item.noveldb !== false, deep = item.deep !== false;
+                var jobs = ndbPage >= 1 && useNovelDB ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE, null, null, item.sort || '').then(function (found) {
                     offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode !== 'name'}); }));
                     if (found.more) { state.more = true; state.ndbMore = true; }
                 }, function () {})] : [];
-                if (sites && (mode === 'tag' || mode === 'author')) Object.keys(srcNext).forEach(function (key) {
+                if (sites && deep && (mode === 'tag' || mode === 'author')) Object.keys(srcNext).forEach(function (key) {
                     var parts = key.split('\t'), at = srcNext[key];
                     if (parts[1] !== mode || parts[2] !== text) return;
                     jobs.push(sourceSearch(parts[0], mode, parts[3], at, token, item.sort || '').then(function (result) {
                         if (result.more) { srcNext[key] = at + 1; state.more = true; } else delete srcNext[key];
-                        return noveldbTwins(offer(result.cards), token).then(function (twins) {
+                        var fresh = offer(result.cards);
+                        return (useNovelDB ? noveldbTwins(fresh, token) : Promise.resolve([])).then(function (twins) {
                             if (twins.length && !stopped(token)) call('add', twins.map(function (c) { return Object.assign(c, {via: mode}); }), id);
                         });
                     }));
