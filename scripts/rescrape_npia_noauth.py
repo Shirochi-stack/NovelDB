@@ -65,7 +65,7 @@ from npia_search_terms import SEARCH_TAGS, SWEEP_CHARS
 
 def pick_cover(item):
     """Pick the best cover URL from a Npia API response."""
-    for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
+    for k in ("cover_url", "novel_thumb_all", "novel_thumb", "novel_img", "novel_img_all"):  # cover_url: the ~20 KB card WebP; novel_img_all: the 10 MB+ upload
         v = item.get(k)
         if v and str(v) not in ("", "None", "null"):
             v = str(v)
