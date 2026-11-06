@@ -201,8 +201,14 @@
         if (view !== 'search') return;
         var seconds = Math.round((Date.now() - progress.started) / 1000);
         status('Searching… ' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered · ' + seconds + ' s · '
-               + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far' + noveldbCount());
+               + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far' + noveldbCount() + memoryNote());
     }
+    // The page's memory (Chromium's estimate): a phone's page that grows past a few hundred MB is closed by Android.
+    function memoryMB() {
+        var memory = window.performance && performance.memory;
+        return memory && memory.usedJSHeapSize ? Math.round(memory.usedJSHeapSize / 1048576) : 0;
+    }
+    function memoryNote() { var mb = memoryMB(); return mb ? ' · ' + mb + ' MB' : ''; }
     // While searching, the one progress line counts the books: no second line takes turns with it.
     function countLine() {
         if (running) { showProgress(); return; }
@@ -329,6 +335,7 @@
         }
         var rows = progress.sites.slice().sort(function (a, b) { return a.ms - b.ms; });
         html += '<h3>' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered</h3>';
+        if (memoryMB()) html += '<p>The page is using ' + memoryMB() + ' MB of memory.</p>';
         html += rows.map(function (item) {
             var what = siteState(item);
             return '<div class="siterow ' + esc(item.state || 'ok') + '"><span>' + esc(item.site) + '</span><span class="ms">'
