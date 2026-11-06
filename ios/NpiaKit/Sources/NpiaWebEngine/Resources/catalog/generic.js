@@ -397,6 +397,7 @@
         running = Math.max(0, running + delta);
         $('stop').disabled = running === 0;
         showProgress();
+        showMoreLoader();
         if (!running) setTimeout(closeSlots, 1500);  // books still being checked may yet fill them
     }
 
@@ -559,6 +560,7 @@
         var from = view;
         view = nextView;
         more = {page: 1, loading: false, has: true};
+        showMoreLoader();
         clearTimeout(top.timer);  // a top list still loading draws nothing more
         groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear();
         if (nextView !== 'search') siteFilter.clear();
@@ -821,7 +823,7 @@
     function drawCards() {
         var drawn = Array.from(dirty).filter(drawCard);
         dirty.clear();
-        if (drawn.length) orderCards();
+        if (drawn.length) { orderCards(); evenRowsSoon(); }
         if (drawn.length && cardsTranslated) translateCards(drawn);
         drawn.forEach(function (group) {
             fit(group.element.querySelector('.title'));
@@ -916,13 +918,36 @@
     try { translatePicked = localStorage.getItem(TRANSLATE_KEY) || ''; } catch (e) {}
     function translateTo() { return translatePicked || DEVICE_LANGUAGE; }
     var TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=auto&tl=';
-    var translated = new Map();  // text -> its translation, kept for this page
-    // A book's details the site wrote: its title, original title, synopsis and tags (the app's labels stay).
-    var TRANSLATED_PARTS = '.details h2, .details .rawtitle, .details .desc, .details .chips .chip';
+    // Translations kept per language (this page's, and the last TRANSLATE_KEEP of them across visits, in the
+    // browser's storage): a card drawn again or met in another search shows its translation at once.
+    var TRANSLATE_KEEP = 3000, TRANSLATE_STORE = 'noveldb.generic.translations';
+    var translated = new Map();  // language + "|" + text -> its translation
+    try {
+        (JSON.parse(localStorage.getItem(TRANSLATE_STORE) || '[]') || []).forEach(function (entry) {
+            if (Array.isArray(entry) && entry.length === 2) translated.set(entry[0], entry[1]);
+        });
+    } catch (e) {}
+    var translateSaveTimer = 0;
+    function keepTranslations() {
+        clearTimeout(translateSaveTimer);
+        translateSaveTimer = setTimeout(function () {
+            var entries = Array.from(translated.entries()).slice(-TRANSLATE_KEEP);
+            try { localStorage.setItem(TRANSLATE_STORE, JSON.stringify(entries)); } catch (e) {
+                try { localStorage.setItem(TRANSLATE_STORE, JSON.stringify(entries.slice(-Math.floor(TRANSLATE_KEEP / 3)))); } catch (e2) {}
+            }
+        }, 1500);
+    }
+    function translationOf(text) { return translated.get(translateTo() + '|' + text); }
+    function rememberTranslation(text, translation) {
+        var key = translateTo() + '|' + text;
+        translated.delete(key);  // the newest last: the oldest go first when the store is full
+        translated.set(key, translation);
+        keepTranslations();
+    }
     /** `texts` in translateTo(), in their order (a text Google can't translate comes back as it is). Lines go in
      * batches of about 4,500 characters, one per line, so a chapter is a few requests. */
     function googleTranslate(texts) {
-        var wanted = texts.filter(function (text) { return text.trim() && !translated.has(text); });
+        var wanted = texts.filter(function (text) { return text.trim() && translationOf(text) == null; });
         var batches = [], batch = [], size = 0;
         wanted.forEach(function (text) {
             var one = text.replace(/\s*\n\s*/g, ' ');
@@ -930,17 +955,30 @@
             batch.push([text, one]); size += one.length + 1;
         });
         if (batch.length) batches.push(batch);
-        return Promise.all(batches.map(function (items) {
-            var body = 'q=' + encodeURIComponent(items.map(function (item) { return item[1]; }).join('\n'));
-            return fetch(TRANSLATE_URL + encodeURIComponent(translateTo()), {method: 'POST', body: body,
-                                                        headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'}})
-                .then(function (response) { return response.ok ? response.json() : null; })
-                .then(function (data) {
-                    var lines = ((data && data[0]) || []).map(function (part) { return (part && part[0]) || ''; }).join('').split('\n');
-                    if (lines.length !== items.length) return;  // Google merged or split lines: left untranslated
-                    items.forEach(function (item, i) { translated.set(item[0], lines[i].trim() || item[0]); });
-                }, function () {});
-        })).then(function () { return texts.map(function (text) { return translated.get(text) || text; }); });
+        return Promise.all(batches.map(translateBatch)).then(function () {
+            return texts.map(function (text) { var out = translationOf(text); return out == null ? text : out; });
+        });
+    }
+    /** One request for `items` ([text, one line of it], ...), a line each. When Google merges or splits lines
+     *  the answer can't be matched to them: the batch is asked again in halves, down to single texts (one odd
+     *  text left the whole first batch, the top cards, untranslated). */
+    function translateBatch(items) {
+        var body = 'q=' + encodeURIComponent(items.map(function (item) { return item[1]; }).join('\n'));
+        return fetch(TRANSLATE_URL + encodeURIComponent(translateTo()), {method: 'POST', body: body,
+                                                    headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'}})
+            .then(function (response) { return response.ok ? response.json() : null; })
+            .then(function (data) {
+                if (!data) return;
+                var lines = ((data && data[0]) || []).map(function (part) { return (part && part[0]) || ''; }).join('').split('\n');
+                if (lines.length === items.length) {
+                    items.forEach(function (item, i) { rememberTranslation(item[0], lines[i].trim() || item[0]); });
+                } else if (items.length === 1) {
+                    rememberTranslation(items[0][0], lines.join(' ').trim() || items[0][0]);
+                } else {
+                    var half = Math.ceil(items.length / 2);
+                    return Promise.all([translateBatch(items.slice(0, half)), translateBatch(items.slice(half))]);
+                }
+            }, function () {});
     }
     /** The text nodes of `root` (an element, or a list of them: one request for all) swapped for their
      * translation, or back to the original (`back`). */
@@ -1234,6 +1272,7 @@
             }
         });
         if (view === 'search') countLine();
+        showMoreLoader();
     }
     function shownCount() { return order.filter(function (g) { return !(g.held && !g.verified); }).length; }
 
@@ -2006,14 +2045,22 @@
         translatePicked = this.value;
         try { localStorage.setItem(TRANSLATE_KEY, this.value); } catch (e) {}
     });
+    // On, it stays on: the cards of the next searches and visits are translated too, until it is pressed again.
+    var CARDS_TRANSLATED_KEY = 'noveldb.generic.cardsTranslated';
+    function showCardsTranslated() {
+        $('translateCards').classList.toggle('on', cardsTranslated);
+        $('translateCards').textContent = cardsTranslated ? '🌐 Show the cards as written' : '🌐 Translate the shown cards';
+    }
+    try { cardsTranslated = localStorage.getItem(CARDS_TRANSLATED_KEY) === '1'; } catch (e) {}
+    showCardsTranslated();
     $('translateCards').addEventListener('click', function () {
         var button = this;
         cardsTranslated = !cardsTranslated;
+        try { localStorage.setItem(CARDS_TRANSLATED_KEY, cardsTranslated ? '1' : ''); } catch (e) {}
         button.disabled = true;
         translateCards(order).then(function () {
             button.disabled = false;
-            button.classList.toggle('on', cardsTranslated);
-            button.textContent = cardsTranslated ? '🌐 Show the cards as written' : '🌐 Translate the shown cards';
+            showCardsTranslated();
         });
     });
     $('sort').addEventListener('change', function () {
@@ -2851,9 +2898,44 @@
     // A search asks for its next results (NovelDB's next page, each site's next results page); a top list
     // shows TOP_STEP more of the books its sites listed, and asks them for their next pages when it runs short.
     var more = {page: 1, loading: false, has: true};
+    // The next books are asked for well before the end (two and a half screens, 1,800 px at least), so they
+    // are usually in by the time the list gets there; the loader under the cards shows while they come.
     function nearEnd() {
         var page = document.scrollingElement || document.documentElement;
-        return page.scrollTop + window.innerHeight >= page.scrollHeight - 900;
+        return page.scrollTop + window.innerHeight >= page.scrollHeight - Math.max(1800, window.innerHeight * 2.5);
+    }
+    function setMoreLoading(on) {
+        more.loading = on;
+        showMoreLoader();
+    }
+    /** Full rows while more books can come: the last cards of a row left part empty wait (hidden) for the
+     *  next ones; once nothing more is coming, every card shows. */
+    function evenRows() {
+        var grid = $('grid');
+        var cards = Array.prototype.filter.call(grid.children, function (el) {
+            el.classList.remove('rowwait');
+            return el.style.display !== 'none' && el.offsetParent !== null;
+        });
+        var columns = String(getComputedStyle(grid).gridTemplateColumns || '').split(' ').filter(Boolean).length;
+        var coming = (view === 'search' || view === 'top') && (more.loading || running > 0 || more.has);
+        if (columns < 2 || !coming) return;
+        var left = cards.length % columns;
+        if (!left || cards.length <= left) return;
+        // The cards shown last: the sort's order where one is set, else the list's own.
+        cards.map(function (el, i) { return [el, Number(el.style.order || 0), i]; })
+            .sort(function (a, b) { return a[1] - b[1] || a[2] - b[2]; })
+            .slice(-left).forEach(function (entry) { entry[0].classList.add('rowwait'); });
+    }
+    var evenTimer = 0;
+    function evenRowsSoon() { clearTimeout(evenTimer); evenTimer = setTimeout(evenRows, 60); }
+    window.addEventListener('resize', evenRowsSoon);
+    /** The loader under the cards: while their next books load, or a search is still finding books. */
+    function showMoreLoader() {
+        var loader = $('moreLoading');
+        if (!loader) return;
+        var busy = (view === 'search' || view === 'top') && order.length > 0 && (more.loading || running > 0);
+        loader.classList.toggle('on', busy);
+        evenRowsSoon();
     }
     function moreSoon() {
         if (!nearEnd() || $('reader').classList.contains('open')) return;
@@ -2864,12 +2946,12 @@
             var ndbNext = more.ndbHas !== false && progress.noveldb > 0 ? more.ndbPage || 1 : 0;
             if (running) {
                 if (!ndbNext) return;
-                more.loading = true;
+                setMoreLoading(true);
                 send({type: 'genericMore', id: searchId, queries: current.queries, page: more.page, ndbPage: ndbNext, sites: false});
                 return;
             }
             if (!more.has) return;
-            more.loading = true;
+            setMoreLoading(true);
             status('Loading more results…');
             send({type: 'genericMore', id: searchId, queries: current.queries, page: more.page, ndbPage: ndbNext});
         } else if (view === 'top') {
@@ -2879,13 +2961,13 @@
                 topRedraw();
             }
             if (waiting >= TOP_STEP || more.loading || !more.has || running) return;
-            more.loading = true;
+            setMoreLoading(true);
             status('Loading more ' + TOP_NAMES[top.kind] + '…');
             if (top.cached) {
                 top.cached = false;
                 top.limit = order.length + TOP_STEP;
                 loadTop(searchId);  // a kept list: its sites' lists first, then their next pages
-                more.loading = false;
+                setMoreLoading(false);
                 setTimeout(closeSlots, 1500);
             } else if (!isComicKind(top.kind)) {
                 topMoreNovels(searchId);
@@ -2937,7 +3019,7 @@
             if (view === 'search' && state && state.ndbPage) { more.ndbPage = state.ndbPage + 1; more.ndbHas = !!state.ndbMore; }
             if (view === 'search' && state && state.ndbOnly) {
                 // NovelDB's page read while the search runs: the sites' next page is still to come.
-                more.loading = false;
+                setMoreLoading(false);
                 setTimeout(closeSlots, 1500);
                 countLine();
                 empty();
@@ -2948,7 +3030,7 @@
             if (state && state.more) more.any = true;
             if (more.parts > 1) { more.parts--; return; }
             more.parts = 0;
-            more.loading = false;
+            setMoreLoading(false);
             setTimeout(closeSlots, 1500);
             more.page++;
             more.has = !!more.any;

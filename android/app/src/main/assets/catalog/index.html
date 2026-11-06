@@ -74,6 +74,13 @@
     h1#heading { font-size: 16px; margin: 0 0 12px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
     h1#heading a { font-size: 13px; font-weight: 400; color: var(--accent); cursor: pointer; }
     #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 14px; }
+    /* Under the cards while more books load. */
+    .moreloading { display: none; align-items: center; justify-content: center; gap: 12px; padding: 22px 0 30px; color: var(--ink-2); }
+    .moreloading.on { display: flex; }
+    /* A card waiting for the rest of its row (more books are coming): no half-empty last row. */
+    #grid > .rowwait { display: none !important; }
+    .moreloading img { width: 56px; height: 56px; object-fit: contain; animation: moreBob 1.2s ease-in-out infinite; }
+    @keyframes moreBob { 50% { transform: translateY(-6px); } }
     .card { background: var(--panel); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; display: flex;
             flex-direction: column; cursor: pointer; position: relative;
             contain: layout style; }  /* a card's layout stays its own: measuring one doesn't lay out the grid */
@@ -417,6 +424,7 @@
 <main>
     <h1 id="heading"></h1>
     <div id="grid"></div>
+    <div id="moreLoading" class="moreloading" aria-live="polite"><img src="halgakos-loading.webp" alt=""><span>Loading more books…</span></div>
     <div id="empty"></div>
 </main>
 <dialog id="dialog"></dialog>

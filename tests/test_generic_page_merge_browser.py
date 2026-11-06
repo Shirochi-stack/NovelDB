@@ -188,3 +188,36 @@ def test_translations_go_into_the_language_picked_in_the_settings(page):
     page.wait_for_timeout(500)
     assert asked and "tl=fr" in asked[0]
     assert page.eval_on_selector("#flow p", "e => e.textContent") == "Bonjour."
+
+
+def test_more_loading_shows_a_loader_and_keeps_rows_full(page):
+    page.set_viewport_size({"width": 400, "height": 800})
+    page.evaluate("() => document.getElementById('query').value = 'x'")
+    page.evaluate("() => document.getElementById('go').click()")
+    cards = [site_card(url=f"https://m.example.test/{n}", title=f"Book {n}") for n in range(5)]
+    page.evaluate("cards => window.NovelDBGeneric.add(cards, undefined)", [dict(c, via="name") for c in cards])
+    page.wait_for_timeout(400)
+    columns = page.evaluate("() => getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length")
+    shown = page.evaluate("() => Array.from(document.querySelectorAll('#grid > *')).filter(e => e.offsetParent).length")
+    assert page.eval_on_selector("#moreLoading", "e => e.classList.contains('on')")  # the search still runs
+    assert shown % columns == 0 and shown < 5
+
+
+def test_a_batch_google_answers_in_other_lines_is_asked_again_in_halves(page):
+    asked = []
+
+    def answer(route):
+        texts = __import__("urllib.parse", fromlist=["x"]).parse_qs(route.request.post_data)["q"][0].split(chr(10))
+        asked.append(len(texts))
+        if len(texts) > 2:
+            texts = [texts[0] + " " + texts[1]] + texts[2:]  # Google merged two lines: no longer one per text
+        out = [[t.upper() + ("" if i == len(texts) - 1 else chr(10)), t] for i, t in enumerate(texts)]
+        route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                      body=json.dumps([out]))
+
+    page.route("https://translate.googleapis.com/**", answer)
+    page.evaluate("() => { document.getElementById('flow').innerHTML = '<p>aa</p><p>bb</p><p>cc</p><p>dd</p>'; }")
+    page.evaluate("() => document.getElementById('rTranslate').click()")
+    page.wait_for_timeout(600)
+    assert asked[0] == 4 and sorted(asked[1:]) == [2, 2]
+    assert page.eval_on_selector_all("#flow p", "els => els.map(e => e.textContent)") == ["AA", "BB", "CC", "DD"]
