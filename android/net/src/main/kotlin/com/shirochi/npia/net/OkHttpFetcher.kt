@@ -73,9 +73,11 @@ class OkHttpFetcher(
         this(cookieJar, null, settings.maxRetries, logger = logger, minTimeoutSeconds = settings.requestTimeoutSeconds.toLong())
 
     private val client = client ?: OkHttpClient.Builder()
-        // OkHttp's own limit is 5 requests at a time per host: the Catalog's NovelDB index reads (all
-        // from one host) and a download's image workers would queue behind it. The callers set the pace.
-        .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 128; maxRequestsPerHost = 24 })
+        // One dispatcher and connection pool for every fetcher: the Catalog makes a fetcher for each of its
+        // thousands of requests, and each with threads and connections of its own took the app to 900 and
+        // more threads within a minute's search (171 connections to one host) until a phone closed it.
+        .dispatcher(SHARED_DISPATCHER)
+        .connectionPool(SHARED_POOL)
         .cookieJar(cookieJar)
         .connectTimeout(20, TimeUnit.SECONDS)
         // OkHttp replaces a caller's `Cookie` header with the jar's cookies; keep both instead.
@@ -157,6 +159,11 @@ class OkHttpFetcher(
     }
 
     companion object {
+        // OkHttp's own limit is 5 requests at a time per host: the Catalog's NovelDB index reads (all
+        // from one host) and a download's image workers would queue behind it. The callers set the pace.
+        private val SHARED_DISPATCHER = okhttp3.Dispatcher().apply { maxRequests = 256; maxRequestsPerHost = 24 }
+        private val SHARED_POOL = okhttp3.ConnectionPool(16, 2, TimeUnit.MINUTES)
+
         const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
