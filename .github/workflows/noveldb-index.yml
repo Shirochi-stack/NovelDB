@@ -8,9 +8,6 @@ on:
   push:
     branches: [main]
     paths:
-      - 'docs/data/*_chunk_manifest.json'
-      - 'docs/data/*titles_en.txt'
-      - 'docs/data/tags_en.txt'
       - 'docs/metadata-core.js'
       - 'scripts/noveldb_index/**'
   schedule:
@@ -35,10 +32,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            docs/data
             docs/metadata-core.js
             scripts/noveldb_index
           sparse-checkout-cone-mode: false
+
+      - name: Load published data
+        # docs/data lives on the `data` branch (scripts/data_branch.py).
+        run: |
+          git fetch --no-tags --depth=1 origin data
+          git archive FETCH_HEAD docs/data | tar -x
 
       - uses: actions/setup-node@v4
         with:

@@ -12,12 +12,11 @@ config.json
 logs/
 *.loginkey
 debug_search.py
-docs/data/novels_full.json
 
-# Allow translation txt files in docs/data
-!docs/data/*.txt
-# Except the raw descriptions file (too large, only .gz is committed)
-docs/data/sfc_descriptions.txt
+# Generated site data and source state live on the `data` branch (scripts/data_branch.py checkout);
+# scripts/data-branch.gitignore holds the rules for files inside them.
+/docs/data/
+/metadata/state/
 
 # External novel browser session data (cookies, localStorage)
 browser_data/
@@ -27,27 +26,10 @@ tmp_sfc_apk/
 
 *.epub
 
-# Kpage descriptions are stored and processed as gzip.
-docs/data/kpage_descriptions.txt
-
-# New metadata sources publish gzip/shards; plaintext and pending corpora stay in recovery artifacts.
-docs/data/nweb_descriptions.txt
-docs/data/jara_descriptions.txt
-docs/data/mpia_descriptions.txt
-docs/data/rbooks_descriptions.txt
-docs/data/nseries_descriptions.txt
-docs/data/nweb_*_untranslated.txt
-docs/data/jara_*_untranslated.txt
-docs/data/mpia_*_untranslated.txt
-docs/data/rbooks_*_untranslated.txt
-docs/data/nseries_*_untranslated.txt
-
 # GitLab disposable CI output
 /.gitlab-work/
 /artifacts/
 
-# Shared public author registry must remain available to rescrape workflows.
-!docs/data/npia_authors.json
 _build_info.py
 /dist-desktop/
 # Desktop app runtime data in a portable (source) install: the repo's data/ folder doubles as

@@ -42,7 +42,7 @@ echo    docs/data/kpage_descriptions_untranslated.txt
 echo    docs/data/kpage_titles_en.txt
 echo    docs/data/kpage_titles_untranslated.txt
 echo.
-echo  Run: git add docs/data ^& git commit -m "rescrape kpage" ^& git push
+echo  Run: python scripts/publish_metadata.py --message "rescrape kpage" --paths docs/data
 echo ============================================
 pause
 exit /b 0

@@ -70,7 +70,7 @@ The scheduled job uses the [six-hour GitHub-hosted job ceiling](https://docs.git
 
 The scheduled npia metadata scraper optionally logs in with the GitHub Actions secrets `NPIA_METADATA_EMAIL` and `NPIA_METADATA_PASSWORD`, passed only to the collection step as environment variables. Each run or continuation establishes and verifies one fresh account session; search and author/identity workers inherit its cookies without making individual login requests. It does not rely on a saved session-key secret. With neither credential, collection stays anonymous; an incomplete credential pair or rejected login stops the run instead of silently continuing anonymously. Temporary service errors receive four attempts. This route never reads `config.json` or changes age-verification status; the three adult ranking boards retain their existing values. Credentials, login response bodies, and fresh session keys are never included in logs or metadata exports. The separate manual authenticated batch remains unchanged.
 
-The full npia workflow publishes through `scripts/publish_metadata.py`, which fetches the current branch and retries non-fast-forward pushes without force-pushing. Unrelated newer commits survive publication. Overlapping source-data changes stop publication rather than selecting an arbitrary version; the recovery artifact retains the compact catalog, full metadata, author registry, and continuation state so finished discovery can be recovered without repeating its requests.
+The full npia workflow publishes through `scripts/publish_metadata.py` (see *Where the data lives* below). Concurrent publications from other sources survive. Overlapping source-data changes stop publication rather than selecting an arbitrary version; the recovery artifact retains the compact catalog, full metadata, author registry, and continuation state so finished discovery can be recovered without repeating its requests.
 
 ### How each source is collected
 
@@ -376,11 +376,11 @@ Times below are configured UTC times. These workflows also support manual dispat
 
 | Workflow | Schedule | Pipeline after collection |
 | --- | --- | --- |
-| [rescrape-npia.yml](../.github/workflows/rescrape-npia.yml) | Sunday 12:00 UTC (`0 12 * * 0`) | No-account full rescrape → descriptions → gzip → 128 description shards → five catalog chunks → Npia top → commit/push |
-| [update-rankings.yml](../.github/workflows/update-rankings.yml) | 00:00 UTC on `*/2` days of the month (`0 0 */2 * *`) | No-account ranking updater → gzip → 128 description shards → five catalog chunks → Npia top → commit/push |
-| [update-kpage.yml](../.github/workflows/update-kpage.yml) | Sunday 09:00 UTC (`0 9 * * 0`) | Kpage scrape → catalog-drop guard → descriptions/titles/pending extraction → gzip → 128 synopsis shards → three catalog chunks → commit/push |
-| [update-sfc.yml](../.github/workflows/update-sfc.yml) | Sunday 03:00 UTC (`0 3 * * 0`) | SFC scrape → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFC top → commit/push |
-| [update-sfc-rankings.yml](../.github/workflows/update-sfc-rankings.yml) | Daily 06:00 UTC (`0 6 * * *`) | SFC rankings → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFC top → commit/push |
+| [rescrape-npia.yml](../.github/workflows/rescrape-npia.yml) | Sunday 12:00 UTC (`0 12 * * 0`) | No-account full rescrape → descriptions → gzip → 128 description shards → five catalog chunks → Npia top → publish to `data` |
+| [update-rankings.yml](../.github/workflows/update-rankings.yml) | 00:00 UTC on `*/2` days of the month (`0 0 */2 * *`) | No-account ranking updater → gzip → 128 description shards → five catalog chunks → Npia top → publish to `data` |
+| [update-kpage.yml](../.github/workflows/update-kpage.yml) | Sunday 09:00 UTC (`0 9 * * 0`) | Kpage scrape → catalog-drop guard → descriptions/titles/pending extraction → gzip → 128 synopsis shards → three catalog chunks → publish to `data` |
+| [update-sfc.yml](../.github/workflows/update-sfc.yml) | Sunday 03:00 UTC (`0 3 * * 0`) | SFC scrape → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFC top → publish to `data` |
+| [update-sfc-rankings.yml](../.github/workflows/update-sfc-rankings.yml) | Daily 06:00 UTC (`0 6 * * *`) | SFC rankings → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFC top → publish to `data` |
 
 The Npia ranking cron is a day-of-month expression, not a guaranteed rolling 48-hour interval across month boundaries. The Kpage workflow overrides scraper defaults with delay 0.5, four catalog workers, four description workers, and eight retries. SFC full update supplies delay 0.15. Publication uses precomputed data; adding a source requires its generated files to be included in the relevant commit step.
 
@@ -407,11 +407,15 @@ The shared lock prevents these data-writing workflows from running simultaneousl
 | [Mpia](../.github/workflows/update-mpia-metadata.yml) | Tuesday 08:00 UTC | 17:00 UTC |
 | [Jara](../.github/workflows/update-jara-metadata.yml) | Wednesday 08:00 UTC | 18:00 UTC |
 
-The thin workflows dispatch catalog/rankings/build/resume operations to [metadata-source-job.yml](../.github/workflows/metadata-source-job.yml). It limits collection to five hours inside a six-hour job, resumes durable `metadata/state/<source>.json.gz` progress, validates staged artifacts, and commits source data/state. Validated progress can be committed after failure. Temporary request logs are Actions artifacts and ignored local cache, not website files.
+The thin workflows dispatch catalog/rankings/build/resume operations to [metadata-source-job.yml](../.github/workflows/metadata-source-job.yml). It limits collection to five hours inside a six-hour job, resumes durable `metadata/state/<source>.json.gz` progress, validates staged artifacts, and publishes source data/state to the `data` branch. Validated progress can be published after failure. Temporary request logs are Actions artifacts and ignored local cache, not website files.
 
 [translate-new-metadata.yml](../.github/workflows/translate-new-metadata.yml) runs only after a successful source workflow or manual invocation. Original metadata is already independently published before translation. Translation failures cannot discard original metadata; stale ranking boards retain prior observations. These are configured behaviors, not claims of a completed production backfill.
 
-The shared new-source job explicitly requests a branch-based GitHub Pages build after a successful metadata or translation push, including no-change reruns. `pages: write` is granted by the shared job and its source/translation callers. The request checks the configured `/docs` publishing source and run branch before submitting the build; API failures fail the workflow visibly. GitHub then builds asynchronously. This closes the gap where bot commits updated repository files without starting a live-site rebuild. Pages settings remain unchanged, and no build was dispatched during local verification.
+### Where the data lives
+
+`docs/data/` and `metadata/state/` are not on `main`; main's `.gitignore` excludes both. They live on the orphan `data` branch, which always holds exactly one commit. Every bot loads it with `python scripts/data_branch.py checkout` (written to the same paths, with the loaded commit kept as `refs/data/base`). Each bot then publishes with `python scripts/publish_metadata.py --message ... --paths <pathspecs>`. The publisher stages the given paths into a separate index under the rules in `scripts/data-branch.gitignore`, sanitizes and size-checks them, then applies only the changed files to the latest branch tip. It pushes the result as a parentless replacement commit with `--force-with-lease`. A race refetches and retries; an overlapping change to the same source file stops publication, while shared tag files are merged. The data therefore never accumulates history and the repository stays small.
+
+The site is deployed by [pages.yml](../.github/workflows/pages.yml) (GitHub Pages source: GitHub Actions). It takes `docs/` from main, replaces `docs/data` with the data branch's copy, and deploys it to the same URL, so the website and the apps' data addresses are unchanged. A successful publication requests this workflow, including no-change reruns; pushes to `docs/` on main and a six-hourly schedule also deploy. `guard_catalog_drop.py` compares against `refs/data/base`. To work on data locally, run the checkout command, then use the same publisher.
 
 ### Desktop release automation
 

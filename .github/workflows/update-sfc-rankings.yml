@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: data-write-lock
@@ -29,6 +30,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Load published data
+        run: python scripts/data_branch.py checkout
+
       - name: Install dependencies
         run: pip install requests
 
@@ -47,17 +51,10 @@ jobs:
       - name: Build SFC top file
         run: python scripts/build_sfc_top.py
 
-      - name: Check for changes
-        id: changes
-        run: |
-          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
-
-      - name: Commit and push
-        if: steps.changes.outputs.changed == 'true'
+      - name: Publish data
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/sfc_novels.json docs/data/sfc_descriptions.txt.gz docs/data/sfc_descriptions_shard_*.json.gz docs/data/sfc_descriptions_shard_manifest.json docs/data/sfc_chunk_*.json.gz docs/data/sfc_chunk_manifest.json docs/data/sfc_top.json.gz
-          python scripts/codename_policy.py sanitize-data
-          git commit -m "📊 Update SFC rankings ($(date -u +%Y-%m-%d))"
-          git push
+          python scripts/publish_metadata.py --message "📊 Update SFC rankings ($(date -u +%Y-%m-%d))" --paths docs/data/sfc_novels.json docs/data/sfc_descriptions.txt.gz 'docs/data/sfc_descriptions_shard_*.json.gz' docs/data/sfc_descriptions_shard_manifest.json 'docs/data/sfc_chunk_*.json.gz' docs/data/sfc_chunk_manifest.json docs/data/sfc_top.json.gz

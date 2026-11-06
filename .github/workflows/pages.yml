@@ -1,0 +1,52 @@
+name: Deploy NovelDB site
+
+# The site is docs/ from main plus docs/data from the `data` branch (scripts/data_branch.py),
+# so the bots' daily data never enters main's history. Publishing data requests this workflow;
+# the schedule catches any request that failed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  schedule:
+    - cron: '20 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs
+          sparse-checkout-cone-mode: true
+
+      - name: Add the published data
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin data
+          rm -rf docs/data
+          git archive FETCH_HEAD docs/data | tar -x
+          echo "Data: $(git log -1 --format='%h %s (%cI)' FETCH_HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          du -sh docs docs/data >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

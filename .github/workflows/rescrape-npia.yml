@@ -35,6 +35,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Load published data
+        run: python scripts/data_branch.py checkout
+
       - name: Install dependencies
         run: pip install requests beautifulsoup4
 
@@ -65,25 +68,15 @@ jobs:
       - name: Rebuild instant-load top rankings
         run: python scripts/build_npia_top.py
 
-      - name: Check for changes
-        id: changes
-        run: |
-          if git diff --quiet docs/data/ && [ -z "$(git ls-files --others --exclude-standard -- docs/data/npia_public_state.json docs/data/npia_authors.json)" ]; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "changed=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Commit and push
-        if: steps.changes.outputs.changed == 'true'
+      - name: Publish data
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/novels.json'))))")
-          git add docs/data/novels.json docs/data/npia_public_state.json docs/data/npia_authors.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_shard_*.json.gz docs/data/descriptions_shard_manifest.json docs/data/npia_chunk_*.json.gz docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz
-          python scripts/codename_policy.py sanitize-data
           python scripts/codename_policy.py check --commits || echo "::warning::codename policy violations (not blocking)"
-          python scripts/publish_metadata.py --branch "$GITHUB_REF_NAME" --message "🔄 Update Npia data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
+          python scripts/publish_metadata.py --message "🔄 Update Npia data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))" --paths docs/data/npia_public_state.json docs/data/npia_authors.json docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz 'docs/data/descriptions_shard_*.json.gz' docs/data/descriptions_shard_manifest.json 'docs/data/npia_chunk_*.json.gz' docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz
 
       - name: Continue unfinished R19 author checks
         uses: actions/github-script@v7

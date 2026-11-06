@@ -69,10 +69,11 @@ def event_messages():
         page += 1
 
 
-def sanitize_staged_data():
+def sanitize_staged_data(base=None):
     root = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only',
-                                     '--diff-filter=ACMR', '-z'], cwd=root).decode().strip('\0').split('\0')
+                                     '--diff-filter=ACMR', '-z', *([base] if base else [])],
+                                    cwd=root).decode().strip('\0').split('\0')
     changed = []
     for name in filter(None, paths):
         if NAME_PATTERN.search(name):
@@ -92,7 +93,7 @@ def sanitize_staged_data():
             path.write_bytes(gzip.compress(value, compresslevel=9, mtime=0) if compressed else value)
             changed.append(name)
     if changed:
-        subprocess.run(['git', 'add', '--', *changed], cwd=root, check=True)
+        subprocess.run(['git', 'add', '--force', '--', *changed], cwd=root, check=True)
     return changed
 
 

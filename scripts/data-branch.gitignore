@@ -1,0 +1,23 @@
+# Files under docs/data and metadata/state that are never published to the data branch
+# (scripts/data_branch.py stages with these rules; main's .gitignore ignores both folders).
+docs/data/novels_full.json
+# The raw descriptions file is too large; only .gz is published.
+docs/data/sfc_descriptions.txt
+# Kpage descriptions are stored and processed as gzip.
+docs/data/kpage_descriptions.txt
+# New metadata sources publish gzip/shards; plaintext and pending corpora stay in recovery artifacts.
+docs/data/nweb_descriptions.txt
+docs/data/jara_descriptions.txt
+docs/data/mpia_descriptions.txt
+docs/data/rbooks_descriptions.txt
+docs/data/nseries_descriptions.txt
+docs/data/nweb_*_untranslated.txt
+docs/data/jara_*_untranslated.txt
+docs/data/mpia_*_untranslated.txt
+docs/data/rbooks_*_untranslated.txt
+docs/data/nseries_*_untranslated.txt
+# Repository-wide rules from .gitignore that also apply here.
+*.png
+*.pyc
+__pycache__/
+*.epub

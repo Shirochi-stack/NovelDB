@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: data-write-lock
@@ -29,6 +30,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Load published data
+        run: python scripts/data_branch.py checkout
+
       - name: Install dependencies
         run: pip install requests beautifulsoup4
 
@@ -47,17 +51,10 @@ jobs:
       - name: Rebuild instant-load top rankings
         run: python scripts/build_npia_top.py
 
-      - name: Check for changes
-        id: changes
-        run: |
-          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
-
-      - name: Commit and push
-        if: steps.changes.outputs.changed == 'true'
+      - name: Publish data
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_shard_*.json.gz docs/data/descriptions_shard_manifest.json docs/data/npia_chunk_*.json.gz docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz
-          python scripts/codename_policy.py sanitize-data
-          git commit -m "📊 Update Npia rankings ($(date -u +%Y-%m-%d))"
-          git push
+          python scripts/publish_metadata.py --message "📊 Update Npia rankings ($(date -u +%Y-%m-%d))" --paths docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz 'docs/data/descriptions_shard_*.json.gz' docs/data/descriptions_shard_manifest.json 'docs/data/npia_chunk_*.json.gz' docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz

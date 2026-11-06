@@ -67,7 +67,7 @@ echo    docs/data/npia_chunk_*.json.gz
 echo    docs/data/npia_chunk_manifest.json
 echo    docs/data/npia_top.json.gz
 echo.
-echo  Run: git add docs/data ^& git commit -m "rescrape" ^& git push
+echo  Run: python scripts/publish_metadata.py --message "rescrape" --paths docs/data
 echo ============================================
 pause
 exit /b 0

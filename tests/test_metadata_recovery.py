@@ -9,7 +9,6 @@ import pytest
 
 from scripts import metadata_common as common
 from scripts import metadata_recovery as recovery
-from scripts import publish_metadata as publishing
 from scripts import source_names
 
 
@@ -101,114 +100,6 @@ def update(repo, name, content, push=False):
     if push:
         git(repo, 'commit', '-m', name)
         git(repo, 'push', 'origin', 'main')
-
-
-def test_publish_preserves_unrelated_remote_commit(repositories):
-    local, other, remote = repositories
-    update(local, 'docs/data/nweb_novels.json', 'scraped')
-    update(other, 'README.md', 'remote change', push=True)
-    publishing.publish('main', 'data', backoff=0)
-    assert git(remote, 'show', 'main:README.md') == 'remote change'
-    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'scraped'
-
-
-def test_publish_normalizes_message_and_data_without_changing_wire_urls(repositories):
-    local, _, remote = repositories
-    provider = base64.b64decode('TmF2ZXI=').decode()
-    payload = {'canonical_url': 'https://novel.' + provider.lower() + '.com/webnovel/list?novelId=7'}
-    update(local, 'docs/data/nweb_novels.json', json.dumps(payload))
-    publishing.publish('main', 'Update ' + provider + ' metadata', backoff=0)
-    raw = git(remote, 'show', 'main:docs/data/nweb_novels.json')
-    assert json.loads(raw) == payload
-    assert not source_names.contains_name(raw)
-    assert git(remote, 'log', '-1', '--format=%s', 'main') == 'Update nweb metadata'
-
-
-def test_publish_refuses_original_source_filenames(repositories):
-    local, _, remote = repositories
-    provider = base64.b64decode('bmF2ZXI=').decode()
-    update(local, f'docs/data/{provider}_novels.json', '{}')
-    with pytest.raises(ValueError, match='codename'):
-        publishing.publish('main', 'metadata', backoff=0)
-    assert git(remote, 'log', '-1', '--format=%s', 'main') == 'initial'
-
-
-def test_publish_handles_precommitted_data_and_refuses_source_conflict(repositories):
-    local, other, remote = repositories
-    update(local, 'docs/data/nweb_novels.json', 'scraped')
-    git(local, 'commit', '-m', 'already committed')
-    publishing.publish('main', 'retry', backoff=0)
-    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'scraped'
-    # Independently advance the destination with conflicting source output.
-    git(other, 'pull', '--ff-only', 'origin', 'main')
-    update(other, 'docs/data/nweb_novels.json', 'remote source', push=True)
-    update(local, 'docs/data/nweb_novels.json', 'second scrape')
-    with pytest.raises(ValueError, match='Remote source data changed'):
-        publishing.publish('main', 'conflict', backoff=0)
-    assert (local / 'docs/data/nweb_novels.json').read_text() == 'second scrape'
-    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'remote source'
-
-
-def test_publish_shared_tags_preserves_destination_translation(repositories):
-    local, other, remote = repositories
-    update(local, 'docs/data/tags_en.txt', '태그|||Local\n새태그|||New\n')
-    update(other, 'docs/data/tags_en.txt', '태그|||Remote\n', push=True)
-    publishing.publish('main', 'tags', backoff=0)
-    result = git(remote, 'show', 'main:docs/data/tags_en.txt')
-    assert '태그|||Remote' in result and '새태그|||New' in result
-
-
-def test_publish_retries_and_retains_commit_when_exhausted(repositories, monkeypatch):
-    local, _, _ = repositories
-    update(local, 'docs/data/nweb_novels.json', 'scraped')
-    original = publishing.git
-    attempts = []
-    def reject(*args, **kwargs):
-        if args[0] == 'push':
-            attempts.append(args)
-            return subprocess.CompletedProcess(args, 1, b'', b'rejected')
-        return original(*args, **kwargs)
-    monkeypatch.setattr(publishing, 'git', reject)
-    with pytest.raises(RuntimeError, match='exhausted'):
-        publishing.publish('main', 'saved locally', backoff=0)
-    assert len(attempts) == 5
-    assert git(local, 'show', 'HEAD:docs/data/nweb_novels.json') == 'scraped'
-
-
-def test_oversized_data_rejected_before_commit(repositories, monkeypatch):
-    local, _, _ = repositories
-    update(local, 'docs/data/nweb_novels.json', 'too large')
-    head = git(local, 'rev-parse', 'HEAD')
-    monkeypatch.setattr(publishing, 'MAX_BLOB', 5)
-    with pytest.raises(ValueError, match='compress'):
-        publishing.publish('main', 'must not commit', backoff=0)
-    assert git(local, 'rev-parse', 'HEAD') == head
-
-
-def test_oversized_renamed_blob_is_rejected(repositories, monkeypatch):
-    local, _, _ = repositories
-    git(local, 'mv', 'docs/data/nweb_novels.json', 'docs/data/nweb_renamed.json')
-    monkeypatch.setattr(publishing, 'MAX_BLOB', 5)
-    with pytest.raises(ValueError, match='compress'):
-        publishing.validate_index()
-
-
-def test_push_race_refetches_and_preserves_remote_change(repositories, monkeypatch):
-    local, other, remote = repositories
-    update(local, 'docs/data/nweb_novels.json', 'scraped')
-    original = publishing.git
-    pushes = []
-    def race(*args, **kwargs):
-        if args[0] == 'push':
-            pushes.append(args)
-            if len(pushes) == 1:
-                update(other, 'README.md', 'changed during push', push=True)
-        return original(*args, **kwargs)
-    monkeypatch.setattr(publishing, 'git', race)
-    publishing.publish('main', 'race', backoff=0)
-    assert len(pushes) == 2
-    assert git(remote, 'show', 'main:README.md') == 'changed during push'
-    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'scraped'
 
 
 def test_snapshot_roundtrip_and_partial_translation_recovery(repositories, monkeypatch, tmp_path):

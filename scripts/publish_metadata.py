@@ -1,15 +1,20 @@
-"""Publish staged data against the latest branch without losing unrelated commits.
+"""Publish staged data to the `data` branch without losing other sources' updates.
 
-The original local commit is retained on failure. Recovery artifacts are uploaded
-by callers before invoking this command. Never force-push or resolve source data
-conflicts by choosing an arbitrary side.
+Data is loaded with `python scripts/data_branch.py checkout`, which records the
+publication base. Staged changes since that base are applied on top of the latest
+branch tip and pushed as a single replacement commit (compare-and-swap), so the
+branch never accumulates history. Recovery artifacts are uploaded by callers
+before invoking this command. Never resolve source data conflicts by choosing an
+arbitrary side.
 """
 
 try:
     from . import source_names
+    from . import data_branch
     from .codename_policy import sanitize_staged_data
 except ImportError:
     import source_names
+    import data_branch
     from codename_policy import sanitize_staged_data
 
 import argparse
@@ -57,8 +62,9 @@ def tags_at(ref):
     return tags
 
 
-def validate_index():
-    paths = git('diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z').stdout.decode().split('\0')
+def validate_index(base=None):
+    paths = git('diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z',
+                *([base] if base else [])).stdout.decode().split('\0')
     paths = list(filter(None, paths))
     sizes = git('cat-file', '--batch-check=%(objectsize)',
                 input=''.join(f':{p}\n' for p in paths).encode()).stdout.decode().splitlines()
@@ -68,28 +74,51 @@ def validate_index():
             raise ValueError(f'{path} is {size:,} bytes; compress it before committing (100 MiB limit)')
 
 
-def publish(branch, message, attempts=5, backoff=2):
+def request_pages_deploy():
+    """Ask the Pages workflow to redeploy the site with the new data (Actions runs only)."""
+    repo, ref = os.environ.get('GITHUB_REPOSITORY'), os.environ.get('PAGES_REF', 'main')
+    if not (repo and os.environ.get('GH_TOKEN')):
+        return
+    result = subprocess.run(['gh', 'workflow', 'run', 'pages.yml', '--repo', repo, '--ref', ref],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode:
+        # The data is published; the scheduled Pages run deploys it later.
+        print(f'::warning::Pages deployment was not requested: {result.stderr.decode().strip()}', flush=True)
+    else:
+        print('Requested a Pages deployment', flush=True)
+
+
+def publish(message, pathspecs=(), branch=data_branch.BRANCH, attempts=5, backoff=2, deploy=True):
     message = source_names.to_codenames(message)
-    sanitize_staged_data()
-    validate_index()
-    if git('diff', '--cached', '--quiet', check=False).returncode:
-        git('commit', '-m', message)
-    local = git('rev-parse', 'HEAD').stdout.decode().strip()
-    # An earlier invocation may already have committed the output before push failed.
-    base = None
+    # Every git command below, including the sanitizer's, works on the data index.
+    os.environ['GIT_INDEX_FILE'] = data_branch.index_env()['GIT_INDEX_FILE']
+    try:
+        if pathspecs:
+            data_branch.stage(pathspecs)
+        base = git('rev-parse', '--verify', '--quiet', data_branch.BASE_REF, check=False).stdout.decode().strip()
+        if not base:
+            raise RuntimeError('No data loaded; run python scripts/data_branch.py checkout first')
+        sanitize_staged_data(base)
+        validate_index(base)
+        local = git('write-tree').stdout.decode().strip()
+    finally:
+        os.environ.pop('GIT_INDEX_FILE', None)
+    paths = changed(base, local)
+    if not paths:
+        print('Published: nothing changed since the loaded data')
+        if deploy:
+            request_pages_deploy()
+        return base
+    if any(not p.startswith(tuple(d + '/' for d in data_branch.DATA_DIRS)) for p in paths):
+        raise ValueError('Publication contains files outside the data folders')
     for attempt in range(attempts):
         if attempt:
             time.sleep(backoff * (attempt + 1))
-        fetched = git('fetch', 'origin', f'refs/heads/{branch}', check=False)
+        fetched = git('fetch', '--no-tags', '--depth=1', 'origin', f'refs/heads/{branch}', check=False)
         if fetched.returncode:
             print(f'Fetch attempt {attempt + 1}/{attempts} failed: {fetched.stderr.decode().strip()}', flush=True)
             continue
         remote = git('rev-parse', 'FETCH_HEAD').stdout.decode().strip()
-        if base is None:
-            base = git('merge-base', local, remote).stdout.decode().strip()
-            paths = changed(base, local)
-            if any(not (p.startswith('docs/data/') or p.startswith('metadata/state/')) for p in paths):
-                raise ValueError('Publication contains non-data commits; publish code separately first')
         conflicts = [p for p in (paths & changed(base, remote)) - TAG_PATHS
                      if blob(local, p) != blob(remote, p)]
         if conflicts:
@@ -123,19 +152,28 @@ def publish(branch, message, attempts=5, backoff=2):
             tree = git('write-tree', env=env).stdout.decode().strip()
             if tree == git('rev-parse', f'{remote}^{{tree}}').stdout.decode().strip():
                 print('Published: destination already contains this data')
+                if deploy:
+                    request_pages_deploy()
                 return remote
-            commit = git('commit-tree', tree, '-p', remote, '-m', message).stdout.decode().strip()
-        pushed = git('push', 'origin', f'{commit}:refs/heads/{branch}', check=False)
+            # No parent: the branch is replaced, never extended.
+            commit = git('commit-tree', tree, '-m', message).stdout.decode().strip()
+        pushed = git('push', f'--force-with-lease=refs/heads/{branch}:{remote}', 'origin',
+                     f'{commit}:refs/heads/{branch}', check=False)
         if pushed.returncode == 0:
             print(f'Published {commit} (attempt {attempt + 1})')
+            if deploy:
+                request_pages_deploy()
             return commit
         print(f'Push attempt {attempt + 1}/{attempts} failed: {pushed.stderr.decode().strip()}', flush=True)
-    raise RuntimeError('Push retries exhausted. The local commit and uploaded recovery artifact contain the results.')
+    raise RuntimeError('Push retries exhausted. The working tree and uploaded recovery artifact contain the results.')
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--branch', default=os.environ.get('GITHUB_REF_NAME', 'main'))
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--branch', default=data_branch.BRANCH)
     parser.add_argument('--message', required=True)
+    parser.add_argument('--paths', nargs='*', default=[],
+                        help='Git pathspecs under docs/data or metadata/state to stage before publishing')
+    parser.add_argument('--no-deploy', action='store_true', help='Do not request a Pages deployment')
     args = parser.parse_args()
-    publish(args.branch, args.message)
+    publish(args.message, args.paths, args.branch, deploy=not args.no_deploy)

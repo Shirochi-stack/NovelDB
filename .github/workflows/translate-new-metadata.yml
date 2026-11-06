@@ -35,7 +35,6 @@ on:
         default: 2.0
 permissions:
   contents: write
-  pages: write
   actions: write
 jobs:
   context:

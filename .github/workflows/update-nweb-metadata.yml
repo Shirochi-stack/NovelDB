@@ -29,8 +29,7 @@ on:
         type: string
 permissions:
   contents: write
-  pages: write
-  actions: read
+  actions: write
 jobs:
   update:
     uses: ./.github/workflows/metadata-source-job.yml
