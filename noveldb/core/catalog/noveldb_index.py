@@ -91,6 +91,10 @@ def tokens(text: str) -> List[str]:
     return list(out)
 
 
+# The age-rating tags the index gives books (scripts/noveldb_index/build.cjs): the rating each one means.
+AGE_TAGS = {"r19": 19, "r15": 15}
+
+
 def tag_token(tag: str) -> str:
     return "#" + re.sub(r"[\s_\-]+", " ", normal(tag)).strip()
 
@@ -389,7 +393,9 @@ class NovelDBIndex:
                       if mode == "author" else tokens(text))
             if not wanted or self.manifest() is None:
                 return [], False
-            streams = self._tag_lists(text) if mode == "tag" else self._streams(wanted)
+            rated = AGE_TAGS.get(normal(text).strip()) if mode == "tag" else None
+            # An age rating is the index's own tag: its list alone, not the site tags that look like it ("R-19", "Adult").
+            streams = (self._lists(wanted[0]) if rated else self._tag_lists(text)) if mode == "tag" else self._streams(wanted)
         if sources:
             streams = {name: stream for name, stream in streams.items() if name in sources}
         if on_total is not None:
@@ -399,7 +405,11 @@ class NovelDBIndex:
         numbers = [number for number in (streams[name].number(at) for name, at in picks) if number is not None]
         numbers = list(dict.fromkeys(numbers))  # a book on several of the sources asked is in each one's list
         self._prefetch_blocks(numbers)
-        return [card for card in (self._card(number) for number in numbers) if card], more
+        cards = [card for card in (self._card(number) for number in numbers) if card]
+        if mode == "tag" and AGE_TAGS.get(normal(text).strip()):
+            # The rating decides (the site's own rule, as NovelDB shows it), not a tag a book's site gave it.
+            cards = [card for card in cards if card.get("ageRating") == AGE_TAGS[normal(text).strip()]]
+        return cards, more
 
     def _prefetch_blocks(self, numbers: List[int]) -> None:
         """The card blocks these books are in, read at once: one after another, a page's ~40 blocks took

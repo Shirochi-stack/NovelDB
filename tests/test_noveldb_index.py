@@ -298,6 +298,11 @@ def test_cards_carry_the_age_rating_and_r19_is_a_tag():
     assert {c["title"]: c["ageRating"] for c in index.search("romance", "tag")} == {
         "Omniscient Reader's Viewpoint": 19, "Another Reader": 15, "Old Book": 0}  # an older card: no rating
     assert [c["title"] for c in index.search("R19", "tag")] == ["Omniscient Reader's Viewpoint"]
+    # A book its site tagged "R19" but the site's own rule doesn't rate so: not an adults-only result.
+    manifest, data = build(books + [{"source": "jara", "id": "5", "title": "태그만", "titleEn": "Tagged Only",
+                                      "tags": ["R19"], "url": "https://example.test/novel/5", "rating": 0}])
+    index = NovelDBIndex(fetcher(manifest, data, []))
+    assert [c["title"] for c in index.search("R19", "tag")] == ["Omniscient Reader's Viewpoint"]
     assert [c["title"] for c in index.search("R15", "tag")] == ["Another Reader"]
 
 

@@ -489,15 +489,21 @@
             return out;
         });
     }
+    // The age-rating tags the index gives books (scripts/noveldb_index/build.cjs): the rating each one means.
+    var NDB_AGE_TAGS = {r19: 19, r15: 15};
     function ndbSearch(text, mode, limit, offset, each, onTotal) {
         var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)]
             : mode === 'author' ? ['@' + ndbNormal(text).replace(/\s+/g, ' ').trim()] : ndbTokens(text);
         limit = limit || NDB_MORE;
         if (!wanted.length) return Promise.resolve({cards: [], more: false});
         var more = false;
+        // An age rating is the index's own tag: its list alone (not the site tags that look like it, "R-19",
+        // "Adult"), and only the books it rates so (the site's own rule, as NovelDB shows it).
+        var rated = mode === 'tag' ? NDB_AGE_TAGS[ndbNormal(text).trim()] || 0 : 0;
         return ndbManifest().then(function (manifest) {
             if (!manifest) return [];
-            var lists = mode === 'source' ? ndbSourceLists(manifest, wanted) : mode === 'tag' ? ndbTagLists(manifest, text) : ndbStreams(manifest, wanted);
+            var lists = mode === 'source' ? ndbSourceLists(manifest, wanted)
+                : mode === 'tag' ? (rated ? ndbLists(manifest, wanted[0]) : ndbTagLists(manifest, text)) : ndbStreams(manifest, wanted);
             return lists.then(function (streams) {
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
@@ -524,7 +530,11 @@
                                 status: row[10] === 1 ? 'Completed' : row[10] === 0 ? 'Ongoing' : '', updated: String(row[12] || '').slice(0, 10),
                                 published: String(row[15] || '').slice(0, 10), also: ndbAlso(row[16]),
                                 ageRating: row[17] === 19 || row[17] === 15 ? row[17] : 0};  // 19 adults only, 15 teens
-                    }).then(function (card) { if (card && each) each(card); return card; });
+                    }).then(function (card) {
+                        if (card && rated && card.ageRating !== rated) return null;
+                        if (card && each) each(card);
+                        return card;
+                    });
                 }));
             });
         }).then(function (cards) { return {cards: (cards || []).filter(Boolean), more: more}; });
