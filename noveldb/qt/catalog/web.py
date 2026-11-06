@@ -385,6 +385,7 @@ class CatalogPage(QWidget):
 
         self.generic.theme = lambda: web_theme(self.context.settings.ui.theme, self.context.settings.ui.accent)
         self._pending_local = None
+        self._pending_book = None
         self.view = CatalogView(self)
         self.view.setPage(self.page)
         self.view.addToCart.connect(lambda url, title: self._add_to_cart(url, title, announce=True))
@@ -452,6 +453,17 @@ class CatalogPage(QWidget):
             self.generic.read_local(path, title)
             return
         self._pending_local = (path, title)
+        self.page.home_host = ""
+        self.view.load(QUrl.fromLocalFile(str(generic_page.PAGE)))
+
+    def open_book(self, book: dict) -> None:
+        """A Library book found again in the Generic search page (loaded first if another site is shown)."""
+        if self.view is None:
+            return
+        if self._on_generic_page():
+            self.generic.open_book(book)
+            return
+        self._pending_book = book
         self.page.home_host = ""
         self.view.load(QUrl.fromLocalFile(str(generic_page.PAGE)))
 
@@ -577,6 +589,9 @@ class CatalogPage(QWidget):
                     path, title = self._pending_local
                     self._pending_local = None
                     QTimer.singleShot(300, lambda: self.generic.read_local(path, title))
+                if self._pending_book is not None:
+                    book, self._pending_book = self._pending_book, None
+                    QTimer.singleShot(300, lambda: self.generic.open_book(book))
             if kind == "genericLogin":
                 if self._on_generic_page():
                     self.loginRequested.emit(data["url"])

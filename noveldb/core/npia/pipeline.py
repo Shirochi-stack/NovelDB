@@ -1374,6 +1374,12 @@ table, th, td {
         the images have been re-encoded at lower quality.
         """
         if self._output_format == 'epub':
+            from noveldb.core.npia.ids import SITE_DOMAIN
+
+            novel_var = getattr(self, 'var_novel_id', None)
+            novel_id = str(novel_var.get() if novel_var is not None else '').strip()
+            if novel_id and not meta.get('source_url'):
+                meta = dict(meta, source_url=f"https://{SITE_DOMAIN}/novel/{novel_id}")
             epub = EpubGenerator(
                 meta,
                 self._output_path,

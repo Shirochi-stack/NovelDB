@@ -152,6 +152,7 @@ class MainWindow(QMainWindow):
         context.toolRequested.connect(self.tools.run)
         self.download.openCart.connect(self.show_cart)
         self.catalog.openCart.connect(self.show_cart)
+        self.library.openInCatalog.connect(self.open_in_catalog)
         self.catalog.downloadCart.connect(self.download_cart)
         if hasattr(self.catalog, "downloadLinks"):
             self.catalog.downloadLinks.connect(self.download.queue_lines)
@@ -199,6 +200,12 @@ class MainWindow(QMainWindow):
 
     def show_page(self, index: int) -> None:
         self.sidebar.setCurrentRow(index)
+
+    def open_in_catalog(self, book: dict) -> None:
+        """A Library book in the Catalog (to download what it is missing): the Catalog page comes to the front."""
+        if hasattr(self.catalog, "open_book"):
+            self.show_page(self.stack.indexOf(self.catalog))
+            self.catalog.open_book(book)
 
     def show_cart(self) -> None:
         dialog = CartDialog(self.context, self)

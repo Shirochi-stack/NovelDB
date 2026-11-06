@@ -54,6 +54,14 @@ final class AppModel {
         readRequest = epub
         requestedPanel = .catalog
     }
+    /// A Library book to find in the Catalog (to download what it is missing); the Catalog takes it once ready.
+    var catalogBookRequest: CatalogBook?
+
+    /// Finds a Library book in the Catalog: its site's page (where it was downloaded from) and a search for its title.
+    func openInCatalog(_ book: CatalogBook) {
+        catalogBookRequest = book
+        requestedPanel = .catalog
+    }
     /// Books collected with the Catalog tab's link-cart button.
     let cart = LinkCart()
     /// Downloads that run at once; the rest wait in the queue.
@@ -858,4 +866,11 @@ enum JSONValue: Codable, Equatable {
         case .null: try container.encodeNil()
         }
     }
+}
+
+/// A Library book as the Catalog finds it: its title and, when its EPUB says it, the address it came from.
+struct CatalogBook: Equatable {
+    var title: String
+    var url: String?
+    var author: String = ""
 }

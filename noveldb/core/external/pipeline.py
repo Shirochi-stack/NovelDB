@@ -1981,6 +1981,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             'description': data.get('introduction', ''),
             'tags': data.get('tags', []),
             'language': data.get('language', 'zh'),
+            'source_url': data.get('bookUrl') or (self._url_var.get() if getattr(self, '_url_var', None) else ''),
         }
 
         import base64

@@ -29,6 +29,26 @@ enum EpubCover {
         return small
     }
 
+    /// The book as its EPUB names it: its title, author and the address it was downloaded from (`dc:source`).
+    static func book(for epub: URL) -> CatalogBook? {
+        guard let data = try? Data(contentsOf: epub, options: .mappedIfSafe), let zip = Zip(data),
+              let container = zip.text("META-INF/container.xml"),
+              let opfPath = first(#"full-path="([^"]+)""#, in: container),
+              let opf = zip.text(opfPath) else { return nil }
+        func element(_ name: String) -> String? {
+            first("<dc:\(name)\\b[^>]*>([^<]*)</dc:\(name)>", in: opf).map {
+                $0.replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
+                    .replacingOccurrences(of: "&quot;", with: "\"").replacingOccurrences(of: "&#39;", with: "'")
+                    .replacingOccurrences(of: "&amp;", with: "&").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        let title = element("title") ?? ""
+        let source = element("source")
+        return CatalogBook(title: title.isEmpty ? epub.deletingPathExtension().lastPathComponent : title,
+                           url: source.flatMap { $0.hasPrefix("http://") || $0.hasPrefix("https://") ? $0 : nil },
+                           author: element("creator") ?? "")
+    }
+
     private static func matches(_ pattern: String, in text: String) -> [String] {
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
         return expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { Range($0.range, in: text).map { String(text[$0]) } }

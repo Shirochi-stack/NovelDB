@@ -190,12 +190,35 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         showTheme()
         showRead()
+        showBook()
     }
 
     /// The app theme's colours as the generic page takes them ({dark, bg, panel, ...} as #rrggbb).
     private var theme: String?
     /// A Library EPUB waiting for the generic page to be ready (its reader opens it).
     private var pendingRead: URL?
+    /// A Library book waiting for the generic page to be ready (it is found again there).
+    private var pendingBook: CatalogBook?
+
+    /// Finds a Library book in the generic page (its site's page and a search for its title).
+    func openBook(_ book: CatalogBook) {
+        guard site.absoluteString == CatalogSite.genericAddress else {
+            model?.message = "Books are found in the built-in Catalog page (Settings > Catalog site)"
+            return
+        }
+        pendingBook = book
+        showBook()
+    }
+
+    private func showBook() {
+        guard let book = pendingBook,
+              let data = try? JSONSerialization.data(withJSONObject: ["title": book.title, "url": book.url ?? "", "author": book.author]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let script = "(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.openBook) return false; window.NovelDBGeneric.openBook(b); return true; })(\(json))"
+        webView.evaluateJavaScript(script) { [weak self] done, _ in
+            if (done as? Bool) == true { self?.pendingBook = nil }
+        }
+    }
 
     /// Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot.
     func readLocal(_ epub: URL) {
@@ -267,6 +290,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             if let model { showCart(model.cart.items) }
             showTheme()
             showRead()
+            showBook()
         case "location":
             located(url: field("url"), title: field("title"))
         case "cartAdd":
@@ -399,6 +423,10 @@ struct CatalogView: View {
                 state.readLocal(epub)
                 model.readRequest = nil
             }
+            if let book = model.catalogBookRequest {
+                state.openBook(book)
+                model.catalogBookRequest = nil
+            }
         }
         .onChange(of: webTheme) { _, theme in state.setTheme(theme) }
         // A Library book to read: the page's reader opens it (once the page is ready).
@@ -406,6 +434,12 @@ struct CatalogView: View {
             guard let epub else { return }
             state.readLocal(epub)
             model.readRequest = nil
+        }
+        // A Library book to find again (to download what it is missing): the generic page opens it once ready.
+        .onChange(of: model.catalogBookRequest) { _, book in
+            guard let book else { return }
+            state.openBook(book)
+            model.catalogBookRequest = nil
         }
         .onChange(of: model.cart.items) { _, items in state.showCart(items) }
         .onChange(of: site) { _, _ in

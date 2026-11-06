@@ -124,6 +124,12 @@ struct LibraryView: View {
                         if let epub = book.epub {
                             Button { open = nil; reading = epub } label: { Label("Read", systemImage: "book") }
                         }
+                        // The book in the Catalog: its site's page (where it came from) and its title searched, to
+                        // download what an unfinished or outdated copy is missing.
+                        Button {
+                            open = nil
+                            model.openInCatalog(book.epub.flatMap(EpubCover.book(for:)) ?? CatalogBook(title: book.name, url: nil))
+                        } label: { Label("Open in Catalog", systemImage: "magnifyingglass") }
                         Button(role: .destructive) { open = nil; deleting = book } label: { Label("Delete", systemImage: "trash") }
                     }
                     Section("Files") {

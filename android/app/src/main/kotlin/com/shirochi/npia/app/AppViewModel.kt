@@ -10,6 +10,9 @@ import androidx.lifecycle.AndroidViewModel
 import com.shirochi.npia.app.model.QueueView
 import com.shirochi.npia.core.SourceId
 
+/** A Library book as the Catalog finds it: its title and, when its EPUB says it, the address it came from. */
+data class CatalogBook(val title: String, val url: String?, val author: String = "")
+
 enum class Tab(val title: String) { ADD("Add"), CATALOG("Catalog"), BROWSER("Browser"), LIBRARY("Library"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
 
 /** Screens pushed on top of a tab's root. */
@@ -55,6 +58,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Opens a Library EPUB in the Catalog's reader (the Catalog tab comes to the front). */
     fun readInCatalog(epub: java.io.File) {
         readRequest = epub
+        stacks.getValue(Tab.CATALOG).clear()
+        tab = Tab.CATALOG
+    }
+
+    /** A Library book to find in the Catalog (to download what it is missing); the Catalog takes it once ready. */
+    var catalogBookRequest by mutableStateOf<CatalogBook?>(null)
+
+    /** Finds a Library book in the Catalog: its site's page (where it was downloaded from) and a search for its title. */
+    fun openInCatalog(book: CatalogBook) {
+        catalogBookRequest = book
         stacks.getValue(Tab.CATALOG).clear()
         tab = Tab.CATALOG
     }

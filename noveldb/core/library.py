@@ -39,6 +39,7 @@ class LibraryBook:
     author: str = ""
     files: List[LibraryFile] = field(default_factory=list)
     cover: Optional[bytes] = None       # the EPUB's cover image, when it has one
+    url: str = ""                       # where it was downloaded from (the EPUB's dc:source), when it says
 
     @property
     def modified(self) -> float:
@@ -82,6 +83,8 @@ def _epub_meta(path: Path, size: int, modified: float) -> dict:
                     meta["title"] = element.text.strip()
                 elif tag == "creator" and not meta.get("author") and (element.text or "").strip():
                     meta["author"] = element.text.strip()
+                elif tag == "source" and not meta.get("url") and (element.text or "").strip().startswith(("http://", "https://")):
+                    meta["url"] = element.text.strip()
                 elif tag == "description" and not meta.get("description") and (element.text or "").strip():
                     meta["description"] = re.sub(r"<[^>]+>", " ", element.text).strip()
             items = {e.get("id"): e for e in opf.iter() if e.tag.endswith("item")}
@@ -163,6 +166,7 @@ def scan(folder: Path, progress=None, found=None) -> List[LibraryBook]:
             meta = _epub_meta(path, size, modified)
             book.title = meta.get("title") or book.title
             book.author = meta.get("author") or book.author
+            book.url = meta.get("url") or book.url
     return sorted(books.values(), key=lambda b: b.modified, reverse=True)
 
 

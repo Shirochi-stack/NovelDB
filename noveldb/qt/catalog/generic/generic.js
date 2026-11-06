@@ -3004,6 +3004,24 @@
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
         },
+        // A Library book found again, to download what it is missing (an unfinished or outdated download):
+        // a search for its title (NovelDB's card and the other sites' copies of it), and its own site's page
+        // ({url}, where the download came from) open in its details, with Download.
+        openBook: function (book) {
+            var title = String((book && book.title) || '').trim(), url = String((book && book.url) || '').trim();
+            if ($('dialog').open) $('dialog').close();
+            if ($('reader').classList.contains('open')) closeReader();
+            picked.splice(0);
+            showPicked();
+            siteFilter.clear();
+            $('query').value = title || url;
+            if (title) search();
+            if (!/^https?:\/\//i.test(url)) return;
+            add([{url: url, title: title || url, author: String(book.author || ''), cover: '', description: '', tags: [],
+                  site: hostOf(url), comic: false, source: 'site', complete: false, verified: true, via: 'name'}], searchId);
+            var group = byUrl.get(key(url));
+            if (group) details(group);
+        },
         // A book from the Library (an EPUB on this computer), in the reader.
         readLocal: function (book) {
             var group = {key: 'local:' + book.url, title: book.title, author: '', cover: '', description: '', tags: [],

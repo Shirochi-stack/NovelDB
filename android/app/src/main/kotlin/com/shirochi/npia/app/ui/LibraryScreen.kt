@@ -10,6 +10,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -112,6 +114,23 @@ fun epubCover(epub: File, maxSide: Int = 240): Bitmap? = runCatching {
     }
 }.getOrNull()
 
+/** The book as its EPUB names it: its title, author and the address it was downloaded from (`dc:source`). */
+fun epubSource(epub: File): com.shirochi.npia.app.CatalogBook? = runCatching {
+    ZipFile(epub).use { zip ->
+        val container = zip.getEntry("META-INF/container.xml")?.let { zip.getInputStream(it).reader().readText() } ?: return null
+        val opfPath = Regex("full-path=\"([^\"]+)\"").find(container)?.groupValues?.get(1) ?: return null
+        val opf = zip.getInputStream(zip.getEntry(opfPath) ?: return null).reader().readText()
+        fun element(name: String) = Regex("<dc:$name\\b[^>]*>([^<]*)</dc:$name>").find(opf)?.groupValues?.get(1)?.let(::unescapeXml)?.trim()
+        com.shirochi.npia.app.CatalogBook(
+            title = element("title").orEmpty().ifEmpty { epub.nameWithoutExtension },
+            url = element("source")?.takeIf { it.startsWith("http://") || it.startsWith("https://") },
+            author = element("creator").orEmpty(),
+        )
+    }
+}.getOrNull()
+
+private fun unescapeXml(text: String) = text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+
 /** "EPUB · TXT · 5.3 MB": a book's formats and size, for its shelf tile. */
 private fun formats(book: LibraryBook): String {
     val kinds = book.files.map { if (it.isDirectory) "TXT" else it.extension.uppercase() }.distinct()
@@ -126,7 +145,7 @@ private fun formats(book: LibraryBook): String {
  * Catalog tab or its site); a long press (or ⋮) shows the book's files with the same actions as a
  * finished download, and Delete.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(model: AppViewModel) {
     val manager = model.manager
@@ -219,10 +238,18 @@ fun LibraryScreen(model: AppViewModel) {
                         )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // On a narrow phone the buttons take two rows.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     book.epub?.let { epub ->
                         Button(onClick = { open = null; reading = epub }) { Text("Read") }
                     }
+                    // The book in the Catalog: its site's page (where it came from) and its title searched, to
+                    // download what an unfinished or outdated copy is missing.
+                    OutlinedButton(onClick = {
+                        open = null
+                        val found = book.epub?.let(::epubSource) ?: com.shirochi.npia.app.CatalogBook(book.name, null)
+                        model.openInCatalog(found)
+                    }) { Text("Open in Catalog") }
                     OutlinedButton(onClick = { open = null; deleting = book }) { Text("Delete") }
                 }
                 book.files.forEach { file -> FileRow(model, file, manager.jobOwning(file)?.id) }

@@ -654,6 +654,11 @@ class GenericCatalog(QObject):
             return False
         return target.suffix.lower() == ".epub" and folder in target.parents
 
+    def open_book(self, book: dict) -> None:
+        """Finds a Library book again ({title, url, author}): its site's page and a search for its title."""
+        self._call("openBook", {"title": str(book.get("title") or ""), "url": str(book.get("url") or ""),
+                                "author": str(book.get("author") or "")})
+
     def read_local(self, path: Path, title: str) -> None:
         """Opens a Library EPUB in the page's reader."""
         self._call("readLocal", {"url": Path(path).resolve().as_uri(), "title": title})

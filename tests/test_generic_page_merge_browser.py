@@ -159,3 +159,15 @@ def test_the_sort_menu_orders_the_shown_cards(page):
     ordered = page.evaluate("""() => [...document.querySelectorAll('#grid .card')].filter(c => c.style.display !== 'none')
         .sort((a, b) => Number(a.style.order) - Number(b.style.order)).map(c => c.querySelector('.title').textContent)""")
     assert ordered == ["New", "Old"]
+
+
+def test_a_library_book_opens_at_its_site_and_its_title_is_searched(page):
+    sent = page.evaluate("""() => { window.__sent = []; window.NovelDBQt = {postMessage: t => window.__sent.push(JSON.parse(t))}; return 1; }""")
+    page.evaluate("book => window.NovelDBGeneric.openBook(book)", {"title": RAW, "url": MPIA, "author": "안현"})
+    page.wait_for_timeout(300)
+    assert page.eval_on_selector("#query", "e => e.value") == RAW
+    assert page.eval_on_selector("#dialog", "d => d.open")
+    assert RAW in page.eval_on_selector("#dialog", "d => d.innerText")
+    searches = page.evaluate("() => window.__sent.filter(m => m.type === 'genericSearch')")
+    assert sent and searches and searches[-1]["queries"][0] == {"query": RAW, "mode": "name", "sort": ""} | {
+        k: v for k, v in searches[-1]["queries"][0].items() if k not in ("query", "mode", "sort")}

@@ -212,6 +212,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
                 if (!documentStart) view.evaluateJavascript(bridge, null)
                 showTheme()
                 showRead()
+                showBook()
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -304,6 +305,25 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
 
     /** A Library EPUB waiting for the generic page to be ready (its reader opens it). */
     private var pendingRead: File? = null
+    private var pendingBook: com.shirochi.npia.app.CatalogBook? = null
+
+    /** Finds a Library book in the generic page (its site's page and a search for its title). */
+    fun openBook(book: com.shirochi.npia.app.CatalogBook) {
+        if (!isGenericPage(pageUrl)) load(com.shirochi.npia.app.GENERIC_CATALOG_URL, force = true)
+        pendingBook = book
+        showBook()
+    }
+
+    private fun showBook() {
+        val book = pendingBook ?: return
+        val json = buildJsonObject {
+            put("title", book.title)
+            put("url", book.url.orEmpty())
+            put("author", book.author)
+        }
+        view.evaluateJavascript("(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.openBook) return false; " +
+            "window.NovelDBGeneric.openBook(b); return true; })($json)") { done -> if (done == "true") pendingBook = null }
+    }
 
     /** Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot. */
     fun readLocal(epub: File) {
@@ -408,6 +428,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
                         showCart(model.cart.items.value)
                         showTheme()
                         showRead()
+                        showBook()
                     }
                     "location" -> located(field("url"), field("title"))
                     "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { url ->
@@ -453,6 +474,14 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     LaunchedEffect(cart) { web.showCart(cart) }
     val colors = MaterialTheme.colorScheme
     LaunchedEffect(colors) { web.setTheme(colors) }
+    // A Library book to find again (to download what it is missing): the generic page opens it once ready.
+    val finding = model.catalogBookRequest
+    LaunchedEffect(finding) {
+        if (finding != null) {
+            web.openBook(finding)
+            model.catalogBookRequest = null
+        }
+    }
     // A Library book to read: the page's reader opens it (once the page is ready).
     val reading = model.readRequest
     LaunchedEffect(reading) {

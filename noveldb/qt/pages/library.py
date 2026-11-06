@@ -131,6 +131,7 @@ class LibraryPage(QWidget):
     _scan_found = Signal(object, float)  # the books read so far, while the folder is still being read
     _scan_progress = Signal(int, int, float)
     _covered = Signal(str, object, int)  # book name, cover QImage, page generation
+    openInCatalog = Signal(dict)  # {title, url, author}: the book found again in the Catalog
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -457,6 +458,9 @@ class LibraryPage(QWidget):
         for file in book.files:
             menu.addAction(f"Open {file.format}  ({_size_text(file.size)})",
                            lambda f=file: QDesktopServices.openUrl(QUrl.fromLocalFile(str(f.path))))
+        # The book in the Catalog, to download what an unfinished or outdated copy is missing.
+        menu.addAction("Open in Catalog", lambda: self.openInCatalog.emit(
+            {"title": book.title, "url": book.url, "author": book.author}))
         menu.addSeparator()
         menu.addAction("Show in folder", lambda: self._reveal(book))
         menu.addAction("Delete…", lambda: self._delete(book))

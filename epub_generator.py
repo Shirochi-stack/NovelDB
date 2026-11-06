@@ -214,6 +214,10 @@ class EpubGenerator:
             subjects += f"\n    <dc:subject>{html.escape(str(tag))}</dc:subject>"
         description = self.meta.get('description') or ''
         description_xml = f"\n    <dc:description>{html.escape(description)}</dc:description>" if description else ''
+        # Where the book was downloaded from: the Library finds it there again (Open in Catalog).
+        source = str(self.meta.get('source_url') or '')
+        if source.startswith(('http://', 'https://')):
+            description_xml += f"\n    <dc:source>{html.escape(source)}</dc:source>"
 
         # Mark cover image for readers if present (any cover extension)
         cover_present = any(img['filename'].startswith('cover.') for img in self.images)
