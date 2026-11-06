@@ -17,12 +17,14 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlsplit
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtWebEngineCore import QWebEnginePage
 
 from noveldb.core import paths
-from noveldb.core.catalog.generic_search import GenericSearch, default_fetch, load_learned, save_learned, top_sites
+from noveldb.core.catalog.generic_search import (USER_AGENT, GenericSearch, default_fetch, load_learned, save_learned,
+                                                 top_sites)
 from noveldb.core.catalog.live_reader import LiveReader
 from noveldb.core.catalog.logins import SavedLogins
 from noveldb.core.catalog.noveldb_index import NovelDBIndex
@@ -74,6 +76,28 @@ def _short(url: str) -> str:
 
 def is_generic_page(url: QUrl) -> bool:
     return url.isLocalFile() and Path(url.toLocalFile()).resolve() == PAGE.resolve()
+
+
+# The page's Google Translate requests (the desktop's page can't ask Google itself: it is a local file).
+# Google answers the `requests` library 429 "Sorry..." and the same request from urllib normally.
+TRANSLATE_HOST = "translate.googleapis.com"
+
+
+def _plain_request(url: str, method: str, body, headers: dict) -> Optional[dict]:
+    """A request through urllib, in the fetch's result shape (the HTTP status of an error too)."""
+    import urllib.error
+    import urllib.request
+
+    data = body.encode("utf-8") if isinstance(body, str) else body
+    sent = {"User-Agent": USER_AGENT, **headers}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=sent, method=method), timeout=20) as response:
+            return {"status": response.status, "url": response.geturl(), "content": response.read(),
+                    "headers": "\n".join(f"{k}: {v}" for k, v in response.headers.items())}
+    except urllib.error.HTTPError as error:
+        return {"status": error.code, "url": url, "content": error.read() or b"", "headers": ""}
+    except Exception:
+        return None
 
 
 def parse_message(data: dict) -> Optional[dict]:
@@ -603,8 +627,11 @@ class GenericCatalog(QObject):
             except ValueError:
                 body = None
         headers = {str(k): str(v) for k, v in (request.get("headers") or {}).items()}
-        result = self.fetch(request["url"], method=str(request.get("method") or "GET").upper(), data=body,
-                            headers=headers, binary=True)
+        method = str(request.get("method") or "GET").upper()
+        if urlsplit(request["url"]).hostname == TRANSLATE_HOST:
+            result = _plain_request(request["url"], method, body, headers)
+        else:
+            result = self.fetch(request["url"], method=method, data=body, headers=headers, binary=True)
         if result is None:
             self._fetched.emit(fetch_id, {"error": "the request failed"})
             return

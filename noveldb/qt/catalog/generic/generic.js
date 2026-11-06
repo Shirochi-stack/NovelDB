@@ -307,11 +307,13 @@
     // while the search runs: books that come in later from other sites stay hidden.
     var siteFilter = new Set();
     function refilter() {
+        var titles = [];
         order.forEach(function (group) {
             if (!group.element) return;
             show(group, wanted(group) && !(group.held && !group.verified));
-            fit(group.element.querySelector('.title'));
+            titles.push(group.element.querySelector('.title'));
         });
+        fitTitles(titles);
         empty();
     }
     function drawSites() {
@@ -441,22 +443,33 @@
         return tags.filter(function (t) { return !plain(t); }).concat(tags.filter(plain));
     }
     // The card's tags in two rows; the ones that don't fit become "+N" (the details panel lists them all).
-    function fitTags(box) {
-        if (!box || !box.offsetParent || !box.children.length) return;
-        var limit = box.firstElementChild.offsetTop + box.clientHeight + 1;
-        var over = function (chip) { return chip.offsetTop + chip.offsetHeight > limit; };
-        var hidden = Array.prototype.filter.call(box.children, over);
-        if (!hidden.length) return;
-        hidden.forEach(function (chip) { chip.remove(); });
-        var more = document.createElement('span');
-        more.className = 'more';
-        var count = hidden.length;
-        more.textContent = '+' + count;
-        box.appendChild(more);
-        while (over(more) && more.previousElementSibling) {
-            more.previousElementSibling.remove();
-            more.textContent = '+' + (++count);
-        }
+    function fitTags(box) { fitTagRows([box]); }
+    /** Each card's tag chips cut to the rows its box shows, with "+N" for the rest, many cards at once: every
+     *  card measured, then every card changed (card by card, each change made the next card's measurement lay
+     *  the page out again). */
+    function fitTagRows(boxes) {
+        var plans = boxes.filter(function (box) {
+            return box && box.isConnected && box.children.length && box.closest('.card') && box.closest('.card').style.display !== 'none';
+        }).map(function (box) {
+            var limit = box.firstElementChild.offsetTop + box.clientHeight + 1;
+            var chips = Array.prototype.slice.call(box.children);
+            return {box: box, limit: limit, hidden: chips.filter(function (chip) { return chip.offsetTop + chip.offsetHeight > limit; })};
+        }).filter(function (plan) { return plan.hidden.length; });
+        plans.forEach(function (plan) {
+            plan.hidden.forEach(function (chip) { chip.remove(); });
+            plan.more = document.createElement('span');
+            plan.more.className = 'more';
+            plan.count = plan.hidden.length;
+            plan.more.textContent = '+' + plan.count;
+            plan.box.appendChild(plan.more);
+        });
+        // A "+N" that wrapped to a row of its own takes the place of the chips before it (rare: a few cards).
+        plans.filter(function (plan) { return plan.more.offsetTop + plan.more.offsetHeight > plan.limit; }).forEach(function (plan) {
+            while (plan.more.offsetTop + plan.more.offsetHeight > plan.limit && plan.more.previousElementSibling) {
+                plan.more.previousElementSibling.remove();
+                plan.more.textContent = '+' + (++plan.count);
+            }
+        });
     }
     function wanted(group) {
         var kind = $('kind').value;
@@ -825,10 +838,8 @@
         dirty.clear();
         if (drawn.length) { orderCards(); evenRowsSoon(); }
         if (drawn.length && cardsTranslated) translateCards(drawn);
-        drawn.forEach(function (group) {
-            fit(group.element.querySelector('.title'));
-            fitTags(group.element.querySelector('.tags'));
-        });
+        fitTitles(drawn.map(function (group) { return group.element.querySelector('.title'); }));
+        fitTagRows(drawn.map(function (group) { return group.element.querySelector('.tags'); }));
         empty();
     }
     function drawCard(group) {
@@ -959,14 +970,30 @@
             return texts.map(function (text) { var out = translationOf(text); return out == null ? text : out; });
         });
     }
+    /** Google's answer (JSON) to a translate request: asked directly, else through the app (the desktop's page is
+     *  a local file, and Qt lets it ask no other site), as the LNReader plugins' requests go. */
+    function translateRequest(url, body) {
+        var headers = {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'};
+        var viaApp = function () {
+            return ask({type: 'genericFetch', request: {url: url, method: 'POST', headers: headers, data: body}}).then(function (reply) {
+                if (!reply || reply.error || reply.status >= 400 || !reply.responseBase64) return null;
+                var binary = atob(reply.responseBase64), bytes = new Uint8Array(binary.length);
+                for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                try { return JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { return null; }
+            });
+        };
+        if (location.protocol === 'file:') return viaApp();
+        return fetch(url, {method: 'POST', body: body, headers: headers})
+            .then(function (response) { return response.ok ? response.json() : null; })
+            .catch(function () { return null; })
+            .then(function (data) { return data || viaApp(); });
+    }
     /** One request for `items` ([text, one line of it], ...), a line each. When Google merges or splits lines
      *  the answer can't be matched to them: the batch is asked again in halves, down to single texts (one odd
      *  text left the whole first batch, the top cards, untranslated). */
     function translateBatch(items) {
         var body = 'q=' + encodeURIComponent(items.map(function (item) { return item[1]; }).join('\n'));
-        return fetch(TRANSLATE_URL + encodeURIComponent(translateTo()), {method: 'POST', body: body,
-                                                    headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'}})
-            .then(function (response) { return response.ok ? response.json() : null; })
+        return translateRequest(TRANSLATE_URL + encodeURIComponent(translateTo()), body)
             .then(function (data) {
                 if (!data) return;
                 var lines = ((data && data[0]) || []).map(function (part) { return (part && part[0]) || ''; }).join('').split('\n');
@@ -1205,18 +1232,35 @@
     // The title at the largest size (13px down to 7px) that shows all of it in its box: the box is two
     // lines of 13px text tall, and smaller text gets more lines in it, so it shrinks only as far as needed.
     var TITLE_BOX = 2 * 13 * 1.25;
-    function fit(title) {
-        if (!title || !title.offsetParent) return;
-        title.classList.remove('clamp');
-        title.style.webkitLineClamp = '';
-        title.style.fontSize = '';
-        if (title.scrollHeight <= TITLE_BOX + 1) return;  // most titles fit at full size: one measurement
-        for (var size = 12.5; size >= 7; size -= 0.5) {
-            title.style.fontSize = size + 'px';
-            if (title.scrollHeight <= TITLE_BOX + 1) return;
-        }
-        title.classList.add('clamp');
-        title.style.webkitLineClamp = String(Math.max(2, Math.floor(TITLE_BOX / (7 * 1.25))));
+    function fit(title) { fitTitles([title]); }
+    /** Card titles at the size that fits their two lines, many at once: every change first, then every
+     *  measurement (a size tried and measured title by title made the browser lay the page out up to a dozen
+     *  times per card, and the page lagged with many cards). A title too long at the size the first
+     *  measurement suggests is clamped at 7 px. */
+    function fitTitles(titles) {
+        titles = titles.filter(function (title) { return title && title.isConnected && title.closest('.card') && title.closest('.card').style.display !== 'none'; });
+        if (!titles.length) return;
+        titles.forEach(function (title) {
+            title.classList.remove('clamp');
+            title.style.webkitLineClamp = '';
+            title.style.fontSize = '';
+        });
+        var heights = titles.map(function (title) { return title.scrollHeight; });  // one layout for all
+        var long = [];
+        titles.forEach(function (title, i) {
+            if (heights[i] <= TITLE_BOX + 1) return;  // most titles fit at full size
+            // Text area grows with the square of the size: the size whose height fits, to the half pixel below.
+            var size = Math.floor(13 * Math.sqrt((TITLE_BOX + 1) / heights[i]) * 2) / 2;
+            title.style.fontSize = Math.max(7, Math.min(12.5, size)) + 'px';
+            long.push(title);
+        });
+        var after = long.map(function (title) { return title.scrollHeight; });  // a second layout, for those only
+        long.forEach(function (title, i) {
+            if (after[i] <= TITLE_BOX + 1) return;
+            title.style.fontSize = '7px';
+            title.classList.add('clamp');
+            title.style.webkitLineClamp = String(Math.max(2, Math.floor(TITLE_BOX / (7 * 1.25))));
+        });
     }
 
     function empty() {
@@ -1279,14 +1323,16 @@
     // -- details for the cards in view -------------------------------------------------------------
     var queue = [], loading = 0;
     var observer = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
+        var inView = [];
         entries.forEach(function (entry) {
             var group = entry.target.__group;
             if (entry.isIntersecting && group && !group.loaded && !group.asked) {
                 group.asked = true;
                 queue.push(group);
             }
-            if (entry.isIntersecting && group) fit(entry.target.querySelector('.title'));
+            if (entry.isIntersecting && group) inView.push(entry.target.querySelector('.title'));
         });
+        fitTitles(inView);
         pump();
     }, {rootMargin: '200px'}) : null;
     function pump() {
@@ -2074,7 +2120,9 @@
     });
     window.addEventListener('resize', function () {
         clearTimeout(window.__fitTimer);
-        window.__fitTimer = setTimeout(function () { order.forEach(function (g) { g.element && fit(g.element.querySelector('.title')); }); }, 150);
+        window.__fitTimer = setTimeout(function () {
+            fitTitles(order.filter(function (g) { return g.element; }).map(function (g) { return g.element.querySelector('.title'); }));
+        }, 150);
     });
 
     // == the reader ===============================================================================
@@ -2910,25 +2958,27 @@
     }
     /** Full rows while more books can come: the last cards of a row left part empty wait (hidden) for the
      *  next ones; once nothing more is coming, every card shows. */
+    // Read without layout: a card's own display style says whether it shows (reading each card's layout, as this
+    // first did, made the browser lay the page out once per card, each time cards came in: the page lagged).
+    var waitingCards = [], gridColumns = 0;
     function evenRows() {
         var grid = $('grid');
-        var cards = Array.prototype.filter.call(grid.children, function (el) {
-            el.classList.remove('rowwait');
-            return el.style.display !== 'none' && el.offsetParent !== null;
-        });
-        var columns = String(getComputedStyle(grid).gridTemplateColumns || '').split(' ').filter(Boolean).length;
+        waitingCards.forEach(function (el) { el.classList.remove('rowwait'); });
+        waitingCards = [];
         var coming = (view === 'search' || view === 'top') && (more.loading || running > 0 || more.has);
-        if (columns < 2 || !coming) return;
-        var left = cards.length % columns;
+        if (!coming) return;
+        if (!gridColumns) gridColumns = String(getComputedStyle(grid).gridTemplateColumns || '').split(' ').filter(Boolean).length;
+        var cards = Array.prototype.filter.call(grid.children, function (el) { return el.style.display !== 'none'; });
+        var left = gridColumns > 1 ? cards.length % gridColumns : 0;
         if (!left || cards.length <= left) return;
         // The cards shown last: the sort's order where one is set, else the list's own.
-        cards.map(function (el, i) { return [el, Number(el.style.order || 0), i]; })
+        waitingCards = cards.map(function (el, i) { return [el, Number(el.style.order || 0), i]; })
             .sort(function (a, b) { return a[1] - b[1] || a[2] - b[2]; })
-            .slice(-left).forEach(function (entry) { entry[0].classList.add('rowwait'); });
+            .slice(-left).map(function (entry) { entry[0].classList.add('rowwait'); return entry[0]; });
     }
     var evenTimer = 0;
-    function evenRowsSoon() { clearTimeout(evenTimer); evenTimer = setTimeout(evenRows, 60); }
-    window.addEventListener('resize', evenRowsSoon);
+    function evenRowsSoon() { if (!evenTimer) evenTimer = setTimeout(function () { evenTimer = 0; evenRows(); }, 250); }
+    window.addEventListener('resize', function () { gridColumns = 0; evenRowsSoon(); });
     /** The loader under the cards: while their next books load, or a search is still finding books. */
     function showMoreLoader() {
         var loader = $('moreLoading');

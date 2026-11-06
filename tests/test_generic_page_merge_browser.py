@@ -221,3 +221,24 @@ def test_a_batch_google_answers_in_other_lines_is_asked_again_in_halves(page):
     page.wait_for_timeout(600)
     assert asked[0] == 4 and sorted(asked[1:]) == [2, 2]
     assert page.eval_on_selector_all("#flow p", "els => els.map(e => e.textContent)") == ["AA", "BB", "CC", "DD"]
+
+
+def test_a_translate_request_the_browser_refuses_goes_through_the_app(page):
+    """The desktop's page is a local file: Qt lets it ask no other site, so Google is asked through the app."""
+    page.route("https://translate.googleapis.com/**", lambda route: route.abort())
+    page.evaluate("""() => {
+        window.__asked = [];
+        window.NovelDBQt = {postMessage: function (text) {
+            var m = JSON.parse(text);
+            if (m.type !== 'genericFetch') return;
+            window.__asked.push(m.request.url);
+            var body = JSON.stringify([[["Hello.", "x"]]]);
+            var b64 = btoa(unescape(encodeURIComponent(body)));
+            setTimeout(function () { window.NovelDBGeneric.fetched(m.id, {status: 200, responseBase64: b64}); }, 10);
+        }};
+        document.getElementById('flow').innerHTML = '<p>안녕하세요.</p>';
+    }""")
+    page.evaluate("() => document.getElementById('rTranslate').click()")
+    page.wait_for_timeout(600)
+    assert page.evaluate("() => window.__asked.length") == 1
+    assert page.eval_on_selector("#flow p", "e => e.textContent") == "Hello."
