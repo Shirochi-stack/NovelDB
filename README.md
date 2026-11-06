@@ -2,35 +2,56 @@
 
 **[App website](https://shirochi-stack.github.io/NovelDB/apps/)** (desktop and mobile apps, screenshots, downloads) · **[NovelDB database](https://shirochi-stack.github.io/NovelDB/)**
 
-A fork of that enhances the user experience and output quality. This version adds comprehensive metadata (tags, author, synopsis), improves EPUB formatting with HTML tag and newline support, includes file size optimization, and much more\!
+NovelDB downloads web novels and comics from npia and 1,000+ other sites as EPUB, TXT, PDF or CBZ. Search every site from one catalog, queue whole series, and read what you saved in a built-in library. It runs on Windows, macOS and Linux, with native apps for Android and iOS.
+
+<p align="center">
+  <img src="docs/apps/shots/desktop-catalog-dark.webp" width="880" alt="NovelDB's Catalog: one search across the supported sites, with covers, tags and figures">
+</p>
 
 -----
 
 ## 📚 Table of Contents
 
-  - [✨ Features]
+  - [✨ Features](#-features)
+  - [📸 Screenshots](#-screenshots)
   - [🌐 NovelDB Metadata Website](#-noveldb-metadata-website)
   - [🌐 External Novel Downloader](#-external-novel-downloader)
   - [💻 Desktop Downloads](#-desktop-downloads)
-  - [🚀 Usage]
-  - [💾 Space-Saving Tips]
-  - [🛠️ Command-Line Arguments]
-  - [❓ FAQ (Frequently Asked Questions]
-  - [📜 Legal & Disclaimer]
+  - [🚀 Usage](#-usage)
+  - [💾 Space-Saving Tips](#-space-saving-tips)
+  - [🛠️ Command-Line Arguments](#️-command-line-arguments)
+  - [❓ FAQ (Frequently Asked Questions)](#-faq-frequently-asked-questions)
+  - [📜 Legal & Disclaimer](#-legal--disclaimer)
 
 -----
 
 ## ✨ Features
 
-  - **Rich Metadata:** Automatically grabs and embeds tags, author names, and synopses into the EPUB file metadata.
-  - **Improved EPUB Formatting:** Supports HTML tags and newlines, preserving the original formatting of the novel.
-  - **File Size Optimization:** Includes WebP / AVIF / PNG / JPEG image compression to significantly reduce the final file size without a noticeable loss in quality. (AVIF requires the optional `pillow-avif-plugin` package; see `requirements.txt`.)
-  - **Command-Line Interface:** Offers a robust command-line interface for automated and scripted downloads.
-  - **Bulk Downloads:** Allows you to easily redownload your library to fix formatting, optimize file sizes, and more. (Format is ``outputname, id`` with each novel on a new line.) 
-  - **Improved Downloads:** Offers one-click downloads, with novels automatically named and placed in whichever directory you choose. Also includes auto-retries and error detection.
-  - **Author Notices Support:** Download author notices and illustrations ! 
+  - **Catalog:** search titles, tags, authors or a novel ID on 1,000+ sites at once, with NovelDB's own index first; the same book from several sites shows as one card.
+  - **Downloads from many sources:** npia, kpage, sfc, nweb, mpia, jara, rbooks, nseries, qdn and more through built-in scrapers, plus lightnovel-crawler, FanFicFare, LNReader plugins and a generic engine for other sites.
+  - **Queue:** add links or whole series, pick formats and chapter ranges, and let the queue work through them with retries.
+  - **Library and reader:** read saved books (and books straight from the Catalog) in a paged or scrolling reader with themes, fonts and comic layouts.
+  - **Your logins:** sign in once with Enter Browser; downloads and the Catalog use the saved sessions, so books you own download too.
+  - **Rich metadata and formatting:** tags, authors, synopses and covers go into the EPUB, with the original formatting, author notices and illustrations kept.
+  - **Small files:** WebP / AVIF / PNG / JPEG image compression shrinks books a lot without a visible loss. (AVIF needs the optional `pillow-avif-plugin` package; see `requirements.txt`.)
+  - **Mobile apps:** Android and iOS share the Catalog, sources and settings with the desktop; settings files import across all three.
+  - **Command line:** scripted and bulk downloads for automation.
 
-<img width="880" height="698" alt="image" src="https://github.com/user-attachments/assets/81b5a264-cc22-4f82-8a4b-341d342c9fc3" />
+-----
+
+## 📸 Screenshots
+
+| Download | Library | Reader |
+| :---: | :---: | :---: |
+| <img src="docs/apps/shots/desktop-download-dark.webp" width="280" alt="Download page: links, formats, chapter range and speed"> | <img src="docs/apps/shots/desktop-library-dark.webp" width="280" alt="Library of saved books"> | <img src="docs/apps/shots/desktop-reader-dark.webp" width="280" alt="Built-in reader"> |
+| **Queue** | **Book details** | **Settings** |
+| <img src="docs/apps/shots/desktop-queue-dark.webp" width="280" alt="Download queue"> | <img src="docs/apps/shots/desktop-book-dark.webp" width="280" alt="Book details in the Catalog"> | <img src="docs/apps/shots/desktop-settings-dark.webp" width="280" alt="Settings"> |
+
+| Android Catalog | Book details | Reader | Add links |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/apps/shots/android-catalog.webp" width="180" alt="Android Catalog"> | <img src="docs/apps/shots/android-details.webp" width="180" alt="Android book details"> | <img src="docs/apps/shots/android-reader.webp" width="180" alt="Android reader"> | <img src="docs/apps/shots/android-download.webp" width="180" alt="Android Add links form"> |
+
+More on the [app website](https://shirochi-stack.github.io/NovelDB/apps/).
 
 -----
 
@@ -172,7 +193,6 @@ To download paid chapters, you'll need a `LOGINKEY`. You can get it by logging i
 
 A higher thread count and a lower interval can speed up your downloads, but be aware that this increases the risk of an IP ban.
 *(Going above 10 threads can cause the website to rate-limit you, resulting in chapters failing to download and eventually a 24-48 hour IP ban.)*
-<img width="450" height="42" alt="image" src="https://github.com/user-attachments/assets/a702e637-1825-4e2c-923c-94def6ef06d0" />
 
 -----
 
