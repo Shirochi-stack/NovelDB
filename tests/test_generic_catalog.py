@@ -390,3 +390,28 @@ def test_catalog_reader_retries_a_failed_lnreader_chapter_through_the_app():
     assert "fucknovelpia\\.com" in chapter
     assert "promise = appChapter('cloudflare')" in chapter
     assert "hidden downloader browser…', 45" not in chapter
+
+
+def test_a_search_of_picked_sites_asks_only_them(monkeypatch):
+    import threading
+    from noveldb.core.catalog import generic_search, source_search
+
+    asked_sources, asked_sites, web = [], [], []
+    monkeypatch.setattr(source_search, "search", lambda source, mode, name, page, fetch, sort="": asked_sources.append(source) or ([], False))
+    monkeypatch.setattr(generic_search, "web_search", lambda query, fetch: web.append(query) or [])
+    npia_site = source_search.source_sites()["npia"]
+
+    class Sites:
+        def tag(self, home, text):
+            asked_sites.append(home)
+            return []
+
+    sites = [{"site": npia_site, "host": npia_site}, {"site": "example.org", "host": "www.example.org"}]
+    engine = generic_search.GenericSearch(fetch=lambda *a, **k: None, sites=sites, site_search=Sites())
+    engine.only = {npia_site}
+    engine.run("Gender Bender", "tag", lambda cards: None, threading.Event(), deadline=5)
+    assert asked_sites == [f"https://{npia_site}/"] and web == []
+    assert set(asked_sources) <= {"npia"}
+    assert engine.noveldb_sources() == ["npia"]
+    engine.only = {npia_site, "example.org"}  # a site NovelDB has no source for: NovelDB's books from all
+    assert engine.noveldb_sources() is None

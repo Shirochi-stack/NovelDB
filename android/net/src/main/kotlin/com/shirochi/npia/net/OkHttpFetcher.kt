@@ -159,9 +159,10 @@ class OkHttpFetcher(
     }
 
     companion object {
-        // OkHttp's own limit is 5 requests at a time per host: the Catalog's NovelDB index reads (all
-        // from one host) and a download's image workers would queue behind it. The callers set the pace.
-        private val SHARED_DISPATCHER = okhttp3.Dispatcher().apply { maxRequests = 256; maxRequestsPerHost = 24 }
+        // OkHttp's own limit is 5 requests at a time per host: the Catalog's NovelDB index reads (all from
+        // one host, each a second or more on a phone) and a download's image workers would queue behind it.
+        // The callers set the pace; at 24 a host, the index reads of a search waited behind each other.
+        private val SHARED_DISPATCHER = okhttp3.Dispatcher().apply { maxRequests = 256; maxRequestsPerHost = 64 }
         private val SHARED_POOL = okhttp3.ConnectionPool(16, 2, TimeUnit.MINUTES)
 
         const val DEFAULT_USER_AGENT =

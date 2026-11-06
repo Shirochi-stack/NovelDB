@@ -101,6 +101,11 @@ def parse_message(data: dict) -> Optional[dict]:
                            "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id", "author") else "name"}
                 if item.get("sort") in SORTS:
                     checked["sort"] = item["sort"]  # the page's sort (noveldb_index.INDEX_SORTS); else the default order
+                only = item.get("only")  # the sites picked in the Sites panel: the search asks only them
+                if isinstance(only, list):
+                    picked = [site.strip().lower() for site in only[:40] if isinstance(site, str) and 0 < len(site.strip()) <= 100]
+                    if picked:
+                        checked["only"] = picked
                 for switch in ("noveldb", "deep"):  # the settings' searches switched off (both on by default)
                     if item.get(switch) is False:
                         checked[switch] = False
@@ -469,6 +474,7 @@ class GenericCatalog(QObject):
                                noveldb=self.noveldb if item.get("noveldb", True) else None)
         engine.sort = str(item.get("sort") or "")
         engine.deep = item.get("deep", True) is not False
+        engine.only = set(item.get("only") or [])
         return engine
 
     def top(self, search_id: int, kind: str, language: str = "all", only: Optional[list] = None) -> None:

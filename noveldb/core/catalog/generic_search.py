@@ -334,6 +334,9 @@ class GenericSearch:
         self.site_search = site_search or SiteSearch(fetch)
         self.skip_lnreader = skip_lnreader  # the page searches those sites with their LNReader plugin
         self.noveldb = noveldb  # NovelDB's own books (noveldb_index.NovelDBIndex), when given
+        # The sites picked in the page's Sites panel (their domains, as cards name them): a search asks only
+        # them, NovelDB's books from them, and no web search. Empty: every site.
+        self.only: set = set()
         self.deep = True  # the deep search: NovelDB's own sites asked directly (source_search)
         self.sort = ""  # the page's sort ("new", "updated", "likes", ...): NovelDB's lists in that order where kept
         self._site_hosts = {host: site for site in self._known for host in site.get("hosts", [site["host"]])}
@@ -520,8 +523,8 @@ class GenericSearch:
             started = time.monotonic()
             try:
                 # How many books match, as soon as that is known: the page shows it while the cards load.
-                cards = self.noveldb.search(text, mode, on_total=lambda total: progress({"noveldbTotal": total}),
-                                            sort=self.sort)
+                cards = self.noveldb.search_page(text, mode, 0, 40, sources=self.noveldb_sources(),
+                                                 on_total=lambda total: progress({"noveldbTotal": total}), sort=self.sort)[0]
             except Exception:
                 summary["failed"] += 1
                 report("NovelDB", started, 0, "failed")
@@ -555,8 +558,10 @@ class GenericSearch:
         if rating_only and self.deep:
             from noveldb.core.catalog import source_search
 
+            homes = source_search.source_sites()
             for source in source_search.RATED:
-                futures.append(pool.submit(from_source, source, text))
+                if not self.only or homes.get(source) in self.only:
+                    futures.append(pool.submit(from_source, source, text))
         if mode in ("tag", "author") and not rating_only and self.deep:
             from noveldb.core.catalog import source_search
 
@@ -568,7 +573,10 @@ class GenericSearch:
                     natives = {}
             asks = source_search.tag_queries(text, natives) if mode == "tag" else \
                 {source: [text] for source in source_search.SEARCHERS}
+            homes = source_search.source_sites()
             for source, names in asks.items():
+                if self.only and homes.get(source) not in self.only:
+                    continue
                 for name in names:
                     futures.append(pool.submit(from_source, source, name))
         if self.noveldb is not None:
@@ -600,14 +608,16 @@ class GenericSearch:
         if self.noveldb is not None:
             ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most
         for site in self.sites:
-            if not (self.skip_lnreader and site.get("lnreader")):
+            if not (self.skip_lnreader and site.get("lnreader")) and self.picked(site["host"]):
                 futures.append(pool.submit(from_site, site))
         if mode == "name":
             for entry in self._lncrawl_entries():
-                futures.append(pool.submit(from_lncrawl, entry))
-        open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
-                      else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
-        futures.append(pool.submit(from_web, open_words, True))
+                if self.picked(entry["_site"]["host"]):
+                    futures.append(pool.submit(from_lncrawl, entry))
+        if not self.only:  # the web search finds books on every site
+            open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
+                          else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
+            futures.append(pool.submit(from_web, open_words, True))
         progress({"total": len(futures)})
 
         ends = time.monotonic() + deadline
@@ -625,6 +635,22 @@ class GenericSearch:
         stop.set()
         pool.shutdown(wait=False, cancel_futures=True)
         done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=timed_out or bool(summary.get("late"))))
+
+    def picked(self, host: str) -> bool:
+        """Whether a site (its host) is one the search asks: every one, or one of the picked sites."""
+        from noveldb.core.engines.generic import site_of
+
+        return not self.only or site_of(host) in self.only
+
+    def noveldb_sources(self) -> Optional[List[str]]:
+        """NovelDB's sources of the picked sites (None: all of them, as when a picked site is none of NovelDB's)."""
+        if not self.only:
+            return None
+        from noveldb.core.catalog import source_search
+
+        homes = source_search.source_sites()
+        mine = [source for source, site in homes.items() if site in self.only]
+        return mine if mine and all(site in homes.values() for site in self.only) else None
 
     def noveldb_twins(self, cards: List[dict]) -> List[dict]:
         """NovelDB's card of each of `cards` (from NovelDB's own sites) the index has at the same address: sent
@@ -680,7 +706,7 @@ class GenericSearch:
             return fresh
 
         def from_noveldb():
-            cards, more = self.noveldb.search_page(text, mode, ndb_page, sort=self.sort)
+            cards, more = self.noveldb.search_page(text, mode, ndb_page, sources=self.noveldb_sources(), sort=self.sort)
             offer([dict(card, verified=mode != "name") for card in cards])
             if more:
                 state["more"] = state["ndbMore"] = True
@@ -711,7 +737,7 @@ class GenericSearch:
         jobs = [from_noveldb] if self.noveldb is not None and ndb_page >= 1 else []
         for site in self.sites if sites else []:
             home = f"https://{site['host']}/"
-            if self.site_search.has_more(home, kind, text):
+            if self.picked(site["host"]) and self.site_search.has_more(home, kind, text):
                 jobs.append(lambda home=home: from_site(home))
         if sites and mode in ("tag", "author") and self.deep:
             from noveldb.core.catalog import source_search

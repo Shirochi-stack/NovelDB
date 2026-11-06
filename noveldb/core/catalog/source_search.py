@@ -395,6 +395,16 @@ def _npia(mode: str, query: str, page: int, fetch: Fetch, sort: str = "") -> Res
     return cards, len(rows) >= NPIA_ROWS and (page + 1) * NPIA_ROWS < total
 
 
+def source_sites() -> Dict[str, str]:
+    """{source: its site as the cards name it ("npia": its domain)}: a search of picked sites asks only these."""
+    from noveldb.core.engines.generic import site_of
+    from urllib.parse import urlsplit
+
+    homes = {"npia": NPIA, "kpage": KPAGE, "sfc": SFC_BOOK, "nweb": NWEB, "mpia": MPIA, "jara": JARA,
+             "rbooks": RBOOKS, "nseries": NSERIES}
+    return {source: site_of(urlsplit(home).hostname or "") for source, home in homes.items()}
+
+
 # -- mpia: its search API, by whole tag or author ------------------------------------------------------------
 
 MPIA = "https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com"

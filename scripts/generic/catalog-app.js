@@ -337,7 +337,7 @@
         var key = manifest.built + '|' + kind + '|' + index;
         if (ndb.pieces.has(key)) return ndb.pieces.get(key);
         var at = place || (kind === 'bucket' ? manifest.bucketAt : manifest.blockAt)[index];
-        var asked = ndbReading(fetchUrl(NDB_INDEX + manifest.bin, {binary: true, priority: true, headers: {Range: 'bytes=' + at[0] + '-' + (at[0] + at[1] - 1)}}))
+        var asked = ndbReading(ndbRange(NDB_INDEX + manifest.bin, at[0], at[1]))
             .then(function (result) {
                 if (result && result.status === 404 && !retried && !place) {
                     // A table of contents kept from an earlier build points at data a newer build replaced.
@@ -354,6 +354,39 @@
         // Each is a decompressed bucket or block (up to a few MB as objects): a phone's page keeps few.
         if (ndb.pieces.size > NDB_PIECES) ndb.pieces.delete(ndb.pieces.keys().next().value);
         return asked;
+    }
+    // The release address sends each request on to a signed one (a second round trip every time, seconds on a
+    // phone): that address is used directly while it is valid (noveldb_index._range). A read that has not
+    // answered in NDB_HEDGE_MS is asked again, and whichever answers first is taken (now and then one stalls).
+    var NDB_SIGNED_MS = 240e3, NDB_HEDGE_MS = 2000;
+    function ndbRange(url, offset, length) {
+        var headers = {Range: 'bytes=' + offset + '-' + (offset + length - 1)};
+        var ask = function (address) { return ndbHedged(function () { return fetchUrl(address, {binary: true, priority: true, headers: headers}); }); };
+        var whole = function (result) { return result && result.status === 206 && result.bytes.length === length; };
+        var signed = ndb.signed && ndb.signed.url === url && Date.now() < ndb.signed.until ? ndb.signed.final : null;
+        var viaRelease = function () {
+            return ask(url).then(function (result) {
+                if (whole(result) && result.url && result.url !== url) ndb.signed = {url: url, final: result.url, until: Date.now() + NDB_SIGNED_MS};
+                return result;
+            });
+        };
+        if (!signed) return viaRelease();
+        return ask(signed).then(function (result) {
+            if (whole(result)) return result;
+            ndb.signed = null;  // expired or refused: through the release address again
+            return viaRelease();
+        });
+    }
+    function ndbHedged(request) {
+        return new Promise(function (resolve) {
+            var answered = false, left = 1;
+            var take = function (result) {
+                if (answered) return;
+                if (result || --left <= 0) { answered = true; resolve(result); }
+            };
+            request().then(take, function () { take(null); });
+            setTimeout(function () { if (!answered) { left++; request().then(take, function () { take(null); }); } }, NDB_HEDGE_MS);
+        });
     }
     function ndbUndelta(values) {
         var total = 0;
@@ -494,7 +527,7 @@
     // the index keeps their lists in the catalogue's other orders too (noveldb_index.INDEX_SORTS).
     var NDB_AGE_TAGS = {r19: 19, r15: 15};
     var NDB_SORTS = ['likes', 'views', 'chapters', 'new', 'updated', 'title'];
-    function ndbSearch(text, mode, limit, offset, each, onTotal, sort) {
+    function ndbSearch(text, mode, limit, offset, each, onTotal, sort, sources) {
         var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)]
             : mode === 'author' ? ['@' + ndbNormal(text).replace(/\s+/g, ' ').trim()] : ndbTokens(text);
         limit = limit || NDB_MORE;
@@ -511,6 +544,8 @@
                     return Object.keys(found).length ? found : ndbLists(manifest, wanted[0]);  // an older index: its own order
                 }) : rated ? ndbLists(manifest, wanted[0]) : ndbTagLists(manifest, text)) : ndbStreams(manifest, wanted);
             return lists.then(function (streams) {
+                // `sources`: only their books (the sites picked in the Sites panel).
+                if (sources && sources.length) Object.keys(streams).forEach(function (name) { if (sources.indexOf(name) < 0) delete streams[name]; });
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
                 });
@@ -1574,6 +1609,19 @@
         }, token).then(function () { return twins; });
     }
     var NDB_TWIN_AUTHOR_BOOKS = 200;  // an author's books looked through for a site card's NovelDB twin
+    /** {source: its site as the cards name it}: a search of picked sites asks only these (source_search.source_sites). */
+    function sourceSites() {
+        var homes = {npia: NPIA, kpage: KPAGE, sfc: SFC_BOOK, nweb: NWEB, mpia: MPIA, jara: JARA, rbooks: RBOOKS, nseries: NSERIES}, out = {};
+        Object.keys(homes).forEach(function (source) { out[source] = G().siteOf(host(homes[source])); });
+        return out;
+    }
+    /** NovelDB's sources of the picked sites; null: all (no pick, or a picked site that is none of NovelDB's). */
+    function ndbPickedSources(only) {
+        if (!only || !only.length) return null;
+        var homes = sourceSites(), sites = Object.keys(homes).map(function (s) { return homes[s]; });
+        var mine = Object.keys(homes).filter(function (source) { return only.indexOf(homes[source]) >= 0; });
+        return mine.length && only.every(function (site) { return sites.indexOf(site) >= 0; }) ? mine : null;
+    }
     var SOURCE_SEARCHERS = {npia: npiaSearch, kpage: kpageSearch, sfc: sfcSearch, nweb: nwebSearch, mpia: mpiaSearch, jara: jaraSearch,
                             rbooks: rbooksSearch, nseries: nseriesSearch};
     // The sites asked for an age rating (R19, R15): their searches say each book's rating (source_search.RATED).
@@ -1722,6 +1770,10 @@
     function runSearch(id, text, mode, token, sort, options) {
         options = options || {};
         var useNovelDB = options.noveldb !== false, deep = options.deep !== false;
+        // The sites picked in the Sites panel: only they are asked, NovelDB for their books, and no web search.
+        var only = (options.only || []).filter(function (s) { return typeof s === 'string'; });
+        var picked = function (hostName) { return !only.length || only.indexOf(G().siteOf(hostName)) >= 0; };
+        var ndbSources = ndbPickedSources(only), homes = sourceSites();
         speedAnswered = false;
         speedFailed = [];
         var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, details = [];
@@ -1753,7 +1805,7 @@
         // The busiest sites ("searched"); the rest come up through the web search. The quickest sites
         // (remembered from earlier searches) are asked first; one that failed or was slow rests a day.
         var searchedSites = SITES.filter(function (site) {
-            return site.searched !== false && !(site.lnreader || []).length && !resting(site.host);
+            return site.searched !== false && !(site.lnreader || []).length && picked(site.host) && (only.length || !resting(site.host));
         }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
         var sources = searchedSites.map(function (site) {
             return function () {
@@ -1783,12 +1835,12 @@
             // Each card goes to the page as soon as it is read, not after the whole page of them.
             return ndbSearch(text, mode, NDB_FIRST, 0, function (c) { shown += offer([mark(c)]).length; }, function (total) {
                 call('progress', id, {noveldbTotal: total});
-            }, sort).then(function (found) {
+            }, sort, ndbSources).then(function (found) {
                 shown += offer(found.cards.map(mark)).length;
                 report('NovelDB', started, shown);
             }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); });
         });
-        sources.push(function () {
+        if (!only.length) sources.push(function () {
             var started = Date.now();
             var words_ = mode === 'tag' ? '"' + text + '" (novel OR manga OR webtoon)' : '"' + text + '" (novel OR manga OR webtoon OR manhwa)';
             return webSearch(words_, token).then(function (hits) {
@@ -1815,6 +1867,7 @@
         var direct = asks.then(function (found) {
             var jobs = [];
             Object.keys(found).forEach(function (source) {
+                if (only.length && only.indexOf(homes[source]) < 0) return;
                 found[source].forEach(function (name) {
                     jobs.push(function () {
                         var started = Date.now();
@@ -1977,7 +2030,8 @@
                     return fresh;
                 }
                 var useNovelDB = item.noveldb !== false, deep = item.deep !== false;
-                var jobs = ndbPage >= 1 && useNovelDB ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE, null, null, item.sort || '').then(function (found) {
+                var only = (item.only || []).filter(function (s) { return typeof s === 'string'; });
+                var jobs = ndbPage >= 1 && useNovelDB ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE, null, null, item.sort || '', ndbPickedSources(only)).then(function (found) {
                     offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode !== 'name'}); }));
                     if (found.more) { state.more = true; state.ndbMore = true; }
                 }, function () {})] : [];
@@ -1993,7 +2047,7 @@
                     }));
                 });
                 if (sites) SITES.forEach(function (site) {
-                    if (site.searched === false) return;
+                    if (site.searched === false || (only.length && only.indexOf(G().siteOf(site.host)) < 0)) return;
                     var home = 'https://' + site.host + '/';
                     if (!hasMore(home, kind, text)) return;
                     jobs.push(siteMore(home, kind, text, token).then(function (hits) {

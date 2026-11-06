@@ -1095,6 +1095,8 @@
     function searchesIn(query) {
         if (!searches.noveldb) query.noveldb = false;
         if (!searches.deep) query.deep = false;
+        // The sites picked in the Sites panel: the search asks only them (and NovelDB for their books).
+        if (siteFilter.size) query.only = Array.from(siteFilter);
         return query;
     }
     $('useNovelDB').checked = searches.noveldb;
@@ -1511,6 +1513,7 @@
         queries.forEach(function (q) {
             if (q.mode === 'tag' && isAgeTag(q.query)) return;  // NovelDB's own rating: no plugin lists it
             every.forEach(function (plugin) {
+                if (q.only && q.only.indexOf(plugin.site) < 0) return;  // the sites picked in the Sites panel only
                 jobs.push({plugin: plugin, query: q, run: function () {
                     return q.mode === 'tag' && window.__LNR_genre ? window.__LNR_genre(plugin.id, q.query) : window.__LNR_search(plugin.id, q.query, 1);
                 }});
