@@ -909,12 +909,17 @@
         return true;
     }
     // -- Google Translate: a book's details and the reader's chapter, in the device's language ----------
-    var TRANSLATE_TO = String(navigator.language || 'en').split('-')[0].toLowerCase() || 'en';
+    // The language translations go into (the settings' "Into"): this device's own unless one is picked.
+    var TRANSLATE_KEY = 'noveldb.generic.translateTo';
+    var DEVICE_LANGUAGE = String(navigator.language || 'en').split('-')[0].toLowerCase() || 'en';
+    var translatePicked = '';
+    try { translatePicked = localStorage.getItem(TRANSLATE_KEY) || ''; } catch (e) {}
+    function translateTo() { return translatePicked || DEVICE_LANGUAGE; }
     var TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=auto&tl=';
     var translated = new Map();  // text -> its translation, kept for this page
     // A book's details the site wrote: its title, original title, synopsis and tags (the app's labels stay).
     var TRANSLATED_PARTS = '.details h2, .details .rawtitle, .details .desc, .details .chips .chip';
-    /** `texts` in TRANSLATE_TO, in their order (a text Google can't translate comes back as it is). Lines go in
+    /** `texts` in translateTo(), in their order (a text Google can't translate comes back as it is). Lines go in
      * batches of about 4,500 characters, one per line, so a chapter is a few requests. */
     function googleTranslate(texts) {
         var wanted = texts.filter(function (text) { return text.trim() && !translated.has(text); });
@@ -927,7 +932,7 @@
         if (batch.length) batches.push(batch);
         return Promise.all(batches.map(function (items) {
             var body = 'q=' + encodeURIComponent(items.map(function (item) { return item[1]; }).join('\n'));
-            return fetch(TRANSLATE_URL + TRANSLATE_TO, {method: 'POST', body: body,
+            return fetch(TRANSLATE_URL + encodeURIComponent(translateTo()), {method: 'POST', body: body,
                                                         headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'}})
                 .then(function (response) { return response.ok ? response.json() : null; })
                 .then(function (data) {
@@ -1975,6 +1980,12 @@
     // The sort is remembered; a change orders what is shown, and searches again for NovelDB's lists in that order.
     try { var savedSort = localStorage.getItem(SORT_KEY); if (savedSort != null) $('sort').value = savedSort; } catch (e) {}
     if ($('sort').selectedIndex < 0) $('sort').value = '';
+    $('translateTo').value = translatePicked;
+    if ($('translateTo').selectedIndex < 0) $('translateTo').value = translatePicked = '';
+    $('translateTo').addEventListener('change', function () {
+        translatePicked = this.value;
+        try { localStorage.setItem(TRANSLATE_KEY, this.value); } catch (e) {}
+    });
     $('translateCards').addEventListener('click', function () {
         var button = this;
         cardsTranslated = !cardsTranslated;

@@ -171,3 +171,20 @@ def test_a_library_book_opens_at_its_site_and_its_title_is_searched(page):
     searches = page.evaluate("() => window.__sent.filter(m => m.type === 'genericSearch')")
     assert sent and searches and searches[-1]["queries"][0] == {"query": RAW, "mode": "name", "sort": ""} | {
         k: v for k, v in searches[-1]["queries"][0].items() if k not in ("query", "mode", "sort")}
+
+
+def test_translations_go_into_the_language_picked_in_the_settings(page):
+    asked = []
+
+    def answer(route):
+        asked.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                      body=json.dumps([[["Bonjour.", "x"]]]))
+
+    page.route("https://translate.googleapis.com/**", answer)
+    page.evaluate("() => { var s = document.getElementById('translateTo'); s.value = 'fr'; s.dispatchEvent(new Event('change')); }")
+    page.evaluate("() => { document.getElementById('flow').innerHTML = '<p>안녕하세요.</p>'; }")
+    page.evaluate("() => document.getElementById('rTranslate').click()")
+    page.wait_for_timeout(500)
+    assert asked and "tl=fr" in asked[0]
+    assert page.eval_on_selector("#flow p", "e => e.textContent") == "Bonjour."

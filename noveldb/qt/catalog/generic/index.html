@@ -379,8 +379,15 @@
             <label class="check" title="NovelDB's sites (npia, kpage, sfc, ...) asked directly by tag and author; off, they are searched like any site"><input type="checkbox" id="useDeep"> Deep search</label>
         </div>
         <h3>Translation</h3>
+        <label class="range">Into <select id="translateTo">
+            <option value="">This device's language</option><option value="en">English</option>
+            <option value="ko">한국어</option><option value="ja">日本語</option><option value="zh-CN">中文 (简体)</option>
+            <option value="zh-TW">中文 (繁體)</option><option value="es">Español</option><option value="pt">Português</option>
+            <option value="fr">Français</option><option value="de">Deutsch</option><option value="it">Italiano</option>
+            <option value="ru">Русский</option><option value="id">Bahasa Indonesia</option><option value="vi">Tiếng Việt</option>
+            <option value="th">ไทย</option><option value="tr">Türkçe</option><option value="ar">العربية</option></select></label>
         <button type="button" id="translateCards">🌐 Translate the shown cards</button>
-        <p>Google Translate, into this device's language: the titles, tags and synopses of the cards shown (and of the
+        <p>Google Translate, into that language: the titles, tags and synopses of the cards shown (and of the
             ones that come in), until pressed again. A book's details and the reader have a 🌐 button of their own.</p>
         <h3>Cover previews</h3>
         <label class="check"><input type="checkbox" id="imgLow"> Show covers at lower quality (uses less memory, like NovelDB)</label>
