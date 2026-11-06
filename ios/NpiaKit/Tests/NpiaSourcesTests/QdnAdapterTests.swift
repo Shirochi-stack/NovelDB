@@ -519,10 +519,12 @@ final class QdnAdapterTests: XCTestCase {
         let (_, scripted) = try await readChapter(encrypted())
         let decoderPage = try XCTUnwrap(scripted.pages.last)
         let puts = decoderPage.calls.filter { $0.hasPrefix("qdn.decoder.putResource") }
-        // font (12 chunks of about 192 KB), frequency and verified maps (one each).
+        // font (12 chunks of about 192 KB), outline table (10), frequency, verified maps and brotli dictionary (one each).
         XCTAssertEqual(puts.filter { $0.contains("\"font\"") }.count, 12)
+        XCTAssertEqual(puts.filter { $0.contains("\"outlines\"") }.count, 10)
         XCTAssertEqual(puts.filter { $0.contains("\"frequency\"") }.count, 1)
         XCTAssertEqual(puts.filter { $0.contains("\"verified\"") }.count, 1)
+        XCTAssertEqual(puts.filter { $0.contains("\"brotli\"") }.count, 1)
         // Every font chunk but the last is a multiple of 4 base64 characters.
         let font = puts.filter { $0.contains("\"font\"") }
         for call in font.dropLast() {

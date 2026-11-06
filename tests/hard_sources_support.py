@@ -46,12 +46,17 @@ def page_text(name):
             .replace('{CDN}', RBOOKS_CDN).replace('{BORDER}', RBOOKS_BORDER).replace('{CENTER}', RBOOKS_CENTER))
 
 
-def push_resources(page, verified=False):
+def push_resources(page, verified=False, outlines=False, reference=True):
     """Hands the decoder its resources the way native code does: base64 chunks."""
-    names = [('font', RESOURCES / 'qdn' / 'NotoSansCJKsc-Regular-hanzi.otf'),
-             ('frequency', RESOURCES / 'qdn' / 'zh_char_frequency.txt')]
+    names = []
+    if reference:
+        names += [('font', RESOURCES / 'qdn' / 'NotoSansCJKsc-Regular-hanzi.otf'),
+                  ('frequency', RESOURCES / 'qdn' / 'zh_char_frequency.txt')]
     if verified:
         names.append(('verified', RESOURCES / 'qdn' / 'qdn_verified_maps.json'))
+    if outlines:
+        names += [('outlines', RESOURCES / 'qdn' / 'qdn_outline_table.json'),
+                  ('brotli', RESOURCES / 'qdn' / 'brotli_dictionary.bin')]
     for name, path in names:
         encoded = base64.b64encode(path.read_bytes()).decode()
         size = 262144

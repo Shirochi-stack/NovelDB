@@ -798,7 +798,9 @@
   // on a canvas with the cipher font, reduced to a normalised 56x56 vector, and compared with the same
   // vector of every hanzi in a bundled reference font (Noto Sans CJK SC, the design the cipher glyphs
   // are drawn from). A character-frequency prior settles near-identical shapes (好/奸), and entries
-  // verified against screenshots for these exact font bytes bypass matching.
+  // verified against screenshots for these exact font bytes bypass matching. Before shape matching,
+  // a glyph's own outline (read from the font file, WOFF2 included) is looked up in a table of labelled
+  // outlines; character codes are scrambled per font, but outlines are stable, so a hit is exact.
   //
   // Matching is two-stage so it stays quick on a phone: a coarse 14x14 vector narrows ~9800 reference
   // characters to the best 48, and the full 56x56 comparison (the one the desktop uses) picks among those.
@@ -810,6 +812,8 @@
   //   font       NotoSansCJKsc-Regular-hanzi.otf
   //   frequency  zh_char_frequency.txt            optional  "<char>\t<count>" per line
   //   verified   qdn_verified_maps.json           optional
+  //   outlines   qdn_outline_table.json           optional
+  //   brotli     brotli_dictionary.bin            optional  the static dictionary WOFF2 fonts may use
   // ---------------------------------------------------------------------------------------------
 
   qdn.decoder = (function () {
@@ -845,11 +849,14 @@
       fine: new Map(),      // reference char -> Float32Array(GRID*GRID)
       verified: null,       // digest -> {entries}
       frequency: null,      // char -> count
+      outlineTable: null,   // promise of the OutlineTable
+      outlineSize: 0,       // exemplars in it once built
+      outlineFonts: new Map(),  // font sha256 -> outlines (a few recent fonts) or null when unreadable
     };
 
     // --- resources -------------------------------------------------------------------------------
 
-    const resourceNames = ['font', 'frequency', 'verified'];
+    const resourceNames = ['font', 'frequency', 'verified', 'outlines', 'brotli'];
 
     /** Stores chunk `index` (0-based) of `count` for a resource. Returns whether it is now complete. */
     function putResource(name, index, count, base64) {
@@ -875,6 +882,8 @@
       if (name === 'font') { state.ref = null; state.build = null; state.refFace = null; state.fine.clear(); state.glyphs.clear(); }
       if (name === 'frequency') { state.frequency = null; state.ref = null; state.build = null; }
       if (name === 'verified') state.verified = null;
+      if (name === 'outlines') { state.outlineTable = null; state.outlineSize = 0; }
+      if (name === 'brotli') state.outlineFonts.clear();
       return { name, complete: true, received: count, count };
     }
 
@@ -1261,7 +1270,7 @@
         const face = new (nativeFontFace())(name, bytes.slice().buffer);
         await face.load();
         document.fonts.add(face);
-        core = { digest, name, css: `"${name}"`, face, cover: new Map() };
+        core = { digest, name, css: `"${name}"`, face, cover: new Map(), bytes };
         if (state.cores.size > 64) {
           for (const old of state.cores.values()) document.fonts.delete(old.face);
           state.cores.clear();
@@ -1299,6 +1308,1006 @@
         if (!this.spans.some(([low, high]) => low <= cp && cp <= high)) return false;
         return coreCovers(this.core, ch);
       }
+    }
+
+    // --- brotli (RFC 7932), decode only: WOFF2 fonts are brotli-compressed ------------------------
+    // Web views cannot decompress brotli for script, so this is a plain decoder. Prefix codes are
+    // decoded canonically bit by bit, which is quick enough for a font of a few hundred kilobytes.
+    // The static dictionary (resource `brotli`) is only needed by streams that refer to it.
+
+    const BROTLI_ORDER = [1, 2, 3, 4, 0, 5, 17, 6, 16, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    const BROTLI_CLC_LENGTH = [2, 2, 2, 3, 2, 2, 2, 4, 2, 2, 2, 3, 2, 2, 2, 4];
+    const BROTLI_CLC_VALUE = [0, 4, 3, 2, 0, 4, 3, 1, 0, 4, 3, 2, 0, 4, 3, 5];
+    const BROTLI_BLOCK_BASE = [1, 5, 9, 13, 17, 25, 33, 41, 49, 65, 81, 97, 113, 145, 177, 209, 241, 305, 369, 497,
+      753, 1265, 2289, 4337, 8433, 16625];
+    const BROTLI_BLOCK_EXTRA = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 7, 8, 9, 10, 11, 12, 13, 24];
+    const BROTLI_INSERT_BASE = [0, 1, 2, 3, 4, 5, 6, 8, 10, 14, 18, 26, 34, 50, 66, 98, 130, 194, 322, 578, 1090, 2114,
+      6210, 22594];
+    const BROTLI_INSERT_EXTRA = [0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 8, 9, 10, 12, 14, 24];
+    const BROTLI_COPY_BASE = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 18, 22, 30, 38, 54, 70, 102, 134, 198, 326, 582, 1094,
+      2118];
+    const BROTLI_COPY_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 8, 9, 10, 24];
+    // Insert and copy length ranges of the 11 cells of 64 commands.
+    const BROTLI_CELL_INSERT = [0, 0, 0, 0, 1, 1, 0, 2, 1, 2, 2];
+    const BROTLI_CELL_COPY = [0, 1, 0, 1, 0, 1, 2, 0, 2, 1, 2];
+    const BROTLI_SHORT_INDEX = [0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1];
+    const BROTLI_SHORT_DELTA = [0, 0, 0, 0, -1, 1, -2, 2, -3, 3, -1, 1, -2, 2, -3, 3];
+    const BROTLI_DICT_BITS = [0, 0, 0, 0, 10, 10, 11, 11, 10, 10, 10, 10, 10, 9, 9, 8, 7, 7, 8, 7, 7, 6, 6, 5, 5];
+    const BROTLI_DICT_OFFSET = (() => {
+      const offsets = new Array(25).fill(0);
+      for (let n = 4; n < 24; n += 1) offsets[n + 1] = offsets[n] + n * (1 << BROTLI_DICT_BITS[n]);
+      return offsets;
+    })();
+    const BROTLI_DICT_SIZE = 122784;
+    // Context lookup tables (RFC 7932 section 7.1).
+    const BROTLI_LUT = (() => {
+      const utf0 = new Uint8Array(256), utf1 = new Uint8Array(256), signed = new Uint8Array(256);
+      const ascii = '\0\0\0\0\0\0\0\0\0\u0004\u0004\0\0\u0004\0\0' + '\0'.repeat(16);
+      const text0 = [8, 12, 16, 12, 12, 20, 12, 16, 24, 28, 12, 12, 32, 12, 36, 12,
+        44, 44, 44, 44, 44, 44, 44, 44, 44, 44, 32, 32, 24, 40, 28, 12,
+        12, 48, 52, 52, 52, 48, 52, 52, 52, 48, 52, 52, 52, 52, 52, 48,
+        52, 52, 52, 52, 52, 48, 52, 52, 52, 52, 52, 24, 12, 28, 12, 12,
+        12, 56, 60, 60, 60, 56, 60, 60, 60, 56, 60, 60, 60, 60, 60, 56,
+        60, 60, 60, 60, 60, 56, 60, 60, 60, 60, 60, 24, 12, 28, 12, 0];
+      const text1 = [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1,
+        1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1,
+        1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 0];
+      for (let i = 0; i < 32; i += 1) utf0[i] = ascii.charCodeAt(i);
+      for (let i = 32; i < 128; i += 1) { utf0[i] = text0[i - 32]; utf1[i] = text1[i - 32]; }
+      for (let i = 128; i < 256; i += 1) { utf0[i] = (i < 192 ? 0 : 2) + (i & 1); utf1[i] = i < 224 ? 0 : 2; }
+      for (let i = 0; i < 256; i += 1) {
+        signed[i] = i === 0 ? 0 : i < 16 ? 1 : i < 64 ? 2 : i < 128 ? 3 : i < 192 ? 4 : i < 240 ? 5 : i < 255 ? 6 : 7;
+      }
+      return { utf0, utf1, signed };
+    })();
+    // Word transforms (RFC 7932 appendix B): [prefix, kind, suffix]. Kinds: 0 identity, 1-9 omit the
+    // last n bytes, 10 uppercase the first letter, 11 uppercase all, 12-20 omit the first n-11 bytes.
+    const BROTLI_TRANSFORMS = (() => {
+      const table = [
+        '', 0, '', '', 0, ' ', ' ', 0, ' ', '', 12, '', '', 10, ' ', '', 0, ' the ', ' ', 0, '', 's ', 0, ' ',
+        '', 0, ' of ', '', 10, '', '', 0, ' and ', '', 13, '', '', 1, '', ', ', 0, ' ', '', 0, ', ', ' ', 10, ' ',
+        '', 0, ' in ', '', 0, ' to ', 'e ', 0, ' ', '', 0, '"', '', 0, '.', '', 0, '">', '', 0, '\n', '', 3, '',
+        '', 0, ']', '', 0, ' for ', '', 14, '', '', 2, '', '', 0, ' a ', '', 0, ' that ', ' ', 10, '', '', 0, '. ',
+        '.', 0, '', ' ', 0, ', ', '', 15, '', '', 0, ' with ', '', 0, '\'', '', 0, ' from ', '', 0, ' by ',
+        '', 16, '', '', 17, '', ' the ', 0, '', '', 4, '', '', 0, '. The ', '', 11, '', '', 0, ' on ', '', 0, ' as ',
+        '', 0, ' is ', '', 7, '', '', 1, 'ing ', '', 0, '\n\t', '', 0, ':', ' ', 0, '. ', '', 0, 'ed ', '', 20, '',
+        '', 18, '', '', 6, '', '', 0, '(', '', 10, ', ', '', 8, '', '', 0, ' at ', '', 0, 'ly ', ' the ', 0, ' of ',
+        '', 5, '', '', 9, '', ' ', 10, ', ', '', 10, '"', '.', 0, '(', '', 11, ' ', '', 10, '">', '', 0, '="',
+        ' ', 0, '.', '.com/', 0, '', ' the ', 0, ' of the ', '', 10, '\'', '', 0, '. This ', '', 0, ',', '.', 0, ' ',
+        '', 10, '(', '', 10, '.', '', 0, ' not ', ' ', 0, '="', '', 0, 'er ', ' ', 11, ' ', '', 0, 'al ', ' ', 11, '',
+        '', 0, '=\'', '', 11, '"', '', 10, '. ', ' ', 0, '(', '', 0, 'ful ', ' ', 10, '. ', '', 0, 'ive ',
+        '', 0, 'less ', '', 11, '\'', '', 0, 'est ', ' ', 10, '.', '', 11, '">', ' ', 0, '=\'', '', 10, ',',
+        '', 0, 'ize ', '', 11, '.', '\u00c2\u00a0', 0, '', ' ', 0, ',', '', 10, '="', '', 11, '="', '', 0, 'ous ',
+        '', 11, ', ', '', 10, '=\'', ' ', 10, ',', ' ', 11, '="', ' ', 11, ', ', '', 11, ',', '', 11, '(',
+        '', 11, '. ', ' ', 11, '.', '', 11, '=\'', ' ', 11, '. ', ' ', 10, '="', ' ', 11, '=\'', ' ', 10, '=\''];
+      const bytes = (text) => Uint8Array.from(text, (c) => c.charCodeAt(0));
+      const out = [];
+      for (let i = 0; i < table.length; i += 3) out.push([bytes(table[i]), table[i + 1], bytes(table[i + 2])]);
+      return out;
+    })();
+
+    class BrotliBits {
+      constructor(data) { this.data = data; this.pos = 0; this.acc = 0; this.count = 0; }
+      bits(n) {
+        while (this.count < n) {
+          if (this.pos >= this.data.length) {
+            if (this.pos > this.data.length + 4) throw new Error('brotli stream truncated');
+            this.pos += 1;
+          } else this.acc |= this.data[this.pos++] << this.count;
+          this.count += 8;
+        }
+        const value = this.acc & ((1 << n) - 1);
+        this.acc >>>= n;
+        this.count -= n;
+        return value;
+      }
+      peek4() {
+        while (this.count < 4) { this.acc |= (this.pos < this.data.length ? this.data[this.pos] : 0) << this.count; this.pos += 1; this.count += 8; }
+        return this.acc & 15;
+      }
+      align() { if (this.bits(this.count & 7) !== 0) throw new Error('brotli padding is not zero'); }
+      byte() { return this.bits(8); }
+    }
+
+    /** A canonical prefix code from code lengths. `decode` reads one symbol. */
+    class BrotliCode {
+      constructor(lengths) {
+        const count = new Int32Array(16);
+        let used = 0, last = 0;
+        for (let s = 0; s < lengths.length; s += 1) if (lengths[s]) { count[lengths[s]] += 1; used += 1; last = s; }
+        this.single = used === 1 ? last : -1;
+        this.first = new Int32Array(16);
+        this.offset = new Int32Array(16);
+        this.count = count;
+        let code = 0, offset = 0;
+        for (let len = 1; len < 16; len += 1) {
+          code = (code + count[len - 1]) << 1;
+          this.first[len] = code;
+          this.offset[len] = offset;
+          offset += count[len];
+        }
+        this.symbols = new Int32Array(offset);
+        const next = this.offset.slice();
+        for (let len = 1; len < 16; len += 1) {
+          for (let s = 0; s < lengths.length; s += 1) if (lengths[s] === len) this.symbols[next[len]++] = s;
+        }
+      }
+      decode(br) {
+        if (this.single >= 0) return this.single;
+        let code = 0;
+        for (let len = 1; len < 16; len += 1) {
+          code = (code << 1) | br.bits(1);
+          const index = code - this.first[len];
+          if (index < this.count[len]) return this.symbols[this.offset[len] + index];
+        }
+        throw new Error('brotli: invalid prefix code');
+      }
+    }
+
+    function brotliReadCode(br, alphabet) {
+      const lengths = new Uint8Array(alphabet);
+      const skip = br.bits(2);
+      if (skip === 1) {
+        let width = 0;
+        while ((1 << width) < alphabet) width += 1;
+        const nsym = br.bits(2) + 1;
+        const symbols = [];
+        for (let i = 0; i < nsym; i += 1) {
+          const symbol = br.bits(width);
+          if (symbol >= alphabet) throw new Error('brotli: symbol out of range');
+          symbols.push(symbol);
+        }
+        const shapes = nsym === 1 ? [[0]] : nsym === 2 ? [[1, 1]] : nsym === 3 ? [[1, 2, 2]] : [[2, 2, 2, 2], [1, 2, 3, 3]];
+        const shape = shapes[nsym === 4 ? br.bits(1) : 0];
+        if (nsym === 1) lengths[symbols[0]] = 1;
+        else symbols.forEach((symbol, i) => { lengths[symbol] = shape[i]; });
+        // A one-symbol code takes no bits.
+        return new BrotliCode(lengths);
+      }
+      const clc = new Uint8Array(18);
+      let space = 32, codes = 0;
+      for (let i = skip; i < 18 && space > 0; i += 1) {
+        const peek = br.peek4();
+        br.bits(BROTLI_CLC_LENGTH[peek]);
+        const length = BROTLI_CLC_VALUE[peek];
+        clc[BROTLI_ORDER[i]] = length;
+        if (length) { space -= 32 >> length; codes += 1; }
+      }
+      if (codes !== 1 && space !== 0) throw new Error('brotli: invalid code length code');
+      const lengthCode = new BrotliCode(clc);
+      let symbol = 0, previous = 8, repeat = 0, repeatLength = 0;
+      space = 32768;
+      while (symbol < alphabet && space > 0) {
+        const p = lengthCode.decode(br);
+        if (p < 16) {
+          repeat = 0;
+          lengths[symbol++] = p;
+          if (p) { previous = p; space -= 32768 >> p; }
+          continue;
+        }
+        const extra = p === 16 ? 2 : 3;
+        const length = p === 16 ? previous : 0;
+        if (repeatLength !== length) { repeat = 0; repeatLength = length; }
+        const old = repeat;
+        if (repeat > 0) repeat = (repeat - 2) << extra;
+        repeat += br.bits(extra) + 3;
+        const delta = repeat - old;
+        if (symbol + delta > alphabet) throw new Error('brotli: code lengths overflow');
+        for (let k = 0; k < delta; k += 1) lengths[symbol++] = length;
+        if (length) space -= delta << (15 - length);
+      }
+      if (space !== 0) throw new Error('brotli: incomplete prefix code');
+      return new BrotliCode(lengths);
+    }
+
+    function brotliVarUint8(br) {
+      if (!br.bits(1)) return 0;
+      const n = br.bits(3);
+      return n === 0 ? 1 : (1 << n) + br.bits(n);
+    }
+
+    function brotliBlockLength(br, code) {
+      const symbol = code.decode(br);
+      return BROTLI_BLOCK_BASE[symbol] + br.bits(BROTLI_BLOCK_EXTRA[symbol]);
+    }
+
+    function brotliContextMap(br, size, trees) {
+      const map = new Uint8Array(size);
+      if (trees < 2) return map;
+      const rle = br.bits(1) ? br.bits(4) + 1 : 0;
+      const code = brotliReadCode(br, trees + rle);
+      for (let i = 0; i < size;) {
+        const symbol = code.decode(br);
+        if (symbol === 0) i += 1;
+        else if (symbol <= rle) {
+          i += (1 << symbol) + br.bits(symbol);
+          if (i > size) throw new Error('brotli: context map overflow');
+        } else map[i++] = symbol - rle;
+      }
+      if (br.bits(1)) {
+        const mtf = Array.from({ length: 256 }, (_, i) => i);
+        for (let i = 0; i < size; i += 1) {
+          const index = map[i];
+          const value = mtf[index];
+          map[i] = value;
+          if (index) { mtf.splice(index, 1); mtf.unshift(value); }
+        }
+      }
+      return map;
+    }
+
+    /** Decompresses a brotli stream. `dictionary` is the 122,784-byte static dictionary or null. */
+    function brotliDecode(data, dictionary, sizeHint) {
+      const br = new BrotliBits(data);
+      let wbits = 16;
+      if (br.bits(1)) {
+        const n = br.bits(3);
+        if (n) wbits = 17 + n;
+        else {
+          const m = br.bits(3);
+          if (m === 1) throw new Error('brotli: large windows are not supported');
+          wbits = m ? 8 + m : 17;
+        }
+      }
+      const window = (1 << wbits) - 16;
+      let out = new Uint8Array(Math.max(1024, sizeHint || data.length * 4));
+      let pos = 0;
+      const ensure = (extra) => {
+        if (pos + extra <= out.length) return;
+        const grown = new Uint8Array(Math.max(out.length * 2, pos + extra));
+        grown.set(out.subarray(0, pos));
+        out = grown;
+      };
+      const distances = [16, 15, 11, 4];
+      let distanceIndex = 0;
+      for (;;) {
+        const last = br.bits(1);
+        if (last && br.bits(1)) break;
+        const nibbles = br.bits(2);
+        if (nibbles === 3) {
+          if (br.bits(1)) throw new Error('brotli: reserved bit set');
+          const skipBytes = br.bits(2);
+          let skip = 0;
+          for (let i = 0; i < skipBytes; i += 1) skip |= br.bits(8) << (8 * i);
+          if (skipBytes) skip += 1;
+          br.align();
+          for (let i = 0; i < skip; i += 1) br.byte();
+          if (last) break;
+          continue;
+        }
+        let length = 0;
+        for (let i = 0; i < nibbles + 4; i += 1) length |= br.bits(4) << (4 * i);
+        length += 1;
+        if (!last && br.bits(1)) {
+          br.align();
+          ensure(length);
+          for (let i = 0; i < length; i += 1) out[pos++] = br.byte();
+          continue;
+        }
+        const types = [], typeCodes = [], countCodes = [], blockLeft = [], typeNow = [], typePrev = [];
+        for (let k = 0; k < 3; k += 1) {
+          types[k] = brotliVarUint8(br) + 1;
+          typeNow[k] = 0;
+          typePrev[k] = 1;
+          if (types[k] >= 2) {
+            typeCodes[k] = brotliReadCode(br, types[k] + 2);
+            countCodes[k] = brotliReadCode(br, 26);
+            blockLeft[k] = brotliBlockLength(br, countCodes[k]);
+          } else blockLeft[k] = 1 << 28;
+        }
+        const postfix = br.bits(2);
+        const direct = br.bits(4) << postfix;
+        const postfixMask = (1 << postfix) - 1;
+        const modes = new Uint8Array(types[0]);
+        for (let i = 0; i < types[0]; i += 1) modes[i] = br.bits(2);
+        const literalTrees = brotliVarUint8(br) + 1;
+        const literalMap = brotliContextMap(br, 64 * types[0], literalTrees);
+        const distanceTrees = brotliVarUint8(br) + 1;
+        const distanceMap = brotliContextMap(br, 4 * types[2], distanceTrees);
+        const literalCodes = [], commandCodes = [], distanceCodes = [];
+        for (let i = 0; i < literalTrees; i += 1) literalCodes.push(brotliReadCode(br, 256));
+        for (let i = 0; i < types[1]; i += 1) commandCodes.push(brotliReadCode(br, 704));
+        for (let i = 0; i < distanceTrees; i += 1) distanceCodes.push(brotliReadCode(br, 16 + direct + (48 << postfix)));
+        const switchBlock = (k) => {
+          let type = typeCodes[k].decode(br);
+          type = type === 0 ? typePrev[k] : type === 1 ? typeNow[k] + 1 : type - 2;
+          if (type >= types[k]) type -= types[k];
+          typePrev[k] = typeNow[k];
+          typeNow[k] = type;
+          blockLeft[k] = brotliBlockLength(br, countCodes[k]);
+        };
+        let left = length;
+        ensure(length);
+        while (left > 0) {
+          if (blockLeft[1] === 0) switchBlock(1);
+          blockLeft[1] -= 1;
+          const command = commandCodes[typeNow[1]].decode(br);
+          const cell = command >> 6;
+          const insertCode = BROTLI_CELL_INSERT[cell] * 8 + ((command >> 3) & 7);
+          const copyCode = BROTLI_CELL_COPY[cell] * 8 + (command & 7);
+          const insert = BROTLI_INSERT_BASE[insertCode] + br.bits(BROTLI_INSERT_EXTRA[insertCode]);
+          const copy = BROTLI_COPY_BASE[copyCode] + br.bits(BROTLI_COPY_EXTRA[copyCode]);
+          for (let i = 0; i < insert; i += 1) {
+            if (blockLeft[0] === 0) switchBlock(0);
+            blockLeft[0] -= 1;
+            const p1 = pos > 0 ? out[pos - 1] : 0;
+            const p2 = pos > 1 ? out[pos - 2] : 0;
+            const type = typeNow[0];
+            const mode = modes[type];
+            const context = mode === 0 ? p1 & 63 : mode === 1 ? p1 >> 2
+              : mode === 2 ? BROTLI_LUT.utf0[p1] | BROTLI_LUT.utf1[p2]
+                : (BROTLI_LUT.signed[p1] << 3) | BROTLI_LUT.signed[p2];
+            out[pos++] = literalCodes[literalMap[64 * type + context]].decode(br);
+          }
+          left -= insert;
+          if (left <= 0) break;
+          let distance, distanceCode = 0;
+          if (cell < 2) distance = distances[(distanceIndex + 3) & 3];
+          else {
+            if (blockLeft[2] === 0) switchBlock(2);
+            blockLeft[2] -= 1;
+            const context = copy > 4 ? 3 : copy - 2;
+            distanceCode = distanceCodes[distanceMap[4 * typeNow[2] + context]].decode(br);
+            if (distanceCode < 16) {
+              distance = distances[(distanceIndex + 3 - BROTLI_SHORT_INDEX[distanceCode]) & 3] + BROTLI_SHORT_DELTA[distanceCode];
+              if (distance <= 0) throw new Error('brotli: invalid distance');
+            } else if (distanceCode < 16 + direct) distance = distanceCode - 15;
+            else {
+              const code = distanceCode - direct - 16;
+              const bits = 1 + (code >> (postfix + 1));
+              const offset = ((2 + ((code >> postfix) & 1)) << bits) - 4;
+              distance = ((offset + br.bits(bits)) << postfix) + (code & postfixMask) + direct + 1;
+            }
+          }
+          const reach = Math.min(window, pos);
+          if (distance > reach) {
+            if (!dictionary || dictionary.length < BROTLI_DICT_SIZE) throw new Error('brotli: the stream needs the dictionary');
+            if (copy < 4 || copy > 24) throw new Error('brotli: invalid dictionary reference');
+            const word = distance - reach - 1;
+            const bits = BROTLI_DICT_BITS[copy];
+            const transform = BROTLI_TRANSFORMS[word >> bits];
+            if (!transform) throw new Error('brotli: invalid transform');
+            const start = BROTLI_DICT_OFFSET[copy] + (word & ((1 << bits) - 1)) * copy;
+            const [prefix, kind, suffix] = transform;
+            let from = start, to = start + copy;
+            if (kind >= 1 && kind <= 9) to -= Math.min(kind, copy);
+            if (kind >= 12) from = Math.min(to, from + kind - 11);
+            ensure(prefix.length + (to - from) + suffix.length);
+            out.set(prefix, pos);
+            pos += prefix.length;
+            const wordStart = pos;
+            out.set(dictionary.subarray(from, to), pos);
+            pos += to - from;
+            if (kind === 10 || kind === 11) {
+              for (let i = wordStart; i < pos;) {
+                const c = out[i];
+                if (c < 0xc0) { if (c >= 97 && c <= 122) out[i] ^= 32; i += 1; }
+                else if (c < 0xe0) { if (i + 1 < pos) out[i + 1] ^= 32; i += 2; }
+                else { if (i + 2 < pos) out[i + 2] ^= 5; i += 3; }
+                if (kind === 10) break;
+              }
+            }
+            out.set(suffix, pos);
+            pos += suffix.length;
+            left -= prefix.length + (to - from) + suffix.length;
+          } else {
+            if (distanceCode !== 0) { distances[distanceIndex & 3] = distance; distanceIndex += 1; }
+            ensure(copy);
+            for (let i = 0; i < copy; i += 1, pos += 1) out[pos] = out[pos - distance];
+            left -= copy;
+          }
+        }
+        if (left < 0) throw new Error('brotli: meta-block overrun');
+        if (last) break;
+      }
+      return out.subarray(0, pos);
+    }
+
+    // --- font outlines (TrueType glyf, plain or as WOFF2 rebuilds it) -----------------------------
+
+    const WOFF2_TAGS = ['cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name', 'OS/2', 'post', 'cvt ', 'fpgm', 'glyf', 'loca',
+      'prep', 'CFF ', 'VORG', 'EBDT', 'EBLC', 'gasp', 'hdmx', 'kern', 'LTSH', 'PCLT', 'VDMX', 'vhea', 'vmtx', 'BASE',
+      'GDEF', 'GPOS', 'GSUB', 'EBSC', 'JSTF', 'MATH', 'CBDT', 'CBLC', 'COLR', 'CPAL', 'SVG ', 'sbix', 'acnt', 'avar',
+      'bdat', 'bloc', 'bsln', 'cvar', 'fdsc', 'feat', 'fmtx', 'fvar', 'gvar', 'hsty', 'just', 'lcar', 'mort', 'morx',
+      'opbd', 'prop', 'trak', 'Zapf', 'Silf', 'Glat', 'Gloc', 'Feat', 'Sill'];
+
+    const tagAt = (bytes, at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+
+    /** Font bytes -> {tag: {bytes, transformed}} for a TrueType/OpenType file or a WOFF2 one. */
+    function fontTables(bytes, dictionary) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const tables = {};
+      const signature = tagAt(bytes, 0);
+      if (signature === 'wOF2') {
+        if (view.getUint32(4, false) === 0x74746366) throw new Error('font collections are not supported');
+        const count = view.getUint16(12, false);
+        let at = 48;
+        const base128 = () => {
+          let value = 0;
+          for (let i = 0; i < 5; i += 1) {
+            const b = bytes[at++];
+            value = value * 128 + (b & 127);
+            if (!(b & 128)) return value;
+          }
+          throw new Error('woff2: bad UIntBase128');
+        };
+        const entries = [];
+        let total = 0;
+        for (let i = 0; i < count; i += 1) {
+          const flags = bytes[at++];
+          let tag = WOFF2_TAGS[flags & 63];
+          if ((flags & 63) === 63) { tag = tagAt(bytes, at); at += 4; }
+          const version = flags >> 6;
+          const original = base128();
+          const transformed = (tag === 'glyf' || tag === 'loca') ? version === 0 : version !== 0;
+          const length = transformed ? base128() : original;
+          entries.push({ tag, transformed, length });
+          total += length;
+        }
+        const compressedSize = view.getUint32(20, false);
+        const data = brotliDecode(bytes.subarray(at, at + compressedSize), dictionary, total);
+        let offset = 0;
+        for (const entry of entries) {
+          tables[entry.tag] = { bytes: data.subarray(offset, offset + entry.length), transformed: entry.transformed };
+          offset += entry.length;
+        }
+        return tables;
+      }
+      if (signature !== '\0\u0001\0\0' && signature !== 'true') throw new Error('not a TrueType font');
+      const count = view.getUint16(4, false);
+      for (let i = 0; i < count; i += 1) {
+        const base = 12 + i * 16;
+        const offset = view.getUint32(base + 8, false);
+        tables[tagAt(bytes, base)] = { bytes: bytes.subarray(offset, offset + view.getUint32(base + 12, false)), transformed: false };
+      }
+      return tables;
+    }
+
+    const tableView = (table) => new DataView(table.buffer, table.byteOffset, table.byteLength);
+
+    /** cmap subtable (format 4 or 12, best Unicode one) -> Map(code point -> glyph id). */
+    function cmapGlyphs(table) {
+      const view = tableView(table);
+      const count = view.getUint16(2, false);
+      let best = null;
+      for (let i = 0; i < count; i += 1) {
+        const base = 4 + i * 8;
+        const platform = view.getUint16(base, false);
+        const encoding = view.getUint16(base + 2, false);
+        const offset = view.getUint32(base + 4, false);
+        const format = view.getUint16(offset, false);
+        const rank = (format === 12 && (platform === 3 && encoding === 10 || platform === 0)) ? 3
+          : (format === 4 && (platform === 3 && (encoding === 1 || encoding === 0) || platform === 0)) ? 2 : 0;
+        if (rank && (!best || rank > best.rank)) best = { rank, offset, format };
+      }
+      const glyphs = new Map();
+      if (!best) return glyphs;
+      if (best.format === 12) {
+        const groups = view.getUint32(best.offset + 12, false);
+        for (let i = 0; i < groups; i += 1) {
+          const base = best.offset + 16 + i * 12;
+          const start = view.getUint32(base, false);
+          const end = view.getUint32(base + 4, false);
+          const glyph = view.getUint32(base + 8, false);
+          for (let cp = start; cp <= end; cp += 1) glyphs.set(cp, glyph + cp - start);
+        }
+        return glyphs;
+      }
+      const segCount = view.getUint16(best.offset + 6, false) / 2;
+      const ends = best.offset + 14;
+      const starts = ends + segCount * 2 + 2;
+      const deltas = starts + segCount * 2;
+      const rangeOffsets = deltas + segCount * 2;
+      for (let i = 0; i < segCount; i += 1) {
+        const end = view.getUint16(ends + i * 2, false);
+        const start = view.getUint16(starts + i * 2, false);
+        const idRangeOffset = view.getUint16(rangeOffsets + i * 2, false);
+        const idDelta = view.getInt16(deltas + i * 2, false);
+        for (let cp = start; cp <= end && cp !== 0xFFFF; cp += 1) {
+          let glyph;
+          if (idRangeOffset === 0) glyph = (cp + idDelta) & 0xFFFF;
+          else {
+            const at = rangeOffsets + i * 2 + idRangeOffset + (cp - start) * 2;
+            glyph = at + 2 <= table.length ? view.getUint16(at, false) : 0;
+            if (glyph) glyph = (glyph + idDelta) & 0xFFFF;
+          }
+          if (glyph) glyphs.set(cp, glyph);
+        }
+      }
+      return glyphs;
+    }
+
+    /** Glyph id -> {contours: [[xs, ys, on]], components} from a plain glyf + loca pair. */
+    function plainGlyphs(glyfTable, locaTable, longOffsets, numGlyphs) {
+      const loca = tableView(locaTable);
+      const glyf = tableView(glyfTable);
+      const glyphs = new Array(numGlyphs).fill(null);
+      for (let g = 0; g < numGlyphs; g += 1) {
+        const start = longOffsets ? loca.getUint32(g * 4, false) : loca.getUint16(g * 2, false) * 2;
+        const end = longOffsets ? loca.getUint32(g * 4 + 4, false) : loca.getUint16(g * 2 + 2, false) * 2;
+        if (end <= start) continue;
+        const contours = glyf.getInt16(start, false);
+        let at = start + 10;
+        if (contours < 0) {
+          glyphs[g] = { components: readComponents(() => { const v = glyf.getUint16(at, false); at += 2; return v; },
+            () => { const v = glyf.getInt16(at, false); at += 2; return v; }, () => glyf.getInt8(at++)) };
+          continue;
+        }
+        const endPoints = [];
+        for (let c = 0; c < contours; c += 1) { endPoints.push(glyf.getUint16(at, false)); at += 2; }
+        const points = contours ? endPoints[contours - 1] + 1 : 0;
+        at += 2 + glyf.getUint16(at, false);
+        const flags = new Uint8Array(points);
+        for (let p = 0; p < points;) {
+          const flag = glyf.getUint8(at++);
+          flags[p++] = flag;
+          if (flag & 8) for (let r = glyf.getUint8(at++); r > 0 && p < points; r -= 1) flags[p++] = flag;
+        }
+        const xs = new Int32Array(points), ys = new Int32Array(points);
+        for (const [array, short, same] of [[xs, 2, 16], [ys, 4, 32]]) {
+          let value = 0;
+          for (let p = 0; p < points; p += 1) {
+            const flag = flags[p];
+            if (flag & short) value += (flag & same) ? glyf.getUint8(at++) : -glyf.getUint8(at++);
+            else if (!(flag & same)) { value += glyf.getInt16(at, false); at += 2; }
+            array[p] = value;
+          }
+        }
+        glyphs[g] = { contours: splitContours(xs, ys, Array.from(flags, (f) => (f & 1) === 1), endPoints) };
+      }
+      return glyphs;
+    }
+
+    function splitContours(xs, ys, on, endPoints) {
+      const contours = [];
+      let start = 0;
+      for (const end of endPoints) {
+        contours.push([Array.from(xs.subarray(start, end + 1)), Array.from(ys.subarray(start, end + 1)), on.slice(start, end + 1)]);
+        start = end + 1;
+      }
+      return contours;
+    }
+
+    /** Composite glyph components: [{glyph, dx, dy, matrix}] (point-anchored ones are skipped). */
+    function readComponents(u16, i16, i8) {
+      const components = [];
+      for (let more = true; more;) {
+        const flags = u16();
+        const glyph = u16();
+        let a, b;
+        if (flags & 1) { a = i16(); b = i16(); } else { a = i8(); b = i8(); }
+        let matrix = [1, 0, 0, 1];
+        const f2dot14 = () => i16() / 16384;
+        if (flags & 8) { const s = f2dot14(); matrix = [s, 0, 0, s]; }
+        else if (flags & 0x40) { const sx = f2dot14(); const sy = f2dot14(); matrix = [sx, 0, 0, sy]; }
+        else if (flags & 0x80) matrix = [f2dot14(), f2dot14(), f2dot14(), f2dot14()];
+        components.push({ glyph, dx: a, dy: b, matrix, anchored: !(flags & 2), instructions: !!(flags & 0x100) });
+        more = !!(flags & 0x20);
+      }
+      return components;
+    }
+
+    /** WOFF2 transformed glyf (WOFF2 section 5.1) -> the same records as plainGlyphs. */
+    function woff2Glyphs(table) {
+      const view = tableView(table);
+      const numGlyphs = view.getUint16(4, false);
+      const sizes = [];
+      for (let i = 0; i < 7; i += 1) sizes.push(view.getUint32(8 + i * 4, false));
+      let offset = 36;
+      const streams = sizes.map((size) => { const s = { at: offset, end: offset + size }; offset += size; return s; });
+      const [nContour, nPoints, flagStream, glyphStream, compositeStream] = streams;
+      const u8 = (s) => { if (s.at >= s.end) throw new Error('woff2: glyf stream overrun'); return table[s.at++]; };
+      const u16 = (s) => (u8(s) << 8) | u8(s);
+      const i16 = (s) => { const v = u16(s); return v & 0x8000 ? v - 0x10000 : v; };
+      const u255 = (s) => {
+        const code = u8(s);
+        if (code === 253) return u16(s);
+        if (code === 255) return u8(s) + 253;
+        if (code === 254) return u8(s) + 506;
+        return code;
+      };
+      const glyphs = new Array(numGlyphs).fill(null);
+      for (let g = 0; g < numGlyphs; g += 1) {
+        const contours = i16(nContour);
+        if (contours === 0) continue;
+        if (contours < 0) {
+          const components = readComponents(() => u16(compositeStream), () => i16(compositeStream),
+            () => { const v = u8(compositeStream); return v & 0x80 ? v - 0x100 : v; });
+          if (components.some((c) => c.instructions)) u255(glyphStream);  // instructions have their own stream
+          glyphs[g] = { components };
+          continue;
+        }
+        const endPoints = [];
+        let total = 0;
+        for (let c = 0; c < contours; c += 1) { total += u255(nPoints); endPoints.push(total - 1); }
+        const xs = new Int32Array(total), ys = new Int32Array(total);
+        const on = new Array(total);
+        let x = 0, y = 0;
+        for (let p = 0; p < total; p += 1) {
+          let flag = u8(flagStream);
+          on[p] = !(flag & 128);
+          flag &= 127;
+          let dx, dy;
+          if (flag < 10) { dx = 0; dy = ((flag & 14) << 7) + u8(glyphStream); }
+          else if (flag < 20) { dx = (((flag - 10) & 14) << 7) + u8(glyphStream); dy = 0; }
+          else if (flag < 84) { const b0 = flag - 20, b1 = u8(glyphStream); dx = 1 + (b0 & 0x30) + (b1 >> 4); dy = 1 + ((b0 & 0x0c) << 2) + (b1 & 15); }
+          else if (flag < 120) { const b0 = flag - 84; dx = 1 + (Math.floor(b0 / 12) << 8) + u8(glyphStream); dy = 1 + (((b0 % 12) >> 2) << 8) + u8(glyphStream); }
+          else if (flag < 124) { const b1 = u8(glyphStream), b2 = u8(glyphStream), b3 = u8(glyphStream); dx = (b1 << 4) + (b2 >> 4); dy = ((b2 & 15) << 8) + b3; }
+          else { dx = u16(glyphStream); dy = u16(glyphStream); }
+          if (flag < 10) dy = flag & 1 ? dy : -dy;
+          else if (flag < 20) dx = flag & 1 ? dx : -dx;
+          else { dx = flag & 1 ? dx : -dx; dy = flag & 2 ? dy : -dy; }
+          x += dx; y += dy;
+          xs[p] = x; ys[p] = y;
+        }
+        u255(glyphStream);  // instruction length; the instructions have their own stream
+        glyphs[g] = { contours: splitContours(xs, ys, on, endPoints) };
+      }
+      return glyphs;
+    }
+
+    /** A glyph's contours with composite components resolved (null when that is not possible). */
+    function glyphContours(glyphs, g, depth) {
+      const glyph = glyphs[g];
+      if (!glyph) return null;
+      if (glyph.contours) return glyph.contours;
+      if ((depth || 0) > 8) return null;
+      const contours = [];
+      for (const part of glyph.components) {
+        if (part.anchored) return null;
+        const inner = glyphContours(glyphs, part.glyph, (depth || 0) + 1);
+        if (!inner) return null;
+        const [a, b, c, d] = part.matrix;
+        for (const [xs, ys, on] of inner) {
+          contours.push([xs.map((x, i) => a * x + c * ys[i] + part.dx), ys.map((y, i) => b * xs[i] + d * y + part.dy), on]);
+        }
+      }
+      return contours;
+    }
+
+    /** Font bytes -> {glyph(cp) -> {contours, advance} | null}. Throws on fonts it cannot read. */
+    function fontOutlines(bytes, dictionary) {
+      const tables = fontTables(bytes, dictionary);
+      if (!tables.glyf || !tables.cmap || !tables.hmtx || !tables.hhea) throw new Error('font has no TrueType outlines');
+      const cmap = cmapGlyphs(tables.cmap.bytes);
+      let glyphs;
+      if (tables.glyf.transformed) glyphs = woff2Glyphs(tables.glyf.bytes);
+      else {
+        const head = tableView(tables.head.bytes);
+        const maxp = tableView(tables.maxp.bytes);
+        glyphs = plainGlyphs(tables.glyf.bytes, tables.loca.bytes, head.getInt16(50, false) === 1, maxp.getUint16(4, false));
+      }
+      const metrics = tables.hhea.bytes.length >= 36 ? tableView(tables.hhea.bytes).getUint16(34, false) : 0;
+      const hmtx = tables.hmtx.bytes;
+      // A transformed hmtx starts with a flags byte; the advances come first either way.
+      const advanceAt = tables.hmtx.transformed ? 1 : 0;
+      const step = tables.hmtx.transformed ? 2 : 4;
+      const advance = (g) => {
+        const index = Math.min(g, metrics - 1);
+        const at = advanceAt + index * step;
+        return index >= 0 && at + 2 <= hmtx.length ? (hmtx[at] << 8) | hmtx[at + 1] : 0;
+      };
+      return {
+        glyph(cp) {
+          const g = cmap.get(cp);
+          if (g === undefined) return null;
+          const contours = glyphContours(glyphs, g);
+          return contours && contours.length ? { contours, advance: advance(g) } : null;
+        },
+      };
+    }
+
+    // --- outline table ---------------------------------------------------------------------------
+    // Every cipher font draws its glyphs from one design, and a character keeps its outline across
+    // fonts up to contour order, start point, small curve edits and a few units of jitter. Symmetric
+    // Hausdorff distance between flattened outlines separates them cleanly, so a glyph within
+    // `tolerance` of a labelled exemplar (resource `outlines`, data/qdn_outline_table.json) is that
+    // character when no other character is within `separation`. Mirrors qdn_font_decoder.py: the six
+    // exemplars whose coarse edge maps are closest are compared exactly.
+
+    const OUTLINE_STEP = 12;
+    const OUTLINE_GRID = 24;
+    const OUTLINE_CELLS = OUTLINE_GRID * OUTLINE_GRID;
+    const OUTLINE_CANDIDATES = 6;
+
+    /** base64 outline (desktop encode_outline) -> [[xs, ys, on]]. */
+    function decodeOutline(text) {
+      const raw = base64ToBytes(text);
+      const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+      const count = view.getUint16(0, true);
+      let at = 2;
+      const contours = [];
+      for (let c = 0; c < count; c += 1) {
+        const size = view.getUint16(at, true);
+        at += 2;
+        const bits = raw.subarray(at, at + ((size + 7) >> 3));
+        at += (size + 7) >> 3;
+        const xs = new Array(size), ys = new Array(size), on = new Array(size);
+        for (let i = 0; i < size; i += 1) {
+          on[i] = ((bits[i >> 3] >> (i & 7)) & 1) === 1;
+          xs[i] = view.getInt16(at, true);
+          ys[i] = view.getInt16(at + 2, true);
+          at += 4;
+        }
+        contours.push([xs, ys, on]);
+      }
+      return contours;
+    }
+
+    /** TrueType quadratic contours -> Float32Array [x0, y0, x1, y1, ...] sampled about 12 units apart. */
+    function flattenOutline(contours) {
+      const vx = [], vy = [], ends = [];
+      for (const [xs0, ys0, on0] of contours) {
+        if (!xs0.length) continue;
+        let xs = xs0, ys = ys0, on = on0;
+        if (!on.includes(true)) {
+          // All off-curve: start at an implied midpoint.
+          xs = [(xs[0] + xs[xs.length - 1]) / 2, ...xs];
+          ys = [(ys[0] + ys[ys.length - 1]) / 2, ...ys];
+          on = [true, ...on];
+        }
+        const n = xs.length;
+        const first = on.indexOf(true);
+        // Polyline vertices: on-curve points plus six samples per curve.
+        vx.push(xs[first]);
+        vy.push(ys[first]);
+        for (let index = 1; index <= n;) {
+          const i = (first + index) % n;
+          if (on[i]) { vx.push(xs[i]); vy.push(ys[i]); index += 1; continue; }
+          const j = (first + index + 1) % n;
+          const ex = on[j] ? xs[j] : (xs[i] + xs[j]) / 2;
+          const ey = on[j] ? ys[j] : (ys[i] + ys[j]) / 2;
+          const ax = vx[vx.length - 1], ay = vy[vy.length - 1];
+          for (let k = 1; k <= 6; k += 1) {
+            const t = k / 6, u = 1 - t;
+            vx.push(u * u * ax + 2 * u * t * xs[i] + t * t * ex);
+            vy.push(u * u * ay + 2 * u * t * ys[i] + t * t * ey);
+          }
+          index += on[j] ? 2 : 1;
+        }
+        ends.push(vx.length);
+      }
+      if (!ends.length) return null;
+      // Densify every polyline segment.
+      let total = 0;
+      for (let r = 0, start = 0; r < ends.length; start = ends[r], r += 1) {
+        for (let k = start; k + 1 < ends[r]; k += 1) total += Math.max(1, Math.ceil(Math.hypot(vx[k + 1] - vx[k], vy[k + 1] - vy[k]) / OUTLINE_STEP));
+      }
+      const out = new Float32Array(total * 2);
+      let o = 0;
+      for (let r = 0, start = 0; r < ends.length; start = ends[r], r += 1) {
+        for (let k = start; k + 1 < ends[r]; k += 1) {
+          const dx = vx[k + 1] - vx[k], dy = vy[k + 1] - vy[k];
+          const count = Math.max(1, Math.ceil(Math.hypot(dx, dy) / OUTLINE_STEP));
+          for (let s = 0; s < count; s += 1) {
+            out[o++] = vx[k] + dx * (s / count);
+            out[o++] = vy[k] + dy * (s / count);
+          }
+        }
+      }
+      return out;
+    }
+
+    /** Point counts per 24x24 cell, each summed with its eight neighbours (unnormalised). */
+    function edgeCounts(points) {
+      const size = OUTLINE_GRID, wide = size + 2;
+      const cell = Math.fround(1100 / size);  // float32 arithmetic, as the desktop's numpy
+      const grid = new Uint16Array(wide * wide);
+      for (let i = 0; i < points.length; i += 2) {
+        const cx = Math.min(size - 1, Math.max(0, Math.trunc(Math.fround(Math.fround(points[i] + 50) / cell))));
+        const cy = Math.min(size - 1, Math.max(0, Math.trunc(Math.fround(Math.fround(points[i + 1] + 200) / cell))));
+        grid[(cy + 1) * wide + cx + 1] += 1;
+      }
+      const counts = new Uint16Array(OUTLINE_CELLS);
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const at = (y + 1) * wide + x + 1;
+          counts[y * size + x] = grid[at - wide - 1] + grid[at - wide] + grid[at - wide + 1]
+            + grid[at - 1] + grid[at] + grid[at + 1] + grid[at + wide - 1] + grid[at + wide] + grid[at + wide + 1];
+        }
+      }
+      return counts;
+    }
+
+    function countNorm(counts) {
+      let sum = 0;
+      for (let i = 0; i < counts.length; i += 1) sum += counts[i] * counts[i];
+      return Math.sqrt(sum);
+    }
+
+    function outlineBox(points) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let i = 0; i < points.length; i += 2) {
+        const x = points[i], y = points[i + 1];
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+      return [x0, y0, x1, y1];
+    }
+
+    /** Largest distance from a point of `a` (every `stride`-th) to its nearest point of `b`. */
+    function nearestWorst(a, b, stride) {
+      const count = b.length >> 1;
+      let worst = 0, near = 0;
+      for (let i = 0; i < a.length; i += 2 * stride) {
+        const ax = a[i], ay = a[i + 1];
+        let best = Infinity, found = near;
+        // Samples run along the contours, so the search starts where the last nearest point was.
+        for (let step = 0, j = near; step < count; step += 1, j = j + 1 === count ? 0 : j + 1) {
+          const dx = ax - b[2 * j], dy = ay - b[2 * j + 1];
+          const d = dx * dx + dy * dy;
+          if (d < best) {
+            best = d;
+            found = j;
+            // Past this the point can no longer raise the maximum.
+            if (best <= worst) break;
+          }
+        }
+        near = found;
+        if (best > worst) worst = best;
+      }
+      return Math.sqrt(worst);
+    }
+
+    /**
+     * Symmetric Hausdorff distance between two sampled outlines. Returns a lower bound above `bound`
+     * when the bounding boxes or a quarter of the samples already show that much.
+     */
+    function outlineDistance(a, b, bound, boxA, boxB) {
+      const limit = bound === undefined ? Infinity : bound;
+      const ba = boxA || outlineBox(a), bb = boxB || outlineBox(b);
+      let gap = 0;
+      for (let i = 0; i < 4; i += 1) gap = Math.max(gap, Math.abs(ba[i] - bb[i]));
+      if (gap > limit) return gap;
+      const coarse = Math.max(nearestWorst(a, b, 4), nearestWorst(b, a, 4));
+      if (coarse > limit) return coarse;
+      return Math.max(nearestWorst(a, b, 1), nearestWorst(b, a, 1));
+    }
+
+    /**
+     * The labelled exemplars. Their edge maps sit in one cell-major matrix (cell c of exemplar i at
+     * c * size + i); their sampled outlines are made again when they become candidates (all of them at
+     * once would take tens of megabytes).
+     */
+    class OutlineTable {
+      constructor() {
+        this.tolerance = 0;
+        this.separation = 0;
+        this.chars = [];
+        this.texts = [];
+        this.counts = new Uint16Array(0);
+        this.norms = new Float64Array(0);
+        this.samples = new Map();  // exemplar index -> {points, box}
+      }
+
+      /** Builds the table from the resource bytes, yielding now and then so the page stays responsive. */
+      static async build(raw) {
+        const table = new OutlineTable();
+        try {
+          const saved = raw ? JSON.parse(new TextDecoder('utf-8').decode(raw)) : null;
+          if (!saved || saved.schema !== 1) return table;
+          const glyphs = Array.isArray(saved.glyphs) ? saved.glyphs : [];
+          const counts = new Uint16Array(glyphs.length * OUTLINE_CELLS);
+          const norms = [], chars = [], texts = [];
+          let started = Date.now();
+          for (const entry of glyphs) {
+            const [char, text] = Array.isArray(entry) ? entry : [];
+            if (typeof char !== 'string' || [...char].length !== 1 || typeof text !== 'string') continue;
+            const points = flattenOutline(decodeOutline(text));
+            if (!points) continue;
+            const map = edgeCounts(points);
+            counts.set(map, chars.length * OUTLINE_CELLS);
+            norms.push(countNorm(map));
+            chars.push(char);
+            texts.push(text);
+            if (Date.now() - started > 50) { await sleep(0); started = Date.now(); }
+          }
+          table.tolerance = Number(saved.tolerance === undefined ? 20 : saved.tolerance);
+          table.separation = Number(saved.separation === undefined ? 32 : saved.separation);
+          table.chars = chars;
+          table.texts = texts;
+          const size = chars.length;
+          table.counts = new Uint16Array(size * OUTLINE_CELLS);
+          for (let i = 0; i < size; i += 1) {
+            for (let c = 0; c < OUTLINE_CELLS; c += 1) table.counts[c * size + i] = counts[i * OUTLINE_CELLS + c];
+          }
+          table.norms = Float64Array.from(norms);
+        } catch (e) {
+          // A missing or corrupt optional table must not stop decoding.
+          return new OutlineTable();
+        }
+        return table;
+      }
+
+      get size() { return this.chars.length; }
+
+      sample(index) {
+        let entry = this.samples.get(index);
+        if (!entry) {
+          const points = flattenOutline(decodeOutline(this.texts[index]));
+          entry = { points, box: outlineBox(points) };
+          if (this.samples.size > 2000) this.samples.clear();
+          this.samples.set(index, entry);
+        }
+        return entry;
+      }
+
+      /** {character, distance, runnerUp} for a clear, unique hit, else null. */
+      match(points) {
+        if (!this.chars.length || !points) return null;
+        const query = edgeCounts(points);
+        const size = this.chars.length;
+        const sums = new Float64Array(size);
+        for (let c = 0; c < OUTLINE_CELLS; c += 1) {
+          const weight = query[c];
+          if (!weight) continue;
+          const column = this.counts.subarray(c * size, (c + 1) * size);
+          for (let i = 0; i < size; i += 1) sums[i] += column[i] * weight;
+        }
+        // The six exemplars with the most similar edge maps (cosine).
+        const top = [];
+        for (let i = 0; i < size; i += 1) {
+          const score = this.norms[i] ? sums[i] / this.norms[i] : 0;
+          if (top.length < OUTLINE_CANDIDATES || score > top[top.length - 1][0]) {
+            let at = top.length;
+            while (at > 0 && top[at - 1][0] < score) at -= 1;
+            top.splice(at, 0, [score, i]);
+            if (top.length > OUTLINE_CANDIDATES) top.pop();
+          }
+        }
+        // Distances past the separation only need to be known as "far".
+        const box = outlineBox(points);
+        const scored = top.map(([, i]) => {
+          const exemplar = this.sample(i);
+          return [outlineDistance(points, exemplar.points, this.separation, box, exemplar.box), this.chars[i]];
+        }).sort((x, y) => x[0] - y[0] || (x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0));
+        const [distance, character] = scored[0];
+        const rival = scored.slice(1).find(([, c]) => c !== character);
+        const runnerUp = rival ? rival[0] : null;
+        // Accept only a clear, unique hit: other characters must be far away.
+        if (distance > this.tolerance || (runnerUp !== null && runnerUp <= this.separation)) return null;
+        return { character, distance, runnerUp };
+      }
+    }
+
+    /** A cipher glyph's sampled outline, mirrored about its advance when the reader mirrors it. */
+    function outlinePoints(outlines, ch, mirrored) {
+      const glyph = outlines ? outlines.glyph(ch.codePointAt(0)) : null;
+      if (!glyph) return null;
+      const points = flattenOutline(glyph.contours);
+      if (points && mirrored) for (let i = 0; i < points.length; i += 2) points[i] = glyph.advance - points[i];
+      return points;
+    }
+
+    function outlineTable() {
+      if (!state.outlineTable) {
+        const build = OutlineTable.build(state.files.outlines).then((table) => {
+          if (state.outlineTable === build) state.outlineSize = table.size;
+          return table;
+        });
+        state.outlineTable = build;
+      }
+      return state.outlineTable;
+    }
+
+    /** A cipher font's outlines, read once per font (null when the font cannot be read). */
+    function coreOutlines(core) {
+      if (state.outlineFonts.has(core.digest)) return state.outlineFonts.get(core.digest);
+      let outlines = null;
+      try {
+        outlines = fontOutlines(core.bytes, state.files.brotli || null);
+      } catch (e) {
+        // Not a TrueType outline font, or a WOFF2 one without the dictionary it needs: shape matching only.
+      }
+      // Parsed outlines are large; the glyph cache keeps their answers.
+      if (state.outlineFonts.size >= 4) state.outlineFonts.delete(state.outlineFonts.keys().next().value);
+      state.outlineFonts.set(core.digest, outlines);
+      return outlines;
     }
 
     // --- matching --------------------------------------------------------------------------------
@@ -1423,6 +2432,7 @@
         this.suspiciousPassthrough = 0;
         this.decoded = 0;
         this.verified = 0;
+        this.outline = 0;
         this.lowConfidence = 0;
       }
 
@@ -1487,11 +2497,24 @@
           todo.push([cipher, ch, mirrored, key]);
         }
         let work = 0;
+        const table = todo.length ? await outlineTable() : null;
         for (const [cipher, ch, mirrored, key] of todo) {
           const entries = verifiedEntries(cipher.core.digest);
           const verified = entries[`${ch.codePointAt(0).toString(16).toUpperCase()}:${mirrored ? 1 : 0}`];
           if (verified !== undefined) {
             state.glyphs.set(key, { character: verified, score: null, margin: null, candidates: [], reasons: [], method: 'verified_font_map' });
+            continue;
+          }
+          const known = table.size ? table.match(outlinePoints(coreOutlines(cipher.core), ch, mirrored)) : null;
+          if (known) {
+            state.glyphs.set(key, {
+              character: known.character, score: null, margin: null,
+              outlineDistance: Math.round(known.distance * 100) / 100,
+              outlineRunnerUp: known.runnerUp === null ? null : Math.round(known.runnerUp * 100) / 100,
+              candidates: [], reasons: [], method: 'outline_table',
+            });
+            work += 1;
+            if ((work & 15) === 0) await sleep(0);
             continue;
           }
           const crop = renderGlyph(cipher.core.css, ch, RENDER_SIZE);
@@ -1515,6 +2538,7 @@
         const match = state.glyphs.get(key);
         this.decoded += 1;
         if (match.method === 'verified_font_map') this.verified += 1;
+        else if (match.method === 'outline_table') this.outline += 1;
         if (match.reasons && match.reasons.length) this.lowConfidence += 1;
         if (!this.reported.has(key)) {
           this.reported.add(key);
@@ -1556,7 +2580,8 @@
         return {
           decoded: this.decoded,
           verifiedGlyphs: this.verified,
-          shapeMatchedGlyphs: this.decoded - this.verified,
+          outlineTableGlyphs: this.outline,
+          shapeMatchedGlyphs: this.decoded - this.verified - this.outline,
           lowConfidence: this.lowConfidence,
           fonts: this.fonts.map((cipher) => cipher.family),
           missingFonts: this.missingFonts,
@@ -1594,10 +2619,24 @@
         referenceChars: state.ref ? state.ref.chars.length : 0,
         fonts: state.cores.size,
         glyphs: state.glyphs.size,
+        outlineExemplars: state.outlineSize,
       };
     }
 
-    return { putResource, resourceStatus, prepare, decode, decodeJson, knownFonts, status, parseUnicodeRange, parseCmap };
+    /** Outline-table answers ({character, distance, runnerUp} or null) for [char, mirrored] pairs of one font. */
+    async function matchOutlines(fontBytes, glyphs) {
+      const table = await outlineTable();
+      const outlines = fontOutlines(fontBytes, state.files.brotli || null);
+      return glyphs.map(([ch, mirrored]) => table.match(outlinePoints(outlines, ch, !!mirrored)));
+    }
+
+    return {
+      putResource, resourceStatus, prepare, decode, decodeJson, knownFonts, status, parseUnicodeRange, parseCmap,
+      // The dictionary defaults to the `brotli` resource.
+      brotliDecode: (data, dictionary) => brotliDecode(data, dictionary === undefined ? state.files.brotli || null : dictionary),
+      fontOutlines: (bytes, dictionary) => fontOutlines(bytes, dictionary === undefined ? state.files.brotli || null : dictionary),
+      matchOutlines,
+    };
   }());
 
   // ---------------------------------------------------------------------------------------------

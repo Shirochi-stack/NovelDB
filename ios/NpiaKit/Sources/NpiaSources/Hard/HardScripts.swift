@@ -10,6 +10,8 @@ enum HardScripts {
     static let qdnFont = "qdn/NotoSansCJKsc-Regular-hanzi.otf"
     static let qdnFrequency = "qdn/zh_char_frequency.txt"
     static let qdnVerified = "qdn/qdn_verified_maps.json"
+    static let qdnOutlines = "qdn/qdn_outline_table.json"
+    static let qdnBrotli = "qdn/brotli_dictionary.bin"
 
     /// The script's source text, as the web views run it: the shared file, unchanged. (It compares a glyph
     /// with the generic families as well as an unknown one, which WebKit needs; see `coreCovers`.)

@@ -39,6 +39,8 @@ actor QdnDecoder {
         try await Self.push(decoderPage, name: "font", resource: HardScripts.qdnFont)
         try await Self.push(decoderPage, name: "frequency", resource: HardScripts.qdnFrequency)
         try await Self.push(decoderPage, name: "verified", resource: HardScripts.qdnVerified)
+        try await Self.push(decoderPage, name: "outlines", resource: HardScripts.qdnOutlines)
+        try await Self.push(decoderPage, name: "brotli", resource: HardScripts.qdnBrotli)
         for _ in 0..<max(1, timing.referenceSlices) {
             let reply = try await decoderPage.hardObject("qdn.decoder.prepare(\(timing.referenceSliceMillis))")
             let state = QdnPrepareState(reply)

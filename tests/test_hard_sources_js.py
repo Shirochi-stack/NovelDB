@@ -9,7 +9,9 @@ on a synthetic reader that has every protection layer; nothing here needs an acc
 import base64
 import hashlib
 import html
+import io
 import json
+import random
 from pathlib import Path
 
 import pytest
@@ -243,6 +245,128 @@ def test_verified_glyphs_never_need_the_reference(verified_decoder):
     assert verified_decoder.evaluate('() => window.__npiaHard.qdn.decoder.status().prepared') is False
 
 
+@pytest.fixture(scope='module')
+def outline_decoder(browser):
+    """A decoder page with the outline table and the brotli dictionary only (no reference font)."""
+    ctx = browser.new_context()
+    page = ctx.new_page()
+    page.goto('about:blank')
+    page.evaluate(JS)
+    hs.push_resources(page, outlines=True, reference=False)
+    yield page
+    ctx.close()
+
+
+def test_complete_captured_chapter_decodes_by_outline_table(outline_decoder):
+    """Every cipher glyph of the chapter is in the outline table, so the reference is never built."""
+    payload = captured_payload()
+    assert base64.b64decode(payload['fontData']['font:0'])[:4] == b'wOF2'  # the main cipher font
+    result = decode(outline_decoder, payload, diagnostics=True)
+    assert result['lines'] == chapter76_expected()
+    stats = result['stats']
+    assert stats['decoded'] == stats['outlineTableGlyphs'] == 1729
+    assert stats['verifiedGlyphs'] == stats['shapeMatchedGlyphs'] == stats['lowConfidence'] == 0
+    assert stats['missingFonts'] == []
+    assert stats['suspiciousPassthrough'] == 90
+    hits = [d for d in result['diagnostics'] if d.get('method') == 'outline_table']
+    assert hits and all(d['outlineDistance'] <= 20 and (d['outlineRunnerUp'] is None or d['outlineRunnerUp'] > 32)
+                        for d in hits)
+    status = outline_decoder.evaluate('() => window.__npiaHard.qdn.decoder.status()')
+    assert status['prepared'] is False
+    table = json.loads((hs.RESOURCES / 'qdn' / 'qdn_outline_table.json').read_text(encoding='utf-8'))
+    assert status['outlineExemplars'] == len(table['glyphs'])
+
+
+def test_outline_table_answers_match_the_desktop_decoder(outline_decoder):
+    """The JS lookup gives qdn_font_decoder.py's answer for every glyph of both captured fonts."""
+    desktop = pytest.importorskip('qdn_font_decoder')
+    if not desktop.available():
+        pytest.skip('desktop decoder dependencies missing')
+    payload = captured_payload()
+    keys = sorted({(ch, bool(atom['mirrored'])) for atoms in payload['atoms'] for atom in atoms
+                   if atom['src'] != 'attr' for ch in atom['text']})
+    table = desktop._OutlineTable.get()
+    for url, encoded in payload['fontData'].items():
+        outlines = desktop._font_outlines(base64.b64decode(encoded))
+        cipher = type('Cipher', (), {'outlines': outlines})()
+        wanted = [[ch, mirrored] for ch, mirrored in keys if ord(ch) in outlines]
+        expected = []
+        for ch, mirrored in wanted:
+            found = table.match(desktop._outline_points(cipher, ch, mirrored))
+            expected.append(None if found is None else found[0])
+        got = outline_decoder.evaluate("""async ([font, wanted]) => {
+          const decoder = window.__npiaHard.qdn.decoder;
+          const found = await decoder.matchOutlines(window.__npiaHard.util.base64ToBytes(font), wanted);
+          return found.map((match) => match && match.character);
+        }""", [encoded, wanted])
+        assert wanted and got == expected, url
+
+
+def test_woff2_and_truetype_outlines_match_fonttools(outline_decoder):
+    ttlib = pytest.importorskip('fontTools.ttLib')
+    for url, encoded in captured_payload()['fontData'].items():
+        with ttlib.TTFont(io.BytesIO(base64.b64decode(encoded))) as font:
+            glyf, metrics = font['glyf'], font['hmtx'].metrics
+            expected = {}
+            for cp, name in font.getBestCmap().items():
+                if glyf[name].numberOfContours <= 0:
+                    continue
+                coords, ends, flags = glyf[name].getCoordinates(glyf)
+                contours, start = [], 0
+                for end in ends:
+                    contours.append([[list(map(int, p)) for p in coords[start:end + 1]],
+                                     [bool(f & 1) for f in flags[start:end + 1]]])
+                    start = end + 1
+                expected[str(cp)] = [contours, metrics[name][0]]
+        got = outline_decoder.evaluate("""([font, codes]) => {
+          const outlines = window.__npiaHard.qdn.decoder.fontOutlines(window.__npiaHard.util.base64ToBytes(font));
+          const out = {};
+          for (const cp of codes) {
+            const glyph = outlines.glyph(Number(cp));
+            out[cp] = glyph && [glyph.contours.map(([xs, ys, on]) => [xs.map((x, i) => [x, ys[i]]), on]), glyph.advance];
+          }
+          return out;
+        }""", [encoded, list(expected)])
+        assert expected and got == expected, url
+
+
+def test_brotli_decoder_matches_the_reference_implementation(outline_decoder):
+    brotli = pytest.importorskip('brotli')
+    font = base64.b64decode(captured_payload()['fontData']['font:1'])
+    samples = [
+        (hs.script_source().encode('utf-8')[:60000], brotli.MODE_TEXT),  # context modelling, dictionary words
+        (font, brotli.MODE_FONT),
+        (base64.b64encode(font), brotli.MODE_GENERIC),
+        (random.Random(4).randbytes(3000), brotli.MODE_GENERIC),  # stored uncompressed
+        (b'', brotli.MODE_GENERIC),
+    ]
+    for data, mode in samples:
+        for quality, window in ((0, 16), (5, 10), (11, 22)):
+            packed = brotli.compress(data, mode=mode, quality=quality, lgwin=window)
+            got = outline_decoder.evaluate("""(packed) => {
+              const util = window.__npiaHard.util;
+              return util.bytesToBase64(window.__npiaHard.qdn.decoder.brotliDecode(util.base64ToBytes(packed)));
+            }""", base64.b64encode(packed).decode())
+            assert base64.b64decode(got) == data, (len(data), mode, quality)
+
+
+def test_a_corrupt_outline_table_falls_back_to_shape_matching(browser):
+    ctx = browser.new_context()
+    page = ctx.new_page()
+    page.goto('about:blank')
+    page.evaluate(JS)
+    hs.push_resources(page)
+    page.evaluate('([n, d]) => window.__npiaHard.qdn.decoder.putResource(n, 0, 1, d)',
+                  ['outlines', base64.b64encode(b'{"schema": 1, "glyphs": [["x", "!!"]').decode()])
+    while not page.evaluate('() => window.__npiaHard.qdn.decoder.prepare(10000)')['done']:
+        pass
+    result = decode(page, captured_payload())
+    assert result['lines'] == chapter76_expected()
+    assert result['stats']['outlineTableGlyphs'] == 0
+    assert result['stats']['shapeMatchedGlyphs'] == 1729
+    ctx.close()
+
+
 def test_screenshot_backed_excerpt_decodes_exactly(decoder):
     sample = json.loads((FIXTURES / 'qdn_screenshot_excerpt.json').read_text(encoding='utf-8'))
     result = decode(decoder, sample['payload'])
@@ -382,7 +506,8 @@ def test_resources_may_arrive_in_chunks_in_any_order(browser):
         done.append(page.evaluate('([i, c, d]) => window.__npiaHard.qdn.decoder.putResource("frequency", i, c, d)',
                                   [index, len(pieces), pieces[index]])['complete'])
     assert done == [False] * (len(pieces) - 1) + [True]
-    assert page.evaluate('() => window.__npiaHard.qdn.decoder.resourceStatus()') == {'font': False, 'frequency': True, 'verified': False}
+    assert page.evaluate('() => window.__npiaHard.qdn.decoder.resourceStatus()') == {
+        'font': False, 'frequency': True, 'verified': False, 'outlines': False, 'brotli': False}
     with pytest.raises(Exception, match='unknown resource'):
         page.evaluate('() => window.__npiaHard.qdn.decoder.putResource("nope", 0, 1, "")')
     with pytest.raises(Exception, match='multiple of 4'):

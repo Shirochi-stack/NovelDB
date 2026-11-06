@@ -7,3 +7,5 @@ ios/NpiaKit/Sources/NpiaWebEngine/Resources/** -text
 # The shared qdn and rbooks page script and its resources are copied byte for byte from the Android app:
 # no line-ending changes, so the files hash the same on both platforms.
 ios/NpiaKit/Sources/NpiaSources/Hard/HardResources/** -text
+# The brotli dictionary is binary data that git would take for text (no NUL byte early on).
+android/sources/src/main/resources/com/shirochi/npia/sources/hard/qdn/brotli_dictionary.bin -text

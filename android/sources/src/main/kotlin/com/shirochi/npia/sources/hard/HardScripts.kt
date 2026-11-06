@@ -26,6 +26,8 @@ internal object HardScripts {
     const val QDN_FONT = "qdn/NotoSansCJKsc-Regular-hanzi.otf"
     const val QDN_FREQUENCY = "qdn/zh_char_frequency.txt"
     const val QDN_VERIFIED = "qdn/qdn_verified_maps.json"
+    const val QDN_OUTLINES = "qdn/qdn_outline_table.json"
+    const val QDN_BROTLI = "qdn/brotli_dictionary.bin"
 
     /** The script's source text. */
     val source: String by lazy { resource(SCRIPT).decodeToString() }

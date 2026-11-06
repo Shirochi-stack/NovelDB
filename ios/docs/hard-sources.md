@@ -17,6 +17,8 @@ The split is deliberate. **All page-side logic is one JavaScript file** that run
 | `qdn/NotoSansCJKsc-Regular-hanzi.otf` | Reference font for glyph matching (2.2 MB, OFL, `qdn/OFL.txt`). |
 | `qdn/zh_char_frequency.txt` | `<char>\t<count>` per line (80 KB). Settles look-alike glyphs. Optional but expected. |
 | `qdn/qdn_verified_maps.json` | Glyph answers checked against screenshots for exact font bytes (13 KB). Optional. |
+| `qdn/qdn_outline_table.json` | Labelled glyph outlines (4,947 exemplars of 2,499 characters, 1.9 MB), a copy of the desktop's `data/qdn_outline_table.json`. Optional. |
+| `qdn/brotli_dictionary.bin` | The brotli static dictionary (120 KB, MIT, `qdn/BROTLI-LICENSE.txt`); WOFF2 fonts may refer to it. Optional, needed with the outline table. |
 
 Native Kotlin lives in `sources/.../hard/HardScripts.kt` (loading and calling), `qdn/` (`QdnAdapter`, `QdnDecoder`, `QdnSite`, `QdnModels`), `rbooks/`, and `session/` (`SiteSessions`, `HardSessions`). Site names and cookie names are stored as Unicode escapes in `QdnSite.kt` and `RbooksSite.kt`; read the exact strings there. This document uses codenames.
 
@@ -126,7 +128,7 @@ The reader decrypts the chapter in the page, which takes 10 to 60 s, then draws 
 
 The decoder is independent of the page it runs in, and Android runs it in a **dedicated blank page** (`about:blank`) that lives for the whole download, so the reference (a few seconds to build) is built once. Chapter pages only extract.
 
-Resources go in by `qdn.decoder.putResource(name, index, count, base64Chunk)`, any order, chunks of about 190 KB of binary (**every chunk but the last must be a multiple of 4 base64 characters**; `name` is `font`, `frequency` or `verified`). Then call `qdn.decoder.prepare(budgetMs)` repeatedly (8 s budget) until it returns `{done: true, built, total}`. About 9,850 reference characters; 1.2 s on a desktop Chromium.
+Resources go in by `qdn.decoder.putResource(name, index, count, base64Chunk)`, any order, chunks of about 190 KB of binary (**every chunk but the last must be a multiple of 4 base64 characters**; `name` is `font`, `frequency`, `verified`, `outlines` or `brotli`). Then call `qdn.decoder.prepare(budgetMs)` repeatedly (8 s budget) until it returns `{done: true, built, total}`. About 9,850 reference characters; 1.2 s on a desktop Chromium.
 
 `qdn.decoder.knownFonts()` returns the SHA-256 digests of the cipher fonts the decoder holds; pass them to `extract` so each chapter does not resend the large stylesheet font.
 
@@ -134,7 +136,7 @@ Resources go in by `qdn.decoder.putResource(name, index, count, base64Chunk)`, a
 
 ```
 {lines: [string...],
- stats: {decoded, verifiedGlyphs, shapeMatchedGlyphs, lowConfidence, fonts: [family...],
+ stats: {decoded, verifiedGlyphs, outlineTableGlyphs, shapeMatchedGlyphs, lowConfidence, fonts: [family...],
          missingFonts: [{family, reason}...], suspiciousPassthrough, unstableParagraphs: [...],
          thresholds}}
 ```
@@ -143,12 +145,13 @@ How it decides (ported from `qdn_font_decoder.py`):
 
 - Per character, pick the cipher font: walk the CSS font-family list; within a family the **last defined** face wins; a face covers a character if the code point is in its `unicode-range` and the font really draws it (drawing it with the font differs from drawing it with a family that does not exist; this works for woff2 as well as TrueType).
 - **Verified map first**: an entry for the font's SHA-256, the code point and the mirror state gives the character directly. Only exact font bytes use it.
+- Then the **outline table**: code points are scrambled per font, but every cipher font draws its glyphs from one design, so a glyph's outline identifies it. The script reads the outline from the font file itself (TrueType, or WOFF2 through its own brotli decoder and `glyf` reconstruction; browsers do not expose either), mirrors it about the advance when the element is mirrored, samples it every 12 units, and compares it with the six exemplars whose 24 x 24 edge maps are closest. A symmetric Hausdorff distance within `tolerance` (20 units), with no other character within `separation` (32), is an exact answer (`method: 'outline_table'`, `outlineDistance`, `outlineRunnerUp` in the diagnostics). Glyphs not in the table fall through to shape matching. This mirrors `qdn_font_decoder.py` (`_OutlineTable.match`); a chapter whose glyphs are all in the table never needs the reference.
 - Otherwise **shape matching**: render the glyph on a canvas at 96 px, crop to its ink, pad to a square, resample to 56 x 56, blur (sigma 0.5), mirror if the element was mirrored, mean-centre and normalise. Do the same for every reference character, then take the best by cosine similarity. A 14 x 14 version narrows the ~9,850 candidates to 48 first (this is only for speed on a phone; on the real captured chapter it changes nothing), then the 56 x 56 comparison picks. Among the top 5 within 0.01 of the best, the frequency prior (weight 0.1) breaks ties (好 against 奸).
 - **Component refinement** for weak matches (best score below 0.90): if a candidate's left third matches almost exactly (>= 0.95) and the leader's does not (< 0.85), and the overall balance is within 0.02 of the leader, take it (借 against 惜, the person against the heart radical). The 0.02 slack is the one deliberate change from the desktop: a canvas rasterises a little differently from the desktop's FreeType and flipped a 0.003 near tie.
 - A match is "low confidence" when its score is below 0.90 or its margin over the runner-up below 0.03.
 - Characters in no cipher font stay as they are. If they are CJK and inside a cipher face's `unicode-range` they count as `suspiciousPassthrough` (legitimate fallback text, kept, but reported).
 
-Accuracy on the only real data available: the captured chapter fixture (94 paragraphs, 2,197 characters, 1,729 cipher glyphs) decodes exactly with the verified table switched **off**, and exactly with it on without ever building the reference. See Limits for what that does and does not prove.
+Accuracy on the only real data available: the captured chapter fixture (94 paragraphs, 2,197 characters, 1,729 cipher glyphs) decodes exactly with the verified table switched **off**, exactly with it on without ever building the reference, and exactly from the outline table alone (all 1,729 glyphs, no reference; on the desktop that table scored 22,428 right and 0 wrong in leave-one-font-out validation over 25 captured fonts). The JS lookup gives the desktop's answer for every glyph of both captured fonts, and its WOFF2 outlines equal fontTools'. See Limits for what that does and does not prove.
 
 ## rbooks
 
@@ -250,10 +253,10 @@ The status comes from the cookies (`SiteSessions.status`); it does not ask the s
 
 ## iOS checklist
 
-1. Copy `hard-sources.js` and the three `qdn/` resources into the app bundle unchanged.
+1. Copy `hard-sources.js` and the `qdn/` resources into the app bundle unchanged.
 2. A page factory with desktop identity (user agent, 1280 px width), visible to the engine; a blank decoder page; the document-start user script (main frame only); an evaluate fallback.
 3. `tasks.start` / `tasks.poll` helper with a poll interval and a poll limit per call.
-4. Decoder: push the three resources in chunks, `prepare` in slices, `knownFonts`, `decodeJson` as a task.
+4. Decoder: push the five resources in chunks, `prepare` in slices, `knownFonts`, `decodeJson` as a task.
 5. `SiteSessions` over `HTTPCookieStorage` and the Keychain, including `remove` (expire on the host and parent domains), `restoreOnce`, and the Browser tab sign-out hooks.
 6. The two adapters following the flows above; `LoginRequired` once per book for sign-in or verification; the pacing (2.5 s gate, 60/180/420/900 s cooldowns); at most 3 pages.
 7. `canonicalUrl` for qdn applied to every entry point that accepts a link; the Enter App screen and the Settings and Add entries.
@@ -267,7 +270,7 @@ The iOS app (`ios/NpiaKit`, branch `ios/hard-sources`) follows the design above.
 
 | What | Where (under `ios/NpiaKit/Sources/`) |
 |---|---|
-| The shared script and its resources | `NpiaSources/Hard/HardResources/` (`hard-sources.js`, `qdn/NotoSansCJKsc-Regular-hanzi.otf`, `qdn/OFL.txt`, `qdn/zh_char_frequency.txt`, `qdn/qdn_verified_maps.json`), bundled as a SwiftPM resource folder |
+| The shared script and its resources | `NpiaSources/Hard/HardResources/` (`hard-sources.js`, `qdn/NotoSansCJKsc-Regular-hanzi.otf`, `qdn/OFL.txt`, `qdn/zh_char_frequency.txt`, `qdn/qdn_verified_maps.json`, `qdn/qdn_outline_table.json`, `qdn/brotli_dictionary.bin`, `qdn/BROTLI-LICENSE.txt`), bundled as a SwiftPM resource folder |
 | Loading and calling the script | `NpiaSources/Hard/HardScripts.swift` (`ensureHard`, `hardObject`, `hardTask`, `HardJSON`), `HardSupport.swift` (pacer, once-per-book prompts, page factory, concurrency) |
 | qdn | `NpiaSources/Qdn/` (`QdnSite`, `QdnModels`, `QdnDecoder`, `QdnAdapter`) |
 | rbooks | `NpiaSources/Rbooks/` (`RbooksSite`, `RbooksModels`, `RbooksAdapter`) |
@@ -275,17 +278,20 @@ The iOS app (`ios/NpiaKit`, branch `ios/hard-sources`) follows the design above.
 | Desktop identity in WKWebView | `NpiaWebEngine/WKWebEngine.swift` (`emulateDesktop`, `addMainFrameInitScript`) |
 | Enter App screen | `ios/App/Views/EnterAppView.swift`; entries in `SettingsView` (Downloads > Enter App) and `AddURLView` (under Download) |
 
-The script and its four resources are the Android bytes (they are marked `-text` in `.gitattributes`, so no line-ending change reaches them). `HardResourcesTests` checks their SHA-256 against Android's committed blobs:
+The script and its resources are the Android bytes (they are marked `-text` in `.gitattributes`, so no line-ending change reaches them). `HardResourcesTests` checks their SHA-256 against Android's committed blobs:
 
 | File | SHA-256 |
 |---|---|
-| `hard-sources.js` | `66be5b7bab7d99ffcd81944b893ea3fe33e1bfae90413e0198065f8fbbf31f9d` |
+| `hard-sources.js` | `9c61ee6942c3328e84c38d8a5a642d2f5734dec49763fef836cfea829be908e5` |
 | `qdn/NotoSansCJKsc-Regular-hanzi.otf` | `81805f27acfad19ca7509a17e0b8d2fdf0bb944558612de120047b194f195eaa` |
 | `qdn/OFL.txt` | `acc077d31316a689a0b0512998c47331278e4ae61d134e1edeae5a7a95916961` |
 | `qdn/qdn_verified_maps.json` | `9e6ff0c465fa50b511eede08bf07272fa39d7a32d49ff836af3e315892b90793` |
 | `qdn/zh_char_frequency.txt` | `555c0d7862cf307c7aeacf3091e081dc8e80ca6e60baf79b93d7ff26af1ff7e2` |
+| `qdn/qdn_outline_table.json` | `120c6332630516c2916260c5014e963adf34ca0fd4170020b2a904e5ff069b2c` |
+| `qdn/brotli_dictionary.bin` | `20e42eb1b511c21806d4d227d07e5dd06877d8ce7b3a817f378f313653f35c70` |
+| `qdn/BROTLI-LICENSE.txt` | `3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94` |
 
-(On a Windows checkout with `core.autocrlf=true`, the working copies of the three text files are CRLF; the committed blobs are LF and are the ones that count.)
+(On a Windows checkout with `core.autocrlf=true`, the working copies of the text files are CRLF; the committed blobs are LF and are the ones that count.)
 
 ### What WebKit needed beyond the contract
 

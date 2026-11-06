@@ -43,6 +43,8 @@ internal class QdnDecoder(
         push(decoderPage, "font", HardScripts.QDN_FONT)
         push(decoderPage, "frequency", HardScripts.QDN_FREQUENCY)
         push(decoderPage, "verified", HardScripts.QDN_VERIFIED)
+        push(decoderPage, "outlines", HardScripts.QDN_OUTLINES)
+        push(decoderPage, "brotli", HardScripts.QDN_BROTLI)
         repeat(timing.referenceSlices) {
             val state = decoderPage.hard<QdnPrepareState>("qdn.decoder.prepare(${timing.referenceSliceMillis})")
             if (state.done) {
