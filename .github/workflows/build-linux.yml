@@ -48,8 +48,8 @@ concurrency:
 
 jobs:
   desktop:
-    # The engines release only hosts rule-engine updates.
-    if: github.event_name != 'release' || github.event.release.tag_name != 'engines'
+    # Only an app release (vNNN, not a prerelease): the engines and data-snapshots releases hold other files.
+    if: github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease)
     uses: ./.github/workflows/desktop-build.yml
     with:
       os: linux

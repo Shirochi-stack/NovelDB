@@ -43,7 +43,7 @@ jobs:
   # Release tag, asset label and build number, decided before building so both apps carry them
   # (the app updaters compare build numbers; see noveldb/core/app_update.py).
   plan:
-    if: github.event_name != 'release' || github.event.release.tag_name != 'engines'
+    if: github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
