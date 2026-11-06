@@ -2,7 +2,37 @@ import zipfile
 import html
 import uuid
 import os
+import xml.etree.ElementTree as ElementTree
 from datetime import datetime
+
+_XHTML_NS = "http://www.w3.org/1999/xhtml"
+
+
+def _well_formed(fragment):
+    try:
+        ElementTree.fromstring(f'<div xmlns="{_XHTML_NS}">{fragment}</div>')
+        return True
+    except ElementTree.ParseError:
+        return False
+
+
+def xhtml_body(fragment):
+    """A page's body as well-formed XHTML: EPUB readers parse XHTML as XML, and a site's HTML
+    (`<hr>`, `<img ...>` without the slash, `&nbsp;`, a tag left open) makes the whole book
+    unreadable in strict ones such as Thorium. A fragment that already parses is kept as it is."""
+    fragment = fragment or ""
+    if _well_formed(fragment):
+        return fragment
+    from bs4 import BeautifulSoup
+
+    # html.parser closes void elements (<hr/>) and writes named entities as characters.
+    fixed = BeautifulSoup(fragment, "html.parser").decode(formatter="minimal")
+    if _well_formed(fixed):
+        return fixed
+    # Still not XML (a tag or attribute name XML rejects): its text, so the chapter is kept.
+    text = BeautifulSoup(fragment, "html.parser").get_text("\n")
+    return "".join(f"<p>{html.escape(line)}</p>" for line in text.splitlines() if line.strip())
+
 
 class EpubGenerator:
     def __init__(
@@ -239,7 +269,7 @@ class EpubGenerator:
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>{html.escape(self.meta.get('title',''))}</title><link href="../Styles/style.css" type="text/css" rel="stylesheet"/></head>
-<body>{extra['content']}</body></html>"""
+<body>{xhtml_body(extra['content'])}</body></html>"""
                 zf.writestr(f"OEBPS/Text/{extra['filename']}", xhtml, compress_type=zipfile.ZIP_DEFLATED)
 
             # 6. Chapters
@@ -252,7 +282,7 @@ class EpubGenerator:
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>{html.escape(chap['title'])}</title><link href="../Styles/style.css" type="text/css" rel="stylesheet"/></head>
-<body>{title_html}{chap['content']}</body></html>"""
+<body>{title_html}{xhtml_body(chap['content'])}</body></html>"""
                 zf.writestr(f"OEBPS/Text/{chap['filename']}", xhtml, compress_type=zipfile.ZIP_DEFLATED)
                 
             # 6. Images (use ZIP_STORED by default, ZIP_DEFLATED if user enables it)

@@ -154,7 +154,7 @@ BOT_CHECK_JS = """() => {
 def bot_check_shown(page) -> bool:
     """`page` shows a bot check (Cloudflare's interstitial), not the site."""
     try:
-        return bool(page.evaluate(BOT_CHECK_JS))
+        return page.evaluate(BOT_CHECK_JS) is True
     except Exception:
         return False
 

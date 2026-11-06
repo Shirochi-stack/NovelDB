@@ -21363,6 +21363,8 @@ async (items) => {
         data = self._parse_book_engines(url)
         if len((data or {}).get('chapters') or []) > 1 or self._stop_requested or self.abort_reason:
             return data
+        if self._native_book_parser(url) is not None:
+            return data  # a built-in scraper's site: its links are what they say (an ebook volume is one chapter)
         from noveldb.core.engines.generic import is_chapter_address, parent_addresses
 
         if data is None and not is_chapter_address(url):
@@ -21685,9 +21687,8 @@ async (items) => {
         """True once the page is past a bot check (or never showed one), within ``seconds``."""
         from noveldb.core.engines.scraper_mixin import bot_check_shown
 
-        status = getattr(response, "status", 200) if response is not None else 200
-        if not bot_check_shown(self._page) and status not in (403, 503):
-            return True
+        if not bot_check_shown(self._page):
+            return True  # a plain refusal (403) is no check: waiting would not clear it
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             self._page.wait_for_timeout(1000)
