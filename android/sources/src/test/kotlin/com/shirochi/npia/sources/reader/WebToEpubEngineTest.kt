@@ -142,7 +142,7 @@ class WebToEpubEngineTest {
         val script = page.injected[0]
         assertTrue(script.contains("window.__W2E_API === 1"))
         assertTrue("the whole bundle is evaluated", script.contains("__W2E_parseChapterBatch"))
-        assertTrue(log.toString(), log.any { it.startsWith("[Reader] WebToEpub NovelFullParser (site match), parsers 2026-10-27") })
+        assertTrue(log.toString(), log.any { it.startsWith("[Reader] WebToEpub NovelFullParser (site match), parsers 2026-11-05") })
         assertTrue(log.toString(), log.contains("[Reader] WebToEpub: The chapter list is paged."))
     }
 
