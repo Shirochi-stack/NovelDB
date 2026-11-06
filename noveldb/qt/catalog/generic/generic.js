@@ -787,6 +787,12 @@
         var synopsis = group.description
             ? (synopsisText(group.description) ? '<div class="synopsis">' + esc(synopsisText(group.description)) + '</div>' : '')
             : (group.loaded ? '' : '<div class="loading"><i></i><i></i><i></i></div>');
+        // The cover drawn before stays while its address is the same: a card redraws whenever it learns
+        // something (another site, its synopsis, fresh figures), and a new image each time restarted the
+        // download, so the busiest cards (the first ones) kept their placeholder.
+        var oldCover = element.querySelector('.cover');
+        var keepCover = !!(group.cover && oldCover && oldCover.querySelector('img, canvas')
+            && (element.__cover === group.cover || element.__cover === group.original));
         element.innerHTML = '<div class="cover' + (group.cover ? ' loading' : '') + '">'
             + (group.cover ? '<img loading="lazy" referrerpolicy="no-referrer" alt="" src="' + esc(group.cover) + '">' : '')
             + '</div>'
@@ -808,7 +814,13 @@
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
         var authorLink = element.querySelector('[data-author]');
         if (authorLink) authorLink.addEventListener('click', function (event) { event.stopPropagation(); searchAuthor(group.author); });
-        var image = element.querySelector('img');
+        if (keepCover) {
+            element.replaceChild(oldCover, element.querySelector('.cover'));
+            show(group, wanted(group) && !(group.held && !group.verified));
+            return true;
+        }
+        element.__cover = group.cover;
+        var image = element.querySelector('.cover img');
         if (image && imaging.low && !/^data:/.test(group.cover) && !group.cacheAsked) {
             // The small copy made before with these settings, from the offline cache; else the cover itself.
             group.cacheAsked = true;
@@ -956,7 +968,7 @@
                     else if (group.original) group.cover = group.original;
                     group.cacheAsked = false;
                     group.coverTried = false;
-                    if (group.element) render(group);
+                    if (group.element) { group.element.__cover = null; render(group); }  // drawn again
                 });
             }, 400);
         });

@@ -288,7 +288,9 @@ NPIA_ROWS = 40
 
 
 def _npia_cover(row: dict) -> str:
-    for name in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
+    # cover_url is the site's card image (a ~20 KB WebP); novel_img_all is the original upload (often 10 MB
+    # and more, served as a download), which a card can't show and which held the app up fetching it.
+    for name in ("cover_url", "novel_thumb_all", "novel_thumb", "novel_img", "novel_img_all"):
         value = str(row.get(name) or "").strip()
         if value and "readycover" not in value and "adult_cover_img" not in value:
             return "https:" + value if value.startswith("//") else NPIA_IMAGES + value if value.startswith("/") else value

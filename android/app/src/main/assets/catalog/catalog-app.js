@@ -1259,7 +1259,8 @@
     // npia: its search API (the one its search page and the metadata scraper use).
     var NPIA = 'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com', NPIA_IMAGES = 'https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com', NPIA_ROWS = 40;
     function npiaCover(row) {
-        var names = ['novel_img_all', 'novel_thumb_all', 'cover_url', 'novel_img', 'novel_thumb'];
+        // cover_url: the site's card image (a small WebP); novel_img_all is the original upload (10 MB and more).
+        var names = ['cover_url', 'novel_thumb_all', 'novel_thumb', 'novel_img', 'novel_img_all'];
         for (var i = 0; i < names.length; i++) {
             var value = String(row[names[i]] || '').trim();
             if (value && value.indexOf('readycover') < 0 && value.indexOf('adult_cover_img') < 0) {

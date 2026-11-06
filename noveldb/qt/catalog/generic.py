@@ -741,7 +741,9 @@ class GenericCatalog(QObject):
 
     def _image(self, fetch_id: int, url: str, referer: str) -> None:
         result = default_fetch(url, binary=True, referer=referer, headers={"Accept": "image/*"})
-        if not result or result["status"] >= 400 or not result.get("content"):
+        # A cover over 8 MB (an original upload, not a card image) is not handed to the page: as a data
+        # address it is a third bigger again, and the page gets it through the app's main thread.
+        if not result or result["status"] >= 400 or not result.get("content") or len(result["content"]) > 8 << 20:
             self._fetched.emit(fetch_id, None)
             return
         kind = "image/jpeg"
