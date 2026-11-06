@@ -189,6 +189,9 @@
     .details .side { width: 190px; flex: none; display: flex; flex-direction: column; gap: 8px; }
     .details .side .cover { width: 100%; border-radius: 8px; }
     .details .side button { width: 100%; }
+    /* Switches side by side on one row. */
+    .checks { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+    .checks .check { margin: 0; }
     /* Source page and Google Translate side by side, well apart so neither is pressed for the other. */
     .details .pagebuttons { display: flex; gap: 14px; }
     .details .pagebuttons [data-act=open] { flex: 1 1 auto; min-width: 0; }
@@ -371,12 +374,10 @@
         <p>The Top 100 lists show books in this language. Korean and Chinese web novels come from NovelDB's
             index; "(English)" shows those books with their English titles. Searches look everywhere.</p>
         <h3>Searches</h3>
-        <label class="check"><input type="checkbox" id="useNovelDB"> NovelDB search</label>
-        <p>NovelDB's own index (from its repository): its books by title, tag and author, with their English
-            titles and tags, which it also gives the sites' cards of the same books.</p>
-        <label class="check"><input type="checkbox" id="useDeep"> Deep search</label>
-        <p>NovelDB's sites asked directly: a tag or author on npia, kpage, sfc and the others, for books since
-            NovelDB's last build (R19 and R15 on npia, with your login).</p>
+        <div class="checks">
+            <label class="check" title="NovelDB's index, from its repository: its books, and English titles and tags for the sites' cards"><input type="checkbox" id="useNovelDB"> NovelDB search</label>
+            <label class="check" title="NovelDB's sites (npia, kpage, sfc, ...) asked directly by tag and author; off, they are searched like any site"><input type="checkbox" id="useDeep"> Deep search</label>
+        </div>
         <h3>Translation</h3>
         <button type="button" id="translateCards">🌐 Translate the shown cards</button>
         <p>Google Translate, into this device's language: the titles, tags and synopses of the cards shown (and of the

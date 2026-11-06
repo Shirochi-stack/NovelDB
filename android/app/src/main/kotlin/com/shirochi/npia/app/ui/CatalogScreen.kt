@@ -9,6 +9,7 @@ import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -37,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,7 +104,7 @@ private fun origin(url: String): String = Uri.parse(url).let { "${it.scheme}://$
  *   through the app's transport (`NovelDBCatalogTransport`, answered only while that page is shown);
  *   its Download button queues the book, and Login opens the Browser tab.
  */
-class CatalogWeb(context: Context, private val model: AppViewModel) {
+class CatalogWeb(private val context: Context, private val model: AppViewModel) {
     var progress by mutableIntStateOf(0)
         private set
     var canBack by mutableStateOf(false)
@@ -146,8 +148,24 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     private var reported: Pair<String, String>? = null
     private val mode get() = catalogPageMode(pageUrl, model.manager.settings.value.engines, model.manager.preferences.catalogCartLinks)
 
+    /**
+     * The page's web view. Android ends its renderer when the phone runs short of memory (a long search's
+     * page grows); a renderer gone that no web view answers for takes the whole app with it, so a new view
+     * takes this one's place (`onRenderProcessGone`) and loads the catalog page again.
+     */
+    var view: WebView by mutableStateOf(newView())
+        private set
+
+    private fun replaceView() {
+        val old = view
+        (old.parent as? ViewGroup)?.removeView(old)
+        runCatching { old.destroy() }
+        view = newView()
+        model.manager.message("The catalog page ran out of memory and was opened again.")
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
-    val view: WebView = WebView(context).apply {
+    private fun newView(): WebView = WebView(context).apply {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.javaScriptCanOpenWindowsAutomatically = true
@@ -194,6 +212,12 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                 if (!documentStart) view.evaluateJavascript(bridge, null)
                 showTheme()
                 showRead()
+            }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                // Answered, so Android keeps the app; the dead view cannot be used again.
+                main.post { if (view === this@CatalogWeb.view) replaceView() else runCatching { view.destroy() } }
+                return true
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -441,7 +465,8 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             if (web.progress in 1..99) LinearProgressIndicator(progress = { web.progress / 100f }, modifier = Modifier.fillMaxWidth())
-            AndroidView(
+            // A new web view (the old one's renderer ended) is attached in the old one's place.
+            key(web.view) { AndroidView(
                 factory = {
                     web.view.also { view ->
                         (view.parent as? ViewGroup)?.removeView(view)
@@ -456,7 +481,7 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
                     }.fillingParent()
                 },
                 modifier = Modifier.fillMaxSize(),
-            )
+            ) }
         }
         web.error?.let { message ->
             Surface(Modifier.fillMaxSize()) {

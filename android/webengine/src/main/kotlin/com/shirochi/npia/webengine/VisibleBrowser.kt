@@ -67,6 +67,9 @@ object VisibleBrowser {
                 listener.onCommitted(url)
             }
 
+            // Android ended the page's renderer (short of memory): answered, so the app is not closed with it.
+            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail?): Boolean = true
+
             /** Fires for every history change, including a single-page site moving to a new address without loading. */
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
                 listener.onPage(url, view.title, loading = view.progress < 100, progress = view.progress)
