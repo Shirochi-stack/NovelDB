@@ -1,5 +1,7 @@
 # NovelDB
 
+**[App website](https://shirochi-stack.github.io/NovelDB/apps/)** (desktop and mobile apps, screenshots, downloads) · **[NovelDB database](https://shirochi-stack.github.io/NovelDB/)**
+
 A fork of that enhances the user experience and output quality. This version adds comprehensive metadata (tags, author, synopsis), improves EPUB formatting with HTML tag and newline support, includes file size optimization, and much more\!
 
 -----
