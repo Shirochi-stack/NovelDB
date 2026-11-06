@@ -522,7 +522,8 @@
                                 source: 'noveldb', noveldb: {source: row[0], id: row[1]}, complete: false,
                                 views: ndbCount(row[7]), likes: ndbCount(row[8]), chapters: ndbCount(row[9]),
                                 status: row[10] === 1 ? 'Completed' : row[10] === 0 ? 'Ongoing' : '', updated: String(row[12] || '').slice(0, 10),
-                                published: String(row[15] || '').slice(0, 10), also: ndbAlso(row[16])};
+                                published: String(row[15] || '').slice(0, 10), also: ndbAlso(row[16]),
+                                ageRating: row[17] === 19 || row[17] === 15 ? row[17] : 0};  // 19 adults only, 15 teens
                     }).then(function (card) { if (card && each) each(card); return card; });
                 }));
             });
@@ -1156,6 +1157,7 @@
         ['updated', 'published'].forEach(function (name) { var v = srcDate(figures[name]); if (v) out[name] = v; });
         if (figures.status) out.status = figures.status;
         if (figures.rating) out.rating = figures.rating;
+        if (figures.ageRating === 15 || figures.ageRating === 19) out.ageRating = figures.ageRating;  // 19 adults only, 15 teens
         return out;
     }
     function srcNames(list) { return String(list || '').split(',').map(function (n) { return n.trim(); }); }
@@ -1291,7 +1293,8 @@
                 cards.push(srcCard('npia', NPIA + '/novel/' + row.novel_no, row.novel_name, row.writer_nick, npiaCover(row), tags, row.novel_story,
                                    {views: row.count_view, likes: row.count_good, chapters: row.count_book,
                                     status: ['1', 'True', 'true'].indexOf(String(row.is_complete)) >= 0 ? 'Completed' : 'Ongoing',
-                                    updated: row.last_viewdate, published: row.start_date}));
+                                    updated: row.last_viewdate, published: row.start_date,
+                                    ageRating: Number(row.novel_age) === 19 ? 19 : Number(row.novel_age) === 15 ? 15 : 0}));
             });
             return {cards: cards, more: rows.length >= NPIA_ROWS && (page + 1) * NPIA_ROWS < Number((data || {}).total_cnt || 0)};
         });

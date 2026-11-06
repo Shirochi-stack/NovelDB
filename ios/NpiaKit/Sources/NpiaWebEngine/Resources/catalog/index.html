@@ -81,6 +81,12 @@
     .cover { aspect-ratio: 2 / 3; background: var(--chip) url(halgakos-loading.webp) center / cover no-repeat; display: flex; align-items: center; justify-content: center;
              color: var(--ink-2); font-size: 12px; text-align: center; padding: 8px; overflow: hidden; position: relative; }
     .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* Age badges as on NovelDB: a round 19+ (adults only, red) or 15 (teens, purple), at the cover's bottom right. */
+    .cover .age { position: absolute; right: 6px; bottom: 6px; z-index: 2; width: 28px; height: 28px; border-radius: 50%;
+                  display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 800;
+                  line-height: 1; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); padding: 0; }
+    .cover .age.r19 { background: rgba(220, 38, 38, .92); }
+    .cover .age.r15 { background: rgba(147, 51, 234, .92); }
     .rank { position: absolute; bottom: 6px; left: 6px; background: var(--accent); color: var(--accent-ink); font-weight: 700;
             font-size: 12px; padding: 1px 7px; border-radius: 6px; }
     .body { padding: 8px 9px 10px; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }

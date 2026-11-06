@@ -56,7 +56,7 @@ def build(books, page=500, aliases=None, tag_list=None):
         bucket_at.append(write(value))
     # The builder's rows: 13 fields, then the age rating, the original tags and the publication date.
     rows = [[b["source"], b["id"], b["title"], b["titleEn"], "", "", b["tags"], 10, 0, 3, 1, b["url"], "", None, b["tags"],
-             b.get("published", ""), b.get("also", [])] for b in books]
+             b.get("published", ""), b.get("also", [])] + ([b["rating"]] if "rating" in b else []) for b in books]
     block_at.append(write(rows))
     manifest = {"format": 2, "built": "test", "books": len(books), "buckets": BUCKETS, "block": 256, "page": page,
                 "bin": "x.bin", "bucketAt": bucket_at, "blockAt": block_at,
@@ -286,3 +286,27 @@ def test_a_merged_card_lists_its_other_sources_and_shows_once():
     # Both sources' Top lists have it: asked for both, it shows once.
     cards, _more = index.search_page("npia,nseries", "source", 0)
     assert [c["url"] for c in cards] == ["https://example.test/novel/7", "https://example.test/novel/8"]
+
+
+def test_cards_carry_the_age_rating_and_r19_is_a_tag():
+    # The builder gives an adults-only book the "R19" tag and its rating (19) as the card's last field.
+    books = [dict(BOOKS[0], tags=["Romance", "R19"], rating=19), dict(BOOKS[1], tags=["Romance", "R15"], rating=15),
+             {"source": "kpage", "id": "9", "title": "옛 책", "titleEn": "Old Book", "tags": ["Romance"],
+              "url": "https://example.test/novel/9"}]
+    manifest, data = build(books)
+    index = NovelDBIndex(fetcher(manifest, data, []))
+    assert {c["title"]: c["ageRating"] for c in index.search("romance", "tag")} == {
+        "Omniscient Reader's Viewpoint": 19, "Another Reader": 15, "Old Book": 0}  # an older card: no rating
+    assert [c["title"] for c in index.search("R19", "tag")] == ["Omniscient Reader's Viewpoint"]
+    assert [c["title"] for c in index.search("R15", "tag")] == ["Another Reader"]
+
+
+def test_the_builder_rates_books_by_the_sites_own_rule():
+    script = ("const b=require('./scripts/noveldb_index/build.cjs');"
+              "console.log(JSON.stringify([{source:'npia',age:19},{source:'npia',age:15},{source:'sfc',age:19},"
+              "{source:'kpage',age:19},{source:'nweb',age:19,metadataV1:true},{source:'jara',age:15,metadataV1:true},"
+              "{source:'npia',age:0},{source:'mpia',age:null,metadataV1:true}].map(b.ratingOf)))")
+    out = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
+                         check=True).stdout
+    # sfc's old "19" is a teen rating on the site, as metadata-core reads it.
+    assert json.loads(out) == [19, 15, 15, 19, 19, 15, 0, 0]

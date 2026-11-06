@@ -24,7 +24,7 @@
  *   further pages only as the results are scrolled.
  * - Card blocks of BLOCK books, in book-number order: [source, id, title, English title, author,
  *   cover, tags, views, likes, chapters, complete, address, updated, age rating, original tags,
- *   publication date, other sources]. Books of different sources with the same original title and
+ *   publication date, other sources, rating (19 adults only, 15 teens, else 0)]. Books of different sources with the same original title and
  *   author are one book (mergeSame): its card lists the others' pages, [[source, id, address], ...].
  *
  * It also writes the same pieces as separate files (split/: manifest.json, b/<bucket>.json.gz,
@@ -186,6 +186,7 @@ function sourceBooks(source, cfg, tagNames) {
                 views: Number(novel.views) || 0, likes: Number(novel.likes) || 0, chapters: Number(novel.chapters) || 0,
                 complete: novel.complete == null ? null : (novel.complete ? 1 : 0), url, updated: novel.updated || "",
                 age: novel.age == null ? null : Number(novel.age) || 0,
+                rating: ratingOf(novel),
                 published: String(novel.startDate || "").slice(0, 10),
             });
         }
@@ -213,6 +214,12 @@ function richer(a, b) {
  * `also` ([[source, id, address], ...]). Short titles name many books, so the author must match too;
  * a source's own books of one title stay apart (its most read one joins). Returns the books left.
  */
+/** A book's age rating by the site's own rule (metadata-core's matchesAudience, which reads each source's
+ * age field its way: sfc's old "19" is a teen rating): 19 adults only, 15 teens, else 0. */
+function ratingOf(novel) {
+    return M.matchesAudience(novel, "adult") ? 19 : M.matchesAudience(novel, "r15") ? 15 : 0;
+}
+
 function mergeSame(books) {
     const groups = new Map();
     for (const book of books) {
@@ -244,6 +251,7 @@ function mergeSame(books) {
             lead.chapters = Math.max(lead.chapters, other.chapters);
             if (lead.complete == null) lead.complete = other.complete;
             if (lead.age == null) lead.age = other.age;
+            lead.rating = Math.max(lead.rating || 0, other.rating || 0);
             if (other.updated > lead.updated) lead.updated = other.updated;
             if (other.published && (!lead.published || other.published < lead.published)) lead.published = other.published;
         }
@@ -304,6 +312,9 @@ function main() {
         // Its status as a tag: "Completed" and "Ongoing" are searched like any tag.
         const status = book.complete === 1 ? "Completed" : book.complete === 0 ? "Ongoing" : "";
         if (status) { own.add(tagToken(status)); tagCounts.set(status, (tagCounts.get(status) || 0) + 1); }
+        // Its age rating as a tag too: "R19" (adults only) and "R15" (teens), across every source.
+        const rated = book.rating === 19 ? "R19" : book.rating === 15 ? "R15" : "";
+        if (rated) { own.add(tagToken(rated)); tagCounts.set(rated, (tagCounts.get(rated) || 0) + 1); }
         for (const tag of new Set(book.tags)) if (tag && tag !== status) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
         book.tags.forEach((tag, i) => {
             const original = book.originalTags[i];
@@ -393,7 +404,7 @@ function main() {
         blockAt.push(write(books.slice(start, start + BLOCK).map((b) => [
             b.source, b.id, b.title, b.titleEn, b.author, b.cover, b.tags.slice(0, TAGS_PER_CARD),
             b.views, b.likes, b.chapters, b.complete, b.url, b.updated, b.age, b.originalTags.slice(0, TAGS_PER_CARD),
-            b.published, b.also || []]),
+            b.published, b.also || [], b.rating || 0]),
             `c/${blockAt.length}.json.gz`));
     }
     // The merged books, for the site's catalog (which lists every source's own entries): [[source, id,
@@ -430,4 +441,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, mergeSame, BUCKETS, PAGE};
+module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, mergeSame, ratingOf, BUCKETS, PAGE};

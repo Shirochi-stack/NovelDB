@@ -28,7 +28,7 @@
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
         'Romance', 'Romantic Comedy', 'School Life', 'Sci-fi', 'Seinen', 'Shoujo', 'Shounen', 'Slice of Life', 'Sports',
         'Supernatural', 'System', 'Thriller', 'Time Travel', 'Tragedy', 'Transmigration', 'Villainess', 'Wuxia', 'Xianxia',
-        'Xuanhuan', 'Yuri', 'Completed', 'Ongoing', 'Hiatus', 'BL', 'Yaoi'];  // BL last: a niche the tag menu doesn't lead with
+        'Xuanhuan', 'Yuri', 'Completed', 'Ongoing', 'Hiatus', 'R15', 'R19', 'BL', 'Yaoi'];  // BL last: a niche the tag menu doesn't lead with
     // A site's "nothing matched your search" page (the app drops these too; see generic_search.NO_RESULTS).
     var NO_RESULTS = /(no (items?|results?|books?|novels?|titles?|matches|products?)( were)? (found|matching|match)|nothing (was )?found|did not match any|didn't match any|(found|returned) (0|no) (results?|items?|matches)|\b0 results\b|no results for|見つかりませんでした|該当する.{0,6}(ありません|見つかりません)|検索結果は?0件|검색\s*결과가\s*없|결과가\s*없습니다|일치하는.{0,10}없|没有找到|未找到|沒有找到|找不到相关|暂无(结果|数据|相关)|無結果|无结果|查無|no se encontraron|sin resultados|aucun résultat|ничего не найдено|не найдено|keine (ergebnisse|treffer)|nenhum resultado)/i;
     var JUNK = /^(request|requests|リクエスト|login|log in|sign in|ログイン|search|検索|more|もっと見る|home|top|next|prev(ious)?|menu|contact( us)?|about( us)?|privacy( policy)?|terms( of (service|use))?|dmca|faq|feedback|support|donate)$/i;
@@ -644,6 +644,8 @@
             // `fresh`: a NovelDB book's figures as its site shows them now (its details): they replace the index's.
             if (card[name] && (!group[name] || card.fresh) && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
         });
+        // Its age rating (19 adults only, 15 teens): the strictest any of its sites gives it.
+        if (card.ageRating === 19 || card.ageRating === 15) group.ageRating = Math.max(group.ageRating || 0, card.ageRating);
         // The full-size image first, the thumbnail the site listed behind it (if the big one fails).
         var offered = card.cover ? [fullCover(card.cover), card.cover] : [];
         if (offered.length && !group.cover) { group.cover = offered[0]; group.coverFrom = card.url; }  // the first site's cover stays
@@ -689,9 +691,14 @@
         group.held = true;
         if (!group.loaded && !group.asked) { group.asked = true; queue.push(group); pump(); }
     }
+    // A book's age rating as a tag: "R19" (adults only) and "R15" (teens), as NovelDB's index lists them.
+    function ageTags(group, card) {
+        var rating = Math.max(group.ageRating || 0, card.ageRating || 0);
+        return rating === 19 ? ['R19'] : rating === 15 ? ['R15'] : [];
+    }
     function hasTag(group, card) {
-        // A book's status counts as a tag ("Completed", "Ongoing", "Hiatus").
-        var listed = (card.tags || []).concat(group.tags || [], [card.status || '', group.status || '']).map(tagWords);
+        // A book's status and age rating count as tags ("Completed", "Ongoing", "Hiatus", "R19", "R15").
+        var listed = (card.tags || []).concat(group.tags || [], [card.status || '', group.status || ''], ageTags(group, card)).map(tagWords);
         return current.tags.some(function (tag) {
             var want = tagWords(tag);
             return listed.some(function (have) { return have === want || have.indexOf(want) >= 0; });
@@ -702,7 +709,7 @@
     // A book NovelDB found by the tag stays: its tags may spell it another way ("Genderbend (TS)").
     function offTag(group, card) {
         if (view !== 'search' || !current.tags.length || current.text || group.verified) return false;
-        var listed = (card.tags || []).map(tagWords).filter(Boolean);
+        var listed = (card.tags || []).concat(ageTags(group, card)).map(tagWords).filter(Boolean);
         if (listed.length < 2) return false;  // too few to tell
         return !current.tags.some(function (tag) {
             var want = tagWords(tag);
@@ -795,7 +802,7 @@
             && (element.__cover === group.cover || element.__cover === group.original));
         element.innerHTML = '<div class="cover' + (group.cover ? ' loading' : '') + '">'
             + (group.cover ? '<img loading="lazy" referrerpolicy="no-referrer" alt="" src="' + esc(group.cover) + '">' : '')
-            + '</div>'
+            + ageBadge(group) + '</div>'
             + '<span class="site" title="' + esc(group.sources.map(function (s) { return s.site + (s.ms != null ? ' (' + seconds(s.ms) + ')' : ''); }).join(', ')) + '">'
             + esc(group.sources[0].site + more) + '</span>'
             // The download artwork: greyed out until the book is in the link cart.
@@ -816,6 +823,9 @@
         if (authorLink) authorLink.addEventListener('click', function (event) { event.stopPropagation(); searchAuthor(group.author); });
         if (keepCover) {
             element.replaceChild(oldCover, element.querySelector('.cover'));
+            var badge = oldCover.querySelector('.age');
+            if (badge) badge.remove();  // the rating may have arrived since the cover was drawn
+            oldCover.insertAdjacentHTML('beforeend', ageBadge(group));
             show(group, wanted(group) && !(group.held && !group.verified));
             return true;
         }
@@ -841,6 +851,12 @@
         }
         show(group, wanted(group) && !(group.held && !group.verified));
         return true;
+    }
+    // NovelDB's age badges, at the cover's bottom right: 19+ (adults only) and 15 (teens).
+    function ageBadge(group) {
+        if (group.ageRating === 19) return '<span class="age r19" title="Adults only (19+)" aria-label="Rated 19+">19+</span>';
+        if (group.ageRating === 15) return '<span class="age r15" title="Teens (15+)" aria-label="Rated 15+">15</span>';
+        return '';
     }
     // Cards keep their places once shown (no reshuffling as books come and go). A card shown for the
     // first time takes the first free slot (one a removed card left), else goes at the end; a book

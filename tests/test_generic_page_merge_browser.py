@@ -85,3 +85,31 @@ def test_live_figures_replace_the_index_ones_but_not_the_english_title(page):
     page.wait_for_timeout(300)
     text = page.eval_on_selector("#grid .card", "e => e.textContent")
     assert "A Military-Trained" in text and "143" in text and "123" not in text
+
+
+def test_an_adults_only_book_gets_the_19_badge_at_the_covers_bottom_right(page):
+    # A site's card without a rating, then NovelDB's with one: the card shows NovelDB's 19+ badge.
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [site_card(url="https://m.example.test/573666")])
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [noveldb_card(ageRating=19)])
+    page.wait_for_timeout(300)
+    badges = page.eval_on_selector_all("#grid .card .cover .age", "els => els.map(e => [e.className, e.textContent])")
+    assert badges == [["age r19", "19+"]]
+    cover, badge = page.evaluate("""() => {
+        const c = document.querySelector('#grid .card .cover').getBoundingClientRect();
+        const b = document.querySelector('#grid .card .cover .age').getBoundingClientRect();
+        return [[c.right, c.bottom], [b.right, b.bottom]];
+    }""")
+    assert 0 <= cover[0] - badge[0] <= 12 and 0 <= cover[1] - badge[1] <= 12  # its bottom-right corner
+
+
+def test_a_teen_book_gets_the_15_badge_and_others_none(page):
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)",
+                  [noveldb_card(ageRating=15), noveldb_card(url="https://other.test/2", title="Another", originalTitle="다른",
+                                                            noveldb={"source": "npia", "id": "2"}, also=[])])
+    page.wait_for_timeout(300)
+    assert page.eval_on_selector_all("#grid .card .cover .age", "els => els.map(e => e.textContent)") == ["15"]
+
+
+def test_the_tag_menu_offers_r15_and_r19():
+    text = (PAGE / "generic.js").read_text(encoding="utf-8")
+    assert "'R15', 'R19'" in text

@@ -79,6 +79,8 @@ def card(source: str, url: str, title: str, author: str = "", cover: str = "", t
             out[name] = _date(figures[name])
     if figures.get("status"):
         out["status"] = figures["status"]
+    if figures.get("ageRating") in (15, 19):
+        out["ageRating"] = figures["ageRating"]  # 19 adults only, 15 teens
     return {name: value for name, value in out.items() if value not in ("", None) or name in ("author", "cover", "description")}
 
 
@@ -324,7 +326,8 @@ def _npia(mode: str, query: str, page: int, fetch: Fetch) -> Result:
                           _npia_cover(row), tags, row.get("novel_story") or "", views=row.get("count_view"),
                           likes=row.get("count_good"), chapters=row.get("count_book"),
                           status="Completed" if str(row.get("is_complete")) in ("1", "True", "true") else "Ongoing",
-                          updated=row.get("last_viewdate"), published=row.get("start_date")))
+                          updated=row.get("last_viewdate"), published=row.get("start_date"),
+                          ageRating={"19": 19, "15": 15}.get(str(row.get("novel_age")), 0)))
     total = int((data or {}).get("total_cnt") or 0)
     return cards, len(rows) >= NPIA_ROWS and (page + 1) * NPIA_ROWS < total
 

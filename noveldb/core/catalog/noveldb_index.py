@@ -430,6 +430,8 @@ class NovelDBIndex:
             "views": _count(views), "likes": _count(likes), "chapters": _count(chapters),
             "status": {1: "Completed", 0: "Ongoing"}.get(complete, ""), "updated": str(updated or "")[:10],
             "published": str(published or "")[:10], "also": also,
+            # Its age rating (19 adults only, 15 teens): the site's own reading of each source's age field.
+            "ageRating": row[17] if len(row) > 17 and row[17] in (15, 19) else 0,
         }
 
     def tag_names(self) -> List[str]:
