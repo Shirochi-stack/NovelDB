@@ -31,6 +31,9 @@
     button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
     button:disabled { opacity: .5; cursor: default; }
     button.on { border-color: var(--accent); color: var(--accent); }
+    /* The type and sort menus, narrow: the search row keeps its one line. */
+    #kind { max-width: 9em; }
+    #sort { max-width: 8em; }
     /* The tag icon, as on NovelDB; the picked-tag count sits on it. */
     #tagsButton { display: inline-flex; align-items: center; gap: 4px; }
     #tagsButton svg { display: block; }
@@ -186,6 +189,18 @@
     .details .side { width: 190px; flex: none; display: flex; flex-direction: column; gap: 8px; }
     .details .side .cover { width: 100%; border-radius: 8px; }
     .details .side button { width: 100%; }
+    /* Source page and Google Translate side by side, well apart so neither is pressed for the other. */
+    .details .pagebuttons { display: flex; gap: 14px; }
+    .details .pagebuttons [data-act=open] { flex: 1 1 auto; min-width: 0; }
+    .details .pagebuttons [data-act=translate] { flex: 0 0 auto; width: auto; padding-left: 14px; padding-right: 14px; }
+    .details .pagebuttons [data-act=open] { white-space: nowrap; }
+    .details .pagebuttons .short { display: none; }
+    @media (max-width: 600px) {
+        /* The cover's narrow column on a phone: "Source", and a slim 🌐, still well apart. */
+        .details .pagebuttons .long { display: none; }
+        .details .pagebuttons .short { display: inline; }
+        .details .pagebuttons [data-act=translate] { padding-left: 8px; padding-right: 8px; }
+    }
     .details h2 { margin: 0 0 4px; font-size: 19px; }
     .details .info { min-width: 0; flex: 1; }
     .details .desc { white-space: pre-line; max-height: 240px; overflow: auto; color: var(--ink); margin: 8px 0; }
@@ -243,7 +258,7 @@
     #reader .bar button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
     #reader .bar button { background: transparent; border: 1px solid var(--r-line); color: var(--r-ink); padding: 5px 10px; }
     /* Google Translate on: the 🌐 button in the accent colour (the reader's and a book's details panel). */
-    #reader .bar button.on, .actions button[data-act=translate].on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    #reader .bar button.on, .details button[data-act=translate].on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     #reader .bar .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
     #reader .bar b { color: var(--r-ink); font-weight: 600; }
     #reader input[type=range] { flex: 1; min-width: 60px; accent-color: var(--accent); }
@@ -325,6 +340,16 @@
             <option value="manhwa">Manhwa</option>
             <option value="comic">Comics</option>
         </select>
+        <!-- NovelDB's sorts (the site's): the results in that order; NovelDB's R19 and R15 lists are read in it. -->
+        <select id="sort" title="Sort by" aria-label="Sort by">
+            <option value="">Popular</option>
+            <option value="new" title="Original publication date, not the latest update">New</option>
+            <option value="updated">Updated</option>
+            <option value="likes">Likes</option>
+            <option value="views">Views</option>
+            <option value="chapters">Chapters</option>
+            <option value="title">Title</option>
+        </select>
         <button id="go" class="primary" type="submit">Search</button>
         <button id="stop" type="button" disabled>Stop</button>
         <button id="settingsButton" type="button" title="Cover preview quality">⚙</button>
@@ -345,6 +370,10 @@
             <option value="ar">العربية</option></select></label>
         <p>The Top 100 lists show books in this language. Korean and Chinese web novels come from NovelDB's
             index; "(English)" shows those books with their English titles. Searches look everywhere.</p>
+        <h3>Translation</h3>
+        <button type="button" id="translateCards">🌐 Translate the shown cards</button>
+        <p>Google Translate, into this device's language: the titles, tags and synopses of the cards shown (and of the
+            ones that come in), until pressed again. A book's details and the reader have a 🌐 button of their own.</p>
         <h3>Cover previews</h3>
         <label class="check"><input type="checkbox" id="imgLow"> Show covers at lower quality (uses less memory, like NovelDB)</label>
         <label class="range">Quality <input type="range" id="imgQuality" min="20" max="100" step="1"><span id="imgQualityValue"></span></label>

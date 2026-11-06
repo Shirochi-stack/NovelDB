@@ -315,3 +315,15 @@ def test_the_builder_rates_books_by_the_sites_own_rule():
                          check=True).stdout
     # sfc's old "19" is a teen rating on the site, as metadata-core reads it.
     assert json.loads(out) == [19, 15, 15, 19, 19, 15, 0, 0]
+
+
+def test_a_sorted_r19_search_reads_the_indexs_list_in_that_order():
+    # The builder keeps R19's books in the catalogue's other orders too ("#r19|new": the newest first).
+    older = dict(BOOKS[0], tags=["R19"], rating=19)
+    newer = dict(BOOKS[1], tags=["R19", "R19|new"], rating=19)
+    first = dict(older, tags=["R19", "R19|new"])
+    manifest, data = build([newer, first])  # "#r19|new" lists the newer book first
+    index = NovelDBIndex(fetcher(manifest, data, []))
+    assert [c["title"] for c in index.search("R19", "tag", sort="new")][0] == "Another Reader"
+    # A sort the index has no list for, or none: the index's own order.
+    assert {c["title"] for c in index.search("R19", "tag", sort="nonsense")} == {"Another Reader", "Omniscient Reader's Viewpoint"}

@@ -220,6 +220,16 @@ function ratingOf(novel) {
     return M.matchesAudience(novel, "adult") ? 19 : M.matchesAudience(novel, "r15") ? 15 : 0;
 }
 
+/** The catalogue's sorts beside its default (the most read first): key, a book's value, ascending. */
+const SORTS = [
+    ["likes", (b) => Number(b.likes) || 0, false],
+    ["views", (b) => Number(b.views) || 0, false],
+    ["chapters", (b) => Number(b.chapters) || 0, false],
+    ["new", (b) => String(b.published || ""), false],
+    ["updated", (b) => String(b.updated || ""), false],
+    ["title", (b) => String(b.titleEn || b.title || "").toLowerCase(), true],
+];
+
 function mergeSame(books) {
     const groups = new Map();
     for (const book of books) {
@@ -337,6 +347,20 @@ function main() {
             (lists[source] || (lists[source] = [])).push(number);
         }
     });
+    // The age ratings' books in the site's other orders ("#r19|new": the newest adults-only books first),
+    // every source in one list ("*"), so a catalogue sorted by date or a figure reads them in that order.
+    for (const [token, rated] of [[tagToken("R19"), 19], [tagToken("R15"), 15]]) {
+        const numbers = [];
+        books.forEach((book, number) => { if (book.rating === rated) numbers.push(number); });
+        for (const [key, value, ascending] of SORTS) {
+            const sorted = numbers.slice().sort((a, b) => {
+                const x = value(books[a]), y = value(books[b]);
+                const order = ascending ? (x < y ? -1 : x > y ? 1 : 0) : (x > y ? -1 : x < y ? 1 : 0);
+                return order || a - b;
+            });
+            buckets[bucketOf(token + "|" + key)].set(token + "|" + key, {"*": sorted});
+        }
+    }
     // Synonyms (tag-synonyms.json): every key of a group lists the tags of all of them.
     const synonymKeys = mergeSynonyms(aliases);
     for (const names of SYNONYMS) {
@@ -441,4 +465,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, mergeSame, ratingOf, BUCKETS, PAGE};
+module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, mergeSame, ratingOf, SORTS, BUCKETS, PAGE};

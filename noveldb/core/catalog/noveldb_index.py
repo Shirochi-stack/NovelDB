@@ -93,6 +93,8 @@ def tokens(text: str) -> List[str]:
 
 # The age-rating tags the index gives books (scripts/noveldb_index/build.cjs): the rating each one means.
 AGE_TAGS = {"r19": 19, "r15": 15}
+# The catalogue's sorts the index keeps those tags' lists in (build.cjs SORTS); "" is its own order, the most read first.
+INDEX_SORTS = ("likes", "views", "chapters", "new", "updated", "title")
 
 
 def tag_token(tag: str) -> str:
@@ -373,12 +375,13 @@ class NovelDBIndex:
     # -- searching -------------------------------------------------------------------------------
 
     def search(self, text: str, mode: str = "name", limit: int = 40,
-               on_total: Optional[Callable[[int], None]] = None) -> List[dict]:
+               on_total: Optional[Callable[[int], None]] = None, sort: str = "") -> List[dict]:
         """The first page of cards (the generic search's shape) for a title or tag search."""
-        return self.search_page(text, mode, 0, limit, on_total=on_total)[0]
+        return self.search_page(text, mode, 0, limit, on_total=on_total, sort=sort)[0]
 
     def search_page(self, text: str, mode: str = "name", page: int = 0, limit: int = 40,
-                    sources: Optional[List[str]] = None, on_total: Optional[Callable[[int], None]] = None) -> tuple:
+                    sources: Optional[List[str]] = None, on_total: Optional[Callable[[int], None]] = None,
+                    sort: str = "") -> tuple:
         """(cards, more): page `page` of the results, `limit` cards each. Each round takes the next
         most read book of every source, the lead source's first; `more` says whether pages follow.
         `on_total(n)`: how many books match, before the cards are read. Mode "source": `text` names
@@ -394,8 +397,11 @@ class NovelDBIndex:
             if not wanted or self.manifest() is None:
                 return [], False
             rated = AGE_TAGS.get(normal(text).strip()) if mode == "tag" else None
-            # An age rating is the index's own tag: its list alone, not the site tags that look like it ("R-19", "Adult").
-            streams = (self._lists(wanted[0]) if rated else self._tag_lists(text)) if mode == "tag" else self._streams(wanted)
+            # An age rating is the index's own tag: its list alone, not the site tags that look like it ("R-19", "Adult"),
+            # and the index keeps it in the catalogue's other orders too ("#r19|new": the newest first, every source).
+            sorted_lists = self._lists(wanted[0] + "|" + sort) if rated and sort in INDEX_SORTS else {}
+            streams = sorted_lists or ((self._lists(wanted[0]) if rated else self._tag_lists(text)) if mode == "tag"
+                                       else self._streams(wanted))
         if sources:
             streams = {name: stream for name, stream in streams.items() if name in sources}
         if on_total is not None:

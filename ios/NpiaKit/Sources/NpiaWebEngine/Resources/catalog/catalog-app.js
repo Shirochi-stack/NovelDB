@@ -489,9 +489,11 @@
             return out;
         });
     }
-    // The age-rating tags the index gives books (scripts/noveldb_index/build.cjs): the rating each one means.
+    // The age-rating tags the index gives books (scripts/noveldb_index/build.cjs): the rating each one means;
+    // the index keeps their lists in the catalogue's other orders too (noveldb_index.INDEX_SORTS).
     var NDB_AGE_TAGS = {r19: 19, r15: 15};
-    function ndbSearch(text, mode, limit, offset, each, onTotal) {
+    var NDB_SORTS = ['likes', 'views', 'chapters', 'new', 'updated', 'title'];
+    function ndbSearch(text, mode, limit, offset, each, onTotal, sort) {
         var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)]
             : mode === 'author' ? ['@' + ndbNormal(text).replace(/\s+/g, ' ').trim()] : ndbTokens(text);
         limit = limit || NDB_MORE;
@@ -502,8 +504,11 @@
         var rated = mode === 'tag' ? NDB_AGE_TAGS[ndbNormal(text).trim()] || 0 : 0;
         return ndbManifest().then(function (manifest) {
             if (!manifest) return [];
+            var sorted = rated && NDB_SORTS.indexOf(sort) >= 0;  // "#r19|new": the newest first, every source in one list
             var lists = mode === 'source' ? ndbSourceLists(manifest, wanted)
-                : mode === 'tag' ? (rated ? ndbLists(manifest, wanted[0]) : ndbTagLists(manifest, text)) : ndbStreams(manifest, wanted);
+                : mode === 'tag' ? (sorted ? ndbLists(manifest, wanted[0] + '|' + sort).then(function (found) {
+                    return Object.keys(found).length ? found : ndbLists(manifest, wanted[0]);  // an older index: its own order
+                }) : rated ? ndbLists(manifest, wanted[0]) : ndbTagLists(manifest, text)) : ndbStreams(manifest, wanted);
             return lists.then(function (streams) {
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
@@ -1664,7 +1669,7 @@
         return out;
     }
 
-    function runSearch(id, text, mode, token) {
+    function runSearch(id, text, mode, token, sort) {
         speedAnswered = false;
         speedFailed = [];
         var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, details = [];
@@ -1726,7 +1731,7 @@
             // Each card goes to the page as soon as it is read, not after the whole page of them.
             return ndbSearch(text, mode, NDB_FIRST, 0, function (c) { shown += offer([mark(c)]).length; }, function (total) {
                 call('progress', id, {noveldbTotal: total});
-            }).then(function (found) {
+            }, sort).then(function (found) {
                 shown += offer(found.cards.map(mark)).length;
                 report('NovelDB', started, shown);
             }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); });
@@ -1892,7 +1897,7 @@
             var totals = {};
             return Promise.all(queries.slice(0, 6).map(function (item) {
                 var mode = item.mode === 'tag' || item.mode === 'author' ? item.mode : 'name';
-                var run = item.mode === 'id' ? runById(id, item.query, token) : runSearch(id, item.query, mode, token);
+                var run = item.mode === 'id' ? runById(id, item.query, token) : runSearch(id, item.query, mode, token, item.sort || '');
                 return run.catch(function () { return {failed: 1}; }).then(function (summary) {
                     Object.keys(summary).forEach(function (name) {
                         var value = summary[name];
@@ -1917,7 +1922,7 @@
                     if (fresh.length && !stopped(token)) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
                     return fresh;
                 }
-                var jobs = ndbPage >= 1 ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE).then(function (found) {
+                var jobs = ndbPage >= 1 ? [ndbSearch(text, mode, NDB_MORE, NDB_FIRST + (ndbPage - 1) * NDB_MORE, null, null, item.sort || '').then(function (found) {
                     offer(found.cards.map(function (c) { return Object.assign(c, {verified: mode !== 'name'}); }));
                     if (found.more) { state.more = true; state.ndbMore = true; }
                 }, function () {})] : [];

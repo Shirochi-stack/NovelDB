@@ -51,7 +51,7 @@ PHONE_CSS = """<style>
         #form { gap: 6px; }
         #searchbox { flex-basis: 100%; }
         #form > button { flex: 0 0 auto; padding: 7px 10px; }
-        #kind { flex: 1 1 0; min-width: 0; padding: 7px 6px; }
+        #kind, #sort { flex: 1 1 0; min-width: 0; max-width: none; padding: 7px 4px; }
     }
 </style>
 """

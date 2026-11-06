@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 PAGE_DIR = Path(__file__).with_name("generic")
 PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
+SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_index.INDEX_SORTS
 MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
@@ -96,8 +97,11 @@ def parse_message(data: dict) -> Optional[dict]:
         for item in asked[:MAX_QUERIES]:
             query = item.get("query") if isinstance(item, dict) else None
             if isinstance(query, str) and query.strip() and len(query) <= 300:
-                queries.append({"query": query.strip(),
-                                "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id", "author") else "name"})
+                checked = {"query": query.strip(),
+                           "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id", "author") else "name"}
+                if item.get("sort") in SORTS:
+                    checked["sort"] = item["sort"]  # the page's sort (noveldb_index.INDEX_SORTS); else the default order
+                queries.append(checked)
         if not queries:
             return None
         data["queries"] = queries
@@ -434,9 +438,10 @@ class GenericCatalog(QObject):
                 save_learned(self._learned_file)
                 self._done.emit(search_id, totals)
 
-        def run(query: str, mode: str):
+        def run(query: str, mode: str, sort: str = ""):
             engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
                                    noveldb=self.noveldb)
+            engine.sort = sort  # the page's sort: NovelDB's lists in that order where the index keeps one
             if mode == "id":
                 try:
                     engine.by_id(query, lambda cards: self._cards.emit(search_id, [dict(c, via="id") for c in cards]), stop,
@@ -454,7 +459,8 @@ class GenericCatalog(QObject):
                 finished({"failed": 1})
 
         for item in queries:
-            threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-search", daemon=True).start()
+            threading.Thread(target=run, args=(item["query"], item["mode"], str(item.get("sort") or "")),
+                             name="generic-search", daemon=True).start()
 
     def top(self, search_id: int, kind: str, language: str = "all", only: Optional[list] = None) -> None:
         """The popular lists of the top sites of one kind (comics: the comic sites; novels: the rest), the
@@ -510,9 +516,10 @@ class GenericCatalog(QObject):
             finished()
             return
 
-        def run(query: str, mode: str):
+        def run(query: str, mode: str, sort: str = ""):
             engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
                                    noveldb=self.noveldb)
+            engine.sort = sort
             state = {}
             try:
                 engine.more(query, mode, page, lambda cards: self._cards.emit(search_id, [dict(c, via=mode) for c in cards]),
@@ -528,7 +535,8 @@ class GenericCatalog(QObject):
                 finished()
 
         for item in queries:
-            threading.Thread(target=run, args=(item["query"], item["mode"]), name="generic-more", daemon=True).start()
+            threading.Thread(target=run, args=(item["query"], item["mode"], str(item.get("sort") or "")),
+                             name="generic-more", daemon=True).start()
 
     def ndb_tags(self) -> None:
         """NovelDB's tag names, for the tag menu's filter (the page hears `ndbTags`)."""

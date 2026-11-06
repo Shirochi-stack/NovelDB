@@ -782,9 +782,40 @@
         var go = function () { if (frame) { cancelAnimationFrame(frame.raf); clearTimeout(frame.timer); frame = 0; drawCards(); } };
         frame = {raf: requestAnimationFrame(go), timer: setTimeout(go, 120)};  // a hidden page has no frames
     }
+    // -- the sort menu (NovelDB's sorts): the shown cards in that order; a search sends it along ------------
+    var SORT_KEY = 'noveldb.generic.sort';
+    function sortBy() { return $('sort').value; }
+    function figure(value) {
+        var text = String(value == null ? '' : value).replace(/,/g, '').trim();
+        var found = text.match(/^([\d.]+)\s*([kmb])?/i);
+        if (!found) return 0;
+        return parseFloat(found[1]) * ({k: 1e3, m: 1e6, b: 1e9}[(found[2] || '').toLowerCase()] || 1);
+    }
+    var SORT_VALUES = {
+        likes: function (g) { return figure(g.likes); }, views: function (g) { return figure(g.views); },
+        chapters: function (g) { return figure(g.chapters); },
+        'new': function (g) { return String(g.published || ''); }, updated: function (g) { return String(g.updated || ''); },
+        title: function (g) { return String(g.title || '').toLowerCase(); }
+    };
+    function orderCards() {
+        var key = sortBy(), value = SORT_VALUES[key];
+        if (!value) { order.forEach(function (g) { if (g.element) g.element.style.order = ''; }); return; }
+        var ascending = key === 'title';
+        order.filter(function (g) { return g.element; }).map(function (g, i) { return [g, value(g), i]; })
+            .sort(function (a, b) {
+                var x = a[1], y = b[1];
+                var unknown = (x === '' || x === 0) - (y === '' || y === 0);  // books without the figure last
+                if (unknown) return unknown;
+                var by = x < y ? -1 : x > y ? 1 : 0;
+                return (ascending ? by : -by) || a[2] - b[2];
+            })
+            .forEach(function (entry, i) { entry[0].element.style.order = String(i); });
+    }
     function drawCards() {
         var drawn = Array.from(dirty).filter(drawCard);
         dirty.clear();
+        if (drawn.length) orderCards();
+        if (drawn.length && cardsTranslated) translateCards(drawn);
         drawn.forEach(function (group) {
             fit(group.element.querySelector('.title'));
             fitTags(group.element.querySelector('.tags'));
@@ -899,14 +930,18 @@
                 }, function () {});
         })).then(function () { return texts.map(function (text) { return translated.get(text) || text; }); });
     }
-    /** The text nodes of `root` swapped for their translation, or back to the original (`back`). */
+    /** The text nodes of `root` (an element, or a list of them: one request for all) swapped for their
+     * translation, or back to the original (`back`). */
     function translateNodes(root, back) {
-        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = [];
-        while (walker.nextNode()) {
-            var node = walker.currentNode;
-            if (node.parentNode && /^(SCRIPT|STYLE|BUTTON)$/.test(node.parentNode.nodeName)) continue;
-            if (back ? node.__original != null : node.nodeValue.trim()) nodes.push(node);
-        }
+        var nodes = [];
+        (Array.isArray(root) ? root : [root]).forEach(function (one) {
+            var walker = document.createTreeWalker(one, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) {
+                var node = walker.currentNode;
+                if (node.parentNode && /^(SCRIPT|STYLE|BUTTON)$/.test(node.parentNode.nodeName)) continue;
+                if (back ? node.__original != null : node.nodeValue.trim()) nodes.push(node);
+            }
+        });
         if (back) {
             nodes.forEach(function (node) { node.nodeValue = node.__original; node.__original = null; });
             return Promise.resolve();
@@ -920,6 +955,20 @@
                 node.nodeValue = lead + out[i] + tail;
             });
         });
+    }
+
+    // The shown cards' titles, tags and synopses translated (the settings menu); on, the cards that come in or
+    // are drawn again are translated too, until it is switched off.
+    var cardsTranslated = false;
+    function translateCards(groups) {
+        var parts = [];  // every card's together: a few requests for all of them
+        groups.filter(function (g) { return g.element && g.element.style.display !== 'none'; }).forEach(function (g) {
+            var fromNovelDB = g.sources.some(function (s) { return s.source === 'noveldb'; });
+            Array.prototype.slice.call(g.element.querySelectorAll('.body .title, .body .tags span, .body .synopsis')).forEach(function (part) {
+                if (!(fromNovelDB && part.classList.contains('title'))) parts.push(part);  // NovelDB's English title stays
+            });
+        });
+        return translateNodes(parts, !cardsTranslated);
     }
 
     // NovelDB's age badges, at the cover's bottom right: 19+ (adults only) and 15 (teens).
@@ -1270,7 +1319,8 @@
             // The cover with the book's own page under it; the actions show the app's artwork.
             dialog.innerHTML = '<div class="details"><div class="side"><div class="cover">'
                 + (full ? '<img referrerpolicy="no-referrer" alt="" src="' + esc(full) + '">' : '') + '</div>'
-                + '<button type="button" data-act="open">Source page</button></div>'
+                + '<div class="pagebuttons"><button type="button" data-act="open" title="Source page"><span class="long">Source page</span><span class="short">Source</span></button>'
+                + '<button type="button" data-act="translate" title="Translate with Google" aria-label="Translate with Google">🌐</button></div></div>'
                 // The head (title, author, kind and the figures) sits beside the cover; on a phone the rest goes
                 // full width under both. The status is in the kind's line, so the figures leave it out.
                 + '<div class="info"><div class="head"><h2>' + esc(group.title) + '</h2>'
@@ -1297,7 +1347,6 @@
                 + (config.downloadIcon ? '<img src="' + config.downloadIcon + '" alt="">' : '') + 'Download</button>'
                 + '<button type="button" class="icon' + (inCart ? ' on' : '') + '" data-act="cart"><img src="icon-cart.webp" alt="">'
                 + (inCart ? 'In cart' : 'Add to cart') + '</button>'
-                + '<button type="button" data-act="translate" title="Translate with Google" aria-label="Translate with Google">🌐</button>'
                 + '<button type="button" data-act="close">Close</button></div>';
             var image = dialog.querySelector('img');
             if (image) image.addEventListener('error', function () {
@@ -1318,8 +1367,11 @@
             var applyTranslation = function () {
                 var back = !group.translateDetails;
                 translateButton.disabled = true;
-                var parts = Array.prototype.slice.call(dialog.querySelectorAll(TRANSLATED_PARTS));
-                Promise.all(parts.map(function (part) { return translateNodes(part, back); })).then(function () {
+                // With NovelDB's card the original title is the book's own (and NovelDB has its English one).
+                var fromNovelDB = group.sources.some(function (s) { return s.source === 'noveldb'; });
+                var parts = Array.prototype.slice.call(dialog.querySelectorAll(TRANSLATED_PARTS))
+                    .filter(function (part) { return !(fromNovelDB && part.classList.contains('rawtitle')); });
+                translateNodes(parts, back).then(function () {
                     translateButton.disabled = false;
                     translateButton.classList.toggle('on', !back);
                     translateButton.title = back ? 'Translate with Google' : 'Show the original';
@@ -1711,6 +1763,7 @@
             if (!picked.length && allTags().has(text.toLowerCase())) queries.push({query: text, mode: 'tag'});
         }
         picked.slice(0, 5).forEach(function (tag) { queries.push({query: tag, mode: 'tag'}); });
+        queries.forEach(function (q) { q.sort = sortBy(); });
         searchId++;
         reset('search');
         current = {text: text, tags: picked.slice(), queries: queries, byId: byId};
@@ -1737,7 +1790,7 @@
         showPicked();
         $('query').value = '';
         var names = name.split(/\s*[,，、]\s*/).filter(Boolean).slice(0, 3);
-        var queries = names.map(function (one) { return {query: one, mode: 'author'}; });
+        var queries = names.map(function (one) { return {query: one, mode: 'author', sort: sortBy()}; });
         searchId++;
         reset('search');
         current = {text: '', tags: [], queries: queries, byId: false, author: name};
@@ -1889,6 +1942,24 @@
         running = 0;
         setRunning(0);
         status(shownCount() + ' books found (stopped).');
+    });
+    // The sort is remembered; a change orders what is shown, and searches again for NovelDB's lists in that order.
+    try { var savedSort = localStorage.getItem(SORT_KEY); if (savedSort != null) $('sort').value = savedSort; } catch (e) {}
+    if ($('sort').selectedIndex < 0) $('sort').value = '';
+    $('translateCards').addEventListener('click', function () {
+        var button = this;
+        cardsTranslated = !cardsTranslated;
+        button.disabled = true;
+        translateCards(order).then(function () {
+            button.disabled = false;
+            button.classList.toggle('on', cardsTranslated);
+            button.textContent = cardsTranslated ? '🌐 Show the cards as written' : '🌐 Translate the shown cards';
+        });
+    });
+    $('sort').addEventListener('change', function () {
+        try { localStorage.setItem(SORT_KEY, sortBy()); } catch (e) {}
+        orderCards();
+        if (view === 'search' && current.queries && current.queries.length) search();
     });
     $('kind').addEventListener('change', function () {
         if (view === 'top' && topKind() !== top.kind) { showTop(); return; }

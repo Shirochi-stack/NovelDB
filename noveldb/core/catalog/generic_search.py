@@ -331,6 +331,7 @@ class GenericSearch:
         self.site_search = site_search or SiteSearch(fetch)
         self.skip_lnreader = skip_lnreader  # the page searches those sites with their LNReader plugin
         self.noveldb = noveldb  # NovelDB's own books (noveldb_index.NovelDBIndex), when given
+        self.sort = ""  # the page's sort ("new", "updated", "likes", ...): NovelDB's lists in that order where kept
         self._site_hosts = {host: site for site in self._known for host in site.get("hosts", [site["host"]])}
 
     def site_for(self, url: str) -> Optional[dict]:
@@ -515,7 +516,8 @@ class GenericSearch:
             started = time.monotonic()
             try:
                 # How many books match, as soon as that is known: the page shows it while the cards load.
-                cards = self.noveldb.search(text, mode, on_total=lambda total: progress({"noveldbTotal": total}))
+                cards = self.noveldb.search(text, mode, on_total=lambda total: progress({"noveldbTotal": total}),
+                                            sort=self.sort)
             except Exception:
                 summary["failed"] += 1
                 report("NovelDB", started, 0, "failed")
@@ -664,7 +666,7 @@ class GenericSearch:
             return fresh
 
         def from_noveldb():
-            cards, more = self.noveldb.search_page(text, mode, ndb_page)
+            cards, more = self.noveldb.search_page(text, mode, ndb_page, sort=self.sort)
             offer([dict(card, verified=mode != "name") for card in cards])
             if more:
                 state["more"] = state["ndbMore"] = True
