@@ -370,7 +370,14 @@
                 return result;
             });
         };
-        if (!signed) return viaRelease();
+        if (!signed) {
+            // One read finds the signed address; the others wait for it rather than each taking the long way
+            // (a search's ten word buckets at once took 17 s on a phone, two round trips each and some asked twice).
+            if (ndb.signing) return ndb.signing.then(function () { return ndbRange(url, offset, length); });
+            var first = viaRelease();
+            ndb.signing = first.then(function () { ndb.signing = null; }, function () { ndb.signing = null; });
+            return first;
+        }
         return ask(signed).then(function (result) {
             if (whole(result)) return result;
             ndb.signed = null;  // expired or refused: through the release address again
@@ -1768,6 +1775,9 @@
     // A search's sites in stages: the first STAGE_FIRST, then STAGE_MORE each time the list is scrolled to its
     // end; a stage starts no more sites once STAGE_ENOUGH books are in. `staged`: each search's sites not asked yet.
     var STAGE_FIRST = 100, STAGE_MORE = 60, STAGE_ENOUGH = 90, staged = {};
+    var EXACT_GRACE_MS = 3000, NDB_HEAD_START_MS = 4000;
+    /** A title as an exact match compares it: letters and digits only, in one case and form. */
+    function exactTitle(title) { return String(title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); }
     /** Runs `fn` on the queue's items, `limit` at a time, taken from its front as they go (the queue may be
      *  reordered meanwhile), until it is empty, `full()` says to stop, or the token is stopped. */
     function drain(queue, limit, fn, full, token) {
@@ -1814,6 +1824,10 @@
         speedAnswered = false;
         speedFailed = [];
         var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, details = [];
+        // A title search with a book of exactly that title (its own or its original title): no more sites are
+        // started, and the search ends EXACT_GRACE_MS later (for the book's other copies already on their way).
+        var exactKey = mode === 'name' ? exactTitle(text) : '', exactFound = false, exactSeen = null;
+        var exactWait = new Promise(function (resolve) { exactSeen = resolve; });
         function offer(cards) {
             var fresh = cards.filter(function (item) {
                 var k = item.url.replace(/\/+$/, '');
@@ -1822,6 +1836,10 @@
                 return true;
             });
             if (fresh.length) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
+            if (exactKey && !exactFound && fresh.some(function (c) { return exactTitle(c.title) === exactKey || exactTitle(c.originalTitle) === exactKey; })) {
+                exactFound = true;
+                exactSeen();
+            }
             return fresh;
         }
         function enrich(cards) {
@@ -1858,6 +1876,11 @@
                 if (at > 0) siteQueue.unshift(siteQueue.splice(at, 1)[0]);
             });
         }
+        // NovelDB first: the sites start once it has answered, or after NDB_HEAD_START_MS at most (with them all
+        // at once its reads waited behind the sites' pages, and a title it has took 15 s and more).
+        var ndbAnswered = null, ndbHeadStart = new Promise(function (resolve) { ndbAnswered = resolve; });
+        if (!useNovelDB) ndbAnswered();
+        setTimeout(function () { ndbAnswered(); }, NDB_HEAD_START_MS);
         if (useNovelDB) sources.unshift(function () {
             var started = Date.now();
             var shown = 0;
@@ -1868,7 +1891,8 @@
             }, sort, ndbSources).then(function (found) {
                 shown += offer(found.cards.map(mark)).length;
                 report('NovelDB', started, shown);
-            }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); });
+                ndbAnswered();
+            }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); ndbAnswered(); });
         });
         if (!only.length) sources.push(function () {
             var started = Date.now();
@@ -1923,19 +1947,22 @@
         if (mode === 'author' || ratingOnly) siteQueue = [];
         var stageSize = staging ? Math.min(STAGE_FIRST, siteQueue.length) : siteQueue.length;
         call('progress', id, {total: sources.length + stageSize});
-        var enough = function () { return staging && Object.keys(seen).length >= STAGE_ENOUGH; };
-        var sitesRun = drain(siteQueue, 16, function (site) {
+        var enough = function () { return exactFound || (staging && Object.keys(seen).length >= STAGE_ENOUGH); };
+        var sitesRun = ndbHeadStart.then(function () { return drain(siteQueue, 16, function (site) {
             startedSites++;
             return siteAsk(site, mode, text, token, offer, report, enrich, summary);
         }, function () { return startedSites >= stageSize || enough(); }, token).then(function () {
             // The sites not asked: the next stage, as the list is scrolled (and the progress counts only those asked).
             if (staging && siteQueue.length) staged[stageKey] = siteQueue;
             if (stageSize > startedSites) call('progress', id, {total: startedSites - stageSize});
-        });
+        }); });
         var all = Promise.all([direct, each(sources, 16, function (source) { return source(); }, token), sitesRun]).then(function () {
             return Promise.all(details);
         });
-        return within(all, 45000, token).then(function (how) {
+        var ended = Promise.race([all, exactWait.then(function () {
+            return new Promise(function (resolve) { setTimeout(resolve, EXACT_GRACE_MS); });
+        })]);
+        return within(ended, 45000, token).then(function (how) {
             summary.results = Object.keys(seen).length;
             summary.timed_out = how === 'late';
             return summary;
@@ -2584,6 +2611,13 @@
         });
     };
     window.__noveldb_window_script = function (request) { return transport(Object.assign({}, request, {op: 'window'})); };
+    // NovelDB's index made ready before the first search: its table of contents, and one small piece read for
+    // the signed address and an open connection (a cold first read took 20 s and more on a phone).
+    ready.then(function () {
+        setTimeout(function () {
+            ndbManifest().then(function (manifest) { if (manifest) ndbPiece(manifest, 'bucket', 0); }).catch(function () {});
+        }, 1500);
+    });
     window.NovelDBCatalogApp = {plan: plan, extractCards: extractCards, looksLikeBook: looksLikeBook, relevant: relevant,
                                 cleanTitle: cleanTitle, cardShape: cardShape, ndbSearch: ndbSearch, ndbDescription: ndbDescription};
 })();

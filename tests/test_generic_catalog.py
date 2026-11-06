@@ -448,3 +448,28 @@ def test_a_search_asks_its_sites_in_stages_the_web_search_matches_first(monkeypa
     asked.clear()
     engine.more("A Title", "name", 2, lambda cards: None, threading.Event(), states.append, ndb_page=0)
     assert len(asked) == 170 - generic_search.STAGE_FIRST - generic_search.STAGE_MORE and not states[-1]["more"]
+
+
+def test_a_title_search_ends_soon_after_a_book_of_exactly_that_title(monkeypatch):
+    import threading
+    import time
+    from noveldb.core.catalog import generic_search
+
+    title = "萌妹精灵与她的幸福生活"
+    monkeypatch.setattr(generic_search, "web_search", lambda query, fetch: [])
+    monkeypatch.setattr(generic_search.GenericSearch, "_detail_and_emit", lambda *a, **k: None)
+    sites = [{"site": f"s{n}.example", "host": f"s{n}.example"} for n in range(40)]
+
+    class Sites:
+        def search(self, home, text):
+            if home == "https://s0.example/":
+                return [{"url": "https://s0.example/book/1", "title": title + " ", "cover": "c"}]
+            time.sleep(8)  # the other sites are slow
+            return []
+
+    engine = generic_search.GenericSearch(fetch=lambda *a, **k: None, sites=sites, site_search=Sites(), workers=8)
+    found, summaries = [], []
+    started = time.monotonic()
+    engine.run(title, "name", found.extend, threading.Event(), summaries.append, deadline=45)
+    assert time.monotonic() - started < generic_search.EXACT_GRACE + 3
+    assert [c["url"] for c in found] == ["https://s0.example/book/1"] and not summaries[-1]["timed_out"]

@@ -21,7 +21,7 @@ import json
 import os
 import re
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
@@ -83,6 +83,14 @@ STAGE_FIRST = 100
 STAGE_MORE = 60
 STAGE_ENOUGH = 90
 _staged: Dict[tuple, list] = {}
+EXACT_GRACE = 3.0  # seconds a title search goes on after a book of exactly that title came in
+
+
+def exact_title(title) -> str:
+    """A title as an exact match compares it: letters and digits only, in one case and form."""
+    import unicodedata
+
+    return "".join(ch for ch in unicodedata.normalize("NFKC", str(title or "")).casefold() if ch.isalnum())
 _staged_lock = threading.Lock()
 
 
@@ -438,6 +446,12 @@ class GenericSearch:
         lock = threading.Lock()
         summary = {"web": 0, "lncrawl": 0, "details": 0, "failed": 0}
 
+        # A title search with a book of exactly that title (its own or its original title): no more sites are
+        # started, and the search ends EXACT_GRACE seconds later (for the book's other copies on their way).
+        exact_key = exact_title(text) if mode == "name" else ""
+        exact_found = threading.Event()
+        exact_done = threading.Event()
+
         def offer(cards: Iterable[dict]) -> List[dict]:
             fresh = []
             with lock:
@@ -449,6 +463,10 @@ class GenericSearch:
                     fresh.append(card)
             if fresh:
                 emit(fresh)
+            if exact_key and not exact_found.is_set() and any(
+                    exact_key in (exact_title(card.get("title")), exact_title(card.get("originalTitle"))) for card in fresh):
+                exact_found.set()
+                threading.Timer(EXACT_GRACE, exact_done.set).start()
             return fresh
 
         pool = ThreadPoolExecutor(self.workers, thread_name_prefix="generic-search")
@@ -634,15 +652,6 @@ class GenericSearch:
         with lock:
             queue[:] = [site for site in self.sites
                         if not (self.skip_lnreader and site.get("lnreader")) and self.picked(site["host"])]
-        # The web search first: the sites it found books on move to the front of the queue as it answers.
-        if not self.only:  # the web search finds books on every site
-            open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
-                          else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
-            futures.append(pool.submit(from_web, open_words, True))
-        if mode == "name":
-            for entry in self._lncrawl_entries():
-                if self.picked(entry["_site"]["host"]):
-                    futures.append(pool.submit(from_lncrawl, entry))
         staging = not self.only and mode != "author"
         stage = min(STAGE_FIRST, len(queue)) if staging else len(queue)
         started = [0]
@@ -651,7 +660,7 @@ class GenericSearch:
 
         def next_site() -> Optional[dict]:
             with lock:
-                if not queue or started[0] >= stage or (staging and len(seen) >= STAGE_ENOUGH):
+                if not queue or started[0] >= stage or exact_found.is_set() or (staging and len(seen) >= STAGE_ENOUGH):
                     return None
                 started[0] += 1
                 return queue.pop(0)
@@ -666,6 +675,16 @@ class GenericSearch:
         # Half the pool's threads ask sites; the rest are for the web search, the books' details and the like.
         site_workers = [pool.submit(sites_worker) for _ in range(max(1, min(stage, self.workers // 2)))]
         futures.extend(site_workers)
+        # The web search beside them (half the pool is free for it): the sites it found books on move to the front
+        # of the queue as it answers. Then lightnovel-crawler's sources, after the sites.
+        if not self.only:  # the web search finds books on every site
+            open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
+                          else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
+            futures.append(pool.submit(from_web, open_words, True))
+        if mode == "name":
+            for entry in self._lncrawl_entries():
+                if self.picked(entry["_site"]["host"]):
+                    futures.append(pool.submit(from_lncrawl, entry))
         progress({"total": stage})
 
         def stage_left():
@@ -682,17 +701,24 @@ class GenericSearch:
         progress({"total": len(futures) - len(site_workers)})
 
         ends = time.monotonic() + deadline
-        try:
-            for future in as_completed(futures, timeout=max(1.0, ends - time.monotonic())):
-                future.result()
-            while detail_futures:
-                pending = list(detail_futures)
-                detail_futures.clear()
-                for future in as_completed(pending, timeout=max(1.0, ends - time.monotonic())):
+
+        def wait_for(jobs) -> set:
+            """The jobs not done when they all are, the time is up or an exact match's grace has passed."""
+            waiting = set(jobs)
+            while waiting and time.monotonic() < ends and not exact_done.is_set():
+                finished, waiting = wait(waiting, timeout=0.25, return_when=FIRST_COMPLETED)
+                for future in finished:
                     future.result()
-        except TimeoutError:
+            return waiting
+
+        late = wait_for(futures)
+        while detail_futures and not late:
+            pending = list(detail_futures)
+            detail_futures.clear()
+            late = wait_for(pending)
+        if late and not exact_done.is_set():
             summary["late"] = sum(1 for future in futures if not future.done())
-        timed_out = stop.is_set() and not outer.is_set()
+        timed_out = stop.is_set() and not outer.is_set() and not exact_done.is_set()
         stage_left()
         stop.set()
         pool.shutdown(wait=False, cancel_futures=True)

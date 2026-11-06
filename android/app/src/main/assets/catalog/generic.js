@@ -1199,6 +1199,9 @@
         else send({type: 'cartAdd', url: url, title: group.title, source: ''});
     }
 
+    // A title as an exact match compares it (catalog-app.js exactTitle): letters and digits only, one case and form.
+    var EXACT_GRACE_MS = 3000;
+    function exactTitle(title) { return String(title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); }
     function add(list, id) {
         if (id !== undefined && id !== searchId) return;
         (list || []).forEach(function (card) {
@@ -1218,6 +1221,11 @@
             // With a title and tags, tag results must match the title too.
             if (card.via === 'tag' && current.text && current.tags.length && !relevant(card.title, current.text)) return;
             var group = merge(card);
+            // A title search found a book of exactly that title: the plugins stop being asked (lnreaderSearch).
+            if (group && card.via === 'name' && !(current.tags || []).length && current.text && !current.exact
+                    && [card.title, card.originalTitle].some(function (t) { return exactTitle(t) === exactTitle(current.text); })) {
+                current.exact = true;
+            }
             if (group) {
                 (card.tags || []).forEach(function (tag) { resultTags.set(tag, (resultTags.get(tag) || 0) + 1); });
                 if (card.verified) group.verified = true;
@@ -1481,8 +1489,17 @@
         }
         setRunning(1);
         return new Promise(function (resolve) {
+            var ended = false, stopping = false;
+            function end() { if (!ended) { ended = true; setRunning(-1); resolve(); } }
             function next() {
-                if (id !== searchId) { setRunning(-1); resolve(); return; }
+                if (ended) return;
+                if (id !== searchId) { end(); return; }
+                // `stopWhen`: no more plugins are started, and the ones asking get EXACT_GRACE_MS to answer.
+                if (!stopping && options.stopWhen && options.stopWhen()) {
+                    stopping = true;
+                    index = jobs.length;
+                    setTimeout(end, EXACT_GRACE_MS);
+                }
                 while (active < most && index < jobs.length) {
                     var job = jobs[index++];
                     active++;
@@ -1500,9 +1517,11 @@
                         }
                     }.bind(job)).catch(function () {}).then(function () { active--; next(); });
                 }
-                if (active === 0 && index >= jobs.length) { setRunning(-1); resolve(); }
+                if (active === 0 && index >= jobs.length) end();
             }
             next();
+            // An exact match may come from elsewhere while every plugin slot is busy: looked for every second too.
+            if (options.stopWhen) var watch = setInterval(function () { if (ended) clearInterval(watch); else next(); }, 1000);
         });
     }
     function lnreaderCard(plugin, item, via) {
@@ -1528,7 +1547,8 @@
         lnreaderRun(id, jobs, function (job, found) {
             if (job.query.mode !== 'tag') found = found.filter(function (item) { return relevant(item.name, job.query.query); });
             add(found.slice(0, 15).map(function (item) { return lnreaderCard(job.plugin, item, job.query.mode); }), id);
-        }, {active: 16, seconds: PLUGIN_SECONDS, remember: true}).then(function () { finishedSearch(id); });
+        }, {active: 16, seconds: PLUGIN_SECONDS, remember: true, stopWhen: function () { return !!current.exact; }})
+            .then(function () { finishedSearch(id); });
     }
 
     // -- the top 100s: the sites' popular lists, the busiest sites counting most ----------------------
