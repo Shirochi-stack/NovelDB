@@ -218,3 +218,33 @@ def test_npia_batch_is_sequential_and_does_not_retry():
     assert results[0]["chapterName"] == "One"
     assert results[1] is None
     assert completed == [(0, "One")]
+
+
+def test_plain_viewer_lines_keep_their_line_breaks_and_hidden_markers_stay_hidden():
+    scraper, _messages = make_scraper()
+    payload = json.dumps({"s": [{"text": (
+        "First line\n\nSecond line\n"
+        "<p style='height: 0px; width: 0px; opacity: 0;'>marker</p>Third line\n"
+    )}]})
+
+    result = scraper._npia_build_chapter_result(payload, "Chapter 1", "https://example.invalid/viewer/1")
+
+    assert "First line<br>\n<br>\nSecond line<br>" in result["contentHtml"]
+    assert "style='height: 0px" in result["contentHtml"]  # still hidden in the book, as on the site
+    assert "marker" not in result["contentText"]
+    assert result["contentText"].splitlines() == ["First line", "", "Second line", "Third line"]
+
+
+def test_a_scheduled_episode_is_marked_and_not_opened():
+    source = """
+    <tr class="ep_style5"><td onclick="location='/viewer/201'"><b><i id="bookmark_201"></i> Later</b></td>
+      <td class="ep_style3"><font>공개예정</font><br><b>11시간후</b></td></tr>
+    """
+    chapter = ExternalScraper._npia_parse_episode_html(source)[0]
+    assert chapter["_npiaScheduled"] == "11시간후"
+
+    scraper, messages = make_scraper()
+    scraper._book_data = {"_npia": True, "chapters": [chapter]}
+    scraper._npia_parse_chapter = lambda *a, **k: pytest.fail("a scheduled chapter is not opened")
+    result = scraper.parse_chapter(0, chapter, interval=0)
+    assert result == {"_locked": True, "_lockReason": "not published yet: npia releases it in 11 hours"}

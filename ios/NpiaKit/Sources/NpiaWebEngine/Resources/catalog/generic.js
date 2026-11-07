@@ -352,9 +352,23 @@
                 if (box.checked) siteFilter.add(box.dataset.filterSite); else siteFilter.delete(box.dataset.filterSite);
                 refilter();
                 drawSites();
+                widenSoon();
             };
         });
-        if ($('siteFilterAll')) $('siteFilterAll').onclick = function () { siteFilter.clear(); refilter(); drawSites(); };
+        if ($('siteFilterAll')) $('siteFilterAll').onclick = function () { siteFilter.clear(); refilter(); drawSites(); widenSoon(); };
+    }
+    /** A search that asked only some sites, and a site ticked that it did not ask (or All sites): searched
+     *  again for the sites now ticked, once the ticking pauses. Else a site's few books from NovelDB were all
+     *  that ticking it could show. */
+    var widenTimer = 0;
+    function widenSoon() {
+        clearTimeout(widenTimer);
+        widenTimer = setTimeout(function () {
+            var asked = view === 'search' && current.queries && current.queries.length && current.queries[0].only;
+            if (!asked) return;
+            var missing = !siteFilter.size || Array.from(siteFilter).some(function (site) { return asked.indexOf(site) < 0; });
+            if (missing) search(null, true);
+        }, 900);
     }
     /** The panel closes (a tap outside it, or on Sites again): the sites ticked in it are shown, as Show does. */
     function applyPicks() {
@@ -935,14 +949,20 @@
     var translated = new Map();  // language + "|" + text -> its translation
     try {
         (JSON.parse(localStorage.getItem(TRANSLATE_STORE) || '[]') || []).forEach(function (entry) {
-            if (Array.isArray(entry) && entry.length === 2) translated.set(entry[0], entry[1]);
+            // A "translation" that is the text itself is left behind (one kept from a failed request would
+            // stop that text from ever being asked again).
+            if (Array.isArray(entry) && entry.length === 2 && entry[0].slice(entry[0].indexOf('|') + 1) !== entry[1]) {
+                translated.set(entry[0], entry[1]);
+            }
         });
     } catch (e) {}
     var translateSaveTimer = 0;
     function keepTranslations() {
         clearTimeout(translateSaveTimer);
         translateSaveTimer = setTimeout(function () {
-            var entries = Array.from(translated.entries()).slice(-TRANSLATE_KEEP);
+            var entries = Array.from(translated.entries()).filter(function (entry) {
+                return entry[0].slice(entry[0].indexOf('|') + 1) !== entry[1];
+            }).slice(-TRANSLATE_KEEP);
             try { localStorage.setItem(TRANSLATE_STORE, JSON.stringify(entries)); } catch (e) {
                 try { localStorage.setItem(TRANSLATE_STORE, JSON.stringify(entries.slice(-Math.floor(TRANSLATE_KEEP / 3)))); } catch (e2) {}
             }
@@ -972,14 +992,18 @@
     }
     /** Google's answer (JSON) to a translate request: asked directly, else through the app (the desktop's page is
      *  a local file, and Qt lets it ask no other site), as the LNReader plugins' requests go. */
+    var translateFailure = '';  // why the last request failed, for the settings' button to say
     function translateRequest(url, body) {
         var headers = {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'};
         var viaApp = function () {
             return ask({type: 'genericFetch', request: {url: url, method: 'POST', headers: headers, data: body}}).then(function (reply) {
-                if (!reply || reply.error || reply.status >= 400 || !reply.responseBase64) return null;
+                if (!reply || reply.error || reply.status >= 400 || !reply.responseBase64) {
+                    translateFailure = !reply ? 'no answer' : reply.error || ('HTTP ' + reply.status);
+                    return null;
+                }
                 var binary = atob(reply.responseBase64), bytes = new Uint8Array(binary.length);
                 for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                try { return JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { return null; }
+                try { return JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { translateFailure = 'an answer that is not a translation'; return null; }
             });
         };
         if (location.protocol === 'file:') return viaApp();
@@ -2104,9 +2128,11 @@
         cardsTranslated = !cardsTranslated;
         try { localStorage.setItem(CARDS_TRANSLATED_KEY, cardsTranslated ? '1' : ''); } catch (e) {}
         button.disabled = true;
+        translateFailure = '';
         translateCards(order).then(function () {
             button.disabled = false;
             showCardsTranslated();
+            if (cardsTranslated && translateFailure) status('Google Translate failed (' + translateFailure + '); the cards stay as written.');
         });
     });
     $('sort').addEventListener('change', function () {
@@ -2327,6 +2353,7 @@
     // HTML from a site, kept to text, headings, lists, tables and images (no scripts, styles or links).
     var KEEP = /^(p|br|hr|h[1-6]|em|strong|b|i|u|s|sub|sup|small|blockquote|pre|code|ul|ol|li|table|thead|tbody|tr|td|th|img|ruby|rt|rp|figure|figcaption|center)$/;
     var DROP = /^(script|style|iframe|frame|object|embed|form|input|button|select|textarea|svg|math|link|meta|noscript|template|video|audio|canvas|nav|header|footer|aside|ins)$/;
+    var HIDDEN = /display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?![.\d])|(^|;)\s*height\s*:\s*0(px)?\s*(;|$)/i;
     function clean(html, base) {
         var dom = new DOMParser().parseFromString('<div id="r">' + String(html || '') + '</div>', 'text/html');
         var root = dom.getElementById('r');
@@ -2336,6 +2363,8 @@
                 if (child.nodeType !== 1) return;
                 var tag = child.tagName.toLowerCase();
                 if (DROP.test(tag)) { child.remove(); return; }
+                // Hidden on the site (its style, which goes below): hidden here too, not shown as text.
+                if (HIDDEN.test(child.getAttribute('style') || '')) { child.remove(); return; }
                 walk(child);
                 if (!KEEP.test(tag)) {
                     // A block that isn't one of ours becomes a paragraph when it holds text, else its contents stay.

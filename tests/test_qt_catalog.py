@@ -221,3 +221,23 @@ def test_cart_dialog_opens_quickly_with_thousands_of_links(catalog, qtbot):
     qtbot.addWidget(dialog)
     assert dialog.list.count() == 9_600
     assert time.perf_counter() - started < 3.0
+
+
+def test_google_translate_falls_back_to_another_address_and_logs_why(monkeypatch, caplog):
+    from noveldb.qt.catalog import generic as generic_page
+
+    asked = []
+
+    def plain(url, method, body, headers):
+        asked.append(url)
+        if "translate.googleapis.com" in url:
+            return {"status": 429, "url": url, "content": b"Sorry...", "headers": ""}
+        return {"status": 200, "url": url, "content": b"[[[\"Hello\",\"x\"]]]", "headers": ""}
+
+    monkeypatch.setattr(generic_page, "_plain_request", plain)
+    with caplog.at_level("WARNING"):
+        result = generic_page._translate("https://translate.googleapis.com/translate_a/single?tl=en", "POST", "q=x", {})
+
+    assert result["status"] == 200
+    assert asked[1].startswith("https://translate.google.com/")
+    assert "429" in caplog.text

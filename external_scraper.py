@@ -14318,6 +14318,13 @@ async (ids) => {
                 fragment,
                 re.I,
             ))
+            # 공개예정: listed, but not published yet ("11시간후": in 11 hours).
+            scheduled = None
+            if '공개예정' in fragment:
+                after = re.sub(
+                    r'<[^>]+>', ' ', fragment.split('공개예정', 1)[1]
+                )
+                scheduled = re.sub(r'\s+', ' ', after).strip()[:40] or '?'
             chapters.append({
                 'id': chapter_id,
                 'url': f'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/viewer/{chapter_id}',
@@ -14328,8 +14335,23 @@ async (ids) => {
                 # Access is determined by the authenticated browser when the
                 # viewer is opened. Do not pre-emptively skip PLUS chapters.
                 'isAccessible': True,
+                **({'_npiaScheduled': scheduled} if scheduled else {}),
             })
         return chapters
+
+    @staticmethod
+    def _npia_scheduled_reason(when):
+        """Why a 공개예정 chapter can't be read, with its release time in English."""
+        when = str(when or '')
+        for unit, word in (('일', 'day'), ('시간', 'hour'), ('분', 'minute')):
+            found = re.search(rf'(\d+)\s*{unit}\s*후', when)
+            if found:
+                count = int(found.group(1))
+                return (
+                    'not published yet: npia releases it in '
+                    f'{count} {word}{"" if count == 1 else "s"}'
+                )
+        return 'not published yet: npia has scheduled it'
 
     @staticmethod
     def _npia_parse_notice_html(source):
@@ -14443,11 +14465,15 @@ async (ids) => {
             )
             return False
 
+        # Opened where it gets parked (restored, not minimized: Npia needs
+        # that), not centred first: it no longer flashes up on screen.
         proc, port = self._open_system_chrome(
             start_url,
             remote_debugging=True,
             user_data_dir=user_data_dir,
             hidden=False,
+            window_size=(1280, 900),
+            window_position=(-32000, -32000),
         )
         if not proc or not port:
             self.log(
@@ -14760,12 +14786,33 @@ async (ids) => {
             segment_html = str(segment.get('text') or '')
             if not segment_html or 'cover-wrapper' in segment_html:
                 continue
-            html_parts.append(segment_html)
+            # The viewer shows each line of a plain segment on a line of
+            # its own (a <br> after each, blank lines kept); HTML would
+            # run the lines together, so they get the viewer's <br>s.
+            # (A hidden marker paragraph in the text is not layout.)
+            shown = re.sub(
+                r'<p\b[^>]*\bstyle=(["\'])[^"\']*'
+                r'(?:height:\s*0|opacity:\s*0|display:\s*none)'
+                r'[^"\']*\1[^>]*>.*?</p>',
+                '',
+                segment_html,
+                flags=re.I | re.S,
+            )
+            if re.search(
+                r'<\s*(?:p|br|div|li|h[1-6]|table)\b',
+                shown,
+                re.I,
+            ):
+                html_parts.append(segment_html)
+            else:
+                html_parts.append(
+                    re.sub(r'\r?\n', '<br>\n', segment_html)
+                )
 
             plain = re.sub(
                 r'<\s*br\s*/?\s*>|</\s*p\s*>',
                 '\n',
-                segment_html,
+                shown,  # the text as the viewer shows it
                 flags=re.I,
             )
             plain = html.unescape(re.sub(r'<[^>]+>', '', plain))
@@ -22041,6 +22088,12 @@ async (items) => {
                 chapter_info.get('fullName', '')
                 or chapter_info.get('name', '')
             )
+            if chapter_info.get('_npiaScheduled'):
+                reason = self._npia_scheduled_reason(
+                    chapter_info['_npiaScheduled']
+                )
+                self.log(f'  [Npia] {name}: {reason}.')
+                return {'_locked': True, '_lockReason': reason}
             result = self._npia_parse_chapter(
                 url,
                 name,
@@ -22436,6 +22489,15 @@ async (items) => {
             for index, chapter in enumerate(batch_info):
                 if self._stop_requested:
                     results.append(None)
+                    continue
+                if chapter.get('_npiaScheduled'):
+                    reason = self._npia_scheduled_reason(
+                        chapter['_npiaScheduled']
+                    )
+                    self.log(
+                        f"  [Npia] {chapter.get('name') or ''}: {reason}."
+                    )
+                    results.append({'_locked': True, '_lockReason': reason})
                     continue
                 result = self._npia_parse_chapter(
                     chapter.get('url', ''),

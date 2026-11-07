@@ -100,6 +100,31 @@ def _plain_request(url: str, method: str, body, headers: dict) -> Optional[dict]
         return None
 
 
+class ChapterNotOut(RuntimeError):
+    """A chapter the site lists but has not published yet (no login would read it)."""
+
+
+def _translate(url: str, method: str, body, headers: dict) -> Optional[dict]:
+    """A Google Translate request: urllib to the page's host, then to translate.google.com's same address, then
+    the app's plain fetch; each failure goes to the log (a silent failure left the cards untranslated with no
+    clue why)."""
+    tries = [lambda: _plain_request(url, method, body, headers),
+             lambda: _plain_request(url.replace(TRANSLATE_HOST, "translate.google.com", 1), method, body, headers),
+             lambda: default_fetch(url, method=method, data=body, headers=headers, binary=True)]
+    result = None
+    for attempt in tries:
+        try:
+            result = attempt()
+        except Exception as e:
+            log.warning("Google Translate request failed: %s", e)
+            result = None
+        if result is not None and result.get("status") == 200:
+            return result
+        log.warning("Google Translate answered %s: %s", result and result.get("status"),
+                    ((result or {}).get("content") or b"")[:160])
+    return result
+
+
 def parse_message(data: dict) -> Optional[dict]:
     """A generic-page message with the fields it needs, or None."""
     kind = data.get("type")
@@ -629,7 +654,7 @@ class GenericCatalog(QObject):
         headers = {str(k): str(v) for k, v in (request.get("headers") or {}).items()}
         method = str(request.get("method") or "GET").upper()
         if urlsplit(request["url"]).hostname == TRANSLATE_HOST:
-            result = _plain_request(request["url"], method, body, headers)
+            result = _translate(request["url"], method, body, headers)
         else:
             result = self.fetch(request["url"], method=method, data=body, headers=headers, binary=True)
         if result is None:
@@ -719,7 +744,14 @@ class GenericCatalog(QObject):
                                                   "blocked": True, "message": BLOCKED})
                 return
             if url in self._downloader_books:
-                self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
+                # (An exception here once ended the thread: the page waited on "Scraping…" for good.)
+                try:
+                    self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
+                except ChapterNotOut as e:
+                    self._fetched.emit(fetch_id, {"error": str(e)})
+                except Exception as e:
+                    log.info("generic reader (downloader): %s", e)
+                    self._fetched.emit(fetch_id, {"error": str(e)[:300], "blocked": True, "message": BLOCKED})
                 return
             # A HaruNeko site goes to the download engines (HaruNeko among them) at once: the quick
             # engines' generic fallback "reads" its pages wrongly instead of failing (thunderscans).
@@ -739,6 +771,8 @@ class GenericCatalog(QObject):
                 return
             try:
                 self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
+            except ChapterNotOut as e:
+                self._fetched.emit(fetch_id, {"error": str(e)})  # no login helps: not the blocked page
             except Exception as e:
                 log.info("generic reader (downloader): %s", e)
                 self._fetched.emit(fetch_id, {"error": f"{quick_error}; the downloader: {str(e)[:200]}",
@@ -787,6 +821,8 @@ class GenericCatalog(QObject):
         result = self.downloader(read).result(timeout=240)
         if not result or result.get("_locked"):
             reason = (result or {}).get("_lockReason") or "login or purchase"
+            if reason.startswith("not published yet"):
+                raise ChapterNotOut(f"This chapter is {reason}.")
             raise RuntimeError(f"the chapter could not be read ({reason})")
         return {"name": result.get("chapterName") or chapter.get("name") or "", "html": result.get("contentHtml") or "",
                 "text": result.get("contentText") or ""}
