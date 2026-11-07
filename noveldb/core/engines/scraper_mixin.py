@@ -18,6 +18,7 @@ The methods expect the `ExternalScraper` attributes they use (`log`, `_page`, `_
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -60,6 +61,8 @@ _ASYNC_HELPER = """(() => {
 # Statuses that mean "not for this client": a bot check, a refusal or a busy server.
 _REFUSED = {401, 403, 418, 429, 503}
 _BROWSER_FETCH_SECONDS = 25
+_READER_TIMEOUT_STATUSES = {408, 504}
+_READER_TIMEOUT = (5, 15)  # connect and read, so a stalled page leaves time for the next engine
 # Headers a page cannot set; the browser sends its own.
 _BROWSER_SETS = {"cookie", "user-agent", "referer", "host", "content-length", "accept-encoding", "connection",
                  "origin"}
@@ -238,6 +241,10 @@ class SiteEnginesMixin:
     def _engine_transport(self, source, details):
         """The engines' requests: the app's client first, then the browser when the site refuses it."""
         details = dict(details or {})
+        reader_get = self.__dict__.get("on_image") is not None and str(details.get("method") or "GET").upper() == "GET"
+        if reader_get:
+            # Reader chapters run through _pump. Retry there so the binding never starts browser work.
+            return self._queue_job(source, "reader-request", details) if source is not None else self._reader_request(details)
         result = self._gm_xmlhttp_request(source, details)
         if isinstance(result, dict) and (result.get("error") or _looks_refused(result)):
             if source is not None:  # inside a page binding: the browser work waits for _pump
@@ -246,6 +253,50 @@ class SiteEnginesMixin:
             if page_result is not None:
                 self._saw_response(details, page_result)
                 return page_result
+        self._saw_response(details, result)
+        return result
+
+    def _reader_request(self, details: dict) -> dict:
+        """Retry transient reader GETs with a bounded timeout and fetch refused images by their actual URL."""
+        from urllib.parse import urlsplit
+
+        if getattr(self, "_stop_requested", False):
+            return {"error": "the reader was closed"}
+        result = self._gm_xmlhttp_request(None, details, timeout_override=_READER_TIMEOUT)
+        for attempt in (2, 3):
+            timed_out = (result.get("status") in _READER_TIMEOUT_STATUSES
+                         or re.search(r"timeout|timed out|ERR_CONNECTION_RESET|connection reset", str(result.get("error") or ""), re.I))
+            if not timed_out or getattr(self, "_stop_requested", False):
+                break
+            note = f"Reader request timed out; retrying ({attempt}/3)…"
+            self.log(note)
+            progress = self.__dict__.get("reader_progress")
+            if progress:
+                progress(note)
+            result = self._gm_xmlhttp_request(None, details, timeout_override=_READER_TIMEOUT)
+        if getattr(self, "_stop_requested", False):
+            return {"error": "the reader was closed"}
+        if _looks_refused(_with_text(result)):
+            url = details.get("url") or ""
+            headers = details.get("headers") or {}
+            image = (re.search(r"\.(?:avif|gif|jpe?g|png|webp)$", urlsplit(url).path, re.I)
+                     or any(k.lower() == "accept" and "image/" in v for k, v in headers.items()))
+            if image and self._context is not None:
+                try:
+                    response = self._context.request.get(url, headers=headers, timeout=15000)
+                    try:
+                        if response.ok:
+                            import base64
+
+                            result = {"status": response.status, "finalUrl": response.url,
+                                      "responseHeaders": "\n".join(f"{k}: {v}" for k, v in response.headers.items()),
+                                      "responseBase64": base64.b64encode(response.body()).decode("ascii")}
+                    finally:
+                        response.dispose()
+                except Exception as e:
+                    self.log(f"  Reader image browser request failed: {str(e).splitlines()[0][:200]}")
+            elif not image:
+                result = self._browser_request(details) or result
         self._saw_response(details, result)
         return result
 
@@ -270,6 +321,8 @@ class SiteEnginesMixin:
         return self._queue_job(source, "window", dict(request or {}))
 
     def _run_job(self, kind: str, payload: dict):
+        if kind == "reader-request":
+            return self._reader_request(payload)
         if kind == "request":
             return self._browser_request(payload) or {"error": "the browser could not load the page"}
         return self._window_script(payload)

@@ -40,7 +40,11 @@ actor BuiltInReader {
                 if book.chapters.isEmpty { return Self.json(["error": "no chapters found"]) }
                 return Self.json([
                     "bookname": book.title, "author": book.author ?? "", "engine": steps.first?.title ?? type?.id.rawValue ?? "",
-                    "chapters": book.chapters.map { ["name": $0.title] },
+                    "chapters": book.chapters.map { chapter in
+                        var item = ["name": chapter.title]
+                        if !steps.isEmpty, let address = chapter.url { item["url"] = address.absoluteString }
+                        return item
+                    },
                 ])
             }
             guard book.chapters.indices.contains(index) else { return Self.json(["error": "no such chapter"]) }

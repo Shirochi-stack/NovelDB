@@ -2320,10 +2320,11 @@
             return result;
         }).then(function (result) {
             if (!result || result.status >= 400 || !result.bytes.length) { call('fetched', id, null); return; }
-            var kind = (/content-type:\s*(image\/[\w.+-]+)/i.exec(result.headers) || [])[1] || 'image/jpeg';
             var binary = '';
             for (var i = 0; i < result.bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, result.bytes.subarray(i, i + 0x8000));
-            call('fetched', id, {dataUrl: 'data:' + kind + ';base64,' + btoa(binary), bytes: result.bytes.length});
+            var encoded = btoa(binary);
+            var kind = (/content-type:\s*(image\/[\w.+-]+)/i.exec(result.headers) || [])[1] || imageKind(encoded) || 'image/jpeg';
+            call('fetched', id, {dataUrl: 'data:' + kind + ';base64,' + encoded, bytes: result.bytes.length});
         });
     }
 
@@ -2586,10 +2587,10 @@
         }
         return next();
     }
-    function readChapter(url, index) {
+    function readChapter(url, index, retryImages) {
         var known = books.get(url);
         var opened = known ? Promise.resolve() : readBook(url);
-        return opened.then(function () {
+        return opened.then(async function () {
             known = books.get(url);
             if (known.engine === 'epub') return epubChapter(url, index).then(function (result) {
                 return {name: result.chapterName || known.data.chapters[index].name, html: result.contentHtml, text: ''};
@@ -2598,26 +2599,49 @@
             if (index < 0 || index >= chapters.length) throw new Error('no such chapter');
             var info = chapters[index];
             note('Scraping ' + (info.name || 'the chapter') + '…');
-            var item = JSON.stringify(info);
+            var item = Object.assign({bookUrl: url}, info);
+            if (item.url) {
+                try { item.url = new URL(item.url, url).href; } catch (error) { item.url = ''; }
+            }
             var haruneko = known.engine === 'haruneko';
-            if (haruneko) watchPages(reading.id);
-            var asked = known.engine === 'app' ? appAsk({op: 'chapter', url: url, index: index, reader: known.data.reader})
-                : known.engine === 'engines' ? appAsk({op: 'chapter', url: url, index: index, engines: true})
-                : haruneko ? window.__HN_parseChapter(item) : window.__GEN_parseChapter(item);
-            return Promise.resolve(asked).then(parseJson).then(function (result) {
-                // HaruNeko fetched each page itself (some sites' pages need it): the reader is given those bytes.
-                (result.images || []).forEach(function (picture) {
-                    if (picture.url && picture.data) pages.cache[picture.url] = picture.data;
-                });
-                return {name: result.chapterName || info.name || '', html: result.contentHtml || '', text: result.contentText || ''};
-            }).then(function (value) { pages.watching = null; return value; }, function (error) { pages.watching = null; throw error; });
+            var alternate = item.url && (haruneko || known.engine === 'engines');
+            var result;
+            if (alternate && !retryImages) {
+                var listed = JSON.parse(await window.__GEN_parseChapter(item, true));
+                if (!listed.error) result = listed;
+            }
+            if (!result) {
+                var watch = haruneko ? watchPages(reading.id) : null;
+                try {
+                    var reply = known.engine === 'app' ? await appAsk({op: 'chapter', url: url, index: index, reader: known.data.reader})
+                        : known.engine === 'engines' ? await appAsk({op: 'chapter', url: url, index: index, engines: true})
+                        : haruneko ? await window.__HN_parseChapter(item) : await window.__GEN_parseChapter(item);
+                    try {
+                        result = parseJson(reply);
+                    } catch (error) {
+                        if (!alternate || retryImages || (reply && reply.locked)) throw error;
+                        note('Chapter engine failed; trying Generic fallback for the same chapter…');
+                        result = parseJson(await window.__GEN_parseChapter(item));
+                        if (haruneko && !result.comic) throw error;
+                    }
+                } finally {
+                    if (watch && pages.watching === watch) pages.watching = null;
+                }
+            }
+            // Cache original bytes from the engine for pages that cannot be fetched by their URLs alone.
+            (result.images || []).forEach(function (picture) {
+                if (picture.url && picture.data) pages.cache[picture.url] = picture.data;
+            });
+            return {name: result.chapterName || info.name || '', html: result.contentHtml || '', text: result.contentText || '',
+                    comic: !!(result.comic || (result.images || []).length) && !result.contentText,
+                    imageReferer: result.imageReferer || item.url || url, imageFallback: !!result.imageFallback};
         });
     }
     // A HaruNeko chapter's pages, shown as each one arrives (the bundle hands them over only at the end).
     var pages = {watching: null, cache: {}};
     function watchPages(id) {
         pages.cache = {};
-        pages.watching = {id: id, images: []};
+        return pages.watching = {id: id, images: []};
     }
     function imageKind(base64) {
         var head;
@@ -2711,7 +2735,7 @@
             else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
             break;
         case 'genericChapter':
-            if (readable(message.url)) read(message.id, function () { return readChapter(message.url, message.index | 0); });
+            if (readable(message.url)) read(message.id, function () { return readChapter(message.url, message.index | 0, message.recovery === 'images'); });
             else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
             break;
         default:
@@ -2727,11 +2751,18 @@
         if (message && message.type) handle(message);
     }};
     window.__GEN_transport = function (details) { return transport(details); };
-    window.__noveldb_engine_transport = function (details) {
-        return transport(details).then(function (reply) {
-            if (details && details.url) pageArrived(details.url, reply);
-            return reply;
-        });
+    window.__noveldb_engine_transport = async function (details) {
+        var watch = pages.watching;
+        var readerGet = watch && details && String(details.method || 'GET').toUpperCase() === 'GET';
+        var request = readerGet ? Object.assign({}, details, {timeout: 15000}) : details;
+        var reply = await transport(request);
+        for (var attempt = 2; readerGet && pages.watching === watch && attempt <= 3; attempt++) {
+            if (!reply || !([408, 504].includes(Number(reply.status)) || /timeout|timed out|connection reset/i.test(reply.error || ''))) break;
+            call('readerStatus', watch.id, 'Reader request timed out; retrying (' + attempt + '/3)…');
+            reply = await transport(request);
+        }
+        if (watch && pages.watching === watch && details && details.url) pageArrived(details.url, reply);
+        return reply;
     };
     window.__noveldb_window_script = function (request) { return transport(Object.assign({}, request, {op: 'window'})); };
     // NovelDB's index made ready before the first search: its table of contents, and one small piece read for

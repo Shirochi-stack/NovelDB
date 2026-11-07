@@ -2303,11 +2303,42 @@ function appDataChapter(doc) {
     return built;
 }
 
-async function chapter(item) {
+function listedComicPages(doc, base) {
+    if (chapterPages(doc, base).length) return [];
+    const list = /(?:^|[-_])(?:reader|chapter|manga|comic|webtoon)[-_](?:pages|images)(?:$|[-_])/i;
+    const transformed = /scrambl|encrypt|decrypt|descrambl|drm|tiles?|transform|clip-path|filter:/i;
+    const attributes = node => Array.from(node.attributes, attr => attr.name + " " + attr.value).join(" ");
+    for (const block of doc.querySelectorAll("div[id],div[class],main,section,article,ul")) {
+        if (![block.id, ...block.classList].some(token => list.test(token))) continue;
+        if (block.querySelector("canvas,iframe") || transformed.test(attributes(block))) continue;
+        const nodes = Array.from(block.querySelectorAll("img"));
+        const declared = block.getAttribute("data-page-count") || block.getAttribute("data-total-pages") || "";
+        if (/^\d+$/.test(declared) && Number(declared) !== nodes.length) continue;
+        if (nodes.length < 2 || nodes.some(image => transformed.test(attributes(image)))) continue;
+        const links = nodes.map(image => {
+            const source = ["data-src", "data-original", "data-lazy-src", "data-url", "src"]
+                .map(key => image.getAttribute(key)).find(value => value && value.trim());
+            return source ? cleanUrl(source.trim(), base) : "";
+        });
+        if (links.every(link => link && /\.(?:avif|gif|jpe?g|png|webp)$/i.test(pathOf(link)) && !SKIP_IMAGES.test(link))) return links;
+    }
+    return [];
+}
+
+async function chapter(item, listedOnly) {
     let url = asuraAddress(webtoonsDesktop(dm5Desktop(item.url || "")));
     let name = item.fullName || item.name || "";
     let loaded = await load(url, item.bookUrl || location.href);
     let read = { doc: parse(loaded.html), url: loaded.url };
+    if (listedOnly) {
+        let images = listedComicPages(read.doc, read.url);
+        if (images.length) {
+            let html = images.map(image => '<p><img src="' + image.replace(/&/g, "&amp;").replace(/"/g, "&quot;") + '" alt=""/></p>').join("");
+            return {chapterName: name, contentHtml: html, contentText: "", imageCount: images.length,
+                    images: [], comic: true, imageReferer: read.url, imageFallback: true};
+        }
+        return failure("the chapter page did not list its images");
+    }
     let manga = await dm5MangaChapter(loaded.html, read.url);
     if (manga == null && webtoonsTitle(read.url)) {
         let images = webtoonsImages(loaded.html, read.url);
@@ -2321,7 +2352,7 @@ async function chapter(item) {
         manga = await mangaChapter(read.doc, read.url);
     }
     if (manga != null) {
-        return { chapterName: name, contentHtml: manga, contentText: "", imageCount: 0, images: [] };
+        return { chapterName: name, contentHtml: manga, contentText: "", imageCount: 0, images: [], comic: true, imageReferer: read.url };
     }
     let firstDoc = parse(read.doc.documentElement.outerHTML);
     let [content, text] = extractContent(appDataChapter(read.doc) || read.doc, read.url, name);
@@ -2365,10 +2396,10 @@ window.__GEN_parseBook = async function (url, onChapters, active) {
     }
 };
 
-window.__GEN_parseChapter = async function (itemJson) {
+window.__GEN_parseChapter = async function (itemJson, listedOnly) {
     try {
         let item = typeof itemJson === "string" ? JSON.parse(itemJson) : itemJson;
-        return JSON.stringify(await chapter(item || {}));
+        return JSON.stringify(await chapter(item || {}, listedOnly));
     } catch (error) {
         return JSON.stringify(failure(error));
     }

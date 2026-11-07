@@ -1042,12 +1042,42 @@ def parent_addresses(url: str) -> List[str]:
     return out[:2]
 
 
+def _image_source(image):
+    return (image.get("data-src") or image.get("data-original") or image.get("data-lazy-src")
+            or image.get("data-url") or image.get("src") or "").strip()
+
+
+_READER_PAGE_LIST = re.compile(r"(?:^|[-_])(?:reader|chapter|manga|comic|webtoon)[-_](?:pages|images)(?:$|[-_])", re.I)
+_READER_IMAGE_FILE = re.compile(r"\.(?:avif|gif|jpe?g|png|webp)$", re.I)
+_IMAGE_TRANSFORM = re.compile(r"scrambl|encrypt|decrypt|descrambl|drm|tiles?|transform|clip-path|filter:", re.I)
+
+
+def listed_comic_pages(soup, base: str) -> List[str]:
+    """A plainly listed comic chapter, with no site-specific downloader needed for its image URLs."""
+    if chapter_pages(soup, base):
+        return []
+    for block in soup.find_all(["div", "main", "section", "article", "ul"]):
+        if not any(_READER_PAGE_LIST.search(token) for token in [block.get("id") or "", *(block.get("class") or [])]):
+            continue
+        if block.find(["canvas", "iframe"]) or _IMAGE_TRANSFORM.search(str(block.attrs)):
+            continue
+        nodes = block.find_all("img")
+        declared = str(block.get("data-page-count") or block.get("data-total-pages") or "")
+        if declared.isdecimal() and int(declared) != len(nodes):
+            continue
+        if len(nodes) < 2 or any(_IMAGE_TRANSFORM.search(str(image.attrs)) for image in nodes):
+            continue
+        links = [clean_url(_image_source(image), base) for image in nodes]
+        if all(link and _READER_IMAGE_FILE.search(urlsplit(link).path) and not _SKIP_IMAGES.search(link) for link in links):
+            return links
+    return []
+
+
 def page_images(soup, base: str) -> List[str]:
     """A manga page's own images (not logos, icons or ads), in page order."""
     out = []
     for image in soup.find_all("img"):
-        source = (image.get("data-src") or image.get("data-original") or image.get("data-lazy-src")
-                  or image.get("data-url") or image.get("src") or "").strip()
+        source = _image_source(image)
         if not source or source.startswith("data:") or _SKIP_IMAGES.search(source):
             continue
         hint = " ".join(image.get("class") or []) + " " + (image.get("id") or "") + " " + (image.get("alt") or "")
@@ -1063,8 +1093,8 @@ def page_images(soup, base: str) -> List[str]:
         url = clean_url(source, base)
         if url and url not in out:
             out.append(url)
-    listed = _data_images(soup, base)
-    return listed if len(listed) > len(out) else out
+    embedded = _data_images(soup, base)
+    return embedded if len(embedded) > len(out) else out
 
 
 def _data_images(soup, base: str) -> List[str]:
@@ -1868,7 +1898,7 @@ class GenericEngine:
             return None
         return content, text, rendered
 
-    def parse_chapter(self, chapter_info: dict, book: dict) -> Optional[dict]:
+    def parse_chapter(self, chapter_info: dict, book: dict, *, listed_only: bool = False) -> Optional[dict]:
         url = asura_address(webtoons_desktop(dm5_desktop(chapter_info.get("url", ""))))
         name = chapter_info.get("fullName") or chapter_info.get("name", "")
         host = urlsplit(url).netloc
@@ -1879,6 +1909,15 @@ class GenericEngine:
             final = url
         else:
             html, final = self._page(url, referer=chapter_info.get("bookUrl") or book.get("bookUrl") or "")
+            if listed_only:
+                from html import escape
+
+                listed = listed_comic_pages(soup_of(html), final)
+                if not listed:
+                    return None
+                return {"chapterName": name, "contentHtml": "".join(f'<p><img src="{escape(image)}" alt=""/></p>' for image in listed),
+                        "contentText": "", "imageCount": len(listed), "images": [], "comic": True, "imageReferer": final,
+                        "imageFallback": True}
             manga = self._dm5_chapter(html, final)
             if manga is None and webtoons_title(final):
                 images = webtoons_images(html, final)
@@ -1892,7 +1931,7 @@ class GenericEngine:
                 manga = self._manga_chapter(html, final)
             if manga is not None:
                 return {"chapterName": name, "contentHtml": manga, "contentText": "",
-                        "imageCount": manga.count("<img"), "images": []}
+                        "imageCount": manga.count("<img"), "images": [], "comic": True}
             content, text = extract_content(app_data_chapter(html) or html, final, name)
             if scrambled_hangul(text) and self.render is not None:
                 # bookkor sends plain requests scrambled text; the browser gets the real chapter.

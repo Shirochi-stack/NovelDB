@@ -135,6 +135,10 @@ class ChapterNotOut(RuntimeError):
     """A chapter the site lists but has not published yet (no login would read it)."""
 
 
+class ChapterUnavailable(RuntimeError):
+    """The chapter engines failed to read the chapter."""
+
+
 # The page's requests (covers, images, details, the reader's chapters): many at once, some slow (a chapter
 # read by the downloader), so the pool is wide; idle threads are reused.
 class _Workers:
@@ -255,7 +259,7 @@ def parse_message(data: dict) -> Optional[dict]:
         return None
     if kind == "genericChapter" and not (isinstance(data.get("index"), int) and data["index"] >= 0):
         return None
-    if kind == "genericChapter" and data.get("recovery") not in (None, "cloudflare"):
+    if kind == "genericChapter" and data.get("recovery") not in (None, "cloudflare", "images"):
         return None
     if kind in ("genericCover", "genericCoverPut") and not (str(data.get("key", "")) and len(str(data["key"])) < 3000):
         return None
@@ -549,7 +553,8 @@ class GenericCatalog(QObject):
             self._background(self._transport, data["id"], data["request"],
                              workers=_TRANSLATE_WORKERS if urlsplit(data["request"]["url"]).hostname == TRANSLATE_HOST else None)
         elif kind == "genericImage":
-            self._background(self._image, data["id"], data["url"], str(data.get("referer") or ""))
+            self._background(self._image, data["id"], data["url"], str(data.get("referer") or ""),
+                             reader=data.get("reader") is True)
         elif kind == "genericDetails":
             self._background(self._details, data["card"])
         elif kind == "genericCover":
@@ -569,7 +574,8 @@ class GenericCatalog(QObject):
                              active=lambda: generation == getattr(self, "_reader_generation", 0))
         elif kind == "genericChapter":
             self._background(self._read, data["id"], self._chapter, data["url"], data["index"],
-                             force_downloader=data.get("recovery") == "cloudflare")
+                             force_downloader=data.get("recovery") == "cloudflare",
+                             retry_images=data.get("recovery") == "images")
         return True
 
     def init_page(self) -> None:
@@ -847,7 +853,7 @@ class GenericCatalog(QObject):
         if fetch_id is not None:
             self._reader_status.emit(fetch_id, text)
 
-    def _read(self, fetch_id: int, function, *args, force_downloader: bool = False,
+    def _read(self, fetch_id: int, function, *args, force_downloader: bool = False, retry_images: bool = False,
               on_chapters=None, active=lambda: True) -> None:
         """The reader's book or chapter: the quick engines, then the downloader with its saved sessions;
         else {error, blocked} for the page to show (with Enter Browser)."""
@@ -859,6 +865,12 @@ class GenericCatalog(QObject):
             url = args[0]
             if url.startswith("file:"):
                 self._fetched.emit(fetch_id, function(*args))  # a Library EPUB: no downloader
+                return
+            if retry_images:
+                try:
+                    self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:], retry_images=True))
+                except Exception as e:
+                    self._fetched.emit(fetch_id, {"error": str(e)[:300]})
                 return
             if force_downloader:
                 if self.downloader is None:
@@ -897,7 +909,7 @@ class GenericCatalog(QObject):
                 # (An exception here once ended the thread: the page waited on "Scraping…" for good.)
                 try:
                     self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
-                except ChapterNotOut as e:
+                except (ChapterNotOut, ChapterUnavailable) as e:
                     self._fetched.emit(fetch_id, {"error": str(e)})
                 except Exception as e:
                     log.info("generic reader (downloader): %s", e)
@@ -925,7 +937,7 @@ class GenericCatalog(QObject):
                 return
             try:
                 self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
-            except ChapterNotOut as e:
+            except (ChapterNotOut, ChapterUnavailable) as e:
                 self._fetched.emit(fetch_id, {"error": str(e)})  # no login helps: not the blocked page
             except Exception as e:
                 log.info("generic reader (downloader): %s", e)
@@ -999,7 +1011,7 @@ class GenericCatalog(QObject):
             scraper.dynamic_priority = bool(settings.dynamic_priority)
             scraper._book_url = None  # a book read under the old order is read again under the new one
 
-    def _downloader_read(self, url: str, index: Optional[int] = None) -> dict:
+    def _downloader_read(self, url: str, index: Optional[int] = None, *, retry_images: bool = False) -> dict:
         # Its index is None for the book.
         """The book (index None) or one chapter through the downloader's engine chain and saved sessions."""
         # A book can have been opened successfully by the fast LNReader plugin and only fail when a
@@ -1068,39 +1080,65 @@ class GenericCatalog(QObject):
             elif getattr(scraper, "_book_url", None) != url:
                 scraper.parse_book(url)  # the worker may have read another book since
             scraper.on_image = page_in
+            scraper.reader_progress = (lambda note: self._reader_status.emit(fetch_id, note)) if fetch_id is not None else None
             scraper_log(f"Reader: chapter {index + 1} ({chapter.get('name') or '?'})…")
             try:
-                done = scraper.parse_chapter(index, chapter, interval=0)
+                options = {"retry_images": True} if retry_images else {}
+                done = scraper.parse_chapter(index, chapter, interval=0, **options)
             finally:
                 scraper.on_image = None
+                scraper.reader_progress = None
                 self._reader_scraper = None
             pages = len((done or {}).get("images") or [])
             scraper_log(f"Reader: chapter {index + 1} " + (f"read, {pages} page(s)." if done and not done.get("_locked")
-                                                           else "could not be read."))
+                                                           and not done.get("_readerError") else "could not be read."))
             return done
 
         result = self.downloader(read).result(timeout=240)
+        if result and result.get("_readerError"):
+            raise ChapterUnavailable(result["_readerError"])
         if not result or result.get("_locked"):
             reason = (result or {}).get("_lockReason") or "login or purchase"
             if reason.startswith("not published yet"):
                 raise ChapterNotOut(f"This chapter is {reason}.")
             raise RuntimeError(f"the chapter could not be read ({reason})")
         return {"name": result.get("chapterName") or chapter.get("name") or "", "html": _with_page_data(result),
-                "text": result.get("contentText") or ""}
+                "text": result.get("contentText") or "", "comic": bool(result.get("comic") or result.get("images"))
+                and not result.get("contentText"), "imageReferer": result.get("imageReferer") or chapter.get("url") or url,
+                "imageFallback": bool(result.get("imageFallback"))}
 
-    def _image(self, fetch_id: int, url: str, referer: str) -> None:
-        result = default_fetch(url, binary=True, referer=referer, headers={"Accept": "image/*"})
+    def _image(self, fetch_id: int, url: str, referer: str, *, reader: bool = False) -> None:
+        headers = {"Accept": "image/*"}
+        if reader:
+            try:
+                cookie = self.logins.header(url)
+            except Exception:
+                cookie = ""
+            if cookie:
+                headers["Cookie"] = cookie
+        result = default_fetch(url, binary=True, referer=referer, headers=headers)
+        if reader and result and result["status"] in (401, 403) and referer:
+            parts = urlsplit(referer)
+            origin = f"{parts.scheme}://{parts.netloc}/"
+            if parts.netloc and origin != referer:
+                result = default_fetch(url, binary=True, referer=origin, headers=headers)
         # A cover over 8 MB (an original upload, not a card image) is not handed to the page: as a data
         # address it is a third bigger again, and the page gets it through the app's main thread.
-        if not result or result["status"] >= 400 or not result.get("content") or len(result["content"]) > 8 << 20:
+        if (not result or result["status"] >= 400 or not result.get("content")
+                or (not reader and len(result["content"]) > 8 << 20)):
             self._fetched.emit(fetch_id, None)
             return
-        kind = "image/jpeg"
+        kind = ""
         for line in str(result.get("headers") or "").splitlines():
-            if line.lower().startswith("content-type:") and "image/" in line:
+            if line.lower().startswith("content-type:") and "image/" in line.lower():
                 kind = line.split(":", 1)[1].split(";")[0].strip()
+                break
         data = base64.b64encode(result["content"]).decode("ascii")
-        self._fetched.emit(fetch_id, {"dataUrl": f"data:{kind};base64,{data}", "bytes": len(result["content"])})
+        if reader and not kind:
+            from noveldb.core.engines.scraper_mixin import _image_kind
+
+            kind = _image_kind(data)
+        self._fetched.emit(fetch_id, {"dataUrl": f"data:{kind or 'image/jpeg'};base64,{data}", "bytes": len(result["content"])})
 
     def _details(self, card: dict) -> None:
         """A book's details: from the offline cache when read in the last few days, else its page."""

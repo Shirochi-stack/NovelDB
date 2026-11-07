@@ -19,8 +19,42 @@ def reader_scraper(logger=None):
     global _reader_class
     if _reader_class is None:
         from external_scraper import ExternalScraper
+        from noveldb.core.settings.model import ENGINE_GENERIC, ENGINE_HN
 
         class ReaderScraper(ExternalScraper):
+            def parse_chapter(self, index, chapter_info, interval=0, *, retry_images=False, **kwargs):
+                book = self._book_data or {}
+                script = self._script_for_book()
+                primary = script.engine if script else self._python_engine_for_book()
+                alternate = ENGINE_GENERIC in self.engine_order and primary not in (None, ENGINE_GENERIC)
+                haruneko = primary == ENGINE_HN
+                if alternate and haruneko and not retry_images:
+                    # A chapter with an explicit list of ordinary image URLs can use the reader's
+                    # parallel loader. Other layouts go through the site's HaruNeko plugin.
+                    result = self._reader_generic(chapter_info, book, comic=True, listed_only=True)
+                    if result:
+                        return result
+                result = super().parse_chapter(index, chapter_info, interval=interval, **kwargs)
+                if result or self._stop_requested or not alternate or retry_images:
+                    return result
+                note = "Chapter engine failed; trying Generic fallback for the same chapter…"
+                self.log(note)
+                if self.reader_progress:
+                    self.reader_progress(note)
+                return self._reader_generic(chapter_info, book, comic=haruneko) or {
+                    "_readerError": "The chapter could not be read after trying the available engines.",
+                }
+
+            def _reader_generic(self, chapter, book, *, comic, listed_only=False):
+                try:
+                    result = self._python_engine(ENGINE_GENERIC).parse_chapter(chapter, book, listed_only=listed_only)
+                except Exception as error:
+                    self.log(f"  Generic fallback: {error}")
+                    return None
+                return result if result and (not comic or result.get("comic")) else None
+
+            reader_progress = None
+
             @staticmethod
             def _get_user_data_dir():
                 path = os.path.join(ExternalScraper._get_user_data_dir(), "reader_profile")

@@ -2774,7 +2774,7 @@
                     chapterNumber();
                     if (R.done.has(R.index) && R.index + 1 < R.chapters.length) {
                         if (layout() === 'scroll' && !R.slots.length) nextChapterButton(R.index);
-                        loadChapter(R.index + 1);
+                        readAhead();
                     }
                 }
                 if ($('toc').classList.contains('open')) drawToc(false);
@@ -2927,7 +2927,9 @@
             if (!html.replace(/<[^>]+>/g, '').trim() && html.indexOf('<img') < 0) html = textHtml(result.text || result.contentText);
             R.done.add(index);
             R.pagesFor.delete(index);  // its pages are in its HTML now (no second copy kept)
-            return {name: result.name || result.chapterName || chapterName, html: html};
+            return {name: result.name || result.chapterName || chapterName, html: html,
+                    comic: !!result.comic, imageReferer: result.imageReferer || source.url,
+                    imageFallback: !!result.imageFallback};
         });
         R.cache.set(index, promise);
         return promise;
@@ -2948,6 +2950,8 @@
         R.slotsIndex = -1;
         resetPictures();
         R.index = index;
+        R.imageReferer = R.source.url;
+        R.imageFallback = false;
         $('rChapter').textContent = '· ' + (R.chapters[index].name || '');
         chapterNumber();
         markToc();
@@ -2971,16 +2975,19 @@
             // when something reset R.streamed meanwhile), never draw the chapter again from 0.
             var streamedHere = R.streamed === index || (R.slotsIndex === index && R.slots && R.slots.length);
             // Its pictures streamed in, but the chapter is text with illustrations (a novel's): drawn as text below.
-            if (streamedHere && !comicChapter(chapter.html) && !(R.group && R.group.comic)) {
+            R.imageReferer = chapter.imageReferer;
+            R.imageFallback = chapter.imageFallback;
+            if (streamedHere && !chapter.comic && !comicChapter(chapter.html) && !(R.group && R.group.comic)) {
                 R.streamed = -1; R.slotsIndex = -1; R.slots = [];
                 resetPictures();
             } else if (streamedHere) {
-                R.streamed = -1;
                 finishStream(chapter);
+                R.streamed = -1;
                 return;
             }
             var last = index + 1 < R.chapters.length;
-            var many = comicChapter(chapter.html);
+            var many = chapter.comic || comicChapter(chapter.html);
+            var displayHtml = chapter.html;
             // A novel's chapter of text after one taken for a comic (its first held a cover and illustrations): read
             // as text again. A book its site calls a comic stays one.
             if (!many && R.comic && !(R.group && R.group.comic)) { R.comic = false; R.comicKind = ''; applyLook(); }
@@ -2988,14 +2995,17 @@
                 asComic();
                 R.streamed = -1;
                 resetPictures();
-                chapter.html = chapter.html.replace(/<img[^>]*?src="([^"]+)"[^>]*>/g, function (_tag, src) { return slotHtml(src); });
+                var sources = chapterImages(chapter.html);
+                displayHtml = chapter.html.replace(/<img\b[^>]*>/g, function () { return slotHtml(sources.shift()); });
             }
-            $('flow').innerHTML = '<h2 class="chapter">' + esc(chapter.name) + '</h2>' + chapter.html;
+            $('flow').innerHTML = '<h2 class="chapter">' + esc(chapter.name) + '</h2>' + displayHtml;
             if (layout() === 'scroll') nextChapterButton(index);
             if (R.translate) translateChapter(false);
             if (many) {
-                $('flow').querySelectorAll('img.slot').forEach(function (slot) { fetchPicture(slot); });
-                pictures.total = $('flow').querySelectorAll('img.slot').length;
+                R.slots = Array.from($('flow').querySelectorAll('img.slot'));
+                R.slotsIndex = index;
+                R.slots.forEach(fetchPicture);
+                pictures.total = R.slots.length;
                 showPictures();
             }
             var images = $('flow').querySelectorAll('img:not(.slot)'), loadedImages = 0;
@@ -3011,14 +3021,14 @@
                 image.addEventListener('error', counted, {once: true});
                 image.addEventListener('load', function () { paginate(readingAt()); }, {once: true});
                 image.addEventListener('error', function () {
-                    ask({type: 'genericImage', url: image.src, referer: R.source.url}).then(function (data) {
+                    ask({type: 'genericImage', url: image.src, referer: chapter.imageReferer, reader: true}).then(function (data) {
                         if (data && data.dataUrl) image.src = data.dataUrl; else image.remove();
                     });
                 }, {once: true});
             });
             $('viewport').scrollTop = 0;
             paginate(at === 'end' ? 1 : at || 0, at === 'end');
-            if (last) loadChapter(index + 1);  // read ahead
+            if (last) readAhead();
         });
     }
     // -- chapter images: fetched by the app (no hotlink refusals), 4 at a time, counted ------------------
@@ -3038,6 +3048,7 @@
             + (pictures.bytes / 1048576).toFixed(1) + ' MB · ' + (pictures.bytes / 1048576 / seconds).toFixed(2) + ' MB/s';
     }
     function fetchPicture(image) {
+        image.__readerSrc = image.__readerSrc || image.dataset.src;
         pictures.queue.push(image);
         pumpPictures();
     }
@@ -3048,14 +3059,15 @@
             // A page the app already has (HaruNeko fetched it): its bytes, not the site asked again.
             var asked = /^data:image\//.test(image.dataset.src)
                 ? Promise.resolve({dataUrl: image.dataset.src, bytes: Math.round(image.dataset.src.length * 0.75)})
-                : ask({type: 'genericImage', url: image.dataset.src, referer: R.source ? R.source.url : ''});
+                : askAlive({type: 'genericImage', url: image.dataset.src, referer: R.imageReferer || '', reader: true}, 35);
             asked.then(function (data) {
                 if (token !== pictures.token) return;
                 pictures.active--;
                 var image = this;
-                if (data && data.dataUrl) {
+                if (data && data.dataUrl && image.isConnected) {
                     pictures.bytes += data.bytes || Math.round(data.dataUrl.length * 0.75);
                     fetch(data.dataUrl).then(function (r) { return r.blob(); }).then(function (blob) {
+                        if (token !== pictures.token || !image.isConnected) return;
                         var url = URL.createObjectURL(blob);
                         pictures.urls.push(url);
                         // The page's bytes are in the blob now; a copy as text in the slot would double them.
@@ -3079,10 +3091,11 @@
     function retryPicture(image, token) {
         if (token !== pictures.token || !image.isConnected) return;
         var tries = image.__tries = (image.__tries || 0) + 1;
-        if (tries <= RETRY_MS.length && !/^data:,kept$/.test(image.dataset.src)) {
+        if (tries <= (R.imageFallback ? 2 : RETRY_MS.length) && !/^data:,kept$/.test(image.dataset.src)) {
             setTimeout(function () { if (token === pictures.token && image.isConnected) fetchPicture(image); }, RETRY_MS[tries - 1]);
             return;
         }
+        if (R.imageFallback) recoverImages();
         showSlot(image, image.dataset.src, function () {
             pictureCounted(image);
             image.classList.add('failed');
@@ -3096,6 +3109,21 @@
                 pictureCountedUndo(image);
                 fetchPicture(image);
             };
+        });
+    }
+    function recoverImages() {
+        var index = R.index, token = R.token, source = R.source;
+        R.imageFallback = false;
+        $('rWhere').textContent = 'Trying the site engine for the missing images…';
+        askAlive({type: 'genericChapter', url: source.url, index: index, recovery: 'images'}, 90).then(function (result) {
+            if (token !== R.token || index !== R.index) return;
+            if (!result || result.error || !result.html) { place(); return; }
+            var chapter = {name: result.name, html: clean(result.html, source.url), comic: true,
+                           imageReferer: result.imageReferer || source.url};
+            if (!chapterImages(chapter.html).length) { place(); return; }
+            R.cache.set(index, Promise.resolve(chapter));
+            R.imageReferer = chapter.imageReferer;
+            finishStream(chapter);
         });
     }
     function pictureCounted(image) {
@@ -3121,6 +3149,7 @@
             image.classList.remove('failed');
             pictureCounted(image);
             countPagesSoon();
+            readAhead();
         };
         probe.onerror = function () { if (failed) failed(); else image.title = 'This image could not be loaded'; };
         probe.src = src;
@@ -3129,7 +3158,7 @@
     function slotHtml(src) { return '<img class="slot" alt="" data-src="' + esc(src || '') + '">'; }
     function streamImages(index, found) {
         if (index !== R.index) return;
-        if (R.streamed !== index) {
+        if (R.slotsIndex !== index) {
             asComic();
             R.streamed = index;
             R.slotsIndex = index;
@@ -3155,18 +3184,36 @@
         var from = found.from || 0;
         if (!found.placeholders) pictures.total = Math.max(found.total, from + found.images.length);
         found.images.forEach(function (src, n) {
+            if (!src) return;
             var i = from + n;
             while (R.slots.length < i) { flow.insertAdjacentHTML('beforeend', slotHtml('')); R.slots.push(flow.lastElementChild); }
             var slot = R.slots[i];
             if (!slot) { flow.insertAdjacentHTML('beforeend', slotHtml('')); slot = flow.lastElementChild; R.slots.push(slot); }
-            if (!slot.dataset.src) { slot.dataset.src = src; fetchPicture(slot); }
+            if (found.done && slot.__readerSrc && slot.__readerSrc !== src) {
+                pictureCountedUndo(slot);
+                var replacement = slot.cloneNode(false);
+                replacement.removeAttribute('src');
+                replacement.className = 'slot';
+                replacement.dataset.src = '';
+                slot.replaceWith(replacement);
+                slot = R.slots[i] = replacement;
+            }
+            if (!slot.dataset.src) {
+                slot.__readerSrc = slot.dataset.src = src;
+                fetchPicture(slot);
+            }
         });
         showPictures();
         countPagesSoon();  // the slots added are pages
     }
+    function chapterImages(html) {
+        var fragment = document.createElement('template');
+        fragment.innerHTML = html;
+        return Array.from(fragment.content.querySelectorAll('img[src]'), function (image) { return image.getAttribute('src'); });
+    }
     function finishStream(chapter) {
         // The whole chapter is in: slots that never got an image go, the rest keep loading.
-        var images = (chapter.html.match(/<img[^>]+src="([^"]+)"/g) || []).map(function (tag) { return tag.match(/src="([^"]+)"/)[1]; });
+        var images = chapterImages(chapter.html);
         streamImages(R.index, {images: images, total: images.length, done: true});
         R.slots.slice(images.length).forEach(function (slot) { slot.remove(); });
         R.slots.length = Math.min(R.slots.length, images.length);
@@ -3175,7 +3222,14 @@
         showPictures();
         // The reader stays where it is: a scrolled chapter keeps its scroll, pages are counted again.
         if (layout() === 'scroll') place(); else paginate(readingAt());
-        if (R.index + 1 < R.chapters.length) loadChapter(R.index + 1);
+        readAhead();
+    }
+
+    function readAhead() {
+        if (!R.done.has(R.index) || R.index + 1 >= R.chapters.length) return;
+        if (R.comic && !$('flow').querySelector('.slot.ready')) return;
+        if (R.imageFallback && pictures.done < pictures.total) return;
+        loadChapter(R.index + 1);
     }
 
     function columns() { return $('viewport').clientWidth > 1100 ? 2 : 1; }
@@ -3403,6 +3457,7 @@
         }
         if (R.full || R.switching) setFull(false, true);
         R.token++;
+        resetPictures();
         R.bookRequest = null;
         bookProgress = null;
         send({type: 'genericReaderStop'});  // the app stops scraping this book (the next one need not wait)

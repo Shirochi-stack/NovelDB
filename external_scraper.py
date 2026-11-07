@@ -397,7 +397,7 @@ class ExternalScraper(SiteEnginesMixin):
             if "already" not in msg and "registered" not in msg:
                 self.log(f"Bridge binding warning: {e}")
 
-    def _gm_xmlhttp_request(self, source, details):
+    def _gm_xmlhttp_request(self, source, details, *, timeout_override=None):
         """Python transport for GM_xmlhttpRequest.
 
         Browser fetch cannot set several userscript/app headers and is still
@@ -469,7 +469,7 @@ class ExternalScraper(SiteEnginesMixin):
             timeout = max(float(timeout) / 1000.0, 1.0)
         except Exception:
             timeout = 30.0
-        timeout = _req_s(timeout)  # the userscript's own value is a minimum
+        timeout = _req_s(timeout) if timeout_override is None else timeout_override
 
         try:
             import requests

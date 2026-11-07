@@ -106,7 +106,14 @@ internal object BuiltInReader {
             put("bookname", book.title)
             put("author", book.author.orEmpty())
             put("engine", (adapter as? SiteEngineChain)?.steps?.firstOrNull()?.label ?: adapter.id.raw)
-            put("chapters", buildJsonArray { book.chapters.forEach { add(buildJsonObject { put("name", it.title) }) } })
+            put("chapters", buildJsonArray {
+                book.chapters.forEach { chapter ->
+                    add(buildJsonObject {
+                        put("name", chapter.title)
+                        if (adapter is SiteEngineChain) chapter.url?.let { put("url", it) }
+                    })
+                }
+            })
         }.toString()
     }
 
