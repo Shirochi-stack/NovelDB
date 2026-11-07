@@ -729,6 +729,8 @@ _DATE_TAIL = re.compile(r"\s*(updated\s*)?\d{4}[-./]\d{1,2}[-./]\d{1,2}(\s+\d{1,
 def clean_name(text: str) -> str:
     """A chapter name as a list shows it, without its age or date, a "Read" prefix or a repeated number."""
     name = re.sub(r"\s+", " ", text or "").strip()
+    # Its views and comments after its age ("Chapter 1197 5 days ago 9.0K 4", rawkuma): the age goes below.
+    name = re.sub(r"(\s\d+\s*[^\W\d]+\s+ago)(\s+[\d.,]+[kmb]?)+$", r"\1", name, flags=re.I)
     for _ in range(2):
         name = _AGE.sub("", name)
         name = _DATE_TAIL.sub("", name).strip()
@@ -1228,12 +1230,41 @@ def unpack_js(source: str) -> List[str]:
 
 
 _DM5_MOBILE = {"m.fanfox.net": "fanfox.net", "m.mangahere.cc": "www.mangahere.cc"}
+_DM5_DESKTOP = {"fanfox.net", "www.fanfox.net", "mangahere.cc", "www.mangahere.cc"}
+
+
+_ASURA_HOSTS = {"asuracomic.net", "www.asuracomic.net", "asurascans.com", "www.asurascans.com"}
+
+
+def asura_address(url: str) -> str:
+    """An Asura comic's address as asurascans.com has it: /comics/<name>[/chapter/<n>]. Its old addresses
+    (asuracomic.net/series/<name>) now lead to the home page, read as a book called "Series"; the name's
+    suffix may be an old one (the site finds the comic by its name). Other addresses as they are."""
+    parts = urlsplit(url or "")
+    if (parts.hostname or "").lower() not in _ASURA_HOSTS:
+        return url
+    found = re.match(r"^/(?:series|comics)/([^/]+)(/chapter/[^/]+)?/?$", parts.path)
+    if not found:
+        return url
+    return "https://asurascans.com/comics/" + found.group(1) + (found.group(2) or "")
+
+
+def asura_pages(html: str) -> List[str]:
+    """An Asura comic chapter's pictures, in order, from its page's data ({"pages": [{"url": ...}]}; the page
+    draws them with a script). [] for any other page."""
+    import html as markup
+
+    text = markup.unescape(html or "")
+    pages = re.findall(r'\{"url":\[0,"(https://[^"]+/asura-images/chapters/[^"]+)"\]', text)
+    return list(dict.fromkeys(pages))
 
 
 def dm5_desktop(url: str) -> str:
-    """A DM5-platform mobile address as the desktop one (whose chapters have pages); other addresses as they are."""
+    """A DM5-platform mobile address as the desktop one (whose chapters have pages), always https (an http one's
+    chapter page held no pages: a book opened from an http link read none); other addresses as they are."""
     parts = urlsplit(url or "")
-    host = _DM5_MOBILE.get((parts.hostname or "").lower())
+    name = (parts.hostname or "").lower()
+    host = _DM5_MOBILE.get(name) or (name if name in _DM5_DESKTOP else "")
     if not host:
         return url
     return urlunsplit(("https", host, re.sub(r"^/roll_manga/", "/manga/", parts.path), parts.query, ""))
@@ -1495,7 +1526,7 @@ class GenericEngine:
         return chapters[::-1] if str(props.get("episodeOrder") or "").lower() == "desc" else chapters
 
     def parse_book(self, url: str) -> Optional[dict]:
-        url = webtoons_series(dm5_desktop(url))
+        url = asura_address(webtoons_series(dm5_desktop(url)))
         html, final = self._page(url)
         soup = soup_of(html)
         chapters = find_chapters(soup, final)
@@ -1800,7 +1831,7 @@ class GenericEngine:
         return content, text, rendered
 
     def parse_chapter(self, chapter_info: dict, book: dict) -> Optional[dict]:
-        url = webtoons_desktop(dm5_desktop(chapter_info.get("url", "")))
+        url = asura_address(webtoons_desktop(dm5_desktop(chapter_info.get("url", ""))))
         name = chapter_info.get("fullName") or chapter_info.get("name", "")
         host = urlsplit(url).netloc
         # A site that sent scrambled text before: straight to the browser.
@@ -1814,6 +1845,11 @@ class GenericEngine:
             if manga is None and webtoons_title(final):
                 images = webtoons_images(html, final)
                 manga = "".join(f'<p><img src="{image}" alt=""/></p>' for image in images) if images else None
+            if manga is None and (urlsplit(final).hostname or "").lower() in _ASURA_HOSTS:
+                images = asura_pages(html)
+                if images:
+                    self.on_images(images, len(images))
+                    manga = "".join(f'<p><img src="{image}" alt=""/></p>' for image in images)
             if manga is None:
                 manga = self._manga_chapter(html, final)
             if manga is not None:

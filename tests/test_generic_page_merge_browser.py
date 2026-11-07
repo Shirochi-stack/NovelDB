@@ -592,3 +592,19 @@ def test_a_page_that_did_not_come_is_asked_again_and_shown_when_it_does(browser)
         assert tab.eval_on_selector(slot, "i => i.classList.contains('ready')")
     finally:
         context.close()
+
+
+def test_reload_with_the_reader_open_scrapes_its_chapter_again(browser):
+    """The app's Reload reloaded the whole Catalog (the book and the reader with it)."""
+    context, tab = comic_reader(browser, "scroll")
+    try:
+        chapters = lambda: [m for m in tab.evaluate("() => window.__sent") if m.get("type") == "genericChapter"]
+        before = len(chapters())
+        assert tab.evaluate("() => window.NovelDBGeneric.reloadReader()") is True
+        tab.wait_for_timeout(300)
+        assert len(chapters()) == before + 1 and chapters()[-1]["index"] == 0
+        assert "open" in tab.evaluate("() => document.getElementById('reader').className")
+        tab.evaluate("() => document.getElementById('reader').classList.remove('open')")
+        assert tab.evaluate("() => window.NovelDBGeneric.reloadReader()") is False
+    finally:
+        context.close()

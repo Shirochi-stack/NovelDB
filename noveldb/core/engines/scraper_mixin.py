@@ -138,13 +138,18 @@ def _with_text(result: dict) -> dict:
 # The sites the generic engine reads best: their desktop pages with every page of a chapter (gallery-dl and HaruNeko
 # list them, but their pages come up missing there). It goes first for them, as on the phones
 # (SourceCatalog.genericFirst, SiteEngineRouter.genericFirst).
-GENERIC_FIRST = ("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com")
+# rawkuma.net: its book page lists every chapter and its chapter pages every picture.
+GENERIC_FIRST = ("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com", "rawkuma.net")
+ASURA_COMICS = ("asurascans.com", "asuracomic.net")
 
 
 def generic_first(url: str) -> bool:
     from urllib.parse import urlsplit
 
-    host = (urlsplit(url or "").hostname or "").lower()
+    parts = urlsplit(url or "")
+    host = (parts.hostname or "").lower()
+    if host.replace("www.", "", 1) in ASURA_COMICS and parts.path.startswith(("/comics/", "/series/")):
+        return True  # Asura's comics (its novels are lightnovel-crawler's, which read a comic as a novel)
     return any(host == site or host.endswith("." + site) for site in GENERIC_FIRST)
 
 

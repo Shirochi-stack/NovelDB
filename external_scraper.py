@@ -21416,6 +21416,11 @@ async (items) => {
 
         if data is None and not is_chapter_address(url):
             return data  # the link failed outright: the pages above it are no better
+        only = ((data or {}).get('chapters') or [{}])[0].get('url') or ''
+        if only and only.rstrip('/') != url.rstrip('/') and not is_chapter_address(url):
+            # A book of one chapter: its page links to the chapter, another address (rawkuma's one-chapter books
+            # climbed to /manga/ and failed).
+            return data
 
         for parent in parent_addresses(url)[:2]:
             self.log(f"That link may be a chapter; trying the page above it: {parent}")

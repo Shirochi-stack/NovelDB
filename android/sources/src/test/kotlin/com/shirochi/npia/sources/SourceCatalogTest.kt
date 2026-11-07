@@ -58,6 +58,11 @@ class SourceCatalogTest {
         val elsewhere = (SourceCatalog.resolve("https://manga.example/series/1", every) as SiteEngineChain).steps
         assertEquals(SiteEngine.GENERIC, elsewhere.last())
         assertTrue(!SourceCatalog.genericFirst("https://notfanfox.net/x"))
+        // rawkuma, and Asura's comics (not its novels: lightnovel-crawler's).
+        assertTrue(SourceCatalog.genericFirst("https://rawkuma.net/manga/one-piece/"))
+        assertTrue(SourceCatalog.genericFirst("https://asurascans.com/comics/x-ab39de10"))
+        assertTrue(SourceCatalog.genericFirst("https://asuracomic.net/series/x-1"))
+        assertTrue(!SourceCatalog.genericFirst("https://asurascans.com/novels/x"))
     }
 
     @Test

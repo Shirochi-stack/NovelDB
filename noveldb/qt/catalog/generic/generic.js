@@ -3688,6 +3688,17 @@
             if (group) details(group);
         },
         // A book from the Library (an EPUB on this computer), in the reader.
+        // The app's Reload with the reader open: its chapter scraped again, where it was (true); false: no reader.
+        reloadReader: function () {
+            if (!$('reader').classList.contains('open') || !R.chapters || !R.chapters.length || R.index < 0) return false;
+            var index = R.index, at = readingAt();
+            R.cache.delete(index);
+            if (R.pagesFor) R.pagesFor.delete(index);
+            R.slotsIndex = -1;
+            R.slots = [];
+            openChapter(index, at);
+            return true;
+        },
         readLocal: function (book) {
             var group = {key: 'local:' + book.url, title: book.title, author: '', cover: '', description: '', tags: [],
                          comic: false, loaded: true, sources: [{url: book.url, site: 'Library', source: 'local'}]};

@@ -37,3 +37,11 @@ def test_the_apps_ship_the_current_generic_search_page():
     for name in ("index.html", "generic.js", "generic-lib.js", "catalog-app.js", "catalog-host.js", "download-icon.js"):
         for target in build.TARGETS:
             assert (target / name).read_bytes() == files[name],                 f"{target / name} is out of date; run python scripts/build_mobile_catalog.py"
+
+
+def test_the_phone_engines_ship_the_current_generic_engine():
+    """The phones' downloaders and readers carry their own copy of generic-lib.js (nothing copied it there)."""
+    source = (ROOT / "scripts" / "generic" / "generic-lib.js").read_bytes().replace(b"\r\n", b"\n")
+    for copy in ("android/sources/src/main/resources/com/shirochi/npia/sources/reader/generic/generic-lib.js",
+                 "ios/NpiaKit/Sources/NpiaSources/Reader/Resources/generic/generic-lib.js"):
+        assert (ROOT / copy).read_bytes().replace(b"\r\n", b"\n") == source, f"{copy} is out of date; copy scripts/generic/generic-lib.js"

@@ -233,7 +233,20 @@ class CatalogView(QWebEngineView):
             menu.insertAction(first, action)
             if first is not None:
                 menu.insertSeparator(first)
+        # Reload with the reader open: its chapter scraped again, where it was (the whole Catalog reloaded, the
+        # book and the reader with it); else the page, as before.
+        standard = self.pageAction(QWebEnginePage.WebAction.Reload)
+        if standard in menu.actions():
+            mine = QAction(standard.icon(), standard.text(), menu)
+            mine.triggered.connect(self._reload_reader_or_page)
+            menu.insertAction(standard, mine)
+            menu.removeAction(standard)
         menu.popup(event.globalPos())
+
+    def _reload_reader_or_page(self) -> None:
+        page = self.page()
+        script = "!!(window.NovelDBGeneric && NovelDBGeneric.reloadReader && NovelDBGeneric.reloadReader())"
+        page.runJavaScript(script, WORLD, lambda done: None if done else self.reload())
 
 
 class CatalogPage(QWidget):

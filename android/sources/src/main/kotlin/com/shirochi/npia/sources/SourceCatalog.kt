@@ -95,12 +95,19 @@ object SourceCatalog {
      * desktop pages (their chapterfun.ashx answers), so it goes before them. webtoons.com likewise sends a phone
      * to m.webtoons.com; the generic fallback reads its episode list and both sites' episode pages.
      */
-    private val GENERIC_FIRST = listOf("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com")
+    // rawkuma.net: its book page lists every chapter and its chapter pages every picture (HaruNeko took one-chapter
+    // books for chapters).
+    private val GENERIC_FIRST = listOf("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com", "rawkuma.net")
 
     fun genericFirst(url: String): Boolean {
-        val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase() ?: return false
+        val uri = runCatching { URI(url.trim()) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        // Asura's comics (its novels are lightnovel-crawler's, which read a comic as a novel).
+        val path = uri.path.orEmpty()
+        if (host.removePrefix("www.") in ASURA_COMICS && (path.startsWith("/comics/") || path.startsWith("/series/"))) return true
         return GENERIC_FIRST.any { host == it || host.endsWith(".$it") }
     }
+    private val ASURA_COMICS = setOf("asurascans.com", "asuracomic.net")
 
     private fun genericFirst(steps: List<SiteEngine>): List<SiteEngine> =
         if (SiteEngine.GENERIC !in steps) steps

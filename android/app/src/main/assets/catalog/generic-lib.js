@@ -1000,6 +1000,8 @@ const DATE_TAIL = /\s*(updated\s*)?\d{4}[-./]\d{1,2}[-./]\d{1,2}(\s+\d{1,2}:\d{2
 /** A chapter name without its age or date, a "Read" prefix or a repeated number. */
 function cleanName(text) {
     let name = String(text || "").replace(/\s+/g, " ").trim();
+    // Its views and comments after its age ("Chapter 1197 5 days ago 9.0K 4", rawkuma): the age goes below.
+    name = name.replace(/(\s\d+\s*[^\W\d]+\s+ago)(\s+[\d.,]+[kmb]?)+$/i, "$1");
     for (let i = 0; i < 2; i++) {
         name = name.replace(AGE, "");
         name = name.replace(DATE_TAIL, "").trim();
@@ -1531,7 +1533,7 @@ async function appChapters(doc, final) {
 
 async function book(url) {
     let doc, final;
-    url = webtoonsSeries(dm5Desktop(url || location.href));
+    url = asuraAddress(webtoonsSeries(dm5Desktop(url || location.href)));
     if (sameAddress(url, location.href)) {
         // The page the site's scripts built: the desktop reads this one only after the plain page fails.
         doc = document;
@@ -1693,7 +1695,41 @@ function unpackJs(source) {
     return out;
 }
 
+const ASURA_HOSTS = new Set(["asuracomic.net", "www.asuracomic.net", "asurascans.com", "www.asurascans.com"]);
+
+/**
+ * An Asura comic's address as asurascans.com has it: /comics/<name>[/chapter/<n>]. Its old addresses
+ * (asuracomic.net/series/<name>) now lead to the home page, read as a book called "Series".
+ */
+function asuraAddress(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (e) {
+        return url;
+    }
+    if (!ASURA_HOSTS.has(parsed.hostname.toLowerCase())) {
+        return url;
+    }
+    let found = /^\/(?:series|comics)\/([^/]+)(\/chapter\/[^/]+)?\/?$/.exec(parsed.pathname);
+    return found ? "https://asurascans.com/comics/" + found[1] + (found[2] || "") : url;
+}
+
+/** An Asura comic chapter's pictures, in order, from its page's data (the page draws them with a script). */
+function asuraPages(html) {
+    let text = String(html || "").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+    let pages = [];
+    let pattern = /\{"url":\[0,"(https:\/\/[^"]+\/asura-images\/chapters\/[^"]+)"\]/g, found;
+    while ((found = pattern.exec(text))) {
+        if (pages.indexOf(found[1]) < 0) {
+            pages.push(found[1]);
+        }
+    }
+    return pages;
+}
+
 const DM5_MOBILE = { "m.fanfox.net": "fanfox.net", "m.mangahere.cc": "www.mangahere.cc" };
+const DM5_DESKTOP = new Set(["fanfox.net", "www.fanfox.net", "mangahere.cc", "www.mangahere.cc"]);
 
 /**
  * A DM5-platform mobile address as the desktop one (whose chapters have pages); other addresses as they are.
@@ -1706,7 +1742,9 @@ function dm5Desktop(url) {
     } catch (e) {
         return url;
     }
-    let host = DM5_MOBILE[parsed.hostname.toLowerCase()];
+    // Always https: an http chapter page held no pages (a book opened from an http link read none).
+    let name = parsed.hostname.toLowerCase();
+    let host = DM5_MOBILE[name] || (DM5_DESKTOP.has(name) ? name : "");
     if (!host) {
         return url;
     }
@@ -2231,13 +2269,17 @@ function appDataChapter(doc) {
 }
 
 async function chapter(item) {
-    let url = webtoonsDesktop(dm5Desktop(item.url || ""));
+    let url = asuraAddress(webtoonsDesktop(dm5Desktop(item.url || "")));
     let name = item.fullName || item.name || "";
     let loaded = await load(url, item.bookUrl || location.href);
     let read = { doc: parse(loaded.html), url: loaded.url };
     let manga = await dm5MangaChapter(loaded.html, read.url);
     if (manga == null && webtoonsTitle(read.url)) {
         let images = webtoonsImages(loaded.html, read.url);
+        manga = images.length ? images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("") : null;
+    }
+    if (manga == null && ASURA_HOSTS.has(hostOf(read.url))) {
+        let images = asuraPages(loaded.html);
         manga = images.length ? images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("") : null;
     }
     if (manga == null) {
@@ -2301,7 +2343,7 @@ window.__GEN_parseChapter = async function (itemJson) {
 window.__GEN_lib = {
     shape, cleanName, chapterNumber, readingOrder, numberedPages, findChapters, metadata, extractContent,
     repair, siteOf, hostOf, cleanUrl, textOf, parse, cleanPageTitle, parentAddresses, isChapterAddress, decode,
-    CHAPTER_WORDS, unpackJs, dm5Chapter, dm5Images, dm5Chapters, dm5Desktop, imageSize,
+    CHAPTER_WORDS, unpackJs, asuraAddress, asuraPages, dm5Chapter, dm5Images, dm5Chapters, dm5Desktop, imageSize,
     webtoonsTitle, webtoonsDesktop, webtoonsSeries, webtoonsEpisodesApi, webtoonsChapters, webtoonsImages
 };
 window.__GEN_test = window.__GEN_lib;

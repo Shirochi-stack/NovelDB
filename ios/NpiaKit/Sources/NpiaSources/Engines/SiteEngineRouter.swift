@@ -86,10 +86,16 @@ public enum SiteEngineRouter {
     /// desktop pages (their chapterfun.ashx answers), so it goes before them (Android's `genericFirst`).
     /// webtoons.com likewise sends a phone to m.webtoons.com; the generic fallback reads its episode list and
     /// both sites' episode pages.
-    static let genericFirstSites = ["fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com"]
+    /// rawkuma.net: its book page lists every chapter and its chapter pages every picture.
+    static let genericFirstSites = ["fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com", "rawkuma.net"]
 
     public static func genericFirst(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
+        // Asura's comics (its novels are lightnovel-crawler's, which read a comic as a novel).
+        let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        if ["asurascans.com", "asuracomic.net"].contains(bare), url.path.hasPrefix("/comics/") || url.path.hasPrefix("/series/") {
+            return true
+        }
         return genericFirstSites.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 

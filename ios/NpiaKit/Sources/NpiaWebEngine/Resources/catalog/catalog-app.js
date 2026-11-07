@@ -2366,10 +2366,15 @@
     // fanfox and mangahere: the phone's web view is sent to their mobile site, whose chapters say "licensed",
     // so HaruNeko's chapter window finds no pages there; the generic engine reads the desktop pages (the app
     // leaves them to it too: SourceCatalog.genericFirst). webtoons.com sends a phone to its mobile site as well.
-    var GENERIC_FIRST = /(^|\.)(fanfox\.net|mangahere\.cc|mangahere\.com|webtoons\.com)$/i;
+    var GENERIC_FIRST = /(^|\.)(fanfox\.net|mangahere\.cc|mangahere\.com|webtoons\.com|rawkuma\.net)$/i;
+    // Asura's comics too (its novels are lightnovel-crawler's, which read a comic as a novel).
+    function genericFirst(url) {
+        if (GENERIC_FIRST.test(host(url))) return true;
+        return /^(www\.)?(asurascans\.com|asuracomic\.net)$/i.test(host(url)) && /^https?:\/\/[^\/]+\/(comics|series)\//i.test(url);
+    }
     function engineFor(url) {
         var engines = ['app', 'engines'];
-        if (harunekoListed(url) && !GENERIC_FIRST.test(host(url))) engines.push('haruneko');
+        if (harunekoListed(url) && !genericFirst(url)) engines.push('haruneko');
         engines.push('generic');
         return engines;
     }
