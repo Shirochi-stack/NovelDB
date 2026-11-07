@@ -913,9 +913,20 @@
     // whole grid, cards jumping under the finger (taps landed on another card or none) and the page laid out
     // again each time. New ones are sorted among themselves after them: a little out of order is fine. The
     // full order applies when the sort is picked.
+    // A tag search shows npia's and sfc's books first (the other sites' tag lists are mostly BL), in the sort
+    // picked among themselves.
+    var LEAD_SOURCES = {npia: 1, sfc: 1};
+    function leads(group) {
+        if (view !== 'search' || !current.tags || !current.tags.length) return false;
+        return group.sources.some(function (s) {
+            return (s.noveldb && LEAD_SOURCES[s.noveldb.source]) || (NOVELDB_SITES[s.site] || []).some(function (n) { return LEAD_SOURCES[n]; });
+        });
+    }
     function orderCards(force) {
         var key = sortBy(), value = SORT_VALUES[key];
-        if (!value) { order.forEach(function (g) { if (g.element) g.element.style.order = ''; }); return; }
+        var tagged = view === 'search' && current.tags && current.tags.length;
+        if (!value && !tagged) { order.forEach(function (g) { if (g.element) g.element.style.order = ''; }); return; }
+        value = value || function () { return ''; };  // the order the books came in, after npia's and sfc's
         var ascending = key === 'title';
         var placed = order.filter(function (g) { return g.element; });
         var last = -1;
@@ -924,8 +935,9 @@
             placed = placed.filter(function (g) { return g.element.style.order === ''; });
             if (!placed.length) return;
         }
-        placed.map(function (g, i) { return [g, value(g), i]; })
+        placed.map(function (g, i) { return [g, value(g), i, leads(g) ? 0 : 1]; })
             .sort(function (a, b) {
+                if (a[3] !== b[3]) return a[3] - b[3];
                 var x = a[1], y = b[1];
                 var unknown = (x === '' || x === 0) - (y === '' || y === 0);  // books without the figure last
                 if (unknown) return unknown;
@@ -950,7 +962,7 @@
         var drawn = Array.from(dirty).filter(drawCard);
         dirty.clear();
         if (drawn.length) { orderCards(); reshuffleOnce(); evenRowsSoon(); }
-        if (drawn.length && cardsTranslated) translateCardsSoon(drawn);
+        if (drawn.length && cardsTranslated) { knownTranslations(drawn); translateCardsSoon(drawn); }
         fitTitles(drawn.map(function (group) { return group.element.querySelector('.title'); }));
         fitTagRows(drawn.map(function (group) { return group.element.querySelector('.tags'); }));
         empty();
@@ -1164,15 +1176,36 @@
     // The shown cards' titles, tags and synopses translated (the settings menu); on, the cards that come in or
     // are drawn again are translated too, until it is switched off.
     var cardsTranslated = false;
-    function translateCards(groups) {
-        var parts = [];  // every card's together: a few requests for all of them
+    function cardParts(groups) {
+        var parts = [];
         groups.filter(function (g) { return g.element && g.element.style.display !== 'none'; }).forEach(function (g) {
             var fromNovelDB = g.sources.some(function (s) { return s.source === 'noveldb'; });
             Array.prototype.slice.call(g.element.querySelectorAll('.body .title, .body .tags span, .body .synopsis')).forEach(function (part) {
                 if (!(fromNovelDB && part.classList.contains('title'))) parts.push(part);  // NovelDB's English title stays
             });
         });
-        return translateNodes(parts, !cardsTranslated);
+        return parts;
+    }
+    /** A card drawn again (its synopsis or figures came in) with the cards translated: the words already
+     *  translated swapped at once, as it is drawn (it showed the original, then the translation again). */
+    function knownTranslations(groups) {
+        cardParts(groups).forEach(function (part) {
+            var walker = document.createTreeWalker(part, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) {
+                var node = walker.currentNode, text = node.nodeValue;
+                if (node.__original != null || !text.trim()) continue;
+                var out = translationOf(text);
+                if (out == null || out === text) continue;
+                node.__original = text;
+                node.nodeValue = text.match(/^\s*/)[0] + out + text.match(/\s*$/)[0];
+            }
+        });
+    }
+    function translateCards(groups) {
+        var parts = cardParts(groups);  // every card's together: a few requests for all of them
+        // The titles fitted again to their new words (a translation is longer or shorter: it overflowed or stayed small).
+        var titles = parts.filter(function (part) { return part.classList.contains('title'); });
+        return translateNodes(parts, !cardsTranslated).then(function () { fitTitles(titles); });
     }
 
     // Cards drawn as a search streams in, gathered for a moment: one request for many draws, not one each.

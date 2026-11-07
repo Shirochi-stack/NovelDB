@@ -497,3 +497,59 @@ def test_after_a_search_the_sites_panel_lists_every_site_to_find_and_scroll(page
     page.wait_for_timeout(1200)
     again = [m for m in page.evaluate("() => window.__sent") if m.get("type") == "genericSearch"][-1]
     assert again["id"] != search["id"] and "site390.test" in again["queries"][0]["only"]
+
+
+def test_a_tag_search_shows_npias_and_sfcs_books_first(page):
+    """The other sites' tag lists are mostly BL: npia's and sfc's books lead a tag search."""
+    page.evaluate("() => { window.__sent = []; window.NovelDBQt = {postMessage: m => window.__sent.push(JSON.parse(m))}; }")
+    page.click("#tagsButton")
+    page.fill("#tagFilter", "Fantasy")
+    page.press("#tagFilter", "Enter")
+    page.wait_for_timeout(1500)
+    search = [m for m in page.evaluate("() => window.__sent") if m.get("type") == "genericSearch"][-1]
+    other = lambda n: site_card(url=f"https://bl.test/{n}", site="bl.test", title=f"Other {n}", tags=["Fantasy"], via="tag", verified=True)
+    lead = noveldb_card(url="https://lead.test/1", title="Lead", originalTitle="리드", also=[], via="tag", verified=True,
+                        noveldb={"source": "sfc", "id": "1"}, tags=["Fantasy"])
+    page.evaluate("a => window.NovelDBGeneric.add(a[0], a[1])", [[other(1), other(2)], search["id"]])
+    page.wait_for_timeout(300)
+    page.evaluate("a => window.NovelDBGeneric.add(a[0], a[1])", [[lead], search["id"]])
+    page.wait_for_timeout(3500)  # the one reshuffle
+    assert shown_order(page)[0] == "Lead"
+
+
+def test_a_translated_title_is_fitted_again(page):
+    """Google's longer English title overflowed the card: the size was fitted to the original only."""
+    def answer(route):
+        texts = __import__("urllib.parse", fromlist=["x"]).parse_qs(route.request.post_data)["q"]
+        route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                      body=json.dumps([["The Extraordinarily Long Translated Title Of A Book That Goes On And On And On " + t, "ko"] for t in texts]))
+
+    page.route("https://translate.googleapis.com/**", answer)
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [site_card(url="https://m.example.test/1", title="짧은")])
+    page.wait_for_timeout(400)
+    before = page.eval_on_selector("#grid .card .title", "e => e.style.fontSize")
+    page.evaluate("() => document.getElementById('translateCards').click()")
+    page.wait_for_timeout(1200)
+    assert page.eval_on_selector("#grid .card .title", "e => e.textContent").startswith("The Extraordinarily")
+    after = page.eval_on_selector("#grid .card .title", "e => e.style.fontSize")
+    assert before == "" and after != ""
+
+
+def test_a_translated_card_drawn_again_stays_translated(page):
+    """A card's synopsis came in and it was drawn again: it showed the original, then the translation again."""
+    def answer(route):
+        texts = __import__("urllib.parse", fromlist=["x"]).parse_qs(route.request.post_data)["q"]
+        route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                      body=json.dumps([["EN " + t, "ko"] for t in texts]))
+
+    page.route("https://translate.googleapis.com/**", answer)
+    page.evaluate("() => document.getElementById('translateCards').click()")
+    card = site_card(url="https://m.example.test/1", title="제목")
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [card])
+    page.wait_for_timeout(1200)
+    assert page.eval_on_selector("#grid .card .title", "e => e.textContent") == "EN 제목"
+    page.evaluate("card => window.NovelDBGeneric.details(card)", dict(card, description="새 소개", complete=True))
+    seen = page.evaluate("""() => new Promise(done => { const seen = [];
+        const watch = () => { const t = document.querySelector('#grid .card .title'); if (t) seen.push(t.textContent); };
+        const timer = setInterval(watch, 10); setTimeout(() => { clearInterval(timer); done(seen); }, 900); })""")
+    assert seen and all(text == "EN 제목" for text in seen), sorted(set(seen))
