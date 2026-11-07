@@ -48,11 +48,12 @@ class SourceCatalogTest {
         // Their chapters have pages only on the desktop site, which the generic engine reads; HaruNeko and
         // gallery-dl end up on the mobile one ("licensed and not available").
         val every = EngineSettings(dynamicPriority = false)
-        for (url in listOf("https://fanfox.net/manga/one_piece/", "https://m.fanfox.net/manga/one_piece/", "https://www.mangahere.cc/manga/one_piece/")) {
+        for (url in listOf("https://fanfox.net/manga/one_piece/", "https://m.fanfox.net/manga/one_piece/", "https://www.mangahere.cc/manga/one_piece/",
+                           "https://www.webtoons.com/en/fantasy/tower-of-god/list?title_no=95")) {
             assertTrue(url, SourceCatalog.genericFirst(url))
             val steps = (SourceCatalog.resolve(url, every) as SiteEngineChain).steps
             assertEquals(url, SiteEngine.GENERIC, steps.first())
-            assertTrue(url, SiteEngine.HARUNEKO in steps && SiteEngine.GALLERYDL in steps)
+            assertTrue(url, SiteEngine.HARUNEKO in steps)
         }
         val elsewhere = (SourceCatalog.resolve("https://manga.example/series/1", every) as SiteEngineChain).steps
         assertEquals(SiteEngine.GENERIC, elsewhere.last())

@@ -133,7 +133,8 @@ async function load(url, referer, extra) {
     }
     if (bytes == null) {
         let request = {
-            url: url, method: "GET", headers: Object.assign(referer ? { Referer: referer } : {}, extra || {}),
+            url: url, method: "GET", headers: Object.assign(referer ? { Referer: referer } : {},
+                WEBTOONS.test(hostOf(url)) ? { "User-Agent": DESKTOP_AGENT } : {}, extra || {}),
             responseType: "arraybuffer", timeout: 60000
         };
         let result = await carrier(request);
@@ -1530,7 +1531,7 @@ async function appChapters(doc, final) {
 
 async function book(url) {
     let doc, final;
-    url = dm5Desktop(url || location.href);
+    url = webtoonsSeries(dm5Desktop(url || location.href));
     if (sameAddress(url, location.href)) {
         // The page the site's scripts built: the desktop reads this one only after the plain page fails.
         doc = document;
@@ -1579,7 +1580,25 @@ async function book(url) {
             }
         }
     }
-    if (chapters.length) {
+    let episodes = [];
+    if (webtoonsTitle(final)) {
+        // Every episode from the episode list (the series pages show ten each).
+        final = webtoonsDesktop(final);
+        try {
+            episodes = webtoonsChapters((await load(webtoonsEpisodesApi(final), final)).html);
+        } catch (e) {
+            episodes = [];
+        }
+        if (episodes.length) {
+            chapters = episodes;
+        }
+        for (let [key, value] of Object.entries(webtoonsMetadata(doc))) {
+            if (value && (!Array.isArray(value) || value.length)) {
+                info[key] = value;
+            }
+        }
+    }
+    if (chapters.length && !episodes.length) {
         chapters = await moreListPages(doc, final, chapters, warnings);
     }
     let listed = await platformChapters(doc, final);
@@ -1878,6 +1897,96 @@ async function dm5MangaChapter(html, final) {
     return images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("");
 }
 
+// -- webtoons.com -----------------------------------------------------------------------------------
+// A series page shows ten episodes a page; the mobile site's API lists them all. An episode's images are
+// lazy (`data-url`) on the desktop page and a script list (`imageList = [{url: ...}]`) on the mobile one, and
+// their server wants the site as the Referer. A phone is sent to m.webtoons.com (by the server, on its
+// browser's name): the app's requests there name a desktop browser instead (DESKTOP_AGENT).
+
+const WEBTOONS = /(^|\.)webtoons\.com$/i;
+const DESKTOP_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
+/** ["webtoon" or "canvas", title number] of a webtoons.com series or episode address, else null. */
+function webtoonsTitle(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (e) {
+        return null;
+    }
+    let found = /(?:^|&)title_no=(\d+)/.exec(parsed.search.replace(/^\?/, ""));
+    if (!found || !WEBTOONS.test(parsed.hostname)) {
+        return null;
+    }
+    return [/\/(canvas|challenge)\//.test(parsed.pathname) ? "canvas" : "webtoon", found[1]];
+}
+
+/** A webtoons.com address on www (the mobile site's as the desktop one), without the redirect marker. */
+function webtoonsDesktop(url) {
+    if (!webtoonsTitle(url)) {
+        return url;
+    }
+    let parsed = new URL(url);
+    let query = parsed.search.replace(/^\?/, "").split("&").filter(q => q && !q.startsWith("webtoon-platform-redirect=")).join("&");
+    return "https://www.webtoons.com" + parsed.pathname + (query ? "?" + query : "");
+}
+
+/** The series page of a webtoons.com episode address (`.../episode-slug/viewer?title_no=95&episode_no=1`). */
+function webtoonsSeries(url) {
+    let desktop = webtoonsDesktop(url);
+    let parsed = new URL(desktop);
+    if (!parsed.pathname.endsWith("/viewer")) {
+        return desktop;
+    }
+    let path = parsed.pathname.slice(0, -"/viewer".length).replace(/\/[^\/]*$/, "") + "/list";
+    return "https://www.webtoons.com" + path + "?title_no=" + webtoonsTitle(url)[1];
+}
+
+function webtoonsEpisodesApi(url) {
+    let [kind, number] = webtoonsTitle(url);
+    return "https://m.webtoons.com/api/v1/" + kind + "/" + number + "/episodes?pageSize=99999";
+}
+
+/** The episodes in the episodes API's answer, oldest first ([] when it lists none). */
+function webtoonsChapters(answer) {
+    let rows;
+    try {
+        rows = ((JSON.parse(answer || "{}").result || {}).episodeList) || [];
+    } catch (e) {
+        return [];
+    }
+    return rows.filter(row => row && typeof row === "object" && row.viewerLink)
+        .sort((a, b) => (Number(a.episodeNo) || 0) - (Number(b.episodeNo) || 0))
+        .map(row => ({
+            url: webtoonsDesktop(new URL(row.viewerLink, "https://www.webtoons.com/").href),
+            name: cleanName(String(row.episodeTitle || "Episode " + row.episodeNo))
+        }));
+}
+
+/** Title, author, synopsis and genres of a webtoons.com series page (desktop or mobile). */
+function webtoonsMetadata(doc) {
+    let title = doc.querySelector("h1.subj, h1.title, strong.subject");
+    let author = doc.querySelector(".author_area, .author");
+    let synopsis = doc.querySelector("p.summary, .summary");
+    let genres = Array.from(doc.querySelectorAll(".info .genre, h2.genre, p.genre, .genre"), textOf).filter(g => g);
+    let authorText = (author ? textOf(author) : "").replace(/\s*author info\s*$/i, "").trim().replace(/\s*,\s*/g, ", ");
+    return {
+        title: title ? textOf(title) : "", author: authorText,
+        description: synopsis ? cleanSynopsis(textOf(synopsis)) : "", tags: Array.from(new Set(genres)).slice(0, 8)
+    };
+}
+
+/** An episode's images in order: the desktop page's lazy `data-url`s, else the mobile page's script list. */
+function webtoonsImages(html, base) {
+    let doc = parse(html || "");
+    let images = Array.from(doc.querySelectorAll("#_imageList img[data-url]"), img => cleanUrl(img.getAttribute("data-url"), base));
+    if (!images.filter(i => i).length) {
+        let listed = /imageList\s*=\s*\[([\s\S]*?)\]\s*;/.exec(html || "");
+        images = listed ? Array.from(listed[1].matchAll(/url\s*:\s*"([^"]+)"/g), m => m[1]) : [];
+    }
+    return Array.from(new Set(images.filter(i => i)));
+}
+
 // -- chapter text -----------------------------------------------------------------------------------
 
 function score(node) {
@@ -2122,11 +2231,15 @@ function appDataChapter(doc) {
 }
 
 async function chapter(item) {
-    let url = dm5Desktop(item.url || "");
+    let url = webtoonsDesktop(dm5Desktop(item.url || ""));
     let name = item.fullName || item.name || "";
     let loaded = await load(url, item.bookUrl || location.href);
     let read = { doc: parse(loaded.html), url: loaded.url };
     let manga = await dm5MangaChapter(loaded.html, read.url);
+    if (manga == null && webtoonsTitle(read.url)) {
+        let images = webtoonsImages(loaded.html, read.url);
+        manga = images.length ? images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("") : null;
+    }
     if (manga == null) {
         manga = await mangaChapter(read.doc, read.url);
     }
@@ -2188,7 +2301,8 @@ window.__GEN_parseChapter = async function (itemJson) {
 window.__GEN_lib = {
     shape, cleanName, chapterNumber, readingOrder, numberedPages, findChapters, metadata, extractContent,
     repair, siteOf, hostOf, cleanUrl, textOf, parse, cleanPageTitle, parentAddresses, isChapterAddress, decode,
-    CHAPTER_WORDS, unpackJs, dm5Chapter, dm5Images, dm5Chapters, dm5Desktop, imageSize
+    CHAPTER_WORDS, unpackJs, dm5Chapter, dm5Images, dm5Chapters, dm5Desktop, imageSize,
+    webtoonsTitle, webtoonsDesktop, webtoonsSeries, webtoonsEpisodesApi, webtoonsChapters, webtoonsImages
 };
 window.__GEN_test = window.__GEN_lib;
 window.__GEN_API = GEN_API;

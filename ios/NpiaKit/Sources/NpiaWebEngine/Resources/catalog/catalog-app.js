@@ -46,6 +46,10 @@
     // -- the network -------------------------------------------------------------------------------
 
     var USER_HEADERS = {'Accept-Language': 'en-US,en;q=0.9,*;q=0.5'};
+    // webtoons.com sends a phone to m.webtoons.com, whose search results a script draws: a desktop browser's name
+    // gets the pages with the results in them (generic-lib.js asks the same way).
+    var DESKTOP_SITES = /(^|\.)webtoons\.com$/i;
+    var DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
     var CHALLENGE = /just a moment|attention required|security check|verify you are human/i;
     var slots = {free: 24, waiting: []};
     var renders = {free: 2, waiting: []};
@@ -83,6 +87,7 @@
         options = options || {};
         var headers = Object.assign({}, USER_HEADERS, options.headers || {});
         if (options.referer && !headers.Referer) headers.Referer = options.referer;
+        if (DESKTOP_SITES.test(host(url)) && !headers['User-Agent']) headers['User-Agent'] = DESKTOP_AGENT;
         var details = {url: url, method: (options.method || 'GET').toUpperCase(), headers: headers,
                        responseType: 'arraybuffer', timeout: options.quick ? 8000 : 15000};
         if (options.data != null) details.dataBase64 = base64Of(String(options.data));
@@ -676,7 +681,8 @@
     var POPULAR_PATHS = ['/popular', '/ranking', '/rankings', '/rank', '/top', '/trending', '/most-popular',
                          '/manga?order=popular', '/series?order=popular', '/comics?order=popular', '/manga/?m_orderby=views',
                          '/directory?sort=popular', '/browse?sort=popular', '/list?sort=views'];
-    var PLANS_KEY = 'noveldb.generic.plans', PLAN_DAYS = 7;
+    // PLAN_VERSION: plans made before it are made again (2: the guesses under a language home such as /en/).
+    var PLANS_KEY = 'noveldb.generic.plans', PLAN_DAYS = 7, PLAN_VERSION = 2;
     var plans = store(PLANS_KEY) || {};
     var planning = {};
     function savePlans() {
@@ -769,10 +775,12 @@
     /** How to search `home`'s site: {ways, tags, home, home_cards, reachable}; remembered for a week. */
     function plan(home) {
         var known = plans[home];
-        if (known && Date.now() / 1000 - (known.checked || 0) < PLAN_DAYS * 86400 && known.home_cards) return Promise.resolve(known);
+        if (known && Date.now() / 1000 - (known.checked || 0) < PLAN_DAYS * 86400 && known.home_cards && known.version === PLAN_VERSION) {
+            return Promise.resolve(known);
+        }
         if (planning[home]) return planning[home];
         planning[home] = fetchUrl(home).then(function (result) {
-            var made = {checked: Date.now() / 1000, ways: [], tags: {}, home: home, reachable: !!(result && result.status < 400)};
+            var made = {checked: Date.now() / 1000, version: PLAN_VERSION, ways: [], tags: {}, home: home, reachable: !!(result && result.status < 400)};
             var steps = Promise.resolve();
             if (result && result.status < 400) {
                 var final = result.url || home, html = result.text(), doc = G().parse(html);
@@ -786,7 +794,11 @@
                 });
             }
             return steps.then(function () {
-                var origin = new URL(made.home).origin;
+                var origin = new URL(made.home).origin, language = new URL(made.home).pathname.replace(/\/+$/, '');
+                // A home under a language (webtoons.com/en/): its search is there too (/en/search?keyword=).
+                if (/^\/[a-z]{2}(-[a-z]{2,4})?$/i.test(language)) {
+                    COMMON_SEARCHES.forEach(function (path) { made.ways.push({kind: 'get', template: origin + language + path, guess: true}); });
+                }
                 COMMON_SEARCHES.forEach(function (path) { made.ways.push({kind: 'get', template: origin + path, guess: true}); });
                 plans[home] = made;
                 savePlans();
@@ -2341,8 +2353,8 @@
     // Then the app's site engines that list the site (gallery-dl, HaruNeko, ...: a download's), then the page's own.
     // fanfox and mangahere: the phone's web view is sent to their mobile site, whose chapters say "licensed",
     // so HaruNeko's chapter window finds no pages there; the generic engine reads the desktop pages (the app
-    // leaves them to it too: SourceCatalog.genericFirst).
-    var GENERIC_FIRST = /(^|\.)(fanfox\.net|mangahere\.cc|mangahere\.com)$/i;
+    // leaves them to it too: SourceCatalog.genericFirst). webtoons.com sends a phone to its mobile site as well.
+    var GENERIC_FIRST = /(^|\.)(fanfox\.net|mangahere\.cc|mangahere\.com|webtoons\.com)$/i;
     function engineFor(url) {
         var engines = ['app', 'engines'];
         if (harunekoListed(url) && !GENERIC_FIRST.test(host(url))) engines.push('haruneko');

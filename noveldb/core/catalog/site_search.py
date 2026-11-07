@@ -33,6 +33,8 @@ CHROME = re.compile(r"(^|[\s_-])(nav|navbar|menu|gnb|lnb|snb|header|footer|bread
 TAG_LINK = re.compile(r"/(genres?|tags?|categor(y|ies)|keywords?|genero|generos|kategori|theme|themes|type|directory|"
                       r"manga-genre|manga_genre|series-genre)s?[/=]", re.I)
 _lock = threading.Lock()
+# Plans made before this number are made again (2: the guesses under a language home such as /en/).
+PLAN_VERSION = 2
 
 
 def card_shape(url: str) -> str:
@@ -226,10 +228,11 @@ class SiteSearch:
     def plan(self, home: str) -> dict:
         """How to search `home`'s site: {"ways": [...], "tags": {name: url}, "home": final address}."""
         known = self._plans.get(home)
-        if known and time.time() - known.get("checked", 0) < self.max_age and "home_cards" in known:
+        if known and time.time() - known.get("checked", 0) < self.max_age and "home_cards" in known \
+                and known.get("version") == PLAN_VERSION:
             return known
         result = self.fetch(home)
-        plan = {"checked": time.time(), "ways": [], "tags": {}, "home": home,
+        plan = {"checked": time.time(), "version": PLAN_VERSION, "ways": [], "tags": {}, "home": home,
                 "reachable": bool(result and result["status"] < 400)}
         if result and result["status"] < 400:
             final = result.get("url") or home
@@ -246,6 +249,11 @@ class SiteSearch:
         root = plan["home"].rstrip("/")
         parts = urlsplit(root)
         origin = f"{parts.scheme}://{parts.netloc}"
+        # A home under a language (webtoons.com/en/): its search is there too (/en/search?keyword=).
+        language = parts.path.rstrip("/")
+        if re.fullmatch(r"/[a-z]{2}(-[a-z]{2,4})?", language, re.I):
+            plan["ways"].extend({"kind": "get", "template": origin + language + path, "guess": True}
+                                for path in COMMON_SEARCHES)
         plan["ways"].extend({"kind": "get", "template": origin + path, "guess": True} for path in COMMON_SEARCHES)
         self._plans[home] = plan
         self._save()

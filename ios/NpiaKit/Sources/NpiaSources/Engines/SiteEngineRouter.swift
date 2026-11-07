@@ -84,7 +84,9 @@ public enum SiteEngineRouter {
     /// whose chapters say "licensed and not available". HaruNeko's chapter window follows it there and
     /// gallery-dl reads those pages, so their books came without pages; the generic fallback reads the
     /// desktop pages (their chapterfun.ashx answers), so it goes before them (Android's `genericFirst`).
-    static let genericFirstSites = ["fanfox.net", "mangahere.cc", "mangahere.com"]
+    /// webtoons.com likewise sends a phone to m.webtoons.com; the generic fallback reads its episode list and
+    /// both sites' episode pages.
+    static let genericFirstSites = ["fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com"]
 
     public static func genericFirst(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }

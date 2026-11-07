@@ -1336,6 +1336,80 @@ def dm5_images(answer: str, base: str) -> List[str]:
     return []
 
 
+# -- webtoons.com ---------------------------------------------------------------------------------
+# A series page shows ten episodes a page; the mobile site's API lists them all. An episode's images are
+# lazy (`data-url`) on the desktop page and a script list (`imageList = [{url: ...}]`) on the mobile one, and
+# their server wants the site as the Referer. A phone's browser is sent to m.webtoons.com, whose search
+# results are drawn by a script.
+
+def webtoons_title(url: str) -> Optional[Tuple[str, str]]:
+    """("webtoon" or "canvas", title number) of a webtoons.com series or episode address, else None."""
+    parts = urlsplit(url or "")
+    host = (parts.hostname or "").lower()
+    found = re.search(r"(?:^|&)title_no=(\d+)", parts.query)
+    if not found or not (host == "webtoons.com" or host.endswith(".webtoons.com")):
+        return None
+    return ("canvas" if re.search(r"/(canvas|challenge)/", parts.path) else "webtoon"), found.group(1)
+
+
+def webtoons_desktop(url: str) -> str:
+    """A webtoons.com address on www (the mobile site's as the desktop one), without the redirect marker."""
+    parts = urlsplit(url or "")
+    if not webtoons_title(url):
+        return url
+    query = "&".join(q for q in parts.query.split("&") if q and not q.startswith("webtoon-platform-redirect="))
+    return urlunsplit(("https", "www.webtoons.com", parts.path, query, ""))
+
+
+def webtoons_series(url: str) -> str:
+    """The series page of a webtoons.com episode address (`.../episode-slug/viewer?title_no=95&episode_no=1`)."""
+    parts = urlsplit(webtoons_desktop(url))
+    if not parts.path.endswith("/viewer"):
+        return webtoons_desktop(url)
+    kind_no = webtoons_title(url)
+    path = parts.path[: -len("/viewer")].rsplit("/", 1)[0] + "/list"
+    return urlunsplit(("https", parts.netloc, path, f"title_no={kind_no[1]}", ""))
+
+
+def webtoons_episodes_api(url: str) -> str:
+    kind, number = webtoons_title(url)
+    return f"https://m.webtoons.com/api/v1/{kind}/{number}/episodes?pageSize=99999"
+
+
+def webtoons_chapters(answer: str) -> List[dict]:
+    """The episodes in the episodes API's answer, oldest first ([] when it lists none)."""
+    try:
+        rows = ((json.loads(answer or "{}").get("result") or {}).get("episodeList")) or []
+    except (ValueError, AttributeError):
+        return []
+    rows = [r for r in rows if isinstance(r, dict) and r.get("viewerLink")]
+    rows.sort(key=lambda r: int(r.get("episodeNo") or 0))
+    return [{"url": webtoons_desktop(urljoin("https://www.webtoons.com/", r["viewerLink"])),
+             "name": clean_name(unescape(str(r.get("episodeTitle") or f"Episode {r.get('episodeNo')}")))} for r in rows]
+
+
+def webtoons_metadata(soup) -> dict:
+    """Title, author, synopsis and genres of a webtoons.com series page (desktop or mobile)."""
+    title = soup.select_one("h1.subj, h1.title, strong.subject")
+    author = soup.select_one(".author_area, .author")
+    synopsis = soup.select_one("p.summary, .summary")
+    genres = [text_of(g) for g in soup.select(".info .genre, h2.genre, p.genre, .genre")]
+    author_text = re.sub(r"\s*author info\s*$", "", text_of(author) if author else "", flags=re.I).strip()
+    return {"title": text_of(title) if title else "", "author": re.sub(r"\s*,\s*", ", ", author_text),
+            "description": _clean_synopsis(text_of(synopsis)) if synopsis else "",
+            "tags": list(dict.fromkeys(g for g in genres if g))[:8]}
+
+
+def webtoons_images(html: str, base: str) -> List[str]:
+    """An episode's images in order: the desktop page's lazy `data-url`s, else the mobile page's script list."""
+    soup = soup_of(html or "")
+    images = [clean_url(img.get("data-url") or "", base) for img in soup.select("#_imageList img[data-url]")]
+    if not images:
+        listed = re.search(r"imageList\s*=\s*\[(.*?)\]\s*;", html or "", re.S)
+        images = re.findall(r"url\s*:\s*\"([^\"]+)\"", listed.group(1)) if listed else []
+    return list(dict.fromkeys(i for i in images if i))
+
+
 # -- the engine ------------------------------------------------------------------------------------
 
 class GenericEngine:
@@ -1421,7 +1495,7 @@ class GenericEngine:
         return chapters[::-1] if str(props.get("episodeOrder") or "").lower() == "desc" else chapters
 
     def parse_book(self, url: str) -> Optional[dict]:
-        url = dm5_desktop(url)
+        url = webtoons_series(dm5_desktop(url))
         html, final = self._page(url)
         soup = soup_of(html)
         chapters = find_chapters(soup, final)
@@ -1461,7 +1535,19 @@ class GenericEngine:
                     self.log(f"Generic: reading the full chapter list at {full_final}.")
                     soup, chapters, final = full_soup, found, full_final
                     break
-        if chapters:
+        episodes = []
+        if webtoons_title(final):
+            # Every episode from the episode list (the series pages show ten each).
+            final = webtoons_desktop(final)
+            try:
+                episodes = webtoons_chapters(self._page(webtoons_episodes_api(final), referer=final)[0])
+            except Exception:
+                episodes = []
+            if episodes:
+                self.log(f"Generic: {len(episodes)} episodes from webtoons' episode list.")
+                chapters = episodes
+            meta.update({k: v for k, v in webtoons_metadata(soup).items() if v})
+        if chapters and not episodes:
             chapters = self._more_list_pages(soup, final, chapters, warnings)
         listed = self._platform_chapters(html, final)
         if len(listed) > len(chapters):
@@ -1714,7 +1800,7 @@ class GenericEngine:
         return content, text, rendered
 
     def parse_chapter(self, chapter_info: dict, book: dict) -> Optional[dict]:
-        url = dm5_desktop(chapter_info.get("url", ""))
+        url = webtoons_desktop(dm5_desktop(chapter_info.get("url", "")))
         name = chapter_info.get("fullName") or chapter_info.get("name", "")
         host = urlsplit(url).netloc
         # A site that sent scrambled text before: straight to the browser.
@@ -1725,6 +1811,9 @@ class GenericEngine:
         else:
             html, final = self._page(url, referer=chapter_info.get("bookUrl") or book.get("bookUrl") or "")
             manga = self._dm5_chapter(html, final)
+            if manga is None and webtoons_title(final):
+                images = webtoons_images(html, final)
+                manga = "".join(f'<p><img src="{image}" alt=""/></p>' for image in images) if images else None
             if manga is None:
                 manga = self._manga_chapter(html, final)
             if manga is not None:

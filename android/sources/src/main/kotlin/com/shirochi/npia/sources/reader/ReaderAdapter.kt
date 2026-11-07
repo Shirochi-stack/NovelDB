@@ -86,7 +86,12 @@ internal object AgeChecks {
     // mobile site otherwise, whose chapters say "licensed", and the move stops the engine reading the page);
     // isAdult answers their adult warning.
     private val dm5 = mapOf("MHNMM" to "1", "isAdult" to "1")
-    private val cookies = mapOf("syosetu.com" to mapOf("over18" to "yes"), "fanfox.net" to dm5, "mangahere.cc" to dm5, "mangahere.com" to dm5)
+    // webtoons.com: its age gate and consent questions, answered.
+    private val webtoons = mapOf("ageGatePass" to "true", "needGDPR" to "false", "needCCPA" to "false", "needCOPPA" to "false")
+    private val cookies = mapOf(
+        "syosetu.com" to mapOf("over18" to "yes"), "fanfox.net" to dm5, "mangahere.cc" to dm5, "mangahere.com" to dm5,
+        "webtoons.com" to webtoons,
+    )
 
     fun answer(url: String) {
         val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase() ?: return

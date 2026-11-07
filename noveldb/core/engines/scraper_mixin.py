@@ -139,7 +139,9 @@ def _with_text(result: dict) -> dict:
 # pages (the mobile site's chapters say "licensed").
 _DM5_COOKIES = {"isAdult": "1", "MHNMM": "1"}
 AGE_COOKIES = {"syosetu.com": {"over18": "yes"}, "fanfox.net": _DM5_COOKIES, "mangahere.cc": _DM5_COOKIES,
-               "mangahere.com": _DM5_COOKIES}
+               "mangahere.com": _DM5_COOKIES,
+               # webtoons.com: its age gate and consent questions, answered.
+               "webtoons.com": {"ageGatePass": "true", "needGDPR": "false", "needCCPA": "false", "needCOPPA": "false"}}
 
 
 def age_cookies(url: str) -> dict:

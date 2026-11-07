@@ -55,8 +55,11 @@ enum AgeChecks {
     /// mobile site otherwise, whose chapters say "licensed", and the move stops the engine reading the page);
     /// isAdult answers their adult warning.
     static let dm5 = ["MHNMM": "1", "isAdult": "1"]
+    /// webtoons.com: its age gate and consent questions, answered.
+    static let webtoons = ["ageGatePass": "true", "needGDPR": "false", "needCCPA": "false", "needCOPPA": "false"]
     static let cookies: [String: [String: String]] = [
         "syosetu.com": ["over18": "yes"], "fanfox.net": dm5, "mangahere.cc": dm5, "mangahere.com": dm5,
+        "webtoons.com": webtoons,
     ]
 
     static func answer(_ url: URL, cookies store: any SessionCookieAccess) async {

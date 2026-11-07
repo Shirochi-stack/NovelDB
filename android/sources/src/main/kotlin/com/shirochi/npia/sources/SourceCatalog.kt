@@ -92,9 +92,10 @@ object SourceCatalog {
      * fanfox and mangahere (one platform): a phone's web view is sent from their pages to the mobile site,
      * whose chapters say "licensed and not available". HaruNeko's chapter window follows it there and
      * gallery-dl reads those pages, so their books came without pages; the generic fallback reads the
-     * desktop pages (their chapterfun.ashx answers), so it goes before them.
+     * desktop pages (their chapterfun.ashx answers), so it goes before them. webtoons.com likewise sends a phone
+     * to m.webtoons.com; the generic fallback reads its episode list and both sites' episode pages.
      */
-    private val GENERIC_FIRST = listOf("fanfox.net", "mangahere.cc", "mangahere.com")
+    private val GENERIC_FIRST = listOf("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com")
 
     fun genericFirst(url: String): Boolean {
         val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase() ?: return false
