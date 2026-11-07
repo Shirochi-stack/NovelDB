@@ -5,11 +5,13 @@ import com.shirochi.npia.core.BookInfo
 import com.shirochi.npia.core.ChapterContent
 import com.shirochi.npia.core.ChapterRef
 import com.shirochi.npia.core.ChapterResult
+import com.shirochi.npia.core.EngineSettings
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.InMemorySecretStore
 import com.shirochi.npia.core.SharedSettings
+import com.shirochi.npia.core.SiteEngine
 import com.shirochi.npia.core.SourceAdapter
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceException
@@ -17,6 +19,7 @@ import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.SourceTier
 import com.shirochi.npia.core.UnavailableWebEngine
 import com.shirochi.npia.sources.qdn.QdnSite
+import com.shirochi.npia.sources.reader.SiteEngineChain
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -38,6 +41,22 @@ class SourceCatalogTest {
         assertEquals(SourceId.QDN, SourceCatalog.resolve(mobile)?.id)
         assertEquals("https://example.com/x", SourceCatalog.canonicalUrl("https://example.com/x"))
         assertNull(SourceCatalog.adapterFor("https://m.${QdnSite.DOMAIN}/"))
+    }
+
+    @Test
+    fun fanfoxAndMangahereGoToTheGenericFallbackFirst() {
+        // Their chapters have pages only on the desktop site, which the generic engine reads; HaruNeko and
+        // gallery-dl end up on the mobile one ("licensed and not available").
+        val every = EngineSettings(dynamicPriority = false)
+        for (url in listOf("https://fanfox.net/manga/one_piece/", "https://m.fanfox.net/manga/one_piece/", "https://www.mangahere.cc/manga/one_piece/")) {
+            assertTrue(url, SourceCatalog.genericFirst(url))
+            val steps = (SourceCatalog.resolve(url, every) as SiteEngineChain).steps
+            assertEquals(url, SiteEngine.GENERIC, steps.first())
+            assertTrue(url, SiteEngine.HARUNEKO in steps && SiteEngine.GALLERYDL in steps)
+        }
+        val elsewhere = (SourceCatalog.resolve("https://manga.example/series/1", every) as SiteEngineChain).steps
+        assertEquals(SiteEngine.GENERIC, elsewhere.last())
+        assertTrue(!SourceCatalog.genericFirst("https://notfanfox.net/x"))
     }
 
     @Test

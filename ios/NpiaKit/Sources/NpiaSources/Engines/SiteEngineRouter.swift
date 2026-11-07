@@ -73,8 +73,22 @@ public enum SiteEngineRouter {
             return EngineSites.lists(rules, url)
         }
         // The Settings' order as it is, as on the desktop (gallery-dl was put before HaruNeko on manga sites
-        // here only, and books it lists without pages, such as fanfox's One Piece, could not be read).
-        return steps.filter { $0 == .native || isWebPage }
+        // here only, and books it lists without pages, such as fanfox's One Piece, could not be read), except
+        // on the sites the generic fallback reads best (`genericFirst`).
+        let planned = steps.filter { $0 == .native || isWebPage }
+        guard genericFirst(url), planned.contains(.generic) else { return planned }
+        return planned.filter { $0 == .native } + [.generic] + planned.filter { $0 != .native && $0 != .generic }
+    }
+
+    /// fanfox and mangahere (one platform): a phone's web view is sent from their pages to the mobile site,
+    /// whose chapters say "licensed and not available". HaruNeko's chapter window follows it there and
+    /// gallery-dl reads those pages, so their books came without pages; the generic fallback reads the
+    /// desktop pages (their chapterfun.ashx answers), so it goes before them (Android's `genericFirst`).
+    static let genericFirstSites = ["fanfox.net", "mangahere.cc", "mangahere.com"]
+
+    public static func genericFirst(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return genericFirstSites.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
     /// Some enabled site engine can try `url`: the links the Add screen accepts and a download needs.

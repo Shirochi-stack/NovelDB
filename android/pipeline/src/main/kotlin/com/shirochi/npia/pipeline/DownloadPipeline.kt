@@ -157,7 +157,12 @@ class DownloadPipeline(
         chapters.clear()
         chapters += imageOutput.chapters
         val cover = book.coverUrl?.let { coverUrl ->
-            runCatching { dataUrlBytes(coverUrl) ?: http.get(coverUrl).body }
+            runCatching {
+                dataUrlBytes(coverUrl) ?: http.get(coverUrl).let { answer ->
+                    // A server that refuses requests without a Referer (fanfox): asked again from the book's page.
+                    if (answer.status == 401 || answer.status == 403) http.get(coverUrl, mapOf("Referer" to book.url)) else answer
+                }.takeIf { it.status in 200..299 }?.body
+            }
                 .onFailure { logger.log(LogLevel.WARNING, "Cover could not be downloaded: ${it.message ?: it}") }
                 .getOrNull()?.takeIf { it.isNotEmpty() }?.let { data ->
                 val processed = runCatching { images.process(data, isCover = true) }.getOrElse { ProcessedImage(data, sniffImageExtension(data)) }

@@ -161,7 +161,7 @@ async function load(url, referer, extra) {
     if (status >= 400) {
         throw new Error("could not load " + url + " (" + status + ")");
     }
-    return { html: html, url: finalUrl };
+    return { html: html, url: finalUrl, bytes: bytes };
 }
 
 const REFUSED = [401, 403, 418, 429, 503];
@@ -1530,7 +1530,8 @@ async function appChapters(doc, final) {
 
 async function book(url) {
     let doc, final;
-    if (sameAddress(url, location.href) || !url) {
+    url = dm5Desktop(url || location.href);
+    if (sameAddress(url, location.href)) {
         // The page the site's scripts built: the desktop reads this one only after the plain page fails.
         doc = document;
         final = location.href;
@@ -1589,6 +1590,15 @@ async function book(url) {
     if (listed.length > chapters.length) {
         chapters = listed;
     }
+    listed = dm5Chapters(doc, final);
+    if (listed.length) {
+        chapters = listed;  // both tabs, in reading order (the address groups split them)
+        for (let [key, value] of Object.entries(dm5Metadata(doc))) {
+            if (value) {
+                info[key] = value;
+            }
+        }
+    }
     if (doc === document && (chapters.length < 2 || (expected && chapters.length < expected * 0.8))) {
         // A list that loads as you scroll, or behind "Load more".
         await scrollToEnd();
@@ -1629,6 +1639,243 @@ async function book(url) {
         chapters: list,
         warnings: warnings
     };
+}
+
+// -- DM5-platform manga sites (fanfox, mangahere) ---------------------------------------------------
+// A book page lists its chapters in two tabs, newest first, under two address shapes (/c1046.5/ and
+// /v01/c001/). A chapter page draws no pages: its script asks chapterfun.ashx for them, two at a time,
+// and the page's key and every answer are packed JavaScript (Dean Edwards' p,a,c,k,e,d). The pages'
+// server wants the site as the Referer. (The mobile site's chapters say "licensed and not available".)
+
+const PACKED = /\}\s*\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'((?:[^'\\]|\\.)*)'\s*\.split\(\s*'\|'\s*\)/g;
+const RADIX = "0123456789abcdefghijklmnopqrstuvwxyz";
+// The site's advertisement that ends every chapter (HaruNeko leaves it out the same way).
+const DM5_AD_SIZE = [1000, 563];
+
+/** The code of each packed script in `source` (`eval(function(p,a,c,k,e,d){...}('...',62,9,'...'.split('|'),0,{}))`). */
+function unpackJs(source) {
+    let out = [];
+    for (let found of String(source || "").matchAll(PACKED)) {
+        let radix = parseInt(found[2], 10);
+        let count = parseInt(found[3], 10);
+        let words = found[4].split("|");
+        if (radix < 2 || radix > 62) {
+            continue;
+        }
+        let name = n => (n < radix ? "" : name(Math.floor(n / radix)))
+            + (n % radix > 35 ? String.fromCharCode(n % radix + 29) : RADIX[n % radix]);
+        let table = new Map();
+        for (let i = 0; i < count; i++) {
+            table.set(name(i), i < words.length && words[i] ? words[i] : name(i));
+        }
+        let payload = found[1].replace(/\\(.)/g, "$1");
+        out.push(payload.replace(/\b\w+\b/g, word => (table.has(word) ? table.get(word) : word)));
+    }
+    return out;
+}
+
+const DM5_MOBILE = { "m.fanfox.net": "fanfox.net", "m.mangahere.cc": "www.mangahere.cc" };
+
+/**
+ * A DM5-platform mobile address as the desktop one (whose chapters have pages); other addresses as they are.
+ * A phone's web view is sent from the desktop pages to the mobile site, so the page it shows is not read.
+ */
+function dm5Desktop(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (e) {
+        return url;
+    }
+    let host = DM5_MOBILE[parsed.hostname.toLowerCase()];
+    if (!host) {
+        return url;
+    }
+    parsed.protocol = "https:";
+    parsed.hostname = host;
+    parsed.pathname = parsed.pathname.replace(/^\/roll_manga\//, "/manga/");
+    parsed.hash = "";
+    return parsed.href;
+}
+
+/** A DM5-platform book page's chapters, oldest first ([] for any other page). */
+function dm5Chapters(doc, base) {
+    let anchors = Array.from(doc.querySelectorAll("#chapterlist ul.detail-main-list li a[href]")).reverse();
+    let seen = new Set();
+    let out = [];
+    for (let anchor of anchors) {
+        let url = cleanUrl(anchor.getAttribute("href"), base);
+        if (!url || seen.has(url) || !/\/c\d+(\.\d+)?\//.test(url)) {
+            continue;
+        }
+        seen.add(url);
+        let title = anchor.querySelector(".title3");
+        out.push({ url: url, name: cleanName(title ? textOf(title) : anchor.getAttribute("title") || "") });
+    }
+    let number = chapter => {
+        let found = /\/c(\d+(?:\.\d+)?)\//.exec(chapter.url);
+        return found ? parseFloat(found[1]) : Infinity;
+    };
+    return out.map((chapter, index) => [chapter, index])
+        .sort((a, b) => (number(a[0]) - number(b[0])) || (a[1] - b[1]))
+        .map(pair => pair[0]);
+}
+
+/** The title and whole synopsis a DM5-platform book page shows ({} for any other page). */
+function dm5Metadata(doc) {
+    let title = doc.querySelector(".detail-info-right-title-font");
+    if (!title) {
+        return {};
+    }
+    let synopsis = doc.querySelector(".fullcontent") || doc.querySelector(".detail-info-right-content");
+    return { title: textOf(title), description: synopsis ? cleanSynopsis(textOf(synopsis)) : "" };
+}
+
+/**
+ * {cid, count, key, images} of a DM5-platform chapter page, or null for any other page. `images` is the
+ * page's own list when it has one (newImgs), else [] (they come from chapterfun.ashx).
+ */
+function dm5Chapter(html) {
+    let cid = /\bvar\s+chapterid\s*=\s*(\d+)/.exec(html || "");
+    let count = /\bimagecount\s*=\s*(\d+)/.exec(html || "");
+    if (!cid || !count) {
+        return null;
+    }
+    let key = "";
+    let images = [];
+    for (let code of unpackJs(html)) {
+        code = code.split("\\").join("");
+        let found = /guidkey\s*=\s*([^;]+);/.exec(code);
+        if (found && !key) {
+            key = Array.from(found[1].matchAll(/'([^']*)'/g), m => m[1]).join("");
+        }
+        let listed = /newImgs\s*=\s*\[([^\]]*)\]/.exec(code);
+        if (listed && !images.length) {
+            images = Array.from(listed[1].matchAll(/['"]([^'"]+)['"]/g), m => m[1]);
+        }
+    }
+    return { cid: cid[1], count: parseInt(count[1], 10), key: key, images: images };
+}
+
+/** The page addresses in one chapterfun.ashx answer (usually two pages, from the one asked for). */
+function dm5Images(answer, base) {
+    let codes = unpackJs(answer);
+    for (let code of codes.length ? codes : [String(answer || "")]) {
+        let values = /pvalue\s*=\s*\[([^\]]*)\]/.exec(code);
+        if (!values) {
+            continue;
+        }
+        let pix = /\bpix\s*=\s*"([^"]*)"/.exec(code);
+        let first = /i\s*==\s*0\s*\)\s*\{\s*pvalue\[i\]\s*=\s*"([^"]*)"\s*\+/.exec(code);
+        return Array.from(values[1].matchAll(/"([^"]*)"/g), (m, index) => {
+            let prefix = first && index === 0 ? first[1] : (pix ? pix[1] : "");
+            return new URL(prefix + m[1], base).href;
+        });
+    }
+    return [];
+}
+
+/** [width, height] of a JPEG, PNG, GIF or WebP from its bytes, or null. */
+function imageSize(bytes) {
+    if (!bytes || bytes.length < 24) {
+        return null;
+    }
+    let big = (at, n) => { let v = 0; for (let i = 0; i < n; i++) { v = v * 256 + bytes[at + i]; } return v; };
+    let little = (at, n) => { let v = 0; for (let i = n - 1; i >= 0; i--) { v = v * 256 + bytes[at + i]; } return v; };
+    let ascii = (at, n) => String.fromCharCode.apply(null, Array.from(bytes.subarray(at, at + n)));
+    if (bytes[0] === 137 && ascii(1, 3) === "PNG") {
+        return [big(16, 4), big(20, 4)];
+    }
+    if (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a") {
+        return [little(6, 2), little(8, 2)];
+    }
+    if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP" && bytes.length >= 30) {
+        let kind = ascii(12, 4);
+        if (kind === "VP8X") {
+            return [1 + little(24, 3), 1 + little(27, 3)];
+        }
+        if (kind === "VP8 ") {
+            return [little(26, 2) & 0x3fff, little(28, 2) & 0x3fff];
+        }
+        if (kind === "VP8L") {
+            let bits = little(21, 4);
+            return [(bits & 0x3fff) + 1, Math.floor(bits / 16384) % 16384 + 1];
+        }
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+        let at = 2;
+        while (at + 9 < bytes.length) {
+            if (bytes[at] !== 0xff) {
+                at += 1;
+                continue;
+            }
+            let marker = bytes[at + 1];
+            if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+                return [big(at + 7, 2), big(at + 5, 2)];
+            }
+            if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0xff) {
+                at += marker === 0xff ? 1 : 2;
+                continue;
+            }
+            at += 2 + big(at + 2, 2);
+        }
+    }
+    return null;
+}
+
+/** A DM5-platform chapter (fanfox, mangahere): its pages from chapterfun.ashx; null for other pages. */
+async function dm5MangaChapter(html, final) {
+    let info = dm5Chapter(html);
+    if (!info) {
+        return null;
+    }
+    let count = Math.min(info.count, MAX_MANGA_PAGES);
+    let images = info.images.map(image => new URL(image, final).href).slice(0, count);
+    if (!images.length && count) {
+        let ask = final.replace(/\/[^\/]*$/, "") + "/chapterfun.ashx";
+        let found = new Map();  // page index -> its address
+        // Each answer holds two pages: every other page is asked for, then any still missing.
+        for (let round = 0; round < 2; round++) {
+            let wanted = [];
+            for (let page = 1; page <= count; page += round === 0 ? 2 : 1) {
+                if (round === 0 || !found.has(page - 1)) {
+                    wanted.push(page);
+                }
+            }
+            if (!wanted.length) {
+                break;
+            }
+            await pool(wanted, 6, async page => {
+                let answer = await load(ask + "?cid=" + info.cid + "&page=" + page + "&key=" + info.key, final,
+                    { "X-Requested-With": "XMLHttpRequest" });
+                dm5Images(answer.html, final).forEach((image, offset) => {
+                    if (page - 1 + offset < count && !found.has(page - 1 + offset)) {
+                        found.set(page - 1 + offset, image);
+                    }
+                });
+            });
+        }
+        for (let index = 0; index < count; index++) {
+            if (found.has(index)) {
+                images.push(found.get(index));
+            }
+        }
+    }
+    if (!images.length) {
+        throw new Error("the site listed no pages for this chapter");
+    }
+    if (images.length > 1) {
+        try {
+            let last = await load(images[images.length - 1], final, { Accept: "image/*" });
+            let size = imageSize(last.bytes);
+            if (size && size[0] === DM5_AD_SIZE[0] && size[1] === DM5_AD_SIZE[1]) {
+                images.pop();
+            }
+        } catch (e) {
+            // kept
+        }
+    }
+    return images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("");
 }
 
 // -- chapter text -----------------------------------------------------------------------------------
@@ -1875,10 +2122,14 @@ function appDataChapter(doc) {
 }
 
 async function chapter(item) {
-    let url = item.url || "";
+    let url = dm5Desktop(item.url || "");
     let name = item.fullName || item.name || "";
-    let read = await page(url, item.bookUrl || location.href);
-    let manga = await mangaChapter(read.doc, read.url);
+    let loaded = await load(url, item.bookUrl || location.href);
+    let read = { doc: parse(loaded.html), url: loaded.url };
+    let manga = await dm5MangaChapter(loaded.html, read.url);
+    if (manga == null) {
+        manga = await mangaChapter(read.doc, read.url);
+    }
     if (manga != null) {
         return { chapterName: name, contentHtml: manga, contentText: "", imageCount: 0, images: [] };
     }
@@ -1937,7 +2188,7 @@ window.__GEN_parseChapter = async function (itemJson) {
 window.__GEN_lib = {
     shape, cleanName, chapterNumber, readingOrder, numberedPages, findChapters, metadata, extractContent,
     repair, siteOf, hostOf, cleanUrl, textOf, parse, cleanPageTitle, parentAddresses, isChapterAddress, decode,
-    CHAPTER_WORDS
+    CHAPTER_WORDS, unpackJs, dm5Chapter, dm5Images, dm5Chapters, dm5Desktop, imageSize
 };
 window.__GEN_test = window.__GEN_lib;
 window.__GEN_API = GEN_API;

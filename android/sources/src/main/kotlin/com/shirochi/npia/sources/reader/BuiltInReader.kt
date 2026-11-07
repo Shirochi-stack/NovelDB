@@ -39,8 +39,12 @@ internal object BuiltInReader {
     private fun adapterFor(url: String): SourceAdapter? =
         SourceCatalog.adapters.firstOrNull { it.id != SourceId.READER && it.matches(url) }
 
-    /** The app's site engines that list the address (a download's own order), none of the built-in or generic ones. */
+    /**
+     * The app's site engines that list the address (a download's own order), none of the built-in or generic
+     * ones; none on a site the generic fallback reads best (`SourceCatalog.genericFirst`): the page's own reads it.
+     */
     private fun enginesFor(url: String, context: SourceContext): SourceAdapter? {
+        if (SourceCatalog.genericFirst(url)) return null
         val chain = SourceCatalog.resolve(url, context.settings.engines) as? SiteEngineChain ?: return null
         val steps = chain.steps.filter { it != SiteEngine.NATIVE && it != SiteEngine.GENERIC }
         return if (steps.isEmpty()) null else SiteEngineChain(null, steps)

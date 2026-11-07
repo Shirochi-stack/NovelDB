@@ -82,7 +82,11 @@ class ReaderAdapter : SourceAdapter {
  * The cookie goes into the store the web view and the HTTP client share, before the engines read the book.
  */
 internal object AgeChecks {
-    private val cookies = mapOf("syosetu.com" to mapOf("over18" to "yes"))
+    // fanfox and mangahere: MHNMM keeps a phone's web view on the desktop pages (their script sends it to the
+    // mobile site otherwise, whose chapters say "licensed", and the move stops the engine reading the page);
+    // isAdult answers their adult warning.
+    private val dm5 = mapOf("MHNMM" to "1", "isAdult" to "1")
+    private val cookies = mapOf("syosetu.com" to mapOf("over18" to "yes"), "fanfox.net" to dm5, "mangahere.cc" to dm5, "mangahere.com" to dm5)
 
     fun answer(url: String) {
         val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase() ?: return

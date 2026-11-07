@@ -83,9 +83,27 @@ object SourceCatalog {
         if (steps.isEmpty()) return null
         if (native != null && steps == listOf(SiteEngine.NATIVE)) return native
         // The Settings' order as it is, as on the desktop (gallery-dl was put before HaruNeko on manga sites
-        // here only, and books it lists without pages, such as fanfox's One Piece, could not be read).
-        return SiteEngineChain(native, steps)
+        // here only, and books it lists without pages, such as fanfox's One Piece, could not be read), except
+        // on the sites the generic fallback reads best (`genericFirst`).
+        return SiteEngineChain(native, if (genericFirst(url)) genericFirst(steps) else steps)
     }
+
+    /**
+     * fanfox and mangahere (one platform): a phone's web view is sent from their pages to the mobile site,
+     * whose chapters say "licensed and not available". HaruNeko's chapter window follows it there and
+     * gallery-dl reads those pages, so their books came without pages; the generic fallback reads the
+     * desktop pages (their chapterfun.ashx answers), so it goes before them.
+     */
+    private val GENERIC_FIRST = listOf("fanfox.net", "mangahere.cc", "mangahere.com")
+
+    fun genericFirst(url: String): Boolean {
+        val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase() ?: return false
+        return GENERIC_FIRST.any { host == it || host.endsWith(".$it") }
+    }
+
+    private fun genericFirst(steps: List<SiteEngine>): List<SiteEngine> =
+        if (SiteEngine.GENERIC !in steps) steps
+        else steps.filter { it == SiteEngine.NATIVE } + SiteEngine.GENERIC + steps.filter { it != SiteEngine.NATIVE && it != SiteEngine.GENERIC }
 
     /** The engine's current bundle lists the URL's site. */
     fun lists(engine: SiteEngine, url: String): Boolean {

@@ -53,6 +53,7 @@ class ImageStage(
 
         // One download per file name, in reading order.
         val unique = chapters.flatMap { it.images }.distinctBy { it.filename }
+        val pageOf = chapters.flatMap { chapter -> chapter.images.map { it.filename to chapter.ref.url } }.toMap()
         val downloads = Semaphore(settings.effective(source).imageWorkers.coerceAtLeast(1))
         val encodes = Semaphore(settings.images.compressionWorkers.coerceAtLeast(1))
         val progress = Mutex()
@@ -64,7 +65,7 @@ class ImageStage(
                 async {
                     // The download slot is held through encoding so raw bytes never pile up.
                     val image = downloads.withPermit {
-                        download(ref)?.let { data -> encodes.withPermit { encode(data) } }
+                        download(ref, pageOf[ref.filename])?.let { data -> encodes.withPermit { encode(data) } }
                     }?.let { stored(ref.filename, it) }
                     progress.withLock {
                         done += 1
@@ -83,12 +84,16 @@ class ImageStage(
         return Output(chapters.map { apply(renames, it, processed.keys) }, images, failed)
     }
 
-    private suspend fun download(ref: ImageRef): ByteArray? {
+    /** `page`: the chapter's address, sent as the Referer when the image server refuses a request without one (fanfox). */
+    private suspend fun download(ref: ImageRef, page: String? = null): ByteArray? {
         coroutineContext.ensureActive()
         ref.data?.let { return it }
         store?.held(ref.filename)?.let { return it }
         return try {
-            val response = http.get(ref.url)
+            var response = http.get(ref.url)
+            if ((response.status == 401 || response.status == 403) && !page.isNullOrEmpty()) {
+                response = http.get(ref.url, mapOf("Referer" to page))
+            }
             if (response.status !in 200..299 || response.body.isEmpty()) {
                 logger.log(LogLevel.WARNING, "Image failed (${response.status}): ${ref.url}")
                 null

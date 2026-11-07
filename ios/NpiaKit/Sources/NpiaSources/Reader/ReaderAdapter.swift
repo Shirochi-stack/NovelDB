@@ -51,7 +51,13 @@ public struct ReaderAdapter: SourceAdapter {
 /// syosetu's adult site (novel18) sends every visitor to nl.syosetu.com/redirect/ageauth without `over18`.
 /// The cookie goes into the store the web views and the HTTP client share, before the engines read the book.
 enum AgeChecks {
-    static let cookies: [String: [String: String]] = ["syosetu.com": ["over18": "yes"]]
+    /// fanfox and mangahere: MHNMM keeps a phone's web view on the desktop pages (their script sends it to the
+    /// mobile site otherwise, whose chapters say "licensed", and the move stops the engine reading the page);
+    /// isAdult answers their adult warning.
+    static let dm5 = ["MHNMM": "1", "isAdult": "1"]
+    static let cookies: [String: [String: String]] = [
+        "syosetu.com": ["over18": "yes"], "fanfox.net": dm5, "mangahere.cc": dm5, "mangahere.com": dm5,
+    ]
 
     static func answer(_ url: URL, cookies store: any SessionCookieAccess) async {
         guard let host = url.host?.lowercased(),

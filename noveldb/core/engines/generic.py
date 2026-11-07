@@ -1197,6 +1197,145 @@ def next_link(soup, base: str, words=NEXT_WORDS) -> str:
     return ""
 
 
+# -- DM5-platform manga sites (fanfox, mangahere) --------------------------------------------------
+# A book page lists its chapters in two tabs, newest first, under two address shapes (/c1046.5/ and
+# /v01/c001/). A chapter page draws no pages: its script asks chapterfun.ashx for them, two at a time,
+# and the page's key and every answer are packed JavaScript (Dean Edwards' p,a,c,k,e,d). The pages'
+# server wants the site as the Referer. (The mobile site's chapters say "licensed and not available".)
+
+_PACKED = re.compile(r"\}\s*\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'((?:[^'\\]|\\.)*)'\s*\.split\(\s*'\|'\s*\)")
+_RADIX = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def unpack_js(source: str) -> List[str]:
+    """The code of each packed script in `source` (`eval(function(p,a,c,k,e,d){...}('...',62,9,'...'.split('|'),0,{}))`)."""
+    out = []
+    for found in _PACKED.finditer(source or ""):
+        payload, radix, count = found.group(1), int(found.group(2)), int(found.group(3))
+        words = found.group(4).split("|")
+        if not 2 <= radix <= 62:
+            continue
+
+        def name(n: int) -> str:
+            return ("" if n < radix else name(n // radix)) + (chr(n % radix + 29) if n % radix > 35 else _RADIX[n % radix])
+
+        table = {}
+        for index in range(count):
+            table[name(index)] = words[index] if index < len(words) and words[index] else name(index)
+        payload = re.sub(r"\\(.)", r"\1", payload)
+        out.append(re.sub(r"\b\w+\b", lambda m: table.get(m.group(0), m.group(0)), payload))
+    return out
+
+
+_DM5_MOBILE = {"m.fanfox.net": "fanfox.net", "m.mangahere.cc": "www.mangahere.cc"}
+
+
+def dm5_desktop(url: str) -> str:
+    """A DM5-platform mobile address as the desktop one (whose chapters have pages); other addresses as they are."""
+    parts = urlsplit(url or "")
+    host = _DM5_MOBILE.get((parts.hostname or "").lower())
+    if not host:
+        return url
+    return urlunsplit(("https", host, re.sub(r"^/roll_manga/", "/manga/", parts.path), parts.query, ""))
+
+
+def dm5_chapters(soup, base: str) -> List[dict]:
+    """A DM5-platform book page's chapters, oldest first ([] for any other page)."""
+    anchors = soup.select("#chapterlist ul.detail-main-list li a[href]")
+    seen, out = set(), []
+    for anchor in reversed(anchors):
+        url = clean_url(anchor["href"], base)
+        if not url or url in seen or not re.search(r"/c\d+(\.\d+)?/", url):
+            continue
+        seen.add(url)
+        title = anchor.select_one(".title3")
+        out.append({"url": url, "name": clean_name(text_of(title) if title else anchor.get("title", ""))})
+
+    def number(chapter: dict) -> float:
+        found = re.search(r"/c(\d+(?:\.\d+)?)/", chapter["url"])
+        return float(found.group(1)) if found else float("inf")
+
+    return sorted(out, key=number)
+
+
+def dm5_metadata(soup) -> dict:
+    """The title and whole synopsis a DM5-platform book page shows ({} for any other page)."""
+    title = soup.select_one(".detail-info-right-title-font")
+    if title is None:
+        return {}
+    synopsis = soup.select_one(".fullcontent") or soup.select_one(".detail-info-right-content")
+    return {"title": text_of(title), "description": _clean_synopsis(text_of(synopsis)) if synopsis else ""}
+
+
+def dm5_chapter(html: str) -> Optional[dict]:
+    """{cid, count, key, images} of a DM5-platform chapter page, or None for any other page. `images` is
+    the page's own list when it has one (newImgs), else [] (they come from chapterfun.ashx)."""
+    cid = re.search(r"\bvar\s+chapterid\s*=\s*(\d+)", html or "")
+    count = re.search(r"\bimagecount\s*=\s*(\d+)", html or "")
+    if not cid or not count:
+        return None
+    key, images = "", []
+    for code in unpack_js(html):
+        code = code.replace("\\", "")
+        found = re.search(r"guidkey\s*=\s*([^;]+);", code)
+        if found and not key:
+            key = "".join(re.findall(r"'([^']*)'", found.group(1)))
+        listed = re.search(r"newImgs\s*=\s*\[([^\]]*)\]", code)
+        if listed and not images:
+            images = re.findall(r"['\"]([^'\"]+)['\"]", listed.group(1))
+    return {"cid": cid.group(1), "count": int(count.group(1)), "key": key, "images": images}
+
+
+def image_size(data: bytes) -> Optional[Tuple[int, int]]:
+    """(width, height) of a JPEG, PNG, GIF or WebP from its bytes, or None."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data[:6] in (b"GIF87a", b"GIF89a") and len(data) >= 10:
+        return int.from_bytes(data[6:8], "little"), int.from_bytes(data[8:10], "little")
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP" and len(data) >= 30:
+        if data[12:16] == b"VP8X":
+            return 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+        if data[12:16] == b"VP8 ":
+            return int.from_bytes(data[26:28], "little") & 0x3FFF, int.from_bytes(data[28:30], "little") & 0x3FFF
+        if data[12:16] == b"VP8L":
+            bits = int.from_bytes(data[21:25], "little")
+            return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+    if data[:2] == b"\xff\xd8":
+        at = 2
+        while at + 9 < len(data):
+            if data[at] != 0xFF:
+                at += 1
+                continue
+            marker = data[at + 1]
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                return int.from_bytes(data[at + 7:at + 9], "big"), int.from_bytes(data[at + 5:at + 7], "big")
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7 or marker == 0xFF:
+                at += 2 if marker != 0xFF else 1
+                continue
+            at += 2 + int.from_bytes(data[at + 2:at + 4], "big")
+    return None
+
+
+# The site's advertisement that ends every chapter (HaruNeko leaves it out the same way).
+DM5_AD_SIZE = (1000, 563)
+
+
+def dm5_images(answer: str, base: str) -> List[str]:
+    """The page addresses in one chapterfun.ashx answer (usually two pages, from the one asked for)."""
+    for code in unpack_js(answer) or [answer or ""]:
+        values = re.search(r"pvalue\s*=\s*\[([^\]]*)\]", code)
+        if not values:
+            continue
+        pix = re.search(r"\bpix\s*=\s*\"([^\"]*)\"", code)
+        first = re.search(r"i\s*==\s*0\s*\)\s*\{\s*pvalue\[i\]\s*=\s*\"([^\"]*)\"\s*\+", code)
+        out = []
+        for index, value in enumerate(re.findall(r"\"([^\"]*)\"", values.group(1))):
+            prefix = first.group(1) if first and index == 0 else (pix.group(1) if pix else "")
+            out.append(urljoin(base, prefix + value))
+        return out
+    return []
+
+
 # -- the engine ------------------------------------------------------------------------------------
 
 class GenericEngine:
@@ -1282,6 +1421,7 @@ class GenericEngine:
         return chapters[::-1] if str(props.get("episodeOrder") or "").lower() == "desc" else chapters
 
     def parse_book(self, url: str) -> Optional[dict]:
+        url = dm5_desktop(url)
         html, final = self._page(url)
         soup = soup_of(html)
         chapters = find_chapters(soup, final)
@@ -1331,6 +1471,10 @@ class GenericEngine:
         if len(listed) > len(chapters):
             self.log(f"Generic: {len(listed)} chapters from the site's page data.")
             chapters = listed
+        listed = dm5_chapters(soup, final)
+        if listed:
+            chapters = listed  # both tabs, in reading order (the address groups split them)
+            meta.update({k: v for k, v in dm5_metadata(soup).items() if v})
         if self.render is not None and (len(chapters) < 2 or (expected and len(chapters) < expected * 0.8)):
             # A list that loads as you scroll, or behind "Load more": the browser, scrolled to the end.
             try:
@@ -1497,6 +1641,62 @@ class GenericEngine:
             return None
         return "".join(f'<p><img src="{image}" alt=""/></p>' for image in images)
 
+    def _dm5_chapter(self, html: str, final: str) -> Optional[str]:
+        """A DM5-platform chapter (fanfox, mangahere): its pages from chapterfun.ashx; None for other pages."""
+        info = dm5_chapter(html)
+        if info is None:
+            return None
+        count = min(info["count"], self.MAX_MANGA_PAGES)
+        images = [urljoin(final, image) for image in info["images"]][:count]
+        if not images and count:
+            ask = final.rsplit("/", 1)[0] + "/chapterfun.ashx"
+            found: Dict[int, str] = {}  # page index -> its address
+
+            def read(page: int) -> Tuple[int, List[str]]:
+                result = self.fetch(f"{ask}?cid={info['cid']}&page={page}&key={info['key']}", referer=final,
+                                    headers={"X-Requested-With": "XMLHttpRequest"}) if self.fetch else None
+                if not result or result["status"] >= 400:
+                    return page, []
+                return page, dm5_images(decode(result), final)
+
+            def take(page: int, listed: List[str]) -> None:
+                for offset, image in enumerate(listed):
+                    if page - 1 + offset < count:
+                        found.setdefault(page - 1 + offset, image)
+                ordered = []
+                for index in range(count):
+                    if index not in found:
+                        break
+                    ordered.append(found[index])
+                self.on_images(ordered, count)
+
+            # Each answer holds two pages: every other page is asked for, then any still missing.
+            for wanted in (list(range(1, count + 1, 2)), None):
+                if wanted is None:
+                    wanted = [index + 1 for index in range(count) if index not in found]
+                if not wanted:
+                    break
+                if self.parallel:
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                    with ThreadPoolExecutor(6, thread_name_prefix="generic-dm5") as pool:
+                        for future in as_completed([pool.submit(read, page) for page in wanted]):
+                            take(*future.result())
+                else:
+                    for page in wanted:
+                        take(*read(page))
+            images = [found[index] for index in range(count) if index in found]
+            if len(images) < count:
+                self.log(f"Generic: {count - len(images)} of the chapter's {count} pages could not be read.")
+        if not images:
+            raise ValueError("the site listed no pages for this chapter")
+        if len(images) > 1 and self.fetch:
+            last = self.fetch(images[-1], referer=final, binary=True, headers={"Accept": "image/*"})
+            if last and last["status"] < 400 and image_size(last.get("content") or b"") == DM5_AD_SIZE:
+                images.pop()
+                self.on_images(images, len(images))
+        return "".join(f'<p><img src="{image}" alt=""/></p>' for image in images)
+
     def _browser_chapter(self, url: str, final: str, name: str) -> Optional[Tuple[str, str, str]]:
         """(content, text, page) of a chapter rendered in a real browser, or None when that is not
         possible or still gives scrambled text."""
@@ -1514,7 +1714,7 @@ class GenericEngine:
         return content, text, rendered
 
     def parse_chapter(self, chapter_info: dict, book: dict) -> Optional[dict]:
-        url = chapter_info.get("url", "")
+        url = dm5_desktop(chapter_info.get("url", ""))
         name = chapter_info.get("fullName") or chapter_info.get("name", "")
         host = urlsplit(url).netloc
         # A site that sent scrambled text before: straight to the browser.
@@ -1524,7 +1724,9 @@ class GenericEngine:
             final = url
         else:
             html, final = self._page(url, referer=chapter_info.get("bookUrl") or book.get("bookUrl") or "")
-            manga = self._manga_chapter(html, final)
+            manga = self._dm5_chapter(html, final)
+            if manga is None:
+                manga = self._manga_chapter(html, final)
             if manga is not None:
                 return {"chapterName": name, "contentHtml": manga, "contentText": "",
                         "imageCount": manga.count("<img"), "images": []}

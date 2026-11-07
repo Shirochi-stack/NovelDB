@@ -2339,9 +2339,13 @@
         return window.NovelDBTransport ? Promise.resolve(window.NovelDBTransport(request)) : Promise.resolve({error: 'no app', skip: true});
     }
     // Then the app's site engines that list the site (gallery-dl, HaruNeko, ...: a download's), then the page's own.
+    // fanfox and mangahere: the phone's web view is sent to their mobile site, whose chapters say "licensed",
+    // so HaruNeko's chapter window finds no pages there; the generic engine reads the desktop pages (the app
+    // leaves them to it too: SourceCatalog.genericFirst).
+    var GENERIC_FIRST = /(^|\.)(fanfox\.net|mangahere\.cc|mangahere\.com)$/i;
     function engineFor(url) {
         var engines = ['app', 'engines'];
-        if (harunekoListed(url)) engines.push('haruneko');
+        if (harunekoListed(url) && !GENERIC_FIRST.test(host(url))) engines.push('haruneko');
         engines.push('generic');
         return engines;
     }

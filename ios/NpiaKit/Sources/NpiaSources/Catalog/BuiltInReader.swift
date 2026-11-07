@@ -20,8 +20,10 @@ actor BuiltInReader {
     func handle(op: String, address: String, index: Int, engines: Bool = false, context: SourceContext) async -> String {
         guard let url = URL(string: address) else { return Self.json(["error": "not an address", "skip": true]) }
         let type = SourceCatalog.nativeAdapterType(for: url)
-        // The app's site engines that list the address (a download's own order), none of the built-in or generic ones.
-        let steps = engines ? SiteEngineRouter.plan(for: url, engines: context.settings.engines).filter { $0 != .native && $0 != .generic } : []
+        // The app's site engines that list the address (a download's own order), none of the built-in or generic ones;
+        // none on a site the generic fallback reads best (`SiteEngineRouter.genericFirst`): the page's own reads it.
+        let steps = engines && !SiteEngineRouter.genericFirst(url)
+            ? SiteEngineRouter.plan(for: url, engines: context.settings.engines).filter { $0 != .native && $0 != .generic } : []
         if engines ? steps.isEmpty : type == nil {
             return Self.json(["error": engines ? "no site engine lists this site" : "no built-in scraper for this site", "skip": true])
         }

@@ -36,6 +36,10 @@ public struct ImageStage: Sendable {
             unique.append(ref)
         }
 
+        var pageOf: [String: URL] = [:]
+        for chapter in chapters {
+            for image in chapter.images where pageOf[image.filename] == nil { pageOf[image.filename] = chapter.ref.url }
+        }
         let processor = ImageProcessor(settings: settings.images)
         let workers = max(1, settings.effective(for: source).imageWorkers)
         let compressionGate = AsyncGate(limit: max(1, settings.images.compressionWorkers))
@@ -48,14 +52,16 @@ public struct ImageStage: Sendable {
             var pending = Array(unique.reversed())
             for _ in 0..<workers {
                 guard let ref = pending.popLast() else { break }
-                group.addTask { (ref.filename, try await self.fetch(ref, processor: processor, gate: compressionGate)) }
+                let page = pageOf[ref.filename]
+                group.addTask { (ref.filename, try await self.fetch(ref, page: page, processor: processor, gate: compressionGate)) }
             }
             while let (name, image) = try await group.next() {
                 if let image { processed[name] = image } else { failed += 1 }
                 done += 1
                 onProgress(done, unique.count)
                 if let ref = pending.popLast() {
-                    group.addTask { (ref.filename, try await self.fetch(ref, processor: processor, gate: compressionGate)) }
+                    let page = pageOf[ref.filename]
+                    group.addTask { (ref.filename, try await self.fetch(ref, page: page, processor: processor, gate: compressionGate)) }
                 }
             }
         }
@@ -70,14 +76,18 @@ public struct ImageStage: Sendable {
         return Output(chapters: rewritten, images: images, failed: failed)
     }
 
-    private func fetch(_ ref: ImageRef, processor: ImageProcessor, gate: AsyncGate) async throws -> ProcessedImage? {
+    /// `page`: the chapter's address, sent as the Referer when the image server refuses a request without one (fanfox).
+    private func fetch(_ ref: ImageRef, page: URL?, processor: ImageProcessor, gate: AsyncGate) async throws -> ProcessedImage? {
         try Task.checkCancellation()
         let data: Data
         if let bytes = ref.data {
             data = bytes
         } else {
             do {
-                let response = try await http.get(ref.url)
+                var response = try await http.get(ref.url)
+                if response.status == 401 || response.status == 403, let page {
+                    response = try await http.get(ref.url, headers: ["Referer": page.absoluteString])
+                }
                 guard (200..<300).contains(response.status), !response.body.isEmpty else {
                     logger.log(.warning, "Image failed (\(response.status)): \(ref.url.absoluteString)")
                     return nil

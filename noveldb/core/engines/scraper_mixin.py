@@ -135,7 +135,11 @@ def _with_text(result: dict) -> dict:
 
 # Sites that show an age check unless a cookie says it was answered: their registered domain -> the cookies.
 # syosetu's adult site (novel18) sends every visitor to nl.syosetu.com/redirect/ageauth without `over18`.
-AGE_COOKIES = {"syosetu.com": {"over18": "yes"}}
+# fanfox and mangahere: isAdult answers their adult warning; MHNMM keeps a phone-sized browser on the desktop
+# pages (the mobile site's chapters say "licensed").
+_DM5_COOKIES = {"isAdult": "1", "MHNMM": "1"}
+AGE_COOKIES = {"syosetu.com": {"over18": "yes"}, "fanfox.net": _DM5_COOKIES, "mangahere.cc": _DM5_COOKIES,
+               "mangahere.com": _DM5_COOKIES}
 
 
 def age_cookies(url: str) -> dict:
