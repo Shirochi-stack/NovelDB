@@ -259,6 +259,8 @@ private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.LNCRAWL -> "lightnovel-crawler's sources: 400+ novel sites (Python, in the app)."
     SiteEngine.FANFICFARE -> "FanFicFare's adapters: 100+ fan-fiction archives and forums (Python, in the app)."
     SiteEngine.GALLERYDL -> "gallery-dl's extractors: manga sites such as fanfox and mangahere (Python, in the app)."
+    SiteEngine.MANGAPEAK -> "Article Image Queue's MangaPeak reader (Python, in the app)."
+    SiteEngine.TAKO -> "Tako's MangaDex and MangaHere readers (Python, in the app)."
     SiteEngine.CUSTOM -> "Your own engines: Python files added below (the desktop's format; Python, in the app)."
     SiteEngine.GENERIC -> "Any other site: reads the chapter list and text without site rules."
 }
@@ -299,7 +301,7 @@ fun EngineSettingsScreen(model: AppViewModel) {
             subtitle = "A link no built-in scraper owns goes only to the engines that list its site, then the generic fallback. Off: it tries every engine that is on, in order.",
         )
         Footnote("A built-in scraper hands over to the other engines only on sites they list.")
-        CustomEnginesSection(model)
+        CustomEnginesSection(model) { set { it.withEnabled(SiteEngine.TAKO, true) } }
 
         SectionHeader("Updates")
         bundles.forEach { (engine, bundle) ->
@@ -885,7 +887,7 @@ fun ConfigTransferScreen(model: AppViewModel) {
  * "Custom engines" place, each for the sites it reads.
  */
 @Composable
-private fun CustomEnginesSection(model: AppViewModel) {
+private fun CustomEnginesSection(model: AppViewModel, enableTako: () -> Unit) {
     val context = LocalContext.current
     var refresh by remember { mutableIntStateOf(0) }
     val added = remember(refresh) { CustomEngines.list() }
@@ -893,7 +895,7 @@ private fun CustomEnginesSection(model: AppViewModel) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("could not read it")
+            val bytes = context.contentResolver.openInputStream(uri)?.use(CustomEngines::readImport) ?: error("could not read it")
             val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                 if (c.moveToFirst()) c.getString(0) else null
             } ?: uri.lastPathSegment ?: "engine.py"
@@ -901,7 +903,7 @@ private fun CustomEnginesSection(model: AppViewModel) {
         }.onFailure { model.manager.message("Could not add the engine: ${it.message}") }
     }
     SectionHeader("Custom engines")
-    Footnote("A Python file with a class Engine (label, sites, parse_book, parse_chapter), the same file as on the desktop. They run in the app's Python, in the order's \"Custom engines\" place.")
+    Footnote("Import a Python engine, a ZIP with one Python engine, or the Tako Chrome ZIP.")
     added.forEach { engine ->
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -919,12 +921,17 @@ private fun CustomEnginesSection(model: AppViewModel) {
         AlertDialog(
             onDismissRequest = { pending = null },
             title = { Text("Add a custom engine") },
-            text = { Text("$name is Python code that runs inside the app, with its access to your downloads and logins. Only add one you wrote or trust.") },
+            text = { Text("Import $name? Python engines run with the app's access to your downloads and logins. Only add engines you trust.") },
             confirmButton = {
                 TextButton(onClick = {
                     pending = null
                     val message = runCatching { CustomEngines.add(name, bytes) }.fold(
-                        { info -> "Added ${info.label}" + if (info.sites.isEmpty()) "." else " for ${info.sites.joinToString(", ")}." },
+                        { info ->
+                            if (info.bundled) {
+                                enableTako()
+                                "Tako readers enabled."
+                            } else "Added ${info.label}" + if (info.sites.isEmpty()) "." else " for ${info.sites.joinToString(", ")}."
+                        },
                         { "This file is not an engine: ${it.message}." },
                     )
                     model.manager.message(message)

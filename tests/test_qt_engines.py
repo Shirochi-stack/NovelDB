@@ -40,13 +40,13 @@ def _button(form, text):
     return next(b for b in form.findChildren(QPushButton) if b.text() == text)
 
 
-REST = ["lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "generic"]
+REST = ["lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "haruneko", "gallerydl", "generic"]
 
 
 def test_reorder_and_switch_off(form, context):
     engines = form.findChild(QListWidget)
     assert _names(engines) == ["native", "novel_downloader", "webtoepub", *REST]
-    assert engines.item(engines.count() - 1).text().startswith("9. Generic fallback")
+    assert engines.item(engines.count() - 1).text().startswith(f"{3 + len(REST)}. Generic fallback")
     engines.setCurrentRow(2)
     _button(form, "Move up").click()
     _button(form, "Move up").click()

@@ -90,9 +90,11 @@ A link pasted into **Download** (or a book picked in the Catalog) is read by a *
 | 4 | **lightnovel-crawler sources** | [lightnovel-crawler](https://github.com/lncrawl/lightnovel-crawler)'s sources, many languages. |
 | 5 | **LNReader plugins** | [LNReader](https://github.com/LNReader/lnreader-plugins)'s plugins; they also power part of the Catalog search. |
 | 6 | **FanFicFare adapters** | [FanFicFare](https://github.com/JimmXinu/FanFicFare)'s adapters for fan-fiction archives. |
-| 7 | **HaruNeko websites** | [HaruNeko](https://github.com/manga-download/haruneko)'s manga and webtoon sites. |
-| 8 | **gallery-dl extractors** | [gallery-dl](https://github.com/mikf/gallery-dl)'s extractors, for image-based comics. |
-| 9 | **Generic fallback** | Reads any other site: finds the chapter list (following its pages, "load more" lists and app page data) and each chapter's main text, in a real browser when the site needs one. |
+| 7 | **Article Image Queue readers** | The [Article Image Queue Downloader](https://sleazyfork.org/en/scripts/555974-%E5%9C%96%E9%9B%86%E6%89%B9%E9%87%8F%E9%9A%8A%E5%88%97%E4%B8%8B%E8%BC%89%E5%99%A8/code#L4335) MangaPeak adapter for Rolia Scan. |
+| 8 | **Tako readers** | The MangaDex and MangaHere adapters from [Tako](https://github.com/oovz/Tako), shared by desktop, Android and iOS. |
+| 9 | **HaruNeko websites** | [HaruNeko](https://github.com/manga-download/haruneko)'s manga and webtoon sites. |
+| 10 | **gallery-dl extractors** | [gallery-dl](https://github.com/mikf/gallery-dl)'s extractors, for image-based comics. |
+| 11 | **Generic fallback** | Reads any other site: finds the chapter list (following its pages, "load more" lists and app page data) and each chapter's main text, in a real browser when the site needs one. |
 
 ### How an engine is chosen
 
@@ -100,7 +102,7 @@ With **Dynamic priority** on (the default), a link only tries the engines that l
 
 When a built-in scraper owns a site, the other engines follow only if they list that site too, so a clear failure (a DRM-only book, a missing sign-in) is reported without extra attempts.
 
-**Settings › Site engines** lets you drag the engines into another order, untick one to skip it, and add your own: **Add custom engine** loads a Python file with an `Engine` class (`label`, `sites`, `parse_book`, `parse_chapter`; see `noveldb/core/engines/custom_engines.py`). A custom engine goes just before the generic fallback.
+**Settings › Site engines** lets you reorder or disable engines on desktop, Android and iOS. **Add custom engine** accepts a Python file or a ZIP with one Python engine (`Engine` class with `label`, `sites`, `parse_book` and `parse_chapter`, see `noveldb/core/engines/custom_engines.py`). Importing the Tako Chrome ZIP enables the bundled Tako adapters. Mobile runs these Python engines in Pyodide.
 
 ### Logins and browsers
 

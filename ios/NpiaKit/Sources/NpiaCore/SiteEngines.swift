@@ -2,9 +2,9 @@ import Foundation
 
 /// The engines a book link can go through. Each link tries them in the user's order until one
 /// finds chapters (the desktop's order): the app's own scrapers, the novel-downloader rules, the
-/// WebToEpub parsers, lightnovel-crawler's sources, the LNReader plugins, FanFicFare's adapters, the
-/// HaruNeko websites, gallery-dl's extractors, then the generic fallback (any site, without site
-/// rules). The three Python engines run the desktop's own modules in Pyodide (`PythonEngines`).
+/// WebToEpub parsers, lightnovel-crawler's sources, the LNReader plugins, FanFicFare's adapters,
+/// Article Image Queue readers, Tako readers, HaruNeko websites, gallery-dl's extractors, custom
+/// engines, then the generic fallback. The Python engines run the desktop's modules in Pyodide.
 /// Raw values are the names the desktop config uses.
 public enum SiteEngine: String, Codable, CaseIterable, Sendable {
     case native
@@ -13,8 +13,11 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
     case lncrawl
     case lnreader
     case fanficfare
+    case mangapeak
+    case tako
     case haruneko
     case gallerydl
+    case custom
     case generic
 
     public var title: String {
@@ -27,6 +30,9 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .lncrawl: return "lightnovel-crawler sources"
         case .fanficfare: return "FanFicFare adapters"
         case .gallerydl: return "gallery-dl extractors"
+        case .mangapeak: return "Article Image Queue readers"
+        case .tako: return "Tako readers"
+        case .custom: return "Custom engines"
         case .generic: return "Generic fallback"
         }
     }
@@ -41,6 +47,9 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .lncrawl: return "400+ novel sites (Python, in the app)."
         case .fanficfare: return "100+ fan-fiction archives and forums (Python, in the app)."
         case .gallerydl: return "Manga sites such as fanfox and mangahere (Python, in the app)."
+        case .mangapeak: return "Article Image Queue's MangaPeak reader (Python, in the app)."
+        case .tako: return "Tako's MangaDex and MangaHere readers (Python, in the app)."
+        case .custom: return "Python engines imported in Settings."
         case .generic: return "Any other site: reads the chapter list and text without site rules."
         }
     }
@@ -54,6 +63,12 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
             if let engine = SiteEngine(rawValue: name), !seen.contains(engine) {
                 seen.append(engine)
             }
+        }
+        let additions: [SiteEngine] = [.mangapeak, .tako, .custom]
+        for engine in additions where !(names ?? []).contains(engine.rawValue) {
+            seen.removeAll { $0 == engine }
+            let before: SiteEngine = engine == .custom ? .generic : .haruneko
+            seen.insert(engine, at: seen.firstIndex(of: before) ?? seen.endIndex)
         }
         return seen.filter { !disabled.contains($0) }
     }
@@ -164,7 +179,7 @@ public struct EngineSettings: Codable, Sendable, Equatable {
 
     public func autoUpdate(_ engine: SiteEngine) -> Bool {
         switch engine {
-        case .native, .generic: return false
+        case .native, .generic, .mangapeak, .tako, .custom: return false
         case .novelDownloader: return novelDownloaderAutoUpdate
         case .webtoepub: return webtoepubAutoUpdate
         case .lnreader: return lnreaderAutoUpdate

@@ -42,12 +42,15 @@ internal object BuiltInReader {
 
     /**
      * The app's site engines that list the address (a download's own order), none of the built-in or generic
-     * ones; none on a site the generic fallback reads best (`SourceCatalog.genericFirst`): the page's own reads it.
+     * ones. On sites the generic reader handles first, keep Tako available if the generic book lookup fails.
      */
     private fun enginesFor(url: String, context: SourceContext): SourceAdapter? {
-        if (SourceCatalog.genericFirst(url)) return null
         val chain = SourceCatalog.resolve(url, context.settings.engines) as? SiteEngineChain ?: return null
-        val steps = chain.steps.filter { it != SiteEngine.NATIVE && it != SiteEngine.GENERIC }
+        val steps = if (SourceCatalog.genericFirst(url)) {
+            chain.steps.filter { it == SiteEngine.TAKO && PythonEngines.listsBundled(it, url) }
+        } else {
+            chain.steps.filter { it != SiteEngine.NATIVE && it != SiteEngine.GENERIC }
+        }
         return if (steps.isEmpty()) null else SiteEngineChain(null, steps)
     }
 
@@ -135,6 +138,9 @@ internal object BuiltInReader {
                 buildJsonObject {
                     put("chapterName", ref.title)
                     put("contentHtml", html)
+                    if (adapter is SiteEngineChain && result.content.images.isNotEmpty() &&
+                        html.replace(Regex("<[^>]+>"), "").isBlank()
+                    ) put("comic", true)
                 }.toString()
             }
             is ChapterResult.Refused -> buildJsonObject { put("error", "This chapter is locked: ${result.reason}"); put("locked", true) }.toString()

@@ -65,6 +65,8 @@ MODULES = {
     "fanficfare_engine.py": ROOT / "noveldb" / "core" / "engines" / "fanficfare_engine.py",
     "gallerydl_engine.py": ROOT / "noveldb" / "core" / "engines" / "gallerydl_engine.py",
     "generic.py": ROOT / "noveldb" / "core" / "engines" / "generic.py",
+    "mangapeak.py": ROOT / "noveldb" / "core" / "engines" / "mangapeak.py",
+    "tako.py": ROOT / "noveldb" / "core" / "engines" / "tako.py",
 }
 BUNDLES = {"lncrawl": ROOT / "lncrawl", "fanficfare": ROOT / "fanficfare", "gallerydl": ROOT / "gallerydl"}
 CACHE = ROOT / "build" / "pyodide-cache"

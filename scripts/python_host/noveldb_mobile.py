@@ -277,6 +277,10 @@ def _engine(name: str):
             from noveldb.core.engines.fanficfare_engine import FanFicFareEngine as Engine
         elif name == "gallerydl":
             from noveldb.core.engines.gallerydl_engine import GalleryDlEngine as Engine
+        elif name == "mangapeak":
+            from noveldb.core.engines.mangapeak import MangaPeakEngine as Engine
+        elif name == "tako":
+            from noveldb.core.engines.tako import TakoEngine as Engine
         else:
             raise ValueError(f"no engine {name}")
         _engines[name] = Engine(fetch=fetch)

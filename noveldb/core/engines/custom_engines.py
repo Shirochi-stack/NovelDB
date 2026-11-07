@@ -34,14 +34,62 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
 import re
-import shutil
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Callable, Dict, List, Optional
 from urllib.parse import urlsplit
+from zipfile import BadZipFile, ZipFile
 
 PREFIX = "custom:"
 _loaded: Dict[str, tuple] = {}  # name -> (file's mtime, module)
+_MAX_ARCHIVE = 32 << 20
+_MAX_SOURCE = 2 << 20
+
+
+def _archive(path: Path) -> tuple[str, str]:
+    """Return an engine entry point or the bundled adapter ID without extracting archive paths."""
+    if path.stat().st_size > _MAX_ARCHIVE:
+        raise ValueError("engine ZIP exceeds 32 MB")
+    try:
+        with ZipFile(path) as bundle:
+            members = bundle.infolist()
+            entries = {item.filename: item for item in members if not item.is_dir()}
+            if len(members) > 256 or len(entries) != sum(not item.is_dir() for item in members):
+                raise ValueError("engine ZIP has too many or duplicate entries")
+            if "manifest.json" in entries:
+                def json_entry(name):
+                    item = entries.get(name)
+                    if not item or item.file_size > 64 << 10:
+                        return {}
+                    data = json.loads(bundle.read(item))
+                    return data if isinstance(data, dict) else {}
+
+                manifest = json_entry("manifest.json")
+                name = manifest.get("name")
+                if name == "__MSG_extName__":
+                    name = (json_entry("_locales/en/messages.json").get("extName") or {}).get("message")
+                if (manifest.get("manifest_version") == 3 and name == "Tako Manga Downloader"
+                        and {"background.js", "offscreen.html", "sidepanel.html"} <= entries.keys()):
+                    return "tako", ""
+                if manifest.get("manifest_version"):
+                    raise ValueError("this Chrome extension has no NovelDB adapter")
+            found = []
+            for name, item in entries.items():
+                if not name.lower().endswith(".py") or item.file_size > _MAX_SOURCE:
+                    continue
+                try:
+                    source = bundle.read(item).decode("utf-8-sig")
+                    describe(source)
+                except (UnicodeDecodeError, ValueError):
+                    continue
+                found.append((Path(name.replace("\\", "/")).stem, source))
+            if len(found) != 1:
+                raise ValueError("engine ZIP must contain exactly one Python file with class Engine")
+            return found[0]
+    except (BadZipFile, RuntimeError, TypeError, AttributeError) as error:
+        raise ValueError("unreadable engine ZIP") from error
 
 
 def folder() -> Path:
@@ -124,14 +172,23 @@ def add(source_path: str) -> str:
     when it is not an engine file. A file of the same name replaces the one there."""
     path = Path(source_path)
     try:
-        text = path.read_text(encoding="utf-8")
+        stem, text = _archive(path) if path.suffix.lower() == ".zip" else (path.stem, path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError) as e:
         raise ValueError(f"could not read it ({e})") from None
+    if stem == "tako" and not text:
+        return stem
     describe(text)
-    ident = re.sub(r"[^a-z0-9_]+", "_", path.stem.lower()).strip("_") or "engine"
+    ident = re.sub(r"[^a-z0-9_]+", "_", stem.lower()).strip("_") or "engine"
     target = folder() / f"{ident}.py"
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(path, target)
+    temporary = NamedTemporaryFile(dir=target.parent, encoding="utf-8", mode="w", delete=False)
+    temp = Path(temporary.name)
+    try:
+        with temporary:
+            temporary.write(text)
+        temp.replace(target)
+    finally:
+        temp.unlink(missing_ok=True)
     _loaded.pop(PREFIX + ident, None)
     return PREFIX + ident
 

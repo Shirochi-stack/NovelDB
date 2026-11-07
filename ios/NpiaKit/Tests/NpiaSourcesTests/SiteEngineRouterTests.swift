@@ -164,11 +164,19 @@ final class SiteEngineRouterTests: XCTestCase {
 
     // MARK: - Which links can be tried
 
+    func testDynamicPriorityListsTheBundledComicEnginesForTheirSites() {
+        let settings = EngineSettings(order: [.haruneko, .generic])
+        let rolia = URL(string: "https://\u{0072}\u{006f}\u{006c}\u{0069}\u{0061}\u{0073}\u{0063}\u{0061}\u{006e}.com/manga/example/")!
+        let dex = URL(string: "https://mangadex.org/title/19033d6c-ff8b-4c91-9642-8d1f30f7e399")!
+        XCTAssertEqual(SiteEngineRouter.plan(for: rolia, engines: settings).first, .mangapeak)
+        XCTAssertEqual(SiteEngineRouter.plan(for: dex, engines: settings).first, .tako)
+    }
+
     func testAWebPageNoSiteListNamesIsTriedByTheScriptEngines() {
         // WebToEpub also recognises some sites by their page, so an unlisted page is still worth a try.
         let url = URL(string: "https://unlisted.example/book/1")!
         XCTAssertNil(SourceCatalog.adapterType(for: url))
-        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: EngineSettings(dynamicPriority: false)), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: EngineSettings(dynamicPriority: false)), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .haruneko, .gallerydl, .generic])
         // Dynamic priority (the default): nothing lists the site, so only the generic fallback.
         XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: EngineSettings()), [.generic])
         XCTAssertTrue(SiteEngineRouter.canTry(url, engines: EngineSettings()))
@@ -176,12 +184,12 @@ final class SiteEngineRouterTests: XCTestCase {
     }
 
     func testSwitchedOffEnginesDecideWhichLinksCanBeTried() {
-        let nativeOnly = EngineSettings(disabled: [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        let nativeOnly = EngineSettings(disabled: [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .haruneko, .gallerydl, .generic])
         // Only the script engines read this site, so with them off nothing can.
         let listed = URL(string: "https://www.fictionpress.com/s/1")!
         XCTAssertFalse(SiteEngineRouter.canTry(listed, engines: nativeOnly))
         XCTAssertFalse(SiteEngineRouter.canTry(URL(string: "https://unlisted.example/book/1")!, engines: nativeOnly))
-        XCTAssertEqual(SiteEngineRouter.plan(for: listed, engines: EngineSettings(disabled: [.novelDownloader], dynamicPriority: false)), [.webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        XCTAssertEqual(SiteEngineRouter.plan(for: listed, engines: EngineSettings(disabled: [.novelDownloader], dynamicPriority: false)), [.webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .haruneko, .gallerydl, .generic])
 
         // A site a built-in scraper owns.
         let owned = URL(string: "https://xiyuwx.com/book/123/")!
@@ -189,7 +197,7 @@ final class SiteEngineRouterTests: XCTestCase {
         XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: nativeOnly), [.native])
         XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings()).first, .native)
         // With the built-in scrapers off, the script engines try it like any other web page.
-        XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings(disabled: [.native], dynamicPriority: false)), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic])
+        XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings(disabled: [.native], dynamicPriority: false)), [.novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .haruneko, .gallerydl, .generic])
     }
 
     func testALinkNoEngineCanTryIsUnsupported() async {

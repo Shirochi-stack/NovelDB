@@ -24,7 +24,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from noveldb.core.settings.model import ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC, ENGINE_LNR
+from noveldb.core.settings.model import (ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC,
+                                        ENGINE_LNR, ENGINE_MANGAPEAK, ENGINE_TAKO)
 
 TRANSPORT_BINDING = "__noveldb_engine_transport"
 WINDOW_BINDING = "__noveldb_window_script"
@@ -99,8 +100,9 @@ PAGE_SCRIPTS = {
     ENGINE_LNR: PageScript(ENGINE_LNR, "__LNR", "_lnreader", "LNReader", "LNREADER"),
     ENGINE_HN: PageScript(ENGINE_HN, "__HN", "_haruneko", "HaruNeko", "HARUNEKO"),
 }
-PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC)
-PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GDL: "_gallerydl", ENGINE_GENERIC: "_generic"}
+PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_GENERIC)
+PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GDL: "_gallerydl",
+                ENGINE_MANGAPEAK: "_mangapeak", ENGINE_TAKO: "_tako", ENGINE_GENERIC: "_generic"}
 
 
 def _image_kind(data_base64: str) -> str:
@@ -739,6 +741,12 @@ class SiteEnginesMixin:
             elif engine == ENGINE_FFF:
                 from noveldb.core.engines.fanficfare_engine import FanFicFareEngine
                 engines[engine] = FanFicFareEngine(fetch=self.engine_fetch, log=self.log)
+            elif engine == ENGINE_MANGAPEAK:
+                from noveldb.core.engines.mangapeak import MangaPeakEngine
+                engines[engine] = MangaPeakEngine(fetch=self.engine_fetch, log=self.log)
+            elif engine == ENGINE_TAKO:
+                from noveldb.core.engines.tako import TakoEngine
+                engines[engine] = TakoEngine(fetch=self.engine_fetch, log=self.log)
             else:
                 from noveldb.core.engines.generic import GenericEngine
                 engines[engine] = GenericEngine(fetch=self.engine_fetch, log=self.log, render=self.render_html)

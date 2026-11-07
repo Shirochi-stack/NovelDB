@@ -70,11 +70,30 @@ internal object PythonEngines {
         SiteEngine.LNCRAWL -> "lncrawl"
         SiteEngine.FANFICFARE -> "fanficfare"
         SiteEngine.GALLERYDL -> "gallerydl"
+        SiteEngine.MANGAPEAK -> "mangapeak"
+        SiteEngine.TAKO -> "tako"
         SiteEngine.CUSTOM -> "custom"
         else -> null
     }
 
     fun isPython(engine: SiteEngine): Boolean = name(engine) != null
+
+    internal fun listsBundled(engine: SiteEngine, url: String): Boolean {
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+        if (uri.scheme !in listOf("http", "https")) return false
+        val host = uri.host?.lowercase()?.removePrefix("www.") ?: return false
+        val path = uri.path.orEmpty()
+        return when (engine) {
+            SiteEngine.MANGAPEAK -> host == "\u0072\u006f\u006c\u0069\u0061\u0073\u0063\u0061\u006e.com" &&
+                (path.startsWith("/manga/") || path.startsWith("/read/"))
+            SiteEngine.TAKO -> when (host) {
+                "mangadex.org" -> path.startsWith("/title/") || path.startsWith("/chapter/")
+                "mangahere.cc", "mangahere.com", "newm.mangahere.cc" -> path.startsWith("/manga/")
+                else -> false
+            }
+            else -> false
+        }
+    }
 
     /** This build has the Python engines' page (a build made without scripts/fetch_python_host.py has none). */
     val available: Boolean by lazy { PythonEngines::class.java.getResource(RESOURCES + "python-host.html") != null }
@@ -87,6 +106,9 @@ internal object PythonEngines {
             val added = CustomEngines.list()
             if (added.isEmpty()) throw EngineMissException("No custom engines are added.")
             added.joinToString(", ") { it.label }
+        } else if (engine == SiteEngine.MANGAPEAK || engine == SiteEngine.TAKO) {
+            if (!listsBundled(engine, url)) throw EngineMissException(engine.label + " have no source for this site.")
+            "built in"
         } else {
             val rule = RuleEngine.of(engine)
             val bundle = rule?.let { RuleEngines.store.current(it) }

@@ -2375,8 +2375,9 @@
         return /^(www\.)?(asurascans\.com|asuracomic\.net)$/i.test(host(url)) && /^https?:\/\/[^\/]+\/(comics|series)\//i.test(url);
     }
     function engineFor(url) {
+        if (genericFirst(url)) return ['app', 'generic', 'engines'];
         var engines = ['app', 'engines'];
-        if (harunekoListed(url) && !genericFirst(url)) engines.push('haruneko');
+        if (harunekoListed(url)) engines.push('haruneko');
         engines.push('generic');
         return engines;
     }
@@ -2576,7 +2577,7 @@
                 if (!active()) throw new Error('the reader was closed');
                 if (!(data.chapters || []).length) throw new Error('no chapters found');
                 remember(name, data);
-                return {title: data.bookname || '', author: data.author || '', engine: data.ruleName || name,
+                return {title: data.bookname || '', author: data.author || '', engine: data.ruleName || data.engine || name,
                         chapters: names(data.chapters, 0)};
             }).catch(function (error) {
                 if (name) errors.push(name + ': ' + ((error && error.message) || error));

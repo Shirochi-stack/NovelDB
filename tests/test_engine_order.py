@@ -9,7 +9,7 @@ from noveldb.core.settings.model import SITE_ENGINES, AppSettings, EngineSetting
 
 BOOK = {"bookname": "Book", "chapters": [{"url": "https://site.test/c1", "name": "One"}]}
 EMPTY = {"bookname": "Book", "chapters": []}
-REST = ("lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "generic")  # after the original three
+REST = ("lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "haruneko", "gallerydl", "generic")
 
 
 def test_engine_order_keeps_known_engines_and_appends_missing():

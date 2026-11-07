@@ -21527,9 +21527,16 @@ async (items) => {
         """
         from noveldb.core import engine_updates
         from noveldb.core.engines import fanficfare_engine, site_index
+        from noveldb.core.settings.model import ENGINE_MANGAPEAK, ENGINE_TAKO
 
         if engine == ENGINE_GENERIC:
             return False
+        if engine == ENGINE_MANGAPEAK:
+            from noveldb.core.engines import mangapeak
+            return mangapeak.knows(url)
+        if engine == ENGINE_TAKO:
+            from noveldb.core.engines import tako
+            return tako.knows(url)
         if custom_engines.is_custom(engine):
             return custom_engines.knows_site(engine, url)  # the sites its file names
         try:

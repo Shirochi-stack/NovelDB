@@ -21,10 +21,11 @@ actor BuiltInReader {
                 page: Int? = nil, context: SourceContext) async -> String {
         guard let url = URL(string: address) else { return Self.json(["error": "not an address", "skip": true]) }
         let type = SourceCatalog.nativeAdapterType(for: url)
-        // The app's site engines that list the address (a download's own order), none of the built-in or generic ones;
-        // none on a site the generic fallback reads best (`SiteEngineRouter.genericFirst`): the page's own reads it.
-        let steps = engines && !SiteEngineRouter.genericFirst(url)
-            ? SiteEngineRouter.plan(for: url, engines: context.settings.engines).filter { $0 != .native && $0 != .generic } : []
+        let genericFirst = SiteEngineRouter.genericFirst(url)
+        let steps = engines ? SiteEngineRouter.plan(for: url, engines: context.settings.engines).filter {
+            if genericFirst { return $0 == .tako && PythonEngines.listsBundled($0, url: url) }
+            return $0 != .native && $0 != .generic
+        } : []
         if engines ? steps.isEmpty : type == nil {
             return Self.json(["error": engines ? "no site engine lists this site" : "no built-in scraper for this site", "skip": true])
         }
@@ -57,7 +58,10 @@ actor BuiltInReader {
                     let shown = image.data.map { "data:\(Self.mime(image.filename));base64,\($0.base64EncodedString())" } ?? image.url.absoluteString
                     html = html.replacingOccurrences(of: image.filename, with: shown)
                 }
-                return Self.json(["chapterName": ref.title, "contentHtml": html])
+                let comic = !steps.isEmpty && !content.images.isEmpty &&
+                    html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return Self.json(["chapterName": ref.title, "contentHtml": html, "comic": comic])
             case .refused(_, let reason):
                 return Self.json(["error": "This chapter is locked: \(reason)", "locked": true])
             case .failed(_, let message):

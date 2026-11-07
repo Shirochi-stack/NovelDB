@@ -91,7 +91,7 @@ public extension SiteEngine {
     /// (a script shipped with the app that tries any site).
     var ruleEngine: RuleEngine? {
         switch self {
-        case .native, .generic: return nil
+        case .native, .generic, .mangapeak, .tako, .custom: return nil
         case .novelDownloader: return .novelDownloader
         case .webtoepub: return .webtoepub
         case .lnreader: return .lnreader

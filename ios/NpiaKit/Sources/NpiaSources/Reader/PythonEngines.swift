@@ -27,6 +27,9 @@ actor PythonEngines {
         case .lncrawl: return "lncrawl"
         case .fanficfare: return "fanficfare"
         case .gallerydl: return "gallerydl"
+        case .mangapeak: return "mangapeak"
+        case .tako: return "tako"
+        case .custom: return "custom"
         default: return nil
         }
     }
@@ -34,12 +37,33 @@ actor PythonEngines {
     /// This build has the Python engines' page (a build made without scripts/fetch_python_host.py has none).
     static var available: Bool { file("python-host.html") != nil }
 
+    static func listsBundled(_ engine: SiteEngine, url: URL) -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let hostname = url.host?.lowercased() else { return false }
+        let host = hostname.hasPrefix("www.") ? String(hostname.dropFirst(4)) : hostname
+        switch (engine, host) {
+        case (.mangapeak, "\u{0072}\u{006f}\u{006c}\u{0069}\u{0061}\u{0073}\u{0063}\u{0061}\u{006e}.com"):
+            return url.path.hasPrefix("/manga/") || url.path.hasPrefix("/read/")
+        case (.tako, "mangadex.org"): return url.path.hasPrefix("/title/") || url.path.hasPrefix("/chapter/")
+        case (.tako, "mangahere.cc"), (.tako, "mangahere.com"), (.tako, "newm.mangahere.cc"):
+            return url.path.hasPrefix("/manga/")
+        default: return false
+        }
+    }
+
     /// The book at `url` read by `engine`; a site the engine doesn't list is refused before anything starts.
     func openBook(_ engine: SiteEngine, url: URL, context: SourceContext, store: EngineStore = .shared) async throws -> ReaderBookPayload {
-        guard let name = Self.name(engine), let rule = engine.ruleEngine, store.current(rule) != nil else {
+        guard let name = Self.name(engine) else {
             throw EngineNoMatch(message: "The \(engine.title) are missing from this build.")
         }
-        guard EngineSites.lists(rule, url, store: store) else {
+        let listed: Bool
+        switch engine {
+        case .mangapeak, .tako: listed = Self.listsBundled(engine, url: url)
+        case .custom: listed = CustomEngines.lists(url)
+        default:
+            listed = engine.ruleEngine.map { EngineSites.lists($0, url, store: store) } ?? false
+        }
+        guard listed else {
             throw EngineNoMatch(message: "The \(engine.title) have no source for this site.")
         }
         let data = try await call(context, "parseBook", name, url.absoluteString)
@@ -138,6 +162,15 @@ actor PythonEngines {
         if path == "transport" {
             guard let raw = query.split(separator: "&").first(where: { $0.hasPrefix("r=") })?.dropFirst(2),
                   let json = Self.base64URL(String(raw)) else { return nil }
+            if let data = json.data(using: .utf8),
+               let request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               request["op"] as? String == "customEngines" {
+                let engines = CustomEngines.list().map {
+                    ["id": $0.id, "label": $0.label, "source": $0.source, "sites": $0.sites] as [String: Any]
+                }
+                let reply = (try? JSONSerialization.data(withJSONObject: ["engines": engines])) ?? Data()
+                return LocalResponse(mimeType: "application/json", body: reply)
+            }
             guard let context else {
                 return LocalResponse(mimeType: "application/json", body: Data(#"{"error":"the Python engines have no request context"}"#.utf8))
             }

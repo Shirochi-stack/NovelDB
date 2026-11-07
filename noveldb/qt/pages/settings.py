@@ -618,6 +618,8 @@ ENGINE_HINTS = {
     "lncrawl": "lightnovel-crawler's sources for 400+ novel sites.",
     "fanficfare": "FanFicFare's adapters for 100+ fan-fiction archives and forums.",
     "haruneko": "HaruNeko's websites for 800+ manga and webtoon sites.",
+    "mangapeak": "Article Image Queue's MangaPeak reader.",
+    "tako": "Tako's MangaDex and MangaHere readers.",
     "gallerydl": "gallery-dl's extractors for manga sites (mangatown, mangadex, mangafire and more).",
     "generic": "Reads any other site: its chapter list and text, without site rules.",
 }
@@ -679,12 +681,11 @@ def engines_form(context: AppContext) -> Form:
 
     # Custom engines: a Python file of the user's (noveldb.core.engines.custom_engines has the format).
     add_custom, remove_custom = QPushButton("Add custom engine…"), QPushButton("Remove")
-    add_custom.setToolTip("A Python file with a class Engine (label, sites, parse_book, parse_chapter). "
-                          "It is copied into NovelDB's data folder and runs on Android too.")
+    add_custom.setToolTip("Import a Python engine, a ZIP with one Python engine, or the Tako Chrome ZIP.")
     remove_custom.setToolTip("Remove the selected custom engine.")
 
     def add_engine():
-        path, _ = QFileDialog.getOpenFileName(engines, "Add a custom engine", "", "Python engine (*.py)")
+        path, _ = QFileDialog.getOpenFileName(engines, "Add a custom engine", "", "Engine files (*.py *.zip)")
         if not path:
             return
         from noveldb.core.engines import custom_engines
@@ -698,6 +699,12 @@ def engines_form(context: AppContext) -> Form:
             name = custom_engines.add(path)
         except ValueError as e:
             QMessageBox.warning(engines, "Add a custom engine", f"This file is not an engine: {e}.")
+            return
+        if name == "tako":
+            context.update_settings(lambda s: replace(s, engines=replace(
+                s.engines, disabled=tuple(engine for engine in s.engines.disabled if engine != name))))
+            show(context.settings)
+            QMessageBox.information(engines, "Add a custom engine", "Tako readers enabled.")
             return
         show(context.settings)
         store()  # its place in the order (before the generic fallback) is saved

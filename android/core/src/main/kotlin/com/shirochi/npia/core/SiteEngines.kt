@@ -5,9 +5,9 @@ import kotlinx.serialization.Serializable
 /**
  * The ways a book page can be read, tried in the user's order until one returns chapters (the
  * desktop's `SITE_ENGINES`, in its order): the app's own scrapers, the novel-downloader rules, the
- * WebToEpub parsers, lightnovel-crawler's sources, the LNReader plugins, FanFicFare's adapters, the
- * HaruNeko websites, gallery-dl's extractors, the user's custom engines, then the generic fallback
- * (any site, without site rules). The three Python engines and the custom engines run in Pyodide
+ * WebToEpub parsers, lightnovel-crawler's sources, the LNReader plugins, FanFicFare's adapters,
+ * Article Image Queue readers, Tako readers, HaruNeko websites, gallery-dl's extractors, the
+ * user's custom engines, then the generic fallback. The Python engines run in Pyodide
  * (`PythonEngines`). `raw` is the name the desktop settings file uses (the desktop lists each custom
  * engine on its own, as `custom:<id>`; here they are one place in the order).
  */
@@ -18,6 +18,8 @@ enum class SiteEngine(val raw: String, val label: String) {
     LNCRAWL("lncrawl", "lightnovel-crawler sources"),
     LNREADER("lnreader", "LNReader plugins"),
     FANFICFARE("fanficfare", "FanFicFare adapters"),
+    MANGAPEAK("mangapeak", "Article Image Queue readers"),
+    TAKO("tako", "Tako readers"),
     HARUNEKO("haruneko", "HaruNeko websites"),
     GALLERYDL("gallerydl", "gallery-dl extractors"),
     CUSTOM("custom", "Custom engines"),
@@ -39,6 +41,12 @@ enum class SiteEngine(val raw: String, val label: String) {
             val off = disabled?.toSet().orEmpty()
             val given = (order ?: emptyList()).mapNotNull(::fromRaw)
             val all = (given + entries).distinct().toMutableList()
+            for (engine in listOf(MANGAPEAK, TAKO)) {
+                if (engine !in given) {
+                    all.remove(engine)
+                    all.add(all.indexOf(HARUNEKO), engine)
+                }
+            }
             if (CUSTOM !in given) {
                 all.remove(CUSTOM)
                 all.add(all.indexOf(GENERIC).takeIf { it >= 0 } ?: all.size, CUSTOM)
@@ -84,7 +92,7 @@ data class EngineSettings(
         SiteEngine.LNCRAWL -> lncrawlAutoUpdate
         SiteEngine.FANFICFARE -> fanficfareAutoUpdate
         SiteEngine.GALLERYDL -> gallerydlAutoUpdate
-        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.GENERIC -> false
+        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.GENERIC -> false
     }
 
     fun withAutoUpdate(engine: SiteEngine, on: Boolean): EngineSettings = when (engine) {
@@ -95,7 +103,7 @@ data class EngineSettings(
         SiteEngine.LNCRAWL -> copy(lncrawlAutoUpdate = on)
         SiteEngine.FANFICFARE -> copy(fanficfareAutoUpdate = on)
         SiteEngine.GALLERYDL -> copy(gallerydlAutoUpdate = on)
-        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.GENERIC -> this
+        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.GENERIC -> this
     }
 
     /** Switches `engine` on or off. The last engine that is on cannot be switched off. */

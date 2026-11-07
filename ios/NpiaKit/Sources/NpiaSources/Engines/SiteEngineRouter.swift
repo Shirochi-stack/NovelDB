@@ -46,7 +46,7 @@ public enum SiteEngineRouter {
                     let adapter = type.init()
                     let book = try await adapter.parseBook(url, context: context)
                     return Opened(adapter: adapter, book: book, engine: .native)
-                case .novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .haruneko, .gallerydl, .generic:
+                default:
                     let session = try await ReaderSessions.shared.open(url, context: context, engines: [engine], page: page)
                     return Opened(adapter: ReaderAdapter(), book: session.book, engine: engine)
                 }
@@ -67,8 +67,11 @@ public enum SiteEngineRouter {
     /// recognises some sites by their page.
     public static func plan(for url: URL, engines: EngineSettings) -> [SiteEngine] {
         let isWebPage = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
-        let steps = plan(order: engines.enabled(), nativeOwnsURL: SourceCatalog.nativeAdapterType(for: url) != nil,
+        let enabled = engines.enabled().filter { $0 != .custom || !CustomEngines.list().isEmpty }
+        let steps = plan(order: enabled, nativeOwnsURL: SourceCatalog.nativeAdapterType(for: url) != nil,
                          dynamic: engines.dynamicPriority) { engine in
+            if engine == .mangapeak || engine == .tako { return PythonEngines.listsBundled(engine, url: url) }
+            if engine == .custom { return CustomEngines.lists(url) }
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.lists(rules, url)
         }

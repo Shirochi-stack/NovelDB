@@ -216,6 +216,11 @@ struct SourceOptionsForm: View {
 /// The engines a link tries in order, and the opt-in updates of the two rule engines.
 struct SiteEnginesForm: View {
     @Environment(AppModel.self) private var model
+    @State private var importingEngine = false
+    @State private var confirmingEngine = false
+    @State private var pendingEngine: URL?
+    @State private var importedEngines = CustomEngines.list()
+    @State private var importMessage: String?
 
     var body: some View {
         @Bindable var model = model
@@ -240,6 +245,29 @@ struct SiteEnginesForm: View {
                 Toggle("Dynamic priority", isOn: $model.settings.engines.dynamicPriority)
             } footer: {
                 Text("A link no built-in scraper owns goes only to the engines that list its site, then the generic fallback. Off: it tries every engine that is on, in order.")
+            }
+            Section {
+                ForEach(importedEngines, id: \.id) { engine in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(engine.label)
+                            if !engine.sites.isEmpty { Text(engine.sites.joined(separator: ", ")).font(.caption) }
+                        }
+                        Spacer()
+                        Button("Remove", role: .destructive) {
+                            do {
+                                try CustomEngines.remove(engine.id)
+                                importedEngines = CustomEngines.list()
+                            } catch { importMessage = error.localizedDescription }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                Button("Add custom engine…") { importingEngine = true }
+            } header: {
+                Text("Custom engines")
+            } footer: {
+                Text("Import a Python engine, a ZIP with one Python engine, or the Tako Chrome ZIP.")
             }
             Section {
                 Toggle("Update the novel-downloader rules automatically", isOn: $model.settings.engines.novelDownloaderAutoUpdate)
@@ -285,6 +313,39 @@ struct SiteEnginesForm: View {
         }
         .themedBackground()
         .navigationTitle("Site engines")
+        .fileImporter(isPresented: $importingEngine, allowedContentTypes: [.zip, .plainText, .data]) { result in
+            do {
+                pendingEngine = try result.get()
+                confirmingEngine = true
+            } catch { importMessage = error.localizedDescription }
+        }
+        .confirmationDialog("Add a custom engine", isPresented: $confirmingEngine) {
+            Button("Add") {
+                guard let file = pendingEngine else { return }
+                pendingEngine = nil
+                let accessed = file.startAccessingSecurityScopedResource()
+                defer { if accessed { file.stopAccessingSecurityScopedResource() } }
+                do {
+                    if let bundled = try CustomEngines.add(file) {
+                        _ = model.settings.engines.setEnabled(bundled, true)
+                        importMessage = bundled.title + " enabled."
+                    } else {
+                        _ = model.settings.engines.setEnabled(.custom, true)
+                        importedEngines = CustomEngines.list()
+                    }
+                } catch { importMessage = error.localizedDescription }
+            }
+            Button("Cancel", role: .cancel) { pendingEngine = nil }
+        } message: {
+            Text("Python engines run with the app’s access to your downloads and logins. Only add engines you trust.")
+        }
+        .alert("Custom engines", isPresented: Binding(
+            get: { importMessage != nil }, set: { if !$0 { importMessage = nil } }
+        )) {
+            Button("OK") { importMessage = nil }
+        } message: {
+            Text(importMessage ?? "")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { EditButton() }
         }

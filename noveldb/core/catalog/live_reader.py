@@ -39,6 +39,12 @@ class LiveReader:
                 elif name == "fanficfare":
                     from noveldb.core.engines.fanficfare_engine import FanFicFareEngine
                     self._engines[name] = FanFicFareEngine(fetch=self.fetch, log=self.log)
+                elif name == "mangapeak":
+                    from noveldb.core.engines.mangapeak import MangaPeakEngine
+                    self._engines[name] = MangaPeakEngine(fetch=self.fetch, log=self.log)
+                elif name == "tako":
+                    from noveldb.core.engines.tako import TakoEngine
+                    self._engines[name] = TakoEngine(fetch=self.fetch, log=self.log)
                 else:
                     from noveldb.core.engines.generic import GenericEngine
                     self._engines[name] = GenericEngine(fetch=self.fetch, log=self.log, render=self.render, parallel=True)
@@ -58,6 +64,11 @@ class LiveReader:
                 names.append("fanficfare")
         except Exception:
             pass
+        from noveldb.core.engines import mangapeak, tako
+        if mangapeak.knows(url):
+            names.append("mangapeak")
+        if tako.knows(url):
+            names.append("tako")
         try:
             from noveldb.core.engines import gallerydl_engine
             if gallerydl_engine.knows(url):
@@ -164,6 +175,9 @@ class LiveReader:
         result = engine.parse_chapter(info, data)
         if not result:
             raise RuntimeError("the chapter could not be read")
+        if result.get("_locked"):
+            raise RuntimeError(result.get("_lockReason") or "the chapter is locked")
         return {"name": result.get("chapterName") or info.get("name") or "",
                 "html": result.get("contentHtml") or "",
-                "text": result.get("contentText") or ""}
+                "text": result.get("contentText") or "", "comic": bool(result.get("comic")),
+                "imageReferer": result.get("imageReferer") or info.get("url") or url}

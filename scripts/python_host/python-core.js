@@ -20,7 +20,8 @@ var NovelDBPythonCore = (function () {
     var scope = typeof self !== 'undefined' ? self : window;
     var BASE = scope.location.href.replace(/[^/]*([?#].*)?$/, '');
     var ENGINES = ['lncrawl', 'fanficfare', 'gallerydl'];
-    var MODULES = ['noveldb_mobile.py', 'lncrawl_engine.py', 'fanficfare_engine.py', 'gallerydl_engine.py', 'generic.py'];
+    var MODULES = ['noveldb_mobile.py', 'lncrawl_engine.py', 'fanficfare_engine.py', 'gallerydl_engine.py',
+                   'generic.py', 'mangapeak.py', 'tako.py'];
     var PACKAGES = ['beautifulsoup4', 'soupsieve', 'typing-extensions', 'requests', 'urllib3', 'idna', 'charset-normalizer',
                     'certifi', 'html5lib', 'six', 'webencodings', 'lxml', 'regex', 'pycryptodome', 'brotli',
                     'ssl', 'hashlib', 'sqlite3'];

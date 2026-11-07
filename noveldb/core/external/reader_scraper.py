@@ -19,7 +19,7 @@ def reader_scraper(logger=None):
     global _reader_class
     if _reader_class is None:
         from external_scraper import ExternalScraper
-        from noveldb.core.settings.model import ENGINE_GENERIC, ENGINE_HN
+        from noveldb.core.settings.model import ENGINE_GENERIC, ENGINE_HN, ENGINE_MANGAPEAK, ENGINE_TAKO
 
         class ReaderScraper(ExternalScraper):
             def parse_chapter(self, index, chapter_info, interval=0, *, retry_images=False, **kwargs):
@@ -35,8 +35,20 @@ def reader_scraper(logger=None):
                     if result:
                         return result
                 result = super().parse_chapter(index, chapter_info, interval=interval, **kwargs)
-                if result or self._stop_requested or not alternate or retry_images:
+                if result or self._stop_requested or retry_images:
                     return result
+                if primary in (ENGINE_HN, ENGINE_GENERIC):
+                    url = chapter_info.get("url") or ""
+                    for engine in (ENGINE_MANGAPEAK, ENGINE_TAKO):
+                        if engine in self.engine_order and self._engine_knows_site(engine, url):
+                            try:
+                                result = self._python_engine(engine).parse_chapter(chapter_info, book)
+                            except Exception as error:
+                                self.log(f"  {engine}: {error}")
+                            if result:
+                                return result
+                if not alternate:
+                    return None
                 note = "Chapter engine failed; trying Generic fallback for the same chapter…"
                 self.log(note)
                 if self.reader_progress:
