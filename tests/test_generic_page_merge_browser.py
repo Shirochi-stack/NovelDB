@@ -161,6 +161,52 @@ def test_the_sort_menu_orders_the_shown_cards(page):
     assert ordered == ["New", "Old"]
 
 
+def shown_order(page):
+    return page.evaluate("""() => [...document.querySelectorAll('#grid .card')].filter(c => c.style.display !== 'none')
+        .sort((a, b) => Number(a.style.order) - Number(b.style.order)).map(c => c.querySelector('.title').textContent)""")
+
+
+def dated(number, title, published):
+    return noveldb_card(url=f"https://a.test/{number}", title=title, originalTitle=title, also=[],
+                        noveldb={"source": "npia", "id": str(number)}, published=published)
+
+
+def test_cards_keep_their_places_then_sort_once_and_again_when_pulled_past_the_top(page):
+    """New stayed in the order the books came in: the cards sort once soon after, and again on a pull."""
+    page.select_option("#sort", "new")
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [dated(1, "Old", "2020-01-01")])
+    page.wait_for_timeout(300)
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [dated(2, "New", "2026-01-01")])
+    page.wait_for_timeout(300)
+    assert shown_order(page) == ["Old", "New"]  # placed cards stay put while books come in
+    page.wait_for_timeout(3000)
+    assert shown_order(page) == ["New", "Old"]  # then once in the full order
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [dated(3, "Newest", "2026-06-01")])
+    page.wait_for_timeout(3300)
+    assert shown_order(page) == ["New", "Old", "Newest"]  # only once
+    page.mouse.move(200, 200)
+    for _ in range(4):
+        page.mouse.wheel(0, -250)
+        page.wait_for_timeout(50)
+    page.wait_for_timeout(200)
+    assert shown_order(page) == ["Newest", "New", "Old"]
+
+
+def test_one_books_page_on_a_site_written_two_ways_is_one_source_and_one_row(page):
+    """A site's search and a web search wrote one page two ways: the details listed the site twice."""
+    book = "https://mangadex.test/title/a1b2c3d4-1111-2222-3333-444455556666"
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [
+        site_card(url=book, site="mangadex.test", title="Move Aside", comic=True),
+        site_card(url="http://www." + book[8:] + "/move-aside-i-ll-be/", site="mangadex.test", title="Move Aside", comic=True),
+        site_card(url="https://other.test/book/5", site="other.test", title="Move Aside", comic=True)])
+    page.wait_for_timeout(300)
+    assert page.eval_on_selector_all("#grid .site", "e => e.map(x => x.textContent)") == ["mangadex.test +1"]
+    page.click("#grid .card .title")
+    page.wait_for_timeout(300)
+    rows = page.eval_on_selector_all("#dialog .sources > div > span", "els => els.map(e => e.textContent)")
+    assert [r.split(" ")[0] for r in rows] == ["mangadex.test", "other.test"]
+
+
 def test_a_library_book_opens_at_its_site_and_its_title_is_searched(page):
     sent = page.evaluate("""() => { window.__sent = []; window.NovelDBQt = {postMessage: t => window.__sent.push(JSON.parse(t))}; return 1; }""")
     page.evaluate("book => window.NovelDBGeneric.openBook(book)", {"title": RAW, "url": MPIA, "author": "안현"})
@@ -262,3 +308,58 @@ def test_with_the_cards_translated_a_books_details_open_translated(page):
     assert not errors
     assert page.eval_on_selector("#dialog", "d => d.open")
     assert page.eval_on_selector("#dialog .details h2", "e => e.textContent").startswith("EN ")
+
+
+PICTURE = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='1200'><rect width='800' height='1200'/></svg>"
+
+
+def comic_reader(browser, layout):
+    """A phone's reader on a comic whose first chapter is still coming in: three of its pages found so far."""
+    context = browser.new_context(viewport={"width": 390, "height": 800}, has_touch=True)
+    tab = context.new_page()
+    html = (PAGE / "index.html").read_text(encoding="utf-8")
+    tab.route("**/*", lambda route: route.fulfill(body=html, content_type="text/html") if route.request.url == "https://reader.test/"
+              else route.fulfill(body="", content_type="text/plain"))
+    tab.add_init_script("localStorage.setItem('noveldb.reader.look.v2', JSON.stringify({comicLayout: '%s'}));" % layout)
+    tab.goto("https://reader.test/")
+    tab.add_script_tag(content=(PAGE / "generic.js").read_text(encoding="utf-8"))
+    tab.evaluate("() => { window.__sent = []; window.NovelDBQt = {postMessage: m => window.__sent.push(JSON.parse(m))}; }")
+    sent = lambda kind: [m for m in tab.evaluate("() => window.__sent") if m.get("type") == kind]
+    tab.evaluate("() => window.NovelDBGeneric.readLocal({url: 'https://x.test/b', title: 'T'})")
+    tab.wait_for_timeout(200)
+    tab.evaluate("id => window.NovelDBGeneric.fetched(id, {chapters: [{name: 'One'}, {name: 'Two'}], comic: true})", sent("genericBook")[0]["id"])
+    tab.wait_for_timeout(300)
+    tab.evaluate("a => window.NovelDBGeneric.readerImages(a[0], {images: [a[1], a[1], a[1]], total: 3})",
+                 [sent("genericChapter")[0]["id"], PICTURE])
+    tab.wait_for_timeout(500)
+    for message in sent("genericImage"):
+        tab.evaluate("a => window.NovelDBGeneric.fetched(a[0], {dataUrl: a[1]})", [message["id"], PICTURE])
+    tab.wait_for_timeout(500)
+    return context, tab
+
+
+def test_a_swipe_in_a_chapter_still_coming_in_turns_its_page_not_the_chapter(browser):
+    """It was counted one page when it opened: every swipe went to the next chapter until the page was reloaded."""
+    context, tab = comic_reader(browser, "paged")
+    try:
+        def swipe():
+            tab.evaluate("""() => { const r = document.getElementById('reader');
+              const touch = (type, x) => { const t = new Touch({identifier: 1, target: r, clientX: x, clientY: 400});
+                r.dispatchEvent(new TouchEvent(type, {touches: type === 'touchend' ? [] : [t], changedTouches: [t], bubbles: true})); };
+              touch('touchstart', 300); touch('touchmove', 250); touch('touchmove', 100); touch('touchend', 100); }""")
+            tab.wait_for_timeout(400)
+            return tab.evaluate("() => [document.getElementById('rWhere').textContent, document.getElementById('rChapterNo').textContent]")
+        assert swipe() == ["Page 2 of 5", "Chapter 1 of 2"]  # three pages and two still to come
+        assert swipe() == ["Page 3 of 5", "Chapter 1 of 2"]
+    finally:
+        context.close()
+
+
+def test_a_scrolled_chapter_still_coming_in_shows_halgakos_for_the_pages_to_come(browser):
+    context, tab = comic_reader(browser, "scroll")
+    try:
+        slots = tab.evaluate("""() => [...document.querySelectorAll('#flow img.slot')]
+            .map(i => i.classList.contains('ready') ? 'page' : i.getBoundingClientRect().height > 100 ? 'halgakos' : 'none')""")
+        assert slots == ["page", "page", "page", "halgakos", "halgakos"]
+    finally:
+        context.close()

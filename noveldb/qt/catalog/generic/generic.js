@@ -34,7 +34,17 @@
     var JUNK = /^(request|requests|リクエスト|login|log in|sign in|ログイン|search|検索|more|もっと見る|home|top|next|prev(ious)?|menu|contact( us)?|about( us)?|privacy( policy)?|terms( of (service|use))?|dmca|faq|feedback|support|donate)$/i;
 
     function send(message) { window.NovelDBQt && window.NovelDBQt.postMessage(JSON.stringify(message)); }
-    function key(url) { return String(url || '').replace(/\/+$/, ''); }
+    // One book's address however a site or a web search wrote it: http or https, www. or not, a #part, and a
+    // title's slug after its ID (/title/<id>/<slug>) do not make it another source (the details listed one
+    // site twice).
+    function key(url) {
+        return String(url || '').trim().replace(/#.*$/, '').replace(/^https?:\/\//i, '').replace(/^(www|m)\./i, '')
+            .replace(/^([^\/?]+)/, function (host) { return host.toLowerCase(); })
+            .replace(/(\/(?:title|manga|series|comic|novel|book|works?)\/(?:[0-9a-f]{8}-[0-9a-f-]{27}|\d+))\/(?=[\w-]*[a-z])[\w-]+\/?(?=$|\?)/i, '$1')
+            .replace(/\/+(?=$|\?)/, '');
+    }
+    // A reading place's name: the address as it was first kept (places already kept stay found).
+    function placeKey(url) { return String(url || '').replace(/\/+$/, ''); }
     function esc(text) {
         return String(text == null ? '' : text).replace(/[&<>"']/g, function (c) {
             return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
@@ -898,10 +908,22 @@
             })
             .forEach(function (entry, i) { entry[0].element.style.order = String(last + 1 + i); });
     }
+    // Once a list (a search, a top list): the cards in the full order a few seconds after the first came,
+    // when most are in and their figures (a book's publishing date) filled in; then they stay put until the
+    // list is pulled down past its top. Kept places alone left a sort such as New in the order the
+    // books came in.
+    var reshuffle = {list: -1, timer: 0};
+    function reshuffleOnce() {
+        if (reshuffle.list === searchId) return;
+        reshuffle.list = searchId;
+        clearTimeout(reshuffle.timer);
+        var list = searchId;
+        reshuffle.timer = setTimeout(function () { if (list === searchId) { orderCards(true); evenRowsSoon(); } }, 3000);
+    }
     function drawCards() {
         var drawn = Array.from(dirty).filter(drawCard);
         dirty.clear();
-        if (drawn.length) { orderCards(); evenRowsSoon(); }
+        if (drawn.length) { orderCards(); reshuffleOnce(); evenRowsSoon(); }
         if (drawn.length && cardsTranslated) translateCardsSoon(drawn);
         fitTitles(drawn.map(function (group) { return group.element.querySelector('.title'); }));
         fitTagRows(drawn.map(function (group) { return group.element.querySelector('.tags'); }));
@@ -1533,6 +1555,11 @@
             var rating = group.rating ? '★ ' + group.rating + (group.ratings ? ' (' + group.ratings + ' ratings)' : '') : '';
             // The panel shows the cover as the site sent it: the card's copy is made small for the card.
             var full = (group.covers || []).filter(function (c) { return !(group.failedCovers || []).includes(c); })[0] || group.cover;
+            // One row a site: one book's page found twice on a site (its own search and a web search's) is one.
+            var seen = {}, sites = group.sources.filter(function (source) {
+                var site = String(source.site || hostOf(source.url)).replace(/^www\./, '');
+                return seen[site] ? false : (seen[site] = true);
+            });
             // The cover with the book's own page under it; the actions show the app's artwork.
             dialog.innerHTML = '<div class="details"><div class="side"><div class="cover">'
                 + (full ? '<img referrerpolicy="no-referrer" alt="" src="' + esc(full) + '">' : '') + '</div>'
@@ -1551,7 +1578,8 @@
                 + (synopsisText(group.description) ? '<div class="desc">' + esc(synopsisText(group.description)) + '</div>'
                     : group.loaded || group.description ? '<div class="desc">No description on the book page.</div>'
                     : '<div class="loading" style="margin:10px 0"><i></i><i></i><i></i><i></i></div>')
-                + (group.sources.length < 2 ? '' : '<div class="sources"><h4>On ' + group.sources.length + ' sites</h4>' + group.sources.map(function (source, index) {
+                + (sites.length < 2 ? '' : '<div class="sources"><h4>On ' + sites.length + ' sites</h4>' + group.sources.map(function (source, index) {
+                    if (sites.indexOf(source) < 0) return '';
                     return '<div><span>' + esc(source.site) + (source.ms != null ? ' · ' + seconds(source.ms) : '')
                         + (index === 0 ? ' (first to answer)' : '') + '</span>'
                         + '<button type="button" data-read="' + index + '">Read</button>'
@@ -2578,7 +2606,7 @@
                 R.source = source;
                 R.chapters = book.chapters;
                 R.lnreader = book.lnreader || null;
-                var saved = group.start || store('noveldb.read.' + key(source.url)) || {};
+                var saved = group.start || store('noveldb.read.' + placeKey(source.url)) || {};
                 group.start = null;
                 drawToc();
                 openChapter(Math.min(saved.chapter || 0, R.chapters.length - 1), saved.at || 0);
@@ -2692,7 +2720,7 @@
         var early = R.pagesFor && R.pagesFor.get(index);
         early = (early || []).filter(Boolean);
         if (early.length) streamImages(index, {images: early, total: early.length});
-        else if (R.comic && !R.done.has(index)) streamImages(index, {images: [], total: R.lastPages || 6, placeholders: true});
+        else if ((R.comic || (R.group && R.group.comic)) && !R.done.has(index)) streamImages(index, {images: [], total: R.lastPages || 6, placeholders: true});
         loadChapter(index).then(function (chapter) {
             if (token !== R.token || index !== R.index) return;
             clearInterval(R.clock);
@@ -2800,7 +2828,7 @@
     // Halgakos stays until the picture is decoded and laid out (a slot never shows empty or collapses
     // first); one that won't load keeps her.
     function showSlot(image, src) {
-        image.addEventListener('load', function () { image.classList.add('ready'); }, {once: true});
+        image.addEventListener('load', function () { image.classList.add('ready'); countPagesSoon(); }, {once: true});
         image.addEventListener('error', function () { image.removeAttribute('src'); image.title = 'This image could not be loaded'; }, {once: true});
         image.src = src;
     }
@@ -2821,7 +2849,12 @@
             paginate(0);
         }
         var flow = $('flow');
-        while (R.slots.length < found.total) {
+        // While the chapter is still being scraped, Halgakos holds the places of pages still to come (the phone
+        // apps count only the pages found so far: a manhwa in scroll ended at its last page found, bare); the
+        // finished chapter drops the ones left over.
+        var total = found.done ? found.total
+            : Math.max(found.total, R.lastPages || 0, (found.from || 0) + found.images.length + 2);
+        while (R.slots.length < total) {
             flow.insertAdjacentHTML('beforeend', slotHtml(''));
             R.slots.push(flow.lastElementChild);
         }
@@ -2836,11 +2869,12 @@
             if (!slot.dataset.src) { slot.dataset.src = src; fetchPicture(slot); }
         });
         showPictures();
+        countPagesSoon();  // the slots added are pages
     }
     function finishStream(chapter) {
         // The whole chapter is in: slots that never got an image go, the rest keep loading.
         var images = (chapter.html.match(/<img[^>]+src="([^"]+)"/g) || []).map(function (tag) { return tag.match(/src="([^"]+)"/)[1]; });
-        streamImages(R.index, {images: images, total: images.length});
+        streamImages(R.index, {images: images, total: images.length, done: true});
         R.slots.slice(images.length).forEach(function (slot) { slot.remove(); });
         R.slots.length = Math.min(R.slots.length, images.length);
         if (images.length) R.lastPages = images.length;
@@ -2909,15 +2943,37 @@
         $('rSlider').max = String(R.pages);
         $('rSlider').value = String(R.page + 1);
         $('rSlider').style.display = layout() === 'scroll' ? 'none' : '';
-        if (R.source) store('noveldb.read.' + key(R.source.url), {chapter: R.index, at: readingAt(), time: Date.now()});
+        if (R.source) store('noveldb.read.' + placeKey(R.source.url), {chapter: R.index, at: readingAt(), time: Date.now()});
         // A Library book's place goes to the Library too (its book page and order know where it was left).
         if (R.source && R.source.source === 'local' && R.index >= 0) localPlaceSoon();
         if ($('toc').classList.contains('open') && tocTab === 'pages') drawPages();
         // The text being read, for laying the page out again when the window changes size.
         if (layout() !== 'scroll' && !R.switching) R.anchor = anchorAt();
     }
+    // The pages counted again where they are now: a chapter's images still coming in add pages after it was laid
+    // out (it was counted one page then, and every swipe went on to the next chapter until the window was
+    // resized); a reader laid out before it had its width is laid out again.
+    function countPages() {
+        if (layout() === 'scroll' || !R.chapters.length) return;
+        var width = $('viewport').clientWidth;
+        if (!width) return;
+        if (Math.abs(width - (R.pageWidth || 0)) > 1) { paginate(readingAt()); return; }
+        R.pages = Math.max(1, Math.ceil(($('flow').scrollWidth - 4) / width));
+        if (R.page > R.pages - 1) { R.page = R.pages - 1; place(); }
+    }
+    var countTimer = 0;
+    function countPagesSoon() {
+        clearTimeout(countTimer);
+        countTimer = setTimeout(function () {
+            countPages();
+            if (layout() === 'scroll') return;
+            $('rWhere').textContent = 'Page ' + (R.page + 1) + ' of ' + R.pages;
+            $('rSlider').max = String(R.pages);
+        }, 150);
+    }
     function turn(step) {
         if (!R.chapters.length) return;
+        countPages();
         if (layout() === 'scroll') {
             var v = $('viewport');
             var end = v.scrollTop + v.clientHeight >= $('flow').scrollHeight - 4;
@@ -3008,10 +3064,12 @@
         swipe = touch && !event.target.closest('.bar, #toc, #look') ? {x: touch.clientX, y: touch.clientY, at: Date.now(), dragging: false} : null;
     }, {passive: true});
     $('reader').addEventListener('touchmove', function (event) {
-        if (!swipe || layout() === 'scroll' || event.touches.length !== 1 || !R.pageWidth) return;
+        if (!swipe || layout() === 'scroll' || event.touches.length !== 1) return;
         var touch = event.touches[0], dx = touch.clientX - swipe.x, dy = touch.clientY - swipe.y;
         if (!swipe.dragging) {
             if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+            countPages();
+            if (!R.pageWidth) return;
             swipe.dragging = true;
             $('flow').style.transition = 'none';
         }
@@ -3215,6 +3273,60 @@
             header.classList.remove('away');
         }
         if (down || up) lastScroll = y;
+    }, {passive: true});
+
+    // Pulled down past the top (a finger, or the wheel turned on up at the top): the cards in the full order
+    // again, with the books that came in since sorted among them.
+    var pull = {from: null, wheel: 0, wheelAt: 0, sign: null};
+    function pullSign(text) {
+        if (!pull.sign) {
+            pull.sign = document.createElement('div');
+            pull.sign.id = 'pullSort';
+            pull.sign.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:50;padding:6px 14px;'
+                + 'border-radius:999px;background:var(--accent,#f4b6be);color:var(--accent-ink,#2a1a1d);font-size:14px;'
+                + 'box-shadow:0 2px 10px rgba(0,0,0,.35);pointer-events:none;transition:opacity .2s;opacity:0';
+            document.body.appendChild(pull.sign);
+        }
+        if (text) pull.sign.textContent = text;
+        pull.sign.style.opacity = text ? '1' : '0';
+    }
+    function pullCovered() {
+        return $('reader').classList.contains('open') || ($('dialog') && $('dialog').open) || !order.length;
+    }
+    function pulledSort() {
+        orderCards(true);
+        evenRowsSoon();
+        pullSign('Sorted again');
+        setTimeout(function () { pullSign(''); }, 900);
+    }
+    var PULL = 90;
+    window.addEventListener('touchstart', function (event) {
+        pull.from = window.scrollY <= 0 && !pullCovered() && event.touches.length === 1 ? event.touches[0].clientY : null;
+    }, {passive: true});
+    window.addEventListener('touchmove', function (event) {
+        if (pull.from == null) return;
+        var dy = event.touches[0].clientY - pull.from;
+        if (window.scrollY > 0 || dy < 0) { pull.from = null; pullSign(''); return; }
+        pullSign(dy > PULL ? 'Release to sort again' : dy > 24 ? 'Pull to sort again' : '');
+    }, {passive: true});
+    window.addEventListener('touchend', function (event) {
+        if (pull.from == null) return;
+        var dy = (event.changedTouches[0] || {}).clientY - pull.from;
+        pull.from = null;
+        if (dy > PULL && window.scrollY <= 0) pulledSort(); else pullSign('');
+    }, {passive: true});
+    window.addEventListener('wheel', function (event) {
+        if (event.deltaY >= 0 || window.scrollY > 0 || pullCovered() || event.target.closest('#sitespanel, #tagmenu, dialog')) { pull.wheel = 0; return; }
+        var now = Date.now();
+        if (now - pull.wheelAt > 600) pull.wheel = 0;
+        pull.wheelAt = now;
+        pull.wheel -= event.deltaY;
+        if (pull.wheel > 600) { pull.wheel = -1e9; pulledSort(); }  // once a pull: the wheel stopped for a moment starts the next
+        else if (pull.wheel > 150) {
+            pullSign('Keep scrolling up to sort again');
+            clearTimeout(pull.hide);
+            pull.hide = setTimeout(function () { pullSign(''); }, 700);
+        }
     }, {passive: true});
 
     // The app's theme (Halgakos Rose by default) from the start, even when the app is slow to send it or
