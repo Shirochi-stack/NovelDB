@@ -468,3 +468,32 @@ def test_auto_reads_a_manhwa_tagged_manga_in_scroll_and_a_manga_in_pages(browser
             assert shown == layout, tags
         finally:
             context.close()
+
+
+def test_after_a_search_the_sites_panel_lists_every_site_to_find_and_scroll(page):
+    """It listed only the sites books came from: every other site could not be found or picked."""
+    page.evaluate("() => { window.__sent = []; window.NovelDBQt = {postMessage: m => window.__sent.push(JSON.parse(m))}; }")
+    sites = [f"site{n}.test" for n in range(400)]
+    page.evaluate("s => window.NovelDBGeneric.init({sites: s, comic: [], lnreader: []})", sites)
+    page.fill("#query", "a book")
+    page.press("#query", "Enter")
+    page.wait_for_timeout(300)
+    search = [m for m in page.evaluate("() => window.__sent") if m.get("type") == "genericSearch"][-1]
+    page.evaluate("a => window.NovelDBGeneric.add(a[0], a[1])", [[site_card(url="https://site7.test/b/1", site="site7.test", title="A Book")], search["id"]])
+    page.wait_for_timeout(300)
+    page.click("#sitesButton")
+    page.wait_for_timeout(300)
+    rows = lambda: page.eval_on_selector_all("#sitespanel label.siterow span:first-of-type", "els => els.map(e => e.textContent)")
+    first = rows()
+    assert first[0] == "site7.test" and "site8.test" in first and len(first) < 400  # the rest come as it is scrolled
+    page.eval_on_selector("#sitespanel", "p => p.scrollTop = p.scrollHeight")
+    page.wait_for_timeout(300)
+    assert len(rows()) > len(first)
+    page.fill("#siteFind", "site39")
+    page.wait_for_timeout(300)
+    assert sorted(rows()) == ["site39.test"] + [f"site39{n}.test" for n in range(10)]
+    # Ticking a site no book came from searches it.
+    page.click("#sitespanel label:has([data-other-site='site390.test'])")
+    page.wait_for_timeout(1200)
+    again = [m for m in page.evaluate("() => window.__sent") if m.get("type") == "genericSearch"][-1]
+    assert again["id"] != search["id"] and "site390.test" in again["queries"][0]["only"]

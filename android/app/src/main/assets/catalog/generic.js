@@ -336,22 +336,17 @@
         });
         siteFilter.forEach(function (site) { if (!counts.has(site)) counts.set(site, 0); });
         var bySite = Array.from(counts).sort(function (a, b) { return (siteFilter.has(b[0]) - siteFilter.has(a[0])) || b[1] - a[1]; });
-        var html = '';
-        if (bySite.length) {
-            html += '<h3>Show books from</h3><div class="pickbar"><button type="button" id="siteFilterAll"' + (siteFilter.size ? '' : ' disabled')
-                + '>All sites</button></div>' + bySite.map(function (entry) {
-                    return '<label class="siterow pick"><input type="checkbox" data-filter-site="' + esc(entry[0]) + '"'
-                        + (siteFilter.has(entry[0]) ? ' checked' : '') + '><span>' + esc(entry[0]) + '</span><span class="n">'
-                        + entry[1] + ' book' + (entry[1] === 1 ? '' : 's') + '</span></label>';
-                }).join('');
-        }
-        // A search narrowed to some sites (picked here, or kept from a top list of picked sites) found books on
-        // those only: every other site is offered too, to tick (the search then asks it as well).
-        var narrowed = siteFilter.size || (current.queries && current.queries.length && current.queries[0].only);
-        if (narrowed) {
-            html += '<h3>Other sites</h3><div class="pickbar"><input id="siteFind" placeholder="Find a site" autocomplete="off"></div>'
-                + '<div id="siteMore"></div>';
-        }
+        // Every site, always (not only those books came from): found with the box, the rest further down the list
+        // as it is scrolled. Ticking a site no book came from searches it.
+        var filter = siteFilterText();
+        var html = '<h3>Show books from</h3><div class="pickbar"><button type="button" id="siteFilterAll"' + (siteFilter.size ? '' : ' disabled')
+            + '>All sites</button> <input id="siteFind" placeholder="Find a site" autocomplete="off"></div>'
+            + bySite.filter(function (entry) { return !filter || entry[0].toLowerCase().indexOf(filter) >= 0; }).map(function (entry) {
+                return '<label class="siterow pick"><input type="checkbox" data-filter-site="' + esc(entry[0]) + '"'
+                    + (siteFilter.has(entry[0]) ? ' checked' : '') + '><span>' + esc(entry[0]) + '</span><span class="n">'
+                    + entry[1] + ' book' + (entry[1] === 1 ? '' : 's') + '</span></label>';
+            }).join('')
+            + '<div id="siteMore"></div>';
         var rows = progress.sites.slice().sort(function (a, b) { return a.ms - b.ms; });
         html += '<h3>' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered</h3>';
         if (memoryMB()) html += '<p>The page is using ' + memoryMB() + ' MB of memory.</p>';
@@ -367,8 +362,12 @@
         panel.scrollTop = scroll;  // redrawn as sites answer: the list stays where it was
         if ($('siteFind')) {
             $('siteFind').value = siteFindText;
-            $('siteFind').addEventListener('input', function () { siteFindText = this.value; drawOtherSites(counts); });
-            if (finding) $('siteFind').focus();
+            $('siteFind').addEventListener('input', function () {
+                siteFindText = this.value;
+                otherLimit = OTHER_STEP;
+                drawSites();
+            });
+            if (finding) { $('siteFind').focus(); $('siteFind').setSelectionRange(siteFindText.length, siteFindText.length); }
             drawOtherSites(counts);
         }
         panel.querySelectorAll('[data-filter-site]').forEach(function (box) {
@@ -381,40 +380,67 @@
         });
         if ($('siteFilterAll')) $('siteFilterAll').onclick = function () { siteFilter.clear(); refilter(); drawSites(); widenSoon(); };
     }
-    // The sites a narrowed search did not show books from: a few at first, every match once a name is typed.
-    var siteFindText = '';
+    // Every other site the search reads (no book came from it), OTHER_STEP more each time the list is scrolled
+    // to its end; all that match once a name is typed.
+    var siteFindText = '', OTHER_STEP = 150, otherLimit = OTHER_STEP;
+    function siteFilterText() { return siteFindText.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, ''); }
+    function searchCandidates() {
+        var names = [], seen = {};
+        var add = function (site) {
+            if (site && !seen[site] && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(site)) { seen[site] = true; names.push(site); }
+        };
+        progress.sites.forEach(function (item) { add(item.site); });
+        Object.keys(NOVELDB_SITES).forEach(add);
+        BUILTIN_SITES.forEach(add);
+        topPlugins('webnovel', true).forEach(function (p) { add(p.site); });
+        (config.sites || []).forEach(add);
+        return names;
+    }
     function drawOtherSites(counts) {
         var box = $('siteMore');
         if (!box) return;
-        var filter = siteFindText.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
-        var names = topCandidates().filter(function (site) {
+        var filter = siteFilterText();
+        var names = searchCandidates().filter(function (site) {
             return !counts.has(site) && (!filter || site.toLowerCase().indexOf(filter) >= 0);
         });
-        var shown = names.slice(0, filter ? 60 : 12);
-        box.innerHTML = shown.map(function (site) {
+        // A whole address typed that no list has: that site, to search.
+        if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(filter) && names.indexOf(filter) < 0 && !counts.has(filter)) names.unshift(filter);
+        var shown = names.slice(0, otherLimit);
+        box.innerHTML = (shown.length ? '<h3>Other sites</h3>' : '') + shown.map(function (site) {
             return '<label class="siterow pick"><input type="checkbox" data-other-site="' + esc(site) + '"><span>' + esc(site)
-                + '</span><span class="n">not searched</span></label>';
-        }).join('') + (names.length > shown.length ? '<p>' + (names.length - shown.length).toLocaleString() + ' more: type a name to find one.</p>' : '')
-            + (!names.length ? '<p>No site matches.</p>' : '');
+                + '</span><span class="n">no books yet</span></label>';
+        }).join('') + (names.length > shown.length ? '<p>' + (names.length - shown.length).toLocaleString() + ' more below…</p>' : '')
+            + (!names.length && filter && !Array.from(counts.keys()).some(function (site) { return site.toLowerCase().indexOf(filter) >= 0; })
+                ? '<p>No site matches.</p>' : '');
         box.querySelectorAll('[data-other-site]').forEach(function (input) {
             input.onchange = function () {
                 if (!input.checked) return;
                 siteFilter.add(input.dataset.otherSite);
-                siteFindText = '';
                 refilter();
                 drawSites();
-                widenSoon();
+                widenSoon(true);
             };
         });
     }
+    // The list goes on as it is scrolled to its end.
+    $('sitespanel').addEventListener('scroll', function () {
+        var panel = this;
+        if (view === 'top' || !$('siteMore') || panel.scrollTop + panel.clientHeight < panel.scrollHeight - 200) return;
+        var before = otherLimit;
+        otherLimit += OTHER_STEP * 2;
+        if (/more below/.test($('siteMore').textContent)) drawSites(); else otherLimit = before;
+    }, {passive: true});
     /** A search that asked only some sites, and a site ticked that it did not ask (or All sites): searched
      *  again for the sites now ticked, once the ticking pauses. Else a site's few books from NovelDB were all
      *  that ticking it could show. */
     var widenTimer = 0;
-    function widenSoon() {
+    function widenSoon(always) {
         clearTimeout(widenTimer);
         widenTimer = setTimeout(function () {
-            var asked = view === 'search' && current.queries && current.queries.length && current.queries[0].only;
+            if (view !== 'search' || !current.queries || !current.queries.length) return;
+            // A site ticked that no book came from: it may not have been asked yet (a search asks its sites in stages).
+            if (always) { search(null, true); return; }
+            var asked = current.queries[0].only;
             if (!asked) return;
             var missing = !siteFilter.size || Array.from(siteFilter).some(function (site) { return asked.indexOf(site) < 0; });
             if (missing) search(null, true);
