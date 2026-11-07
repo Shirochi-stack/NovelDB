@@ -192,6 +192,19 @@ def test_cards_keep_their_places_then_sort_once_and_again_when_pulled_past_the_t
     assert shown_order(page) == ["Newest", "New", "Old"]
 
 
+def test_a_card_that_leaves_a_sorted_list_leaves_its_place_not_a_gap_at_the_top(page):
+    """Its slot had no place in the sort and went first: the first row of a sorted top list stood empty."""
+    page.select_option("#sort", "new")
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [dated(n, f"Book {n}", f"2026-0{n}-01") for n in range(1, 5)])
+    page.wait_for_timeout(3500)
+    page.evaluate("() => window.NovelDBGeneric.add([{url: 'https://a.test/2', empty: true}])")
+    page.wait_for_timeout(200)
+    cells = page.evaluate("""() => [...document.querySelectorAll('#grid > .card')].filter(c => c.style.display !== 'none')
+        .sort((a, b) => Number(a.style.order) - Number(b.style.order))
+        .map(c => c.classList.contains('hole') ? 'hole' : c.querySelector('.title').textContent)""")
+    assert cells == ["Book 4", "Book 3", "hole", "Book 1"]
+
+
 def test_one_books_page_on_a_site_written_two_ways_is_one_source_and_one_row(page):
     """A site's search and a web search wrote one page two ways: the details listed the site twice."""
     book = "https://mangadex.test/title/a1b2c3d4-1111-2222-3333-444455556666"
@@ -313,8 +326,9 @@ def test_with_the_cards_translated_a_books_details_open_translated(page):
 PICTURE = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='1200'><rect width='800' height='1200'/></svg>"
 
 
-def comic_reader(browser, layout):
-    """A phone's reader on a comic whose first chapter is still coming in: three of its pages found so far."""
+def comic_reader(browser, layout, book=None):
+    """A phone's reader on a comic whose first chapter is still coming in: three of its pages found so far;
+    `book`: a card opened with Read now, else a Library book."""
     context = browser.new_context(viewport={"width": 390, "height": 800}, has_touch=True)
     tab = context.new_page()
     html = (PAGE / "index.html").read_text(encoding="utf-8")
@@ -325,7 +339,25 @@ def comic_reader(browser, layout):
     tab.add_script_tag(content=(PAGE / "generic.js").read_text(encoding="utf-8"))
     tab.evaluate("() => { window.__sent = []; window.NovelDBQt = {postMessage: m => window.__sent.push(JSON.parse(m))}; }")
     sent = lambda kind: [m for m in tab.evaluate("() => window.__sent") if m.get("type") == kind]
-    tab.evaluate("() => window.NovelDBGeneric.readLocal({url: 'https://x.test/b', title: 'T'})")
+    if book and book.get("via") == "top":
+        # From the top list of manga (its books are "manga" whatever they are).
+        tab.select_option("#kind", "manga")
+        tab.evaluate("() => window.NovelDBGeneric.init({sites: ['comics.test'], comic: ['comics.test'], lnreader: []})")
+        tab.wait_for_timeout(200)
+        top = [m for m in tab.evaluate("() => window.__sent") if m.get("type") == "genericTop"][-1]
+        tab.evaluate("a => window.NovelDBGeneric.add([a[0]], a[1])", [book, top["id"]])
+        tab.wait_for_timeout(800)
+        tab.click("#grid .card .title")
+        tab.wait_for_timeout(300)
+        tab.click("#dialog [data-act=read]")
+    elif book:
+        tab.evaluate("card => window.NovelDBGeneric.add([card])", book)
+        tab.wait_for_timeout(300)
+        tab.click("#grid .card .title")
+        tab.wait_for_timeout(300)
+        tab.click("#dialog [data-act=read]")
+    else:
+        tab.evaluate("() => window.NovelDBGeneric.readLocal({url: 'https://x.test/b', title: 'T'})")
     tab.wait_for_timeout(200)
     tab.evaluate("id => window.NovelDBGeneric.fetched(id, {chapters: [{name: 'One'}, {name: 'Two'}], comic: true})", sent("genericBook")[0]["id"])
     tab.wait_for_timeout(300)
@@ -363,3 +395,57 @@ def test_a_scrolled_chapter_still_coming_in_shows_halgakos_for_the_pages_to_come
         assert slots == ["page", "page", "page", "halgakos", "halgakos"]
     finally:
         context.close()
+
+
+def test_a_search_comes_back_when_the_page_is_opened_again(browser):
+    """Android ends a page left in the background and the app opens it again: it showed the top list."""
+    context = browser.new_context()
+    html = (PAGE / "index.html").read_text(encoding="utf-8")
+    script = (PAGE / "generic.js").read_text(encoding="utf-8")
+
+    def open_page():
+        tab = context.new_page()
+        tab.route("**/*", lambda route: route.fulfill(body=html, content_type="text/html") if route.request.url == "https://catalog.test/"
+                  else route.fulfill(body="", content_type="text/plain"))
+        tab.goto("https://catalog.test/")
+        tab.add_script_tag(content=script)
+        tab.evaluate("() => { window.__sent = []; window.NovelDBQt = {postMessage: m => window.__sent.push(JSON.parse(m))}; }")
+        return tab
+
+    try:
+        tab = open_page()
+        tab.fill("#query", "magical girl")
+        tab.press("#query", "Enter")
+        tab.wait_for_timeout(300)
+        search = [m for m in tab.evaluate("() => window.__sent") if m.get("type") == "genericSearch"][-1]
+        tab.evaluate("a => window.NovelDBGeneric.add(a[0], a[1])",
+                     [[dated(n, f"Book {n}", f"2026-0{n}-01") for n in range(1, 4)], search["id"]])
+        tab.wait_for_timeout(1500)
+        tab.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
+        tab.close()
+
+        again = open_page()
+        again.evaluate("() => window.NovelDBGeneric.init({sites: [], comic: [], lnreader: []})")
+        again.wait_for_timeout(700)
+        assert again.input_value("#query") == "magical girl"
+        assert sorted(titles(again)) == ["Book 1", "Book 2", "Book 3"]
+        assert "magical girl" in again.eval_on_selector("#heading", "e => e.textContent")
+        # Asking for the top list leaves nothing to come back to.
+        again.click("#backTop")
+        assert again.evaluate("() => localStorage.getItem('noveldb.generic.search.v1')") in (None, "null")
+    finally:
+        context.close()
+
+
+def test_auto_reads_a_manhwa_tagged_manga_in_scroll_and_a_manga_in_pages(browser):
+    """Auto went by "manga" (a tag, or the top list of manga it came from): manhwa opened in pages."""
+    for tags, via, layout in ((["Manga", "Manhwa", "Action"], "", "scroll"), (["Manga", "Shounen"], "", "paged"),
+                              (["Action", "Webtoon/Webcomic"], "top", "scroll"), (["Action", "Shounen"], "top", "paged")):
+        book = {"url": "https://comics.test/title/1", "title": "Some Comic", "site": "comics.test", "source": "site",
+                "comic": True, "tags": tags, "author": "", "cover": "", "description": "x", "via": via}
+        context, tab = comic_reader(browser, "auto", book)
+        try:
+            shown = "scroll" if "scroll" in tab.evaluate("() => document.getElementById('reader').className") else "paged"
+            assert shown == layout, tags
+        finally:
+            context.close()

@@ -170,6 +170,9 @@ class _Workers:
 
 
 _PAGE_WORKERS = _Workers(64)
+# Google Translate's requests have threads of their own: behind a search's site requests and page renders in
+# the page's pool they waited, and the cards translated many seconds later than on the phones.
+_TRANSLATE_WORKERS = _Workers(8)
 
 _translate_first = [0]  # the way that answered last: a blocked one (20 s to time out) is not asked first again
 
@@ -541,7 +544,8 @@ class GenericCatalog(QObject):
             key = self._local_paths.get(data["url"]) or str(_file_path(data["url"]))
             _save_place(key, data["chapter"], max(0.0, min(1.0, float(data["at"]))))
         elif kind == "genericFetch":
-            self._background(self._transport, data["id"], data["request"])
+            self._background(self._transport, data["id"], data["request"],
+                             workers=_TRANSLATE_WORKERS if urlsplit(data["request"]["url"]).hostname == TRANSLATE_HOST else None)
         elif kind == "genericImage":
             self._background(self._image, data["id"], data["url"], str(data.get("referer") or ""))
         elif kind == "genericDetails":
@@ -741,7 +745,7 @@ class GenericCatalog(QObject):
     def stop(self) -> None:
         self._stop.set()
 
-    def _background(self, function, *args, **kwargs) -> None:
+    def _background(self, function, *args, workers: Optional[_Workers] = None, **kwargs) -> None:
         """`function` on one of the page's worker threads. Kept and reused: a new thread for each message (a
         card's cover, an image) made the window wait for every one to start, and searches stuttered."""
         def run():
@@ -750,7 +754,7 @@ class GenericCatalog(QObject):
             except Exception:
                 log.exception("generic page: %s failed", getattr(function, "__name__", function))
 
-        _PAGE_WORKERS.submit(run)
+        (workers or _PAGE_WORKERS).submit(run)
 
     def _transport(self, fetch_id: int, request: dict) -> None:
         """An LNReader plugin's request, answered in the transport's result shape."""

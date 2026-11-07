@@ -1182,6 +1182,8 @@
     function leaveSlot(element) {
         var hole = document.createElement('div');
         hole.className = 'card hole';
+        // Its place in a sort (a hole without one went first: the first row of a sorted top list stood empty).
+        hole.style.order = element.style.order;
         $('grid').replaceChild(hole, element);
         setTimeout(closeSlots, 1500);  // nothing loading any more: no book will come to fill it
     }
@@ -1381,9 +1383,29 @@
         var text = '';
         if (!order.length && view === 'top') text = running ? 'Loading the top ' + TOP_NAMES[top.kind] + '…' : 'Nothing in the top lists right now. Type a title, or pick tags with the Tags button.';
         else if (!order.length && !running) text = 'Nothing found.';
-        else if (order.length && !shown) text = siteFilter.size ? 'No books from the picked sites (yet).'
-            : 'No ' + $('kind').selectedOptions[0].text.toLowerCase() + ' among these.';
+        // Books found, all hidden by the type menu or the picked sites (an R19 search with Manga picked, left from
+        // a top list, showed "nothing"): how many, and a button that shows them.
+        var widen = '';
+        if (order.length && !shown) {
+            var bySite = siteFilter.size && order.some(function (g) { var k = $('kind').value; return k === 'all' || kindOf(g) === k; });
+            text = (bySite ? order.length + ' books found, none from the picked sites (yet).'
+                : order.length + ' books found, no ' + $('kind').selectedOptions[0].text.toLowerCase() + ' among them.');
+            widen = bySite ? 'sites' : 'kind';
+        }
         $('empty').textContent = text;
+        if (widen) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.id = 'emptyWiden';
+            button.style.marginLeft = '10px';
+            button.textContent = widen === 'sites' ? 'Show all sites' : 'Show all types';
+            button.onclick = function () {
+                if (widen === 'sites') { siteFilter.clear(); drawSites(); widenSoon(); }
+                else $('kind').value = 'all';
+                refilter();
+            };
+            $('empty').appendChild(button);
+        }
         $('empty').style.display = text ? '' : 'none';
     }
 
@@ -1428,7 +1450,7 @@
                 render(group);
             }
         });
-        if (view === 'search') countLine();
+        if (view === 'search') { countLine(); searchSave(); }
         showMoreLoader();
     }
     function shownCount() { return order.filter(function (g) { return !(g.held && !g.verified); }).length; }
@@ -1788,7 +1810,63 @@
     }
     function topKind() { var kind = $('kind').value; return kind === 'all' ? 'webnovel' : kind; }
     function isComicKind(kind) { return kind === 'manga' || kind === 'manhwa' || kind === 'comic'; }
+    // -- the search on screen, kept: Android ends a page left in the background (another app opened) and the app
+    // opens it again, which showed the top list; the search comes back as it was, its cards and place too.
+    var SEARCH_KEY = 'noveldb.generic.search.v1', SEARCH_HOURS = 12, searchSaveTimer = 0;
+    function searchSave(now) {
+        clearTimeout(searchSaveTimer);
+        if (!now) { searchSaveTimer = setTimeout(function () { searchSave(true); }, 1000); return; }
+        if (view !== 'search' || !current.queries || !order.length) return;
+        var items = order.slice(0, 300).map(function (group) {
+            var first = group.sources[0];
+            var original = (group.covers && group.covers[0]) || (/^data:/.test(group.cover) ? '' : group.cover);
+            return Object.assign({}, strip(group, first), {cover: original, plugin: first.plugin, path: first.path, ms: first.ms,
+                verified: !!group.verified || !group.held, ageRating: group.ageRating || 0,
+                likes: group.likes, views: group.views, chapters: group.chapters, published: group.published, updated: group.updated,
+                status: group.status, rating: group.rating, originalTitle: group.rawTitle || '',
+                more: group.sources.slice(1).map(function (s) {
+                    return {url: s.url, title: group.title, site: s.site, source: s.source, plugin: s.plugin, path: s.path, comic: group.comic, ms: s.ms};
+                })});
+        });
+        store(SEARCH_KEY, {time: Date.now(), current: {text: current.text, tags: current.tags, queries: current.queries, byId: current.byId,
+                                                      author: current.author || ''},
+                           kind: $('kind').value, sort: sortBy(), sites: Array.from(siteFilter), scroll: window.scrollY,
+                           heading: $('heading').innerHTML, items: items});
+    }
+    function searchRestore() {
+        var kept = store(SEARCH_KEY);
+        if (!kept || !kept.items || !kept.items.length || Date.now() - kept.time > SEARCH_HOURS * 3600e3) return false;
+        searchId++;
+        reset('search');
+        current = kept.current;
+        picked = (current.tags || []).slice();
+        showPicked();
+        $('query').value = current.author ? '' : current.text || '';
+        if (kept.kind) $('kind').value = kept.kind;
+        if (kept.sort) $('sort').value = kept.sort;
+        (kept.sites || []).forEach(function (site) { siteFilter.add(site); });
+        $('heading').innerHTML = kept.heading;
+        if ($('backTop')) $('backTop').onclick = function () { $('query').value = ''; picked = []; showPicked(); showTop(); };
+        running = 0;
+        kept.items.forEach(function (item, index) {
+            var group = merge(item, index + 1);
+            if (!group) return;
+            (item.more || []).forEach(function (m) { merge(m); });
+            if (item.verified) group.verified = true;
+            render(group);
+        });
+        status(order.length + ' books found; scroll for more.');
+        // Back where it was once the cards are drawn (and the one reshuffle is not wanted: they are in their order).
+        reshuffle.list = searchId;
+        setTimeout(function () { orderCards(true); window.scrollTo(0, kept.scroll || 0); }, 400);
+        return true;
+    }
+    window.addEventListener('scroll', function () { if (view === 'search') searchSave(); }, {passive: true});
+    document.addEventListener('visibilitychange', function () { if (document.hidden) searchSave(true); });
+    window.addEventListener('pagehide', function () { searchSave(true); });
+
     function showTop() {
+        store(SEARCH_KEY, null);  // the top list asked for: no search to come back to
         searchId++;
         reset('top');
         current = {text: '', tags: []};
@@ -2293,8 +2371,17 @@
         if (!R.comic) return look.layout;
         var pick = R.comicPick || look.comicLayout;
         if (pick !== 'auto') return pick;
-        if (!R.comicKind) R.comicKind = R.group ? kindOf(Object.assign({}, R.group, {comic: true})) : 'comic';
-        return R.comicKind === 'manga' ? 'paged' : 'scroll';
+        if (!R.comicKind) R.comicKind = R.group ? comicReading(R.group) : 'scroll';
+        return R.comicKind;
+    }
+    // Auto's layout for a comic: a webtoon, manhwa or manhua (its tags, a webtoon site) is one long strip, read
+    // in scroll even when a site also tags it manga or it came from a top list of manga (Solo Leveling opened
+    // in pages); a manga is read in pages; anything else in scroll.
+    var STRIP = /webtoons?|manhwa|manhuwa|mahwa|manhua|full[\s-]*colou?r|long[\s-]*strip|vertical|웹툰|韩漫|國漫|国漫|\.kr\b|toomics|tapas|lezhin|bilibili|kuaikan/i;
+    function comicReading(group) {
+        var text = [group.title, (group.tags || []).join(' '), (group.sources || []).map(function (s) { return s.site; }).join(' ')].join(' ');
+        if (STRIP.test(text)) return 'scroll';
+        return kindOf(Object.assign({}, group, {comic: true, topKind: ''})) === 'manga' || group.topKind === 'manga' ? 'paged' : 'scroll';
     }
     if (darkPage && darkPage.addEventListener) darkPage.addEventListener('change', function () { if ($('reader').classList.contains('open')) applyLook(); });
 
@@ -3345,7 +3432,7 @@
                             ln: LN_SITE.test(site + ' ' + p.name)};
                 });
             } catch (e) { allPlugins = []; /* no plugin list: the top sites' plugins only */ }
-            if (view === 'top' && !order.length) showTop();
+            if (view === 'top' && !order.length && !searchRestore()) showTop();
         },
         add: add,
         moreDone: function (id, state) {
