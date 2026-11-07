@@ -57,7 +57,7 @@ struct LibraryBook: Identifiable {
 /// The Library tab: the books downloaded on this device, as a shelf of covers. A tap reads an EPUB in
 /// the Library's own reader (the built-in Catalog page's reader, opened here: it does not depend on the
 /// Catalog tab or its site); ⋯ shows the book's files with the same actions as a finished download, and
-/// Delete. A long press selects books (taps then pick more), for their files to go to another app at once.
+/// Delete. A long press selects books (taps then pick more), for their files to go to another app at once, or to be deleted.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @State private var books: [LibraryBook] = []
@@ -68,6 +68,8 @@ struct LibraryView: View {
     /// The books picked by a long press (their ids), and the file kinds left out of what they share.
     @State private var selected: Set<String> = []
     @State private var kindsOff: Set<String> = []
+    /// The picked books' files (of the kinds left on) waiting for the delete to be confirmed.
+    @State private var deletingPicked: [URL]?
     private var selecting: Bool { !selected.isEmpty }
 
     private func toggle(_ book: LibraryBook) {
@@ -182,6 +184,17 @@ struct LibraryView: View {
                 reload()
             }
         }
+        // The kinds switched off stay: picking EPUB only deletes the EPUBs and keeps the TXT copies.
+        .confirmationDialog("Delete \(deletingPicked?.count ?? 0) file\(deletingPicked?.count == 1 ? "" : "s")? This cannot be undone.",
+                            isPresented: Binding(get: { deletingPicked != nil }, set: { if !$0 { deletingPicked = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                deletingPicked?.forEach { try? FileManager.default.removeItem(at: $0) }
+                deletingPicked = nil
+                selected = []
+                reload()
+            }
+        }
     }
 
     private func reload() {
@@ -200,8 +213,8 @@ struct LibraryView: View {
         let all = picked.flatMap(\.files)
         var kinds: [String] = []
         for kind in all.map(Self.kind) where !kinds.contains(kind) { kinds.append(kind) }
-        let files = all.filter { !kindsOff.contains(Self.kind($0)) }
-            .flatMap { $0.hasDirectoryPath ? FolderZip.files(in: $0) : [$0] }
+        let kept = all.filter { !kindsOff.contains(Self.kind($0)) }
+        let files = kept.flatMap { $0.hasDirectoryPath ? FolderZip.files(in: $0) : [$0] }
         return VStack(spacing: 8) {
             if kinds.count > 1 {
                 HStack(spacing: 8) {
@@ -217,6 +230,9 @@ struct LibraryView: View {
                 Text("\(picked.count) book\(picked.count == 1 ? "" : "s") · \(files.count) file\(files.count == 1 ? "" : "s")")
                     .font(.subheadline)
                 Spacer()
+                Button(role: .destructive) { deletingPicked = kept } label: { Label("Delete", systemImage: "trash") }
+                    .buttonStyle(.bordered)
+                    .disabled(kept.isEmpty)
                 ShareLink(items: files) { Label("Open in app", systemImage: "square.and.arrow.up") }
                     .buttonStyle(.borderedProminent)
                     .disabled(files.isEmpty)

@@ -147,7 +147,7 @@ private fun formats(book: LibraryBook): String {
  * The Library tab: the books downloaded on this device, as a shelf of covers. A tap reads an EPUB in
  * the Library's own reader (the built-in Catalog page's reader, opened here: it does not depend on the
  * Catalog tab or its site); ⋮ shows the book's files with the same actions as a finished download, and
- * Delete. A long press selects books (taps then pick more), for their files to go to another app at once.
+ * Delete. A long press selects books (taps then pick more), for their files to go to another app at once, or to be deleted.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -162,6 +162,8 @@ fun LibraryScreen(model: AppViewModel) {
     // The books picked by a long press (their keys), and the file kinds left out of what they share.
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var kindsOff by remember { mutableStateOf(emptySet<String>()) }
+    // The picked books' files (of the kinds left on) waiting for the delete to be confirmed.
+    var deletingPicked by remember { mutableStateOf<List<File>?>(null) }
     val context = LocalContext.current
     // Read again whenever a download finishes (the jobs change) or a book is deleted.
     val books by produceState(emptyList<LibraryBook>(), jobs.count { !it.state.isActive }, refresh) {
@@ -275,6 +277,7 @@ fun LibraryScreen(model: AppViewModel) {
                             "${selected.size} book${if (selected.size == 1) "" else "s"} · ${files.size} file${if (files.size == 1) "" else "s"}",
                             Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                         )
+                        OutlinedButton(enabled = files.isNotEmpty(), onClick = { deletingPicked = files }) { Text("Delete") }
                         Button(
                             enabled = files.isNotEmpty(),
                             onClick = { if (FileActions.share(context, files)) selected = emptySet() else manager.message("Nothing left to share.") },
@@ -315,6 +318,24 @@ fun LibraryScreen(model: AppViewModel) {
                 book.files.forEach { file -> FileRow(model, file, manager.jobOwning(file)?.id) }
             }
         }
+    }
+    deletingPicked?.let { files ->
+        val count = books.count { book -> book.files.any { it in files } }
+        AlertDialog(
+            onDismissRequest = { deletingPicked = null },
+            title = { Text("Delete ${files.size} file${if (files.size == 1) "" else "s"}") },
+            // The kinds switched off stay: picking EPUB only deletes the EPUBs and keeps the TXT copies.
+            text = { Text("Delete the ${files.map(::fileKind).distinct().sorted().joinToString(" and ")} of $count book${if (count == 1) "" else "s"}? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    files.forEach { it.deleteRecursively() }
+                    deletingPicked = null
+                    selected = emptySet()
+                    refresh++
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deletingPicked = null }) { Text("Cancel") } },
+        )
     }
     deleting?.let { book ->
         AlertDialog(
