@@ -2791,6 +2791,16 @@
     }
     // A chapter of images reads as a comic: one scroll, each image showing as it arrives (the paged
     // layout could not count its pages until the last image was in).
+    // A chapter of pictures: four or more, and little text beside them. A novel's chapter with illustrations (a
+    // royalroad chapter opens with a few) has thousands of letters: it was read as a comic, centred, its
+    // paragraphs run together.
+    function comicChapter(html) {
+        var pictures = (String(html || '').match(/<img\b/gi) || []).length;
+        if (pictures < 4) return false;
+        var text = String(html).replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '').replace(/<[^>]+>/g, '')
+            .replace(/&[#\w]+;/g, ' ').replace(/\s+/g, '');
+        return text.length < pictures * 150 + 400;
+    }
     function asComic() {
         if (R.comic) return;
         R.comic = true;
@@ -2883,13 +2893,21 @@
             }
             // Its pages streamed in: finish them where they are (the slots know their chapter, even
             // when something reset R.streamed meanwhile), never draw the chapter again from 0.
-            if (R.streamed === index || (R.slotsIndex === index && R.slots && R.slots.length)) {
+            var streamedHere = R.streamed === index || (R.slotsIndex === index && R.slots && R.slots.length);
+            // Its pictures streamed in, but the chapter is text with illustrations (a novel's): drawn as text below.
+            if (streamedHere && !comicChapter(chapter.html) && !(R.group && R.group.comic)) {
+                R.streamed = -1; R.slotsIndex = -1; R.slots = [];
+                resetPictures();
+            } else if (streamedHere) {
                 R.streamed = -1;
                 finishStream(chapter);
                 return;
             }
             var last = index + 1 < R.chapters.length;
-            var many = (chapter.html.match(/<img/g) || []).length >= 4;
+            var many = comicChapter(chapter.html);
+            // A novel's chapter of text after one taken for a comic (its first held a cover and illustrations): read
+            // as text again. A book its site calls a comic stays one.
+            if (!many && R.comic && !(R.group && R.group.comic)) { R.comic = false; R.comicKind = ''; applyLook(); }
             if (many) {
                 asComic();
                 R.streamed = -1;

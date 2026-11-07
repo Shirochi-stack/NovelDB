@@ -553,3 +553,18 @@ def test_a_translated_card_drawn_again_stays_translated(page):
         const watch = () => { const t = document.querySelector('#grid .card .title'); if (t) seen.push(t.textContent); };
         const timer = setInterval(watch, 10); setTimeout(() => { clearInterval(timer); done(seen); }, 900); })""")
     assert seen and all(text == "EN 제목" for text in seen), sorted(set(seen))
+
+
+def test_a_novels_chapter_with_illustrations_reads_as_text(browser):
+    """A royalroad chapter opening with a few illustrations was read as a comic: centred, paragraphs run together."""
+    context, tab = comic_reader(browser, "auto")  # its pictures streamed in while it was read
+    try:
+        chapter = [m for m in tab.evaluate("() => window.__sent") if m.get("type") == "genericChapter"][0]
+        text = "".join(f"<p>Paragraph {n} of the chapter, with enough words in it to be a novel's text.</p>" for n in range(80))
+        html = "".join(f'<img src="{PICTURE}">' for _ in range(5)) + text
+        tab.evaluate("a => window.NovelDBGeneric.fetched(a[0], {html: a[1], title: 'Chapter One'})", [chapter["id"], html])
+        tab.wait_for_timeout(500)
+        assert "comic" not in tab.evaluate("() => document.getElementById('reader').className")
+        assert tab.eval_on_selector_all("#flow p", "ps => ps.length") >= 80
+    finally:
+        context.close()
