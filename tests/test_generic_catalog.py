@@ -312,6 +312,7 @@ def test_downloader_can_take_over_on_the_first_failed_chapter():
     catalog.downloader = lambda operation: Immediate(operation(scraper))
     catalog._downloader_books = {}
     catalog._note = lambda _text: None
+    catalog._apply_engine_settings = lambda _scraper: None
 
     chapter = GenericCatalog._downloader_read(catalog, "https://books.example/book/1", 0)
 
@@ -352,6 +353,7 @@ def test_catalog_reader_reuses_the_downloader_book_already_opened_by_download():
     catalog.downloader = lambda operation: Immediate(operation(scraper))
     catalog._downloader_books = {}
     catalog._note = lambda _text: None
+    catalog._apply_engine_settings = lambda _scraper: None
 
     chapter = GenericCatalog._downloader_read(catalog, url, 0)
 

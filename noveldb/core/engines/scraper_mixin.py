@@ -100,6 +100,29 @@ PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC)
 PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GDL: "_gallerydl", ENGINE_GENERIC: "_generic"}
 
 
+def _image_kind(data_base64: str) -> str:
+    """The image type of base64 bytes, by their signature ("" when not a plain image): sites send pages as
+    application/octet-stream, and a scrambled page (decoded by the engine later) matches none."""
+    import base64
+    import binascii
+
+    try:
+        head = base64.b64decode(data_base64[:32])
+    except (binascii.Error, ValueError):
+        return ""
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[4:12] in (b"ftypavif", b"ftypavis"):
+        return "image/avif"
+    return ""
+
+
 def _with_text(result: dict) -> dict:
     """A transport result with `responseText` filled in from its bytes (for `_looks_refused`)."""
     if result and not result.get("responseText") and result.get("responseBase64"):
@@ -197,8 +220,26 @@ class SiteEnginesMixin:
                 return self._queue_job(source, "request", details)
             page_result = self._browser_request(details)
             if page_result is not None:
+                self._saw_response(details, page_result)
                 return page_result
+        self._saw_response(details, result)
         return result
+
+    def _saw_response(self, details: dict, result) -> None:
+        """An image the page's engine fetched, to `on_image(url, data address)` when the reader watches
+        (HaruNeko hands a chapter's pages over only once all are in; the reader shows each as it comes)."""
+        watcher = self.__dict__.get("on_image")
+        if watcher is None or not isinstance(result, dict) or not result.get("responseBase64"):
+            return
+        if int(result.get("status") or 0) >= 400:
+            return
+        kind = _image_kind(result["responseBase64"])
+        if not kind:
+            return
+        try:
+            watcher(str(details.get("url") or ""), f"data:{kind};base64,{result['responseBase64']}")
+        except Exception as e:
+            self.log(f"  Reader page hand-over failed: {e}")
 
     def _window_binding(self, source, request):
         """HaruNeko's FetchWindowScript: open an address in a tab and run a script there (queued)."""
@@ -258,6 +299,8 @@ class SiteEnginesMixin:
             while jobs:
                 job_id, kind, payload, origin = jobs.pop(0)
                 result = self._run_job(kind, payload)
+                if kind == "request":
+                    self._saw_response(payload, result)
                 try:
                     (origin or page).evaluate("([id, value]) => window.__noveldb_async.resolve(id, value)",
                                               [job_id, result])

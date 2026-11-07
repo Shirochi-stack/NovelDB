@@ -241,3 +241,30 @@ def test_google_translate_falls_back_to_another_address_and_logs_why(monkeypatch
     assert result["status"] == 200
     assert asked[1].startswith("https://translate.google.com/")
     assert "429" in caplog.text
+
+
+def test_a_downloaded_chapter_shows_the_pages_the_engine_already_fetched():
+    from noveldb.qt.catalog.generic import _with_page_data
+
+    html = '<div><img src="https://x.test/a?k=1&amp;t=2" /></div><div><img src="page-2" /></div>'
+    result = {"contentHtml": html, "images": [{"url": "https://x.test/a?k=1&t=2", "data": "data:image/jpeg;base64,AAA"},
+                                              {"url": "other", "data": "data:image/png;base64,BBB"}]}
+    swapped = _with_page_data(result)
+    assert 'src="data:image/jpeg;base64,AAA"' in swapped
+    assert 'src="data:image/png;base64,BBB"' in swapped  # by place when the address differs
+    assert _with_page_data({"contentHtml": html}) == html
+
+
+def test_the_reader_downloader_gets_the_settings_engine_order(qtbot):
+    from types import SimpleNamespace
+
+    from noveldb.core.settings.model import EngineSettings
+    from noveldb.qt.catalog.generic import GenericCatalog
+
+    catalog = GenericCatalog.__new__(GenericCatalog)
+    catalog.engine_settings = lambda: EngineSettings(order=("gallerydl", "haruneko", "generic"), dynamic_priority=False)
+    scraper = SimpleNamespace(engine_order=["haruneko"], dynamic_priority=True, _book_url="https://x.test/")
+    catalog._apply_engine_settings(scraper)
+    assert scraper.engine_order[:2] == ["gallerydl", "haruneko"]
+    assert scraper.dynamic_priority is False
+    assert scraper._book_url is None

@@ -2669,7 +2669,11 @@
         while (pictures.active < 4 && pictures.queue.length) {
             var image = pictures.queue.shift(), token = pictures.token;
             pictures.active++;
-            ask({type: 'genericImage', url: image.dataset.src, referer: R.source ? R.source.url : ''}).then(function (data) {
+            // A page the app already has (HaruNeko fetched it): its bytes, not the site asked again.
+            var asked = /^data:image\//.test(image.dataset.src)
+                ? Promise.resolve({dataUrl: image.dataset.src, bytes: Math.round(image.dataset.src.length * 0.75)})
+                : ask({type: 'genericImage', url: image.dataset.src, referer: R.source ? R.source.url : ''});
+            asked.then(function (data) {
                 if (token !== pictures.token) return;
                 pictures.active--;
                 pictures.done++;
@@ -2678,6 +2682,8 @@
                     fetch(data.dataUrl).then(function (r) { return r.blob(); }).then(function (blob) {
                         var url = URL.createObjectURL(blob);
                         pictures.urls.push(url);
+                        // The page's bytes are in the blob now; a copy as text in the slot would double them.
+                        if (/^data:/.test(this.dataset.src)) this.dataset.src = 'data:,kept';
                         showSlot(this, url);
                     }.bind(this));
                 } else {
@@ -2714,8 +2720,12 @@
             flow.insertAdjacentHTML('beforeend', slotHtml(''));
             R.slots.push(flow.lastElementChild);
         }
-        pictures.total = Math.max(found.total, found.images.length);
-        found.images.forEach(function (src, i) {
+        // `from`: the place of the first of `images` (the desktop sends each page once, as it comes).
+        var from = found.from || 0;
+        pictures.total = Math.max(found.total, from + found.images.length);
+        found.images.forEach(function (src, n) {
+            var i = from + n;
+            while (R.slots.length < i) { flow.insertAdjacentHTML('beforeend', slotHtml('')); R.slots.push(flow.lastElementChild); }
             var slot = R.slots[i];
             if (!slot) { flow.insertAdjacentHTML('beforeend', slotHtml('')); slot = flow.lastElementChild; R.slots.push(slot); }
             if (!slot.dataset.src) { slot.dataset.src = src; fetchPicture(slot); }

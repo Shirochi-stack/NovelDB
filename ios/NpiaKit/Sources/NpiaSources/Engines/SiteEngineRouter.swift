@@ -72,18 +72,9 @@ public enum SiteEngineRouter {
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.lists(rules, url)
         }
-        return mangaOrder(steps.filter { $0 == .native || isWebPage }, dynamic: engines.dynamicPriority)
-    }
-
-    /// Dynamic priority on a site both gallery-dl and HaruNeko list (a manga site): gallery-dl first.
-    /// It reads such sites more reliably (HaruNeko's site scripts time out on some, such as fanfox).
-    static func mangaOrder(_ steps: [SiteEngine], dynamic: Bool) -> [SiteEngine] {
-        guard dynamic, let haruneko = steps.firstIndex(of: .haruneko), let gallerydl = steps.firstIndex(of: .gallerydl),
-              gallerydl > haruneko else { return steps }
-        var ordered = steps
-        ordered.remove(at: gallerydl)
-        ordered.insert(.gallerydl, at: haruneko)
-        return ordered
+        // The Settings' order as it is, as on the desktop (gallery-dl was put before HaruNeko on manga sites
+        // here only, and books it lists without pages, such as fanfox's One Piece, could not be read).
+        return steps.filter { $0 == .native || isWebPage }
     }
 
     /// Some enabled site engine can try `url`: the links the Add screen accepts and a download needs.

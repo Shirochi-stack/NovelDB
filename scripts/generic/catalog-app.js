@@ -2513,10 +2513,22 @@
         pages.cache = {};
         pages.watching = {id: id, images: []};
     }
+    function imageKind(base64) {
+        var head;
+        try { head = atob(String(base64 || '').slice(0, 32)); } catch (e) { return ''; }
+        if (head.indexOf('\xff\xd8\xff') === 0) return 'image/jpeg';
+        if (head.indexOf('\x89PNG') === 0) return 'image/png';
+        if (/^GIF8[79]a/.test(head)) return 'image/gif';
+        if (head.slice(0, 4) === 'RIFF' && head.slice(8, 12) === 'WEBP') return 'image/webp';
+        if (/^ftypavi[fs]/.test(head.slice(4, 12))) return 'image/avif';
+        return '';
+    }
     function pageArrived(url, reply) {
         var watch = pages.watching;
         if (!watch || !reply || !reply.responseBase64) return;
-        var kind = (/content-type:\s*(image\/[\w.+-]+)/i.exec(reply.responseHeaders || '') || [])[1];
+        // By the bytes' signature too: sites send pages as application/octet-stream (a scrambled page, decoded
+        // by the engine later, matches none and comes with the chapter).
+        var kind = (/content-type:\s*(image\/[\w.+-]+)/i.exec(reply.responseHeaders || '') || [])[1] || imageKind(reply.responseBase64);
         if (!kind || pages.cache[url]) return;
         pages.cache[url] = 'data:' + kind + ';base64,' + reply.responseBase64;
         watch.images.push(url);

@@ -19,12 +19,6 @@ final class SiteEngineRouterTests: XCTestCase {
         XCTAssertEqual(SiteEngineRouter.plan(order: all, nativeOwnsURL: false) { _ in false }, [.novelDownloader, .webtoepub])
     }
 
-    func testDynamicPriorityTriesGalleryDlBeforeHaruNekoOnSitesBothList() {
-        XCTAssertEqual(SiteEngineRouter.mangaOrder([.haruneko, .gallerydl, .generic], dynamic: true), [.gallerydl, .haruneko, .generic])
-        XCTAssertEqual(SiteEngineRouter.mangaOrder([.haruneko, .gallerydl, .generic], dynamic: false), [.haruneko, .gallerydl, .generic])
-        XCTAssertEqual(SiteEngineRouter.mangaOrder([.haruneko, .generic], dynamic: true), [.haruneko, .generic])
-    }
-
     func testTheUsersOrderIsKept() {
         XCTAssertEqual(
             SiteEngineRouter.plan(order: [.webtoepub, .native, .novelDownloader], nativeOwnsURL: true) { _ in true },

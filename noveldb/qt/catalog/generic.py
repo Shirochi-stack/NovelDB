@@ -100,6 +100,28 @@ def _plain_request(url: str, method: str, body, headers: dict) -> Optional[dict]
         return None
 
 
+def _with_page_data(result: dict) -> str:
+    """A downloaded chapter's HTML with the images the engine already fetched in place of their addresses
+    (HaruNeko's pages: fetched again by the reader, some sites refused them and pages went missing)."""
+    html = result.get("contentHtml") or ""
+    pictures = [image for image in (result.get("images") or [])
+                if isinstance(image, dict) and str(image.get("data") or "").startswith("data:image/")]
+    if not pictures:
+        return html
+    by_url = {str(image.get("url") or ""): image["data"] for image in pictures}
+    seen = [0]
+
+    def swap(match):
+        # By address, else the image in the same place (the n-th picture for the n-th image).
+        position = seen[0]
+        seen[0] += 1
+        link = match.group(2).replace("&amp;", "&")
+        data = by_url.get(link) or (pictures[position]["data"] if position < len(pictures) else None)
+        return match.group(1) + data + match.group(3) if data else match.group(0)
+
+    return re.sub(r'(<img\b[^>]*?\bsrc=")([^"]*)(")', swap, html)
+
+
 class ChapterNotOut(RuntimeError):
     """A chapter the site lists but has not published yet (no login would read it)."""
 
@@ -380,6 +402,9 @@ class GenericCatalog(QObject):
         # The downloader's own browser worker (`context.browser.submit`), for books the quick engines
         # can't read: it has the saved sessions of Enter Browser. Set by the Catalog page.
         self.downloader: Optional[Callable] = None
+        # The Settings' engine order and dynamic priority (EngineSettings), for the downloader's reads: its
+        # scraper had the defaults (dynamic priority on), whatever Settings said. Set by the Catalog page.
+        self.engine_settings: Callable = lambda: None
         self._downloader_books: dict = {}
 
     # -- requests ----------------------------------------------------------------------------------
@@ -780,6 +805,16 @@ class GenericCatalog(QObject):
         finally:
             _reading.id = None
 
+    def _apply_engine_settings(self, scraper) -> None:
+        settings = self.engine_settings()
+        if settings is None:
+            return
+        order = list(settings.enabled())
+        if getattr(scraper, "engine_order", None) != order or getattr(scraper, "dynamic_priority", None) != settings.dynamic_priority:
+            scraper.engine_order = order
+            scraper.dynamic_priority = bool(settings.dynamic_priority)
+            scraper._book_url = None  # a book read under the old order is read again under the new one
+
     def _downloader_read(self, url: str, index: Optional[int] = None) -> dict:
         # Its index is None for the book.
         """The book (index None) or one chapter through the downloader's engine chain and saved sessions."""
@@ -789,6 +824,7 @@ class GenericCatalog(QObject):
         if index is None or url not in self._downloader_books:
             self._note("The quick engines couldn't read it; trying the downloader with your saved logins…")
             def load_or_reuse(scraper):
+                self._apply_engine_settings(scraper)
                 current = getattr(scraper, "_book_data", None)
                 if (
                     getattr(scraper, "_book_url", None) == url
@@ -813,10 +849,35 @@ class GenericCatalog(QObject):
         chapter = data["chapters"][index]
         self._note(f"Scraping {chapter.get('name') or 'the chapter'} with the downloader…")
 
+        fetch_id = getattr(_reading, "id", None)
+        streamed: list = []
+
+        def page_in(link: str, data: str) -> None:
+            # A page the engine fetched (HaruNeko's, as they come): shown at once, and logged.
+            streamed.append(data)
+            scraper_log(f"  Page {len(streamed)} downloaded ({len(data) * 3 // 4 // 1024} KB)")
+            if fetch_id is not None:
+                self._reader_status.emit(fetch_id, f"Page {len(streamed)} downloaded…")
+                self._reader_images.emit(fetch_id, {"images": [data], "from": len(streamed) - 1, "total": len(streamed)})
+
+        scraper_log = lambda _text: None  # noqa: E731
+
         def read(scraper):
+            nonlocal scraper_log
+            scraper_log = getattr(scraper, "log", scraper_log)
+            self._apply_engine_settings(scraper)
             if getattr(scraper, "_book_url", None) != url:
                 scraper.parse_book(url)  # the worker may have read another book since
-            return scraper.parse_chapter(index, chapter, interval=0)
+            scraper.on_image = page_in
+            scraper_log(f"Reader: chapter {index + 1} ({chapter.get('name') or '?'})…")
+            try:
+                done = scraper.parse_chapter(index, chapter, interval=0)
+            finally:
+                scraper.on_image = None
+            pages = len((done or {}).get("images") or [])
+            scraper_log(f"Reader: chapter {index + 1} " + (f"read, {pages} page(s)." if done and not done.get("_locked")
+                                                           else "could not be read."))
+            return done
 
         result = self.downloader(read).result(timeout=240)
         if not result or result.get("_locked"):
@@ -824,7 +885,7 @@ class GenericCatalog(QObject):
             if reason.startswith("not published yet"):
                 raise ChapterNotOut(f"This chapter is {reason}.")
             raise RuntimeError(f"the chapter could not be read ({reason})")
-        return {"name": result.get("chapterName") or chapter.get("name") or "", "html": result.get("contentHtml") or "",
+        return {"name": result.get("chapterName") or chapter.get("name") or "", "html": _with_page_data(result),
                 "text": result.get("contentText") or ""}
 
     def _image(self, fetch_id: int, url: str, referer: str) -> None:

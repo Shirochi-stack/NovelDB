@@ -248,3 +248,13 @@ def test_a_scheduled_episode_is_marked_and_not_opened():
     scraper._npia_parse_chapter = lambda *a, **k: pytest.fail("a scheduled chapter is not opened")
     result = scraper.parse_chapter(0, chapter, interval=0)
     assert result == {"_locked": True, "_lockReason": "not published yet: npia releases it in 11 hours"}
+
+
+def test_engine_images_are_recognised_by_their_bytes():
+    import base64
+
+    from noveldb.core.engines.scraper_mixin import _image_kind
+
+    assert _image_kind(base64.b64encode(b"\xff\xd8\xff\xe0" + b"0" * 20).decode()) == "image/jpeg"
+    assert _image_kind(base64.b64encode(b"RIFF\x00\x00\x00\x00WEBPVP8 ").decode()) == "image/webp"
+    assert _image_kind(base64.b64encode(b"scrambled bytes here....").decode()) == ""

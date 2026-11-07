@@ -394,14 +394,6 @@ class SiteEngineChainTest {
     }
 
     @Test
-    fun dynamicPriorityTriesGalleryDlBeforeHaruNekoOnSitesBothList() {
-        val listed = listOf(SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC)
-        assertEquals(listOf(SiteEngine.GALLERYDL, SiteEngine.HARUNEKO, SiteEngine.GENERIC), SourceCatalog.mangaOrder(listed, EngineSettings()))
-        assertEquals(listed, SourceCatalog.mangaOrder(listed, EngineSettings(dynamicPriority = false)))
-        assertEquals(listOf(SiteEngine.HARUNEKO, SiteEngine.GENERIC), SourceCatalog.mangaOrder(listOf(SiteEngine.HARUNEKO, SiteEngine.GENERIC), EngineSettings()))
-    }
-
-    @Test
     fun withTheBuiltInScrapersOffEveryScriptEngineIsTried() {
         val noNative = EngineSettings(disabled = listOf("native"), dynamicPriority = false)
         // Even a site no engine lists is tried: there is no scraper to fall back to.
