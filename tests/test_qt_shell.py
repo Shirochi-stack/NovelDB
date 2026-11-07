@@ -443,11 +443,21 @@ def test_the_library_shows_the_books_in_the_save_folder(window, context, qtbot, 
     assert texts[1].startswith("Other") and "TXT folder" in texts[1]
     page.search.setText("author")
     assert page.grid.count() == 1
-    # A double click opens the book's page in the Library; Read opens the Library's reader, from the file.
+    # A double click opens the book's page in the Library; Read opens the Catalog's reader at the book (its
+    # layouts, translation and the app's theme), else the Library's own reader, from the file.
     item = page.grid.item(0)
     page.grid.itemActivated.emit(item)
     assert page.views.currentWidget() is page.book_view
     assert page.book_view.synopsis.text() == "A short synopsis." and page.book_view.chapters.count() == 1
+    if page.read_in_catalog is not None:
+        asked = []
+        window.catalog.read_local = lambda path, title, chapter: asked.append((path.name, title, chapter))
+        page.book_view.read.click()
+        assert asked and asked[0][0] == "My Book.epub"
+        assert window.stack.currentWidget() is window.catalog
+        window._library_reader_closed()
+        assert window.stack.currentWidget() is window.library
+        page.read_in_catalog = None
     page.book_view.read.click()
     assert page.views.currentWidget() is page.reader
     assert "First words." in page.reader.page.toPlainText()
