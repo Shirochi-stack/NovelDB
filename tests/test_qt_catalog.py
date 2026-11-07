@@ -270,7 +270,7 @@ def test_the_reader_downloader_gets_the_settings_engine_order(qtbot):
     catalog.engine_settings = lambda: EngineSettings(order=("gallerydl", "haruneko", "generic"), dynamic_priority=False)
     scraper = SimpleNamespace(engine_order=["haruneko"], dynamic_priority=True, _book_url="https://x.test/")
     catalog._apply_engine_settings(scraper)
-    assert scraper.engine_order[:2] == ["gallerydl", "haruneko"]
+    assert scraper.engine_order[:4] == ["gallerydl", "mangapeak", "tako", "haruneko"]
     assert scraper.dynamic_priority is False
     assert scraper._book_url is None
 

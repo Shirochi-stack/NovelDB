@@ -416,10 +416,10 @@ class SiteEngineChainTest {
     fun dynamicPriorityListsTheBundledComicEnginesForTheirSites() {
         val settings = EngineSettings(order = listOf("haruneko", "generic"))
         val rolia = "https://\u0072\u006f\u006c\u0069\u0061\u0073\u0063\u0061\u006e.com/manga/example/"
-        assertEquals(SiteEngine.MANGAPEAK, steps(rolia, settings).first())
+        assertEquals(SiteEngine.MANGAPEAK, steps(rolia, settings)?.firstOrNull())
         assertEquals(listOf(SiteEngine.GENERIC), steps("https://unlisted.example/book/1", settings))
         val dex = "https://mangadex.org/title/19033d6c-ff8b-4c91-9642-8d1f30f7e399"
-        assertEquals(SiteEngine.TAKO, steps(dex, settings).first())
+        assertEquals(SiteEngine.TAKO, steps(dex, settings)?.firstOrNull())
     }
 
     @Test
