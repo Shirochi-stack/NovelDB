@@ -241,3 +241,24 @@ def test_a_translate_request_the_browser_refuses_goes_through_the_app(page):
     page.wait_for_timeout(600)
     assert page.evaluate("() => window.__asked.length") == 1
     assert page.eval_on_selector("#flow p", "e => e.textContent") == "Hello."
+
+
+def test_with_the_cards_translated_a_books_details_open_translated(page):
+    """The details' 🌐 named a list of parts that was gone: with the cards translated, no details opened."""
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+
+    def answer(route):
+        texts = __import__("urllib.parse", fromlist=["x"]).parse_qs(route.request.post_data)["q"]
+        route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                      body=json.dumps([["EN " + t, "ko"] for t in texts]))
+
+    page.route("https://translate.googleapis.com/**", answer)
+    page.evaluate("() => document.getElementById('translateCards').click()")
+    page.evaluate("cards => window.NovelDBGeneric.add(cards)", [site_card(url="https://m.example.test/1", description="소개")])
+    page.wait_for_timeout(800)
+    page.click("#grid .card .title")
+    page.wait_for_timeout(800)
+    assert not errors
+    assert page.eval_on_selector("#dialog", "d => d.open")
+    assert page.eval_on_selector("#dialog .details h2", "e => e.textContent").startswith("EN ")

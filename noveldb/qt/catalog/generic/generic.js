@@ -335,6 +335,13 @@
                         + entry[1] + ' book' + (entry[1] === 1 ? '' : 's') + '</span></label>';
                 }).join('');
         }
+        // A search narrowed to some sites (picked here, or kept from a top list of picked sites) found books on
+        // those only: every other site is offered too, to tick (the search then asks it as well).
+        var narrowed = siteFilter.size || (current.queries && current.queries.length && current.queries[0].only);
+        if (narrowed) {
+            html += '<h3>Other sites</h3><div class="pickbar"><input id="siteFind" placeholder="Find a site" autocomplete="off"></div>'
+                + '<div id="siteMore"></div>';
+        }
         var rows = progress.sites.slice().sort(function (a, b) { return a.ms - b.ms; });
         html += '<h3>' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered</h3>';
         if (memoryMB()) html += '<p>The page is using ' + memoryMB() + ' MB of memory.</p>';
@@ -345,8 +352,15 @@
         }).join('');
         if (running && progress.expected > progress.answered) html += '<p>' + (progress.expected - progress.answered) + ' still searching…</p>';
         var panel = $('sitespanel'), scroll = panel.scrollTop;
+        var finding = document.activeElement && document.activeElement.id === 'siteFind';
         panel.innerHTML = html;
         panel.scrollTop = scroll;  // redrawn as sites answer: the list stays where it was
+        if ($('siteFind')) {
+            $('siteFind').value = siteFindText;
+            $('siteFind').addEventListener('input', function () { siteFindText = this.value; drawOtherSites(counts); });
+            if (finding) $('siteFind').focus();
+            drawOtherSites(counts);
+        }
         panel.querySelectorAll('[data-filter-site]').forEach(function (box) {
             box.onchange = function () {
                 if (box.checked) siteFilter.add(box.dataset.filterSite); else siteFilter.delete(box.dataset.filterSite);
@@ -356,6 +370,32 @@
             };
         });
         if ($('siteFilterAll')) $('siteFilterAll').onclick = function () { siteFilter.clear(); refilter(); drawSites(); widenSoon(); };
+    }
+    // The sites a narrowed search did not show books from: a few at first, every match once a name is typed.
+    var siteFindText = '';
+    function drawOtherSites(counts) {
+        var box = $('siteMore');
+        if (!box) return;
+        var filter = siteFindText.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+        var names = topCandidates().filter(function (site) {
+            return !counts.has(site) && (!filter || site.toLowerCase().indexOf(filter) >= 0);
+        });
+        var shown = names.slice(0, filter ? 60 : 12);
+        box.innerHTML = shown.map(function (site) {
+            return '<label class="siterow pick"><input type="checkbox" data-other-site="' + esc(site) + '"><span>' + esc(site)
+                + '</span><span class="n">not searched</span></label>';
+        }).join('') + (names.length > shown.length ? '<p>' + (names.length - shown.length).toLocaleString() + ' more: type a name to find one.</p>' : '')
+            + (!names.length ? '<p>No site matches.</p>' : '');
+        box.querySelectorAll('[data-other-site]').forEach(function (input) {
+            input.onchange = function () {
+                if (!input.checked) return;
+                siteFilter.add(input.dataset.otherSite);
+                siteFindText = '';
+                refilter();
+                drawSites();
+                widenSoon();
+            };
+        });
     }
     /** A search that asked only some sites, and a site ticked that it did not ask (or All sites): searched
      *  again for the sites now ticked, once the ticking pauses. Else a site's few books from NovelDB were all
@@ -833,11 +873,22 @@
         'new': function (g) { return String(g.published || ''); }, updated: function (g) { return String(g.updated || ''); },
         title: function (g) { return String(g.title || '').toLowerCase(); }
     };
-    function orderCards() {
+    // Cards already placed keep their places: books still coming (and figures filled in later) re-sorted the
+    // whole grid, cards jumping under the finger (taps landed on another card or none) and the page laid out
+    // again each time. New ones are sorted among themselves after them: a little out of order is fine. The
+    // full order applies when the sort is picked.
+    function orderCards(force) {
         var key = sortBy(), value = SORT_VALUES[key];
         if (!value) { order.forEach(function (g) { if (g.element) g.element.style.order = ''; }); return; }
         var ascending = key === 'title';
-        order.filter(function (g) { return g.element; }).map(function (g, i) { return [g, value(g), i]; })
+        var placed = order.filter(function (g) { return g.element; });
+        var last = -1;
+        if (!force) {
+            placed.forEach(function (g) { if (g.element.style.order !== '') last = Math.max(last, Number(g.element.style.order)); });
+            placed = placed.filter(function (g) { return g.element.style.order === ''; });
+            if (!placed.length) return;
+        }
+        placed.map(function (g, i) { return [g, value(g), i]; })
             .sort(function (a, b) {
                 var x = a[1], y = b[1];
                 var unknown = (x === '' || x === 0) - (y === '' || y === 0);  // books without the figure last
@@ -845,7 +896,7 @@
                 var by = x < y ? -1 : x > y ? 1 : 0;
                 return (ascending ? by : -by) || a[2] - b[2];
             })
-            .forEach(function (entry, i) { entry[0].element.style.order = String(i); });
+            .forEach(function (entry, i) { entry[0].element.style.order = String(last + 1 + i); });
     }
     function drawCards() {
         var drawn = Array.from(dirty).filter(drawCard);
@@ -947,6 +998,8 @@
     var TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/t?client=gtx&sl=auto&tl=';
     // Translations kept per language (this page's, and the last TRANSLATE_KEEP of them across visits, in the
     // browser's storage): a card drawn again or met in another search shows its translation at once.
+    // A book's details the site wrote: its title, original title, synopsis and tags (the app's labels stay).
+    var TRANSLATED_PARTS = '.details h2, .details .rawtitle, .details .desc, .details .chips .chip';
     var TRANSLATE_KEEP = 3000, TRANSLATE_STORE = 'noveldb.generic.translations';
     var translated = new Map();  // language + "|" + text -> its translation
     try {
@@ -2153,7 +2206,7 @@
     });
     $('sort').addEventListener('change', function () {
         try { localStorage.setItem(SORT_KEY, sortBy()); } catch (e) {}
-        orderCards();
+        orderCards(true);
         if (view === 'search' && current.queries && current.queries.length) search();
     });
     $('kind').addEventListener('change', function () {
@@ -3142,11 +3195,20 @@
     }, {passive: true});
     // The search bar slides away while the results scroll down (its tag menu closed with it) and comes
     // back on any scroll up, or at the top; never while the search box has the focus.
-    var lastScroll = window.scrollY;
+    // Only a scroll the reader makes moves it: cards coming in above shift the page by themselves, and that
+    // read as scrolling up (the bar bounced in and out while the finger scrolled down).
+    var lastScroll = window.scrollY, lastInput = 0, touching = false;
+    ['wheel', 'keydown', 'touchmove'].forEach(function (name) {
+        window.addEventListener(name, function () { lastInput = Date.now(); }, {passive: true});
+    });
+    window.addEventListener('touchstart', function () { touching = true; lastInput = Date.now(); }, {passive: true});
+    window.addEventListener('touchend', function () { touching = false; lastInput = Date.now(); }, {passive: true});
     window.addEventListener('scroll', function () {
         var y = window.scrollY, header = document.querySelector('header');
         if (!header) return;
-        var down = y > lastScroll + 4, up = y < lastScroll - 4;
+        var byReader = touching || Date.now() - lastInput < 800;
+        if (!byReader && y > header.offsetHeight) { lastScroll = y; return; }
+        var down = y > lastScroll + 4, up = y < lastScroll - 12;
         if (down && y > header.offsetHeight && document.activeElement !== $('query')) {
             if (!header.classList.contains('away')) { closeTags(); header.classList.add('away'); }
         } else if (up || y <= header.offsetHeight) {
