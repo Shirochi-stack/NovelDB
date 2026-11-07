@@ -56,8 +56,8 @@ struct LibraryBook: Identifiable {
 
 /// The Library tab: the books downloaded on this device, as a shelf of covers. A tap reads an EPUB in
 /// the Library's own reader (the built-in Catalog page's reader, opened here: it does not depend on the
-/// Catalog tab or its site); a long press (or ⋯) shows the book's files with the same actions as a
-/// finished download, and Delete.
+/// Catalog tab or its site); ⋯ shows the book's files with the same actions as a finished download, and
+/// Delete. A long press selects books (taps then pick more), for their files to go to another app at once.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @State private var books: [LibraryBook] = []
@@ -65,6 +65,14 @@ struct LibraryView: View {
     @State private var open: LibraryBook?
     @State private var deleting: LibraryBook?
     @State private var reading: URL?
+    /// The books picked by a long press (their ids), and the file kinds left out of what they share.
+    @State private var selected: Set<String> = []
+    @State private var kindsOff: Set<String> = []
+    private var selecting: Bool { !selected.isEmpty }
+
+    private func toggle(_ book: LibraryBook) {
+        if selected.contains(book.id) { selected.remove(book.id) } else { selected.insert(book.id) }
+    }
 
     private var shown: [LibraryBook] {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -83,29 +91,48 @@ struct LibraryView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         ZStack(alignment: .topTrailing) {
                             ShelfCover(book: book)
-                            Button { open = book } label: {
-                                Image(systemName: "ellipsis").font(.caption.bold()).frame(width: 28, height: 28)
-                                    .background(.ultraThinMaterial, in: Circle())
+                            if selecting {
+                                // Whether this book is picked.
+                                Image(systemName: selected.contains(book.id) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3).foregroundStyle(selected.contains(book.id) ? Color.accentColor : .secondary)
+                                    .frame(width: 28, height: 28).background(.ultraThinMaterial, in: Circle())
+                                    .padding(4)
+                                    .accessibilityLabel(selected.contains(book.id) ? "Selected" : "Not selected")
+                            } else {
+                                Button { open = book } label: {
+                                    Image(systemName: "ellipsis").font(.caption.bold()).frame(width: 28, height: 28)
+                                        .background(.ultraThinMaterial, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(4)
+                                .accessibilityLabel("Files and actions")
                             }
-                            .buttonStyle(.plain)
-                            .padding(4)
-                            .accessibilityLabel("Files and actions")
                         }
                         Text(book.name).font(.footnote.weight(.medium)).lineLimit(2).padding(.top, 4)
                         Text(book.formats).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if let epub = book.epub { reading = epub } else { open = book }
+                        if selecting { toggle(book) } else if let epub = book.epub { reading = epub } else { open = book }
                     }
-                    .onLongPressGesture { open = book }
+                    .onLongPressGesture { toggle(book) }
                 }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 24)
         }
         .searchable(text: $query, prompt: "Find a book")
-        .navigationTitle("Library")
+        .navigationTitle(selecting ? "\(selected.count) selected" : "Library")
+        .toolbar {
+            if selecting {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { selected = [] } }
+                ToolbarItem(placement: .primaryAction) {
+                    let all = shown.allSatisfy { selected.contains($0.id) }
+                    Button(all ? "None" : "All") { selected = all ? [] : Set(shown.map(\.id)) }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
         .refreshable { reload() }
         .onAppear { reload() }
         .onChange(of: model.jobs.filter { !$0.state.isActive }.count) { _, _ in reload() }
@@ -159,6 +186,45 @@ struct LibraryView: View {
 
     private func reload() {
         books = LibraryBook.scan(model.outputDirectory)
+    }
+
+    /// "EPUB", "TXT" (a TXT folder too), "PDF": a file's kind, for the selection's filter.
+    private static func kind(_ file: URL) -> String {
+        file.hasDirectoryPath ? "TXT" : file.pathExtension.uppercased()
+    }
+
+    /// The picked books' files, to open in another app together (the share sheet: a reader, Files, a chat),
+    /// less the kinds switched off here. A TXT folder goes as its files.
+    private var selectionBar: some View {
+        let picked = books.filter { selected.contains($0.id) }
+        let all = picked.flatMap(\.files)
+        var kinds: [String] = []
+        for kind in all.map(Self.kind) where !kinds.contains(kind) { kinds.append(kind) }
+        let files = all.filter { !kindsOff.contains(Self.kind($0)) }
+            .flatMap { $0.hasDirectoryPath ? FolderZip.files(in: $0) : [$0] }
+        return VStack(spacing: 8) {
+            if kinds.count > 1 {
+                HStack(spacing: 8) {
+                    ForEach(kinds.sorted(), id: \.self) { kind in
+                        Toggle(kind, isOn: Binding(get: { !kindsOff.contains(kind) },
+                                                   set: { if $0 { kindsOff.remove(kind) } else { kindsOff.insert(kind) } }))
+                            .toggleStyle(.button)
+                    }
+                    Spacer()
+                }
+            }
+            HStack {
+                Text("\(picked.count) book\(picked.count == 1 ? "" : "s") · \(files.count) file\(files.count == 1 ? "" : "s")")
+                    .font(.subheadline)
+                Spacer()
+                ShareLink(items: files) { Label("Open in app", systemImage: "square.and.arrow.up") }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(files.isEmpty)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
     }
 }
 

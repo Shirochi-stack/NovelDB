@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,13 +25,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -142,8 +146,8 @@ private fun formats(book: LibraryBook): String {
 /**
  * The Library tab: the books downloaded on this device, as a shelf of covers. A tap reads an EPUB in
  * the Library's own reader (the built-in Catalog page's reader, opened here: it does not depend on the
- * Catalog tab or its site); a long press (or ⋮) shows the book's files with the same actions as a
- * finished download, and Delete.
+ * Catalog tab or its site); ⋮ shows the book's files with the same actions as a finished download, and
+ * Delete. A long press selects books (taps then pick more), for their files to go to another app at once.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -155,11 +159,21 @@ fun LibraryScreen(model: AppViewModel) {
     var open by remember { mutableStateOf<LibraryBook?>(null) }
     var deleting by remember { mutableStateOf<LibraryBook?>(null) }
     var reading by remember { mutableStateOf<File?>(null) }
+    // The books picked by a long press (their keys), and the file kinds left out of what they share.
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    var kindsOff by remember { mutableStateOf(emptySet<String>()) }
+    val context = LocalContext.current
     // Read again whenever a download finishes (the jobs change) or a book is deleted.
     val books by produceState(emptyList<LibraryBook>(), jobs.count { !it.state.isActive }, refresh) {
         value = withContext(Dispatchers.IO) { scanLibrary(manager.outputDirectory) }
     }
     val shown = books.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+    val selecting = selected.isNotEmpty()
+    fun toggle(book: LibraryBook) {
+        val key = book.name.lowercase()
+        selected = if (key in selected) selected - key else selected + key
+    }
+    BackHandler(enabled = selecting) { selected = emptySet() }
     Column(Modifier.fillMaxSize()) {
         // A slim search field and the count, not a full-size form field.
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -174,11 +188,19 @@ fun LibraryScreen(model: AppViewModel) {
                     )
                 }
             }
-            Text(
-                "${shown.size} book${if (shown.size == 1) "" else "s"}",
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 12.dp),
-            )
+            if (selecting) {
+                val all = shown.all { it.name.lowercase() in selected }
+                TextButton(onClick = { selected = if (all) emptySet() else shown.map { it.name.lowercase() }.toSet() }) {
+                    Text(if (all) "None" else "All")
+                }
+                TextButton(onClick = { selected = emptySet() }) { Text("Cancel") }
+            } else {
+                Text(
+                    "${shown.size} book${if (shown.size == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
+            }
         }
         if (shown.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -193,25 +215,31 @@ fun LibraryScreen(model: AppViewModel) {
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 96.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth().weight(1f),
         ) {
             items(shown, key = { it.name.lowercase() }) { book ->
+                val picked = book.name.lowercase() in selected
                 Column(
                     Modifier.clip(RoundedCornerShape(8.dp)).combinedClickable(
-                        onClick = { book.epub?.let { reading = it } ?: run { open = book } },
-                        onLongClick = { open = book },
+                        onClick = { if (selecting) toggle(book) else book.epub?.let { reading = it } ?: run { open = book } },
+                        onLongClick = { toggle(book) },
                     ),
                 ) {
                     Box {
                         Cover(book)
-                        // The book's files and actions, for a tap that would rather not read.
+                        // The book's files and actions, for a tap that would rather not read; while books are
+                        // being picked, whether this one is.
                         Surface(
                             shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
                             modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(28.dp).clip(RoundedCornerShape(12.dp))
-                                .clickable { open = book },
+                                .clickable { if (selecting) toggle(book) else open = book },
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "Files and actions", modifier = Modifier.size(18.dp))
+                                when {
+                                    picked -> Icon(Icons.Filled.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                                    selecting -> Box(Modifier.size(19.dp).border(2.dp, MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))  // not picked
+                                    else -> Icon(Icons.Filled.MoreVert, contentDescription = "Files and actions", modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
@@ -220,6 +248,38 @@ fun LibraryScreen(model: AppViewModel) {
                         modifier = Modifier.padding(top = 6.dp),
                     )
                     Text(formats(book), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+            }
+        }
+        if (selecting) {
+            // The picked books' files, to open in another app together (the share sheet: a reader, cloud
+            // storage, a chat), less the kinds switched off here.
+            val pickedBooks = books.filter { it.name.lowercase() in selected }
+            val kinds = pickedBooks.flatMap { it.files }.map(::fileKind).distinct().sorted()
+            val files = pickedBooks.flatMap { it.files }.filter { fileKind(it) !in kindsOff }
+            Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    if (kinds.size > 1) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            kinds.forEach { kind ->
+                                FilterChip(
+                                    selected = kind !in kindsOff,
+                                    onClick = { kindsOff = if (kind in kindsOff) kindsOff - kind else kindsOff + kind },
+                                    label = { Text(kind) },
+                                )
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "${selected.size} book${if (selected.size == 1) "" else "s"} · ${files.size} file${if (files.size == 1) "" else "s"}",
+                            Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button(
+                            enabled = files.isNotEmpty(),
+                            onClick = { if (FileActions.share(context, files)) selected = emptySet() else manager.message("Nothing left to share.") },
+                        ) { Text("Open in app") }
+                    }
                 }
             }
         }
@@ -272,6 +332,9 @@ fun LibraryScreen(model: AppViewModel) {
         )
     }
 }
+
+/** "EPUB", "TXT" (a TXT folder too), "PDF": a file's kind, for the selection's filter. */
+private fun fileKind(file: File): String = if (file.isDirectory) "TXT" else file.extension.uppercase()
 
 /** A book's cover on the shelf: its EPUB's own, else its initial on a tinted tile. Fills its width at 2:3. */
 @Composable
