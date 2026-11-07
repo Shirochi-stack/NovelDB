@@ -241,6 +241,7 @@ class CatalogPage(QWidget):
     downloadCart = Signal()
     downloadLinks = Signal(list)  # Generic search: a book downloaded straight from its details
     loginRequested = Signal(str)  # Generic search's reader: Enter Browser on a page that needs a login
+    localReaderClosed = Signal()  # the reader of a Library book was closed (back to the Library)
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -387,6 +388,7 @@ class CatalogPage(QWidget):
         self.generic.theme = lambda: web_theme(self.context.settings.ui.theme, self.context.settings.ui.accent)
         self._pending_local = None
         self._pending_book = None
+        self._generic_ready = False
         self.view = CatalogView(self)
         self.view.setPage(self.page)
         self.view.addToCart.connect(lambda url, title: self._add_to_cart(url, title, announce=True))
@@ -446,16 +448,17 @@ class CatalogPage(QWidget):
         self.page.home_host = (urlsplit(site).hostname or "").lower()
         self.view.load(QUrl(site))
 
-    def read_local(self, path, title: str) -> None:
+    def read_local(self, path, title: str, chapter: int = -1) -> None:
         """A Library book in the reader: the Generic search page's, loaded first if another site is shown."""
         if self.view is None:
+            self._create_view()
+        if self._on_generic_page() and self._generic_ready:
+            self.generic.read_local(path, title, chapter)
             return
-        if self._on_generic_page():
-            self.generic.read_local(path, title)
-            return
-        self._pending_local = (path, title)
-        self.page.home_host = ""
-        self.view.load(QUrl.fromLocalFile(str(generic_page.PAGE)))
+        self._pending_local = (path, title, chapter)  # opened once the page says it is ready
+        if not self._on_generic_page():
+            self.page.home_host = ""
+            self.view.load(QUrl.fromLocalFile(str(generic_page.PAGE)))
 
     def open_book(self, book: dict) -> None:
         """A Library book found again in the Generic search page (loaded first if another site is shown)."""
@@ -501,6 +504,7 @@ class CatalogPage(QWidget):
         QDesktopServices.openUrl(url if url.isValid() and not url.isEmpty() else QUrl(self.site))
 
     def _load_started(self) -> None:
+        self._generic_ready = False
         self.progress.setValue(0)
         self.progress.show()
 
@@ -585,17 +589,21 @@ class CatalogPage(QWidget):
         kind = data["type"]
         if kind.startswith("generic"):
             if kind == "genericReady":
+                self._generic_ready = True
                 self._push_state()
                 if self._pending_local is not None:
-                    path, title = self._pending_local
+                    path, title, chapter = self._pending_local
                     self._pending_local = None
-                    QTimer.singleShot(300, lambda: self.generic.read_local(path, title))
+                    QTimer.singleShot(300, lambda: self.generic.read_local(path, title, chapter))
                 if self._pending_book is not None:
                     book, self._pending_book = self._pending_book, None
                     QTimer.singleShot(300, lambda: self.generic.open_book(book))
             if kind == "genericLogin":
                 if self._on_generic_page():
                     self.loginRequested.emit(data["url"])
+                return
+            if kind == "genericReaderClosed":
+                self.localReaderClosed.emit()
                 return
             if kind == "genericFullscreen":
                 self._reader_full_screen(bool(data.get("on")) and self._on_generic_page())

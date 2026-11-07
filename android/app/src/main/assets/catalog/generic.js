@@ -851,7 +851,7 @@
         var drawn = Array.from(dirty).filter(drawCard);
         dirty.clear();
         if (drawn.length) { orderCards(); evenRowsSoon(); }
-        if (drawn.length && cardsTranslated) translateCards(drawn);
+        if (drawn.length && cardsTranslated) translateCardsSoon(drawn);
         fitTitles(drawn.map(function (group) { return group.element.querySelector('.title'); }));
         fitTagRows(drawn.map(function (group) { return group.element.querySelector('.tags'); }));
         empty();
@@ -942,7 +942,9 @@
     var translatePicked = '';
     try { translatePicked = localStorage.getItem(TRANSLATE_KEY) || ''; } catch (e) {}
     function translateTo() { return translatePicked || DEVICE_LANGUAGE; }
-    var TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=auto&tl=';
+    // Google's many-texts address: one translation per text, in their order (the one-text address, the texts
+    // a line each, merged or split lines often, and each such batch was asked again in halves, many rounds).
+    var TRANSLATE_URL = 'https://translate.googleapis.com/translate_a/t?client=gtx&sl=auto&tl=';
     // Translations kept per language (this page's, and the last TRANSLATE_KEEP of them across visits, in the
     // browser's storage): a card drawn again or met in another search shows its translation at once.
     var TRANSLATE_KEEP = 3000, TRANSLATE_STORE = 'noveldb.generic.translations';
@@ -975,15 +977,20 @@
         translated.set(key, translation);
         keepTranslations();
     }
-    /** `texts` in translateTo(), in their order (a text Google can't translate comes back as it is). Lines go in
-     * batches of about 4,500 characters, one per line, so a chapter is a few requests. */
+    /** `texts` in translateTo(), in their order (a text Google can't translate comes back as it is). They go in
+     * batches of about 4,500 characters (and 120 texts), all asked at once: the shown cards are one or two
+     * requests, a chapter a few. */
     function googleTranslate(texts) {
-        var wanted = texts.filter(function (text) { return text.trim() && translationOf(text) == null; });
+        var seen = new Set();  // a text shown many times (a tag on many cards) asked once
+        var wanted = texts.filter(function (text) {
+            if (!text.trim() || translationOf(text) != null || seen.has(text)) return false;
+            seen.add(text);
+            return true;
+        });
         var batches = [], batch = [], size = 0;
         wanted.forEach(function (text) {
-            var one = text.replace(/\s*\n\s*/g, ' ');
-            if (size && size + one.length > 4500) { batches.push(batch); batch = []; size = 0; }
-            batch.push([text, one]); size += one.length + 1;
+            if (size && (size + text.length > 4500 || batch.length >= 120)) { batches.push(batch); batch = []; size = 0; }
+            batch.push(text); size += text.length + 1;
         });
         if (batch.length) batches.push(batch);
         return Promise.all(batches.map(translateBatch)).then(function () {
@@ -1012,23 +1019,18 @@
             .catch(function () { return null; })
             .then(function (data) { return data || viaApp(); });
     }
-    /** One request for `items` ([text, one line of it], ...), a line each. When Google merges or splits lines
-     *  the answer can't be matched to them: the batch is asked again in halves, down to single texts (one odd
-     *  text left the whole first batch, the top cards, untranslated). */
-    function translateBatch(items) {
-        var body = 'q=' + encodeURIComponent(items.map(function (item) { return item[1]; }).join('\n'));
+    /** One request for `texts`: each a `q` of its own, and the answer a translation per text ([translation,
+     *  language], or the translation alone when the language is given). */
+    function translateBatch(texts) {
+        var body = texts.map(function (text) { return 'q=' + encodeURIComponent(text); }).join('&');
         return translateRequest(TRANSLATE_URL + encodeURIComponent(translateTo()), body)
             .then(function (data) {
-                if (!data) return;
-                var lines = ((data && data[0]) || []).map(function (part) { return (part && part[0]) || ''; }).join('').split('\n');
-                if (lines.length === items.length) {
-                    items.forEach(function (item, i) { rememberTranslation(item[0], lines[i].trim() || item[0]); });
-                } else if (items.length === 1) {
-                    rememberTranslation(items[0][0], lines.join(' ').trim() || items[0][0]);
-                } else {
-                    var half = Math.ceil(items.length / 2);
-                    return Promise.all([translateBatch(items.slice(0, half)), translateBatch(items.slice(half))]);
-                }
+                if (!Array.isArray(data)) return;
+                if (texts.length === 1 && typeof data[0] === 'string' && data.length === 2) data = [data];
+                texts.forEach(function (text, i) {
+                    var out = Array.isArray(data[i]) ? data[i][0] : data[i];
+                    if (typeof out === 'string' && out.trim()) rememberTranslation(text, out.trim());
+                });
             }, function () {});
     }
     /** The text nodes of `root` (an element, or a list of them: one request for all) swapped for their
@@ -1070,6 +1072,18 @@
             });
         });
         return translateNodes(parts, !cardsTranslated);
+    }
+
+    // Cards drawn as a search streams in, gathered for a moment: one request for many draws, not one each.
+    var cardsToTranslate = [], cardsTimer = 0;
+    function translateCardsSoon(groups) {
+        cardsToTranslate.push.apply(cardsToTranslate, groups);
+        if (cardsTimer) return;
+        cardsTimer = setTimeout(function () {
+            var groups = cardsToTranslate;
+            cardsToTranslate = []; cardsTimer = 0;
+            if (cardsTranslated) translateCards(groups);
+        }, 400);
     }
 
     // NovelDB's age badges, at the cover's bottom right: 19+ (adults only) and 15 (teens).
@@ -1528,6 +1542,8 @@
                 });
             };
             translateButton.onclick = function () { group.translateDetails = !group.translateDetails; applyTranslation(); };
+            // With the cards translated, a book's details open translated too (its 🌐 shows them as written).
+            if (group.translateDetails == null) group.translateDetails = cardsTranslated;
             if (group.translateDetails) applyTranslation();
             var openPage = dialog.querySelector('[data-act=open]');
             if (openPage) openPage.onclick = function () { send({type: 'open', url: group.sources[0].url, title: group.title}); };
@@ -2423,6 +2439,7 @@
         resetPictures();
         $('flow').innerHTML = '';
         $('flow').style.transform = 'translateX(0)';
+        ['width', 'columnWidth', 'columnGap', 'padding'].forEach(function (name) { $('flow').style[name] = ''; });  // the last book's pages
         $('viewport').scrollTop = 0;
         $('rChapterNo').textContent = '';
         $('rWhere').textContent = '';
@@ -2508,7 +2525,8 @@
                 R.source = source;
                 R.chapters = book.chapters;
                 R.lnreader = book.lnreader || null;
-                var saved = store('noveldb.read.' + key(source.url)) || {};
+                var saved = group.start || store('noveldb.read.' + key(source.url)) || {};
+                group.start = null;
                 drawToc();
                 openChapter(Math.min(saved.chapter || 0, R.chapters.length - 1), saved.at || 0);
             });
@@ -2745,6 +2763,9 @@
             resetPictures();
             $('flow').innerHTML = '<h2 class="chapter">' + esc(R.chapters[index].name || '') + '</h2>';
             R.slots = [];
+            // Laid out for the comic now: the columns of the text pages shown before (a novel's, the loading
+            // note's) stayed on the flow, and a webtoon's strips showed tiny until the window was zoomed.
+            paginate(0);
         }
         var flow = $('flow');
         while (R.slots.length < found.total) {
@@ -2821,6 +2842,14 @@
         }
         return R.pages > 1 ? R.page / (R.pages - 1) : 0;
     }
+    var localPlaceTimer = 0;
+    function localPlaceSoon() {
+        clearTimeout(localPlaceTimer);
+        localPlaceTimer = setTimeout(function () {
+            if (R.source && R.source.source === 'local' && R.index >= 0)
+                send({type: 'genericLocalPlace', url: R.source.url, chapter: R.index, at: readingAt()});
+        }, 600);
+    }
     function place() {
         if (layout() !== 'scroll') $('flow').style.transform = 'translateX(' + (-R.page * (R.pageWidth || 0)) + 'px)';
         $('rWhere').textContent = layout() === 'scroll' ? '' : 'Page ' + (R.page + 1) + ' of ' + R.pages;
@@ -2828,6 +2857,8 @@
         $('rSlider').value = String(R.page + 1);
         $('rSlider').style.display = layout() === 'scroll' ? 'none' : '';
         if (R.source) store('noveldb.read.' + key(R.source.url), {chapter: R.index, at: readingAt(), time: Date.now()});
+        // A Library book's place goes to the Library too (its book page and order know where it was left).
+        if (R.source && R.source.source === 'local' && R.index >= 0) localPlaceSoon();
         if ($('toc').classList.contains('open') && tocTab === 'pages') drawPages();
         // The text being read, for laying the page out again when the window changes size.
         if (layout() !== 'scroll' && !R.switching) R.anchor = anchorAt();
@@ -2959,6 +2990,11 @@
         R.swiped = Date.now();  // the tap zones ignore the click this swipe ends with
     }, {passive: true});
     function closeReader() {
+        // A Library book's place is kept before the reader goes (the Library shows it next).
+        if (R.source && R.source.source === 'local' && R.index >= 0) {
+            clearTimeout(localPlaceTimer);
+            send({type: 'genericLocalPlace', url: R.source.url, chapter: R.index, at: readingAt()});
+        }
         if (R.full || R.switching) setFull(false, true);
         R.token++;
         send({type: 'genericReaderStop'});  // the app stops scraping this book (the next one need not wait)
@@ -2966,7 +3002,8 @@
         $('toc').classList.remove('open');
         $('look').classList.remove('open');
         document.body.style.overflow = '';
-        // A Library book's reader: the phone apps close the page they opened it in.
+        // A Library book's reader: the phone apps close the page they opened it in, the desktop goes back to
+        // the Library.
         if (R.group && R.group.sources[0] && R.group.sources[0].source === 'local') send({type: 'genericReaderClosed'});
     }
     document.addEventListener('keydown', function (event) {
@@ -3262,6 +3299,8 @@
         readLocal: function (book) {
             var group = {key: 'local:' + book.url, title: book.title, author: '', cover: '', description: '', tags: [],
                          comic: false, loaded: true, sources: [{url: book.url, site: 'Library', source: 'local'}]};
+            // The chapter picked on the Library's book page, else where the Library last left the book.
+            if (typeof book.chapter === 'number' && book.chapter >= 0) group.start = {chapter: book.chapter, at: Number(book.at) || 0};
             if ($('dialog').open) $('dialog').close();
             openReader(group, 0);
         },

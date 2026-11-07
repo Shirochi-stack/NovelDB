@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -39,7 +40,7 @@ SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_ind
 MESSAGE_TYPES = ("genericReady", "genericReaderStop", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
-                 "genericNdbTags")
+                 "genericNdbTags", "genericReaderClosed", "genericLocalPlace")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -122,25 +123,74 @@ def _with_page_data(result: dict) -> str:
     return re.sub(r'(<img\b[^>]*?\bsrc=")([^"]*)(")', swap, html)
 
 
+def _file_path(url: str) -> Path:
+    """The path of a file: address."""
+    from urllib.parse import unquote
+
+    raw = unquote(urlsplit(url).path)
+    return Path(raw.lstrip("/") if os.name == "nt" else raw)
+
+
 class ChapterNotOut(RuntimeError):
     """A chapter the site lists but has not published yet (no login would read it)."""
 
 
+# The page's requests (covers, images, details, the reader's chapters): many at once, some slow (a chapter
+# read by the downloader), so the pool is wide; idle threads are reused.
+class _Workers:
+    """Daemon threads taking jobs from a queue (a standard pool's threads would hold the app open at exit
+    while a chapter is still being read); a new one starts only when none is idle, up to `most`."""
+
+    def __init__(self, most: int) -> None:
+        import queue
+
+        self.jobs = queue.SimpleQueue()
+        self.most = most
+        self.lock = threading.Lock()
+        self.idle = 0
+        self.count = 0
+
+    def submit(self, job) -> None:
+        with self.lock:
+            start = self.idle <= self.jobs.qsize() and self.count < self.most
+            if start:
+                self.count += 1
+        self.jobs.put(job)
+        if start:
+            threading.Thread(target=self._work, name="generic-page", daemon=True).start()
+
+    def _work(self) -> None:
+        while True:
+            with self.lock:
+                self.idle += 1
+            job = self.jobs.get()
+            with self.lock:
+                self.idle -= 1
+            job()
+
+
+_PAGE_WORKERS = _Workers(64)
+
+_translate_first = [0]  # the way that answered last: a blocked one (20 s to time out) is not asked first again
+
+
 def _translate(url: str, method: str, body, headers: dict) -> Optional[dict]:
     """A Google Translate request: urllib to the page's host, then to translate.google.com's same address, then
-    the app's plain fetch; each failure goes to the log (a silent failure left the cards untranslated with no
-    clue why)."""
+    the app's plain fetch, starting with the one that answered last; each failure goes to the log (a silent
+    failure left the cards untranslated with no clue why)."""
     tries = [lambda: _plain_request(url, method, body, headers),
              lambda: _plain_request(url.replace(TRANSLATE_HOST, "translate.google.com", 1), method, body, headers),
              lambda: default_fetch(url, method=method, data=body, headers=headers, binary=True)]
+    first = _translate_first[0]
     result = None
-    for attempt in tries:
+    for index in list(range(first, len(tries))) + list(range(first)):
         try:
-            result = attempt()
+            result = tries[index]()
         except Exception as e:
             log.warning("Google Translate request failed: %s", e)
             result = None
         if result is not None and result.get("status") == 200:
+            _translate_first[0] = index
             return result
         log.warning("Google Translate answered %s: %s", result and result.get("status"),
                     ((result or {}).get("content") or b"")[:160])
@@ -196,6 +246,9 @@ def parse_message(data: dict) -> Optional[dict]:
     if kind == "genericLogin" and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
     if kind in ("genericBook", "genericChapter") and not str(data.get("url", "")).startswith(("http://", "https://", "file:")):
+        return None
+    if kind == "genericLocalPlace" and not (str(data.get("url", "")).startswith("file:") and isinstance(data.get("chapter"), int)
+                                            and isinstance(data.get("at"), (int, float))):
         return None
     if kind == "genericChapter" and not (isinstance(data.get("index"), int) and data["index"] >= 0):
         return None
@@ -259,6 +312,8 @@ class BrowserFetcher(QObject):
         self.tabs = tabs
         self._queue: list = []
         self._active = 0
+        self._idle: list = []  # tabs done with their page, kept for the next (one made and destroyed per page
+        # stalled the window: Chromium builds and tears a tab down on the GUI thread)
         self._request.connect(self._enqueue)
 
     def fetch(self, url: str, timeout: float = 45.0, scroll: bool = False) -> Optional[dict]:
@@ -282,14 +337,23 @@ class BrowserFetcher(QObject):
                 job["event"].set()
                 continue
             self._active += 1
-            from noveldb.qt.catalog.web import QuietPage
-
-            page = QuietPage(self.profile, self)
-            page.setAudioMuted(True)
+            page = self._idle.pop() if self._idle else self._new_tab()
+            page.setLifecycleState(QWebEnginePage.LifecycleState.Active)
+            page.job = job
             job["page"] = page
-            page.loadFinished.connect(lambda ok, job=job: QTimer.singleShot(1200, lambda: self._check(job)))
             QTimer.singleShot(int(max(1.0, job["deadline"] - time.monotonic()) * 1000), lambda job=job: self._finish(job, ""))
             page.load(QUrl(job["url"]))
+
+    def _new_tab(self):
+        from noveldb.qt.catalog.web import QuietPage
+
+        page = QuietPage(self.profile, self)
+        page.setAudioMuted(True)
+        page.job = None
+        # The tab's page loaded: checked a moment later (a blank page between jobs has no job).
+        page.loadFinished.connect(lambda ok, page=page: page.job is not None
+                                  and QTimer.singleShot(1200, lambda job=page.job: self._check(job)))
+        return page
 
     def _check(self, job) -> None:
         page = job.get("page")
@@ -342,7 +406,11 @@ class BrowserFetcher(QObject):
             job["result"] = {"status": 200, "url": page.url().toString() or job["url"], "text": html,
                              "content": html.encode("utf-8"), "headers": "Content-Type: text/html; charset=utf-8"}
         job["event"].set()
-        page.deleteLater()
+        page.job = None
+        # Frozen until the next job: the site's scripts stop (no self-made navigation reaching that job).
+        page.triggerAction(QWebEnginePage.WebAction.Stop)
+        page.setLifecycleState(QWebEnginePage.LifecycleState.Frozen)
+        self._idle.append(page)
         self._active -= 1
         self._next()
 
@@ -406,6 +474,7 @@ class GenericCatalog(QObject):
         # scraper had the defaults (dynamic priority on), whatever Settings said. Set by the Catalog page.
         self.engine_settings: Callable = lambda: None
         self._downloader_books: dict = {}
+        self._local_paths: dict = {}  # a Library book's file: address -> its path as the Library names it
 
     # -- requests ----------------------------------------------------------------------------------
 
@@ -466,6 +535,11 @@ class GenericCatalog(QObject):
             self._stop.set()
         elif kind == "genericReaderStop":
             self.stop_reader()
+        elif kind == "genericLocalPlace" and self._in_library(data["url"]):
+            # A Library book's place, kept where the Library keeps it (its "last read" order, the next opening).
+            from noveldb.qt.pages.library_reader import _save_place
+            key = self._local_paths.get(data["url"]) or str(_file_path(data["url"]))
+            _save_place(key, data["chapter"], max(0.0, min(1.0, float(data["at"]))))
         elif kind == "genericFetch":
             self._background(self._transport, data["id"], data["request"])
         elif kind == "genericImage":
@@ -668,7 +742,15 @@ class GenericCatalog(QObject):
         self._stop.set()
 
     def _background(self, function, *args, **kwargs) -> None:
-        threading.Thread(target=function, args=args, kwargs=kwargs, name="generic-page", daemon=True).start()
+        """`function` on one of the page's worker threads. Kept and reused: a new thread for each message (a
+        card's cover, an image) made the window wait for every one to start, and searches stuttered."""
+        def run():
+            try:
+                function(*args, **kwargs)
+            except Exception:
+                log.exception("generic page: %s failed", getattr(function, "__name__", function))
+
+        _PAGE_WORKERS.submit(run)
 
     def _transport(self, fetch_id: int, request: dict) -> None:
         """An LNReader plugin's request, answered in the transport's result shape."""
@@ -724,8 +806,7 @@ class GenericCatalog(QObject):
 
         if self.library_folder is None:
             return False
-        raw = unquote(urlsplit(url).path)
-        path = Path(raw.lstrip("/") if __import__("os").name == "nt" else raw)
+        path = _file_path(url)
         try:
             folder = Path(self.library_folder()).resolve()
             target = path.resolve()
@@ -738,9 +819,17 @@ class GenericCatalog(QObject):
         self._call("openBook", {"title": str(book.get("title") or ""), "url": str(book.get("url") or ""),
                                 "author": str(book.get("author") or "")})
 
-    def read_local(self, path: Path, title: str) -> None:
-        """Opens a Library EPUB in the page's reader."""
-        self._call("readLocal", {"url": Path(path).resolve().as_uri(), "title": title})
+    def read_local(self, path: Path, title: str, chapter: int = -1) -> None:
+        """Opens a Library EPUB in the page's reader: at `chapter`, else where the Library last left it."""
+        from noveldb.qt.pages.library_reader import _places
+
+        at = 0.0
+        if chapter < 0:
+            place = _places().get(str(Path(path)), {})
+            chapter, at = int(place.get("chapter", 0)), float(place.get("at", 0.0))
+        url = Path(path).resolve().as_uri()
+        self._local_paths[url] = str(Path(path))  # the Library's own name for it, for the place kept
+        self._call("readLocal", {"url": url, "title": title, "chapter": chapter, "at": at})
 
     def _note(self, text: str) -> None:
         """A progress note for the reader request this thread is answering, if any."""

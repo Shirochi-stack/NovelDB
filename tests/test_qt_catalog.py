@@ -241,6 +241,11 @@ def test_google_translate_falls_back_to_another_address_and_logs_why(monkeypatch
     assert result["status"] == 200
     assert asked[1].startswith("https://translate.google.com/")
     assert "429" in caplog.text
+    # The next request starts with the way that answered (the refused host is not waited on again).
+    asked.clear()
+    generic_page._translate("https://translate.googleapis.com/translate_a/t?tl=en", "POST", "q=x", {})
+    assert len(asked) == 1 and asked[0].startswith("https://translate.google.com/")
+    generic_page._translate_first[0] = 0
 
 
 def test_a_downloaded_chapter_shows_the_pages_the_engine_already_fetched():
@@ -268,3 +273,31 @@ def test_the_reader_downloader_gets_the_settings_engine_order(qtbot):
     assert scraper.engine_order[:2] == ["gallerydl", "haruneko"]
     assert scraper.dynamic_priority is False
     assert scraper._book_url is None
+
+
+def test_a_library_book_opens_where_the_library_left_it_and_its_place_goes_back(tmp_path, monkeypatch):
+    from noveldb.qt.catalog import generic as generic_page
+    from noveldb.qt.catalog.generic import GenericCatalog
+    from noveldb.qt.pages import library_reader
+
+    places = tmp_path / "library-reading.json"
+    monkeypatch.setattr(library_reader, "_places_path", lambda: places)
+    book = tmp_path / "Book.epub"
+    book.write_bytes(b"")
+    library_reader._save_place(str(book), 4, 0.5)
+
+    catalog = GenericCatalog.__new__(GenericCatalog)
+    catalog._local_paths = {}
+    catalog.library_folder = lambda: tmp_path
+    called = []
+    catalog._call = lambda name, *args: called.append((name, args))
+    catalog.read_local(book, "Book")
+    name, (sent,) = called[0]
+    assert name == "readLocal" and sent["chapter"] == 4 and sent["at"] == 0.5
+    catalog.read_local(book, "Book", 2)
+    assert called[1][1][0]["chapter"] == 2 and called[1][1][0]["at"] == 0.0
+
+    message = generic_page.parse_message({"type": "genericLocalPlace", "url": sent["url"], "chapter": 7, "at": 0.25})
+    assert message is not None
+    catalog.handle(message)
+    assert library_reader._places()[str(book)]["chapter"] == 7

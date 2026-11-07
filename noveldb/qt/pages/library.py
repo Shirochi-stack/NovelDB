@@ -13,10 +13,12 @@ import time
 from pathlib import Path
 from typing import List
 
-from PySide6.QtCore import QFile, QFileSystemWatcher, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPixmap, QTransform
+from PySide6.QtCore import QEvent, QFile, QFileSystemWatcher, QPersistentModelIndex, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QIcon, QImage, QPainter, QPainterPath, QPalette, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QStyle,
+    QStyledItemDelegate,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -74,6 +76,128 @@ def _cover_image(data) -> QImage:
         painter.drawImage((COVER.width() - scaled.width()) // 2, (COVER.height() - scaled.height()) // 2, scaled)
         painter.end()
     return canvas
+
+
+class _BookCard(QStyledItemDelegate):
+    """A book on the shelf as a card: the cover with rounded corners, its title and formats below. Hovered, it
+    lifts with a shadow; pressed, it sinks a little; picked, the cover gets an accent ring (the list's own
+    highlight tinted the whole cell, cover and all)."""
+
+    RADIUS = 10
+
+    def __init__(self, view: QListWidget) -> None:
+        super().__init__(view)
+        self.view = view
+        self.pressed = QPersistentModelIndex()
+        view.setMouseTracking(True)
+        view.viewport().setAttribute(Qt.WA_Hover, True)
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        kind = event.type()
+        if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self.pressed = QPersistentModelIndex(self.view.indexAt(event.position().toPoint()))
+            self.view.viewport().update()
+        elif kind in (QEvent.MouseButtonRelease, QEvent.Leave) and self.pressed.isValid():
+            self.pressed = QPersistentModelIndex()
+            self.view.viewport().update()
+        return False
+
+    def sizeHint(self, option, index) -> QSize:
+        return self.view.gridSize()
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        palette = option.palette
+        accent = palette.color(QPalette.Highlight)
+        hovered = bool(option.state & QStyle.State_MouseOver)
+        picked = bool(option.state & QStyle.State_Selected)
+        pressed = self.pressed.isValid() and self.pressed == QPersistentModelIndex(index)
+        cell = QRectF(option.rect).adjusted(4, 4, -4, -4)
+
+        # The card behind cover and text: only when hovered or picked (the shelf stays calm otherwise).
+        if hovered or picked:
+            tint = QColor(accent)
+            tint.setAlpha(34 if picked else 18)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(tint)
+            painter.drawRoundedRect(cell, self.RADIUS + 4, self.RADIUS + 4)
+
+        cover = QRectF(0, 0, COVER.width(), COVER.height())
+        cover.moveCenter(cell.center())
+        cover.moveTop(cell.top() + 8)
+        if pressed:
+            cover = cover.adjusted(4, 5, -4, -5)  # sinks under the finger
+        elif hovered:
+            cover.translate(0, -3)  # lifts
+        # A soft shadow under the cover, deeper when lifted.
+        depth = 0 if pressed else (7 if hovered else 3)
+        for step in range(depth, 0, -1):
+            shade = QColor(0, 0, 0, 16)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(shade)
+            painter.drawRoundedRect(cover.adjusted(-step / 2, step / 2, step / 2, step), self.RADIUS + step / 2, self.RADIUS + step / 2)
+        clip = QPainterPath()
+        clip.addRoundedRect(cover, self.RADIUS, self.RADIUS)
+        painter.setClipPath(clip)
+        icon = index.data(Qt.DecorationRole)
+        if isinstance(icon, QIcon):
+            pixmap = icon.pixmap(COVER)
+            if not pixmap.isNull():
+                # Filled, cut to the cover's shape (a narrower picture is not letterboxed).
+                scaled = pixmap.scaled(cover.size().toSize(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                x = cover.left() + (cover.width() - scaled.width()) / 2
+                y = cover.top() + (cover.height() - scaled.height()) / 2
+                painter.drawPixmap(int(x), int(y), scaled)
+        if pressed:
+            painter.fillRect(cover, QColor(0, 0, 0, 40))
+        painter.setClipping(False)
+        if picked:
+            ring = QColor(accent)
+            painter.setPen(ring)
+            painter.setBrush(Qt.NoBrush)
+            pen = painter.pen()
+            pen.setWidthF(2.5)
+            painter.setPen(pen)
+            painter.drawRoundedRect(cover.adjusted(-2, -2, 2, 2), self.RADIUS + 2, self.RADIUS + 2)
+
+        # Title (two lines at most) and its formats in a quieter ink.
+        lines = str(index.data(Qt.DisplayRole) or "").split("\n")
+        title, formats = lines[0], " ".join(lines[1:])
+        text = QRectF(cell.left() + 6, cell.top() + 8 + COVER.height() + 8, cell.width() - 12, cell.bottom() - cell.top())
+        font = option.font
+        font.setWeight(font.Weight.DemiBold if picked else font.Weight.Medium)
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        ink = palette.color(QPalette.Text)
+        painter.setPen(ink)
+        # Broken at a space where one fits, else between any two characters (Japanese and Chinese have none).
+        rest, first = title.strip(), ""
+        if metrics.horizontalAdvance(rest) > text.width():
+            cut = len(rest)
+            while cut > 1 and metrics.horizontalAdvance(rest[:cut]) > text.width():
+                cut -= 1
+            space = rest.rfind(" ", 0, cut + 1)
+            if space > cut // 2:
+                cut = space
+            first, rest = rest[:cut].rstrip(), rest[cut:].lstrip()
+        shown = [part for part in (first, metrics.elidedText(rest, Qt.ElideRight, int(text.width()))) if part]
+        y = text.top()
+        for part in shown:
+            painter.drawText(QRectF(text.left(), y, text.width(), metrics.height()), Qt.AlignHCenter | Qt.AlignTop, part)
+            y += metrics.height()
+        if formats:
+            small = option.font
+            small.setPointSizeF(max(7.0, small.pointSizeF() - 1.5))
+            painter.setFont(small)
+            muted = QColor(ink)
+            muted.setAlpha(150)
+            painter.setPen(muted)
+            painter.drawText(QRectF(text.left(), y + 1, text.width(), QFontMetrics(small).height()), Qt.AlignHCenter | Qt.AlignTop,
+                             QFontMetrics(small).elidedText(formats, Qt.ElideRight, int(text.width())))
+        painter.restore()
 
 
 class Loading(QWidget):
@@ -143,6 +267,8 @@ class LibraryPage(QWidget):
         self._scan_started = 0.0
         self._reading = None  # (done, total) while the folder is read with books already shown
         self._places = None  # book name: its place, kept while books stream in (no reshuffling)
+        # (EPUB path, title, chapter or -1) -> the book in the Catalog's reader; set by the main window.
+        self.read_in_catalog = None
         self._items = {}  # book name: its item on the page shown
         self._covers = {}  # (book name, modified): its decoded cover, kept while the page refills
         self._ever_shown = False
@@ -174,6 +300,7 @@ class LibraryPage(QWidget):
         self.grid.setWordWrap(True)
         self.grid.setSpacing(8)
         self.grid.setUniformItemSizes(True)
+        self.grid.setItemDelegate(_BookCard(self.grid))
         self.grid.setSelectionMode(QAbstractItemView.SingleSelection)
         self.grid.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid.customContextMenuRequested.connect(self._menu)
@@ -486,6 +613,12 @@ class LibraryPage(QWidget):
         self._read_at(book, -1)
 
     def _read_at(self, book, chapter: int) -> None:
+        # The Catalog's reader where there is one (its layouts, Google Translate and the app's theme); the
+        # Library's own plain reader in a build without the web view.
+        if self.read_in_catalog is not None:
+            epub = next(f.path for f in book.files if f.format == "EPUB")
+            self.read_in_catalog(epub, book.title, chapter)
+            return
         contents = self.book_view.contents if self.book_view.book is book else None
         if not contents or not contents.get("chapters"):
             self._open(book)

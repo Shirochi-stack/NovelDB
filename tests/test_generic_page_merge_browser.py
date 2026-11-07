@@ -131,13 +131,13 @@ def test_the_translate_buttons_sit_in_the_rows_they_had():
     script = (PAGE / "generic.js").read_text(encoding="utf-8")
     bar = html[html.index('<div class="bar top">'):html.index("</div>", html.index('id="rLook"'))]
     assert 'id="rTranslate"' in bar and "🌐" in bar
-    assert "data-act=\"translate\"" in script and "translate.googleapis.com/translate_a/single" in script
+    assert "data-act=\"translate\"" in script and "translate.googleapis.com/translate_a/t?" in script
 
 
 def test_the_reader_translates_its_chapter_and_back(page):
     page.route("https://translate.googleapis.com/**", lambda route: route.fulfill(
         status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
-        body=json.dumps([[["Chapter one" + chr(10), "x"], ["Hello there.", "y"]]])))
+        body=json.dumps([["Chapter one", "ko"], ["Hello there.", "ko"]])))
     page.evaluate("""() => { document.getElementById('flow').innerHTML =
         '<h2 class="chapter">제1화</h2><p>안녕하세요.</p><p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt=""></p>'; }""")
     page.evaluate("() => document.getElementById('rTranslate').click()")
@@ -179,7 +179,7 @@ def test_translations_go_into_the_language_picked_in_the_settings(page):
     def answer(route):
         asked.append(route.request.url)
         route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
-                      body=json.dumps([[["Bonjour.", "x"]]]))
+                      body=json.dumps([["Bonjour.", "ko"]]))
 
     page.route("https://translate.googleapis.com/**", answer)
     page.evaluate("() => { var s = document.getElementById('translateTo'); s.value = 'fr'; s.dispatchEvent(new Event('change')); }")
@@ -203,24 +203,23 @@ def test_more_loading_shows_a_loader_and_keeps_rows_full(page):
     assert shown % columns == 0 and shown < 5
 
 
-def test_a_batch_google_answers_in_other_lines_is_asked_again_in_halves(page):
+def test_the_texts_go_to_google_in_one_request_each_its_own_answer(page):
+    """Every text its own `q` (Google's many-texts address answers one translation per text: no lines to match),
+    and a text shown twice (a tag on many cards) asked once."""
     asked = []
 
     def answer(route):
-        texts = __import__("urllib.parse", fromlist=["x"]).parse_qs(route.request.post_data)["q"][0].split(chr(10))
-        asked.append(len(texts))
-        if len(texts) > 2:
-            texts = [texts[0] + " " + texts[1]] + texts[2:]  # Google merged two lines: no longer one per text
-        out = [[t.upper() + ("" if i == len(texts) - 1 else chr(10)), t] for i, t in enumerate(texts)]
+        texts = __import__("urllib.parse", fromlist=["x"]).parse_qs(route.request.post_data)["q"]
+        asked.append(texts)
         route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
-                      body=json.dumps([out]))
+                      body=json.dumps([[t.upper(), "en"] for t in texts]))
 
     page.route("https://translate.googleapis.com/**", answer)
-    page.evaluate("() => { document.getElementById('flow').innerHTML = '<p>aa</p><p>bb</p><p>cc</p><p>dd</p>'; }")
+    page.evaluate("() => { document.getElementById('flow').innerHTML = '<p>aa</p><p>bb' + String.fromCharCode(10) + 'b</p><p>aa</p><p>dd</p>'; }")
     page.evaluate("() => document.getElementById('rTranslate').click()")
     page.wait_for_timeout(600)
-    assert asked[0] == 4 and sorted(asked[1:]) == [2, 2]
-    assert page.eval_on_selector_all("#flow p", "els => els.map(e => e.textContent)") == ["AA", "BB", "CC", "DD"]
+    assert asked == [["aa", "bb" + chr(10) + "b", "dd"]]
+    assert page.eval_on_selector_all("#flow p", "els => els.map(e => e.textContent)") == ["AA", "BB" + chr(10) + "B", "AA", "DD"]
 
 
 def test_a_translate_request_the_browser_refuses_goes_through_the_app(page):
@@ -232,7 +231,7 @@ def test_a_translate_request_the_browser_refuses_goes_through_the_app(page):
             var m = JSON.parse(text);
             if (m.type !== 'genericFetch') return;
             window.__asked.push(m.request.url);
-            var body = JSON.stringify([[["Hello.", "x"]]]);
+            var body = JSON.stringify([["Hello.", "ko"]]);
             var b64 = btoa(unescape(encodeURIComponent(body)));
             setTimeout(function () { window.NovelDBGeneric.fetched(m.id, {status: 200, responseBase64: b64}); }, 10);
         }};
