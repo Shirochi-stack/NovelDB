@@ -513,3 +513,12 @@ def test_closing_the_reader_stops_the_downloader_chapter_and_skips_queued_reads(
     else:
         raise AssertionError("the stale read went ahead")
     assert scraper._stop_requested is True
+
+
+def test_a_title_remembered_a_little_wrong_is_close_and_others_are_not():
+    from noveldb.core.catalog.generic_search import similar_title
+
+    typed = "Move aside ill become a magical girl"
+    assert similar_title(typed, "Move Aside, I'll Be the Magical Girl!") >= 0.6
+    assert similar_title(typed, "MOVE TV") < 0.6
+    assert similar_title(typed, "Magical Girl Raising Project") < 0.6

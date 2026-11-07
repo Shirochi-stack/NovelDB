@@ -1137,6 +1137,25 @@
             .then(function (both) { return both[0].concat(both[1]); });
     }
 
+    /** How much of `query` is in `title` (0 to 1), word by word: apostrophes dropped ("I'll" is "ill"), a word
+     *  matching one that starts like it ("magic", "magical"), the small words not counting. For the web search's
+     *  loose pass: a title remembered a little wrong. (generic_search.similar_title, the desktop's.) */
+    var TITLE_FILLER = {a: 1, an: 1, the: 1, of: 1, to: 1, 'in': 1, on: 1, and: 1, is: 1, be: 1, i: 1, my: 1,
+                        novel: 1, manga: 1, manhwa: 1, webtoon: 1};
+    function titleWords(text) {
+        return String(text || '').toLowerCase().replace(/['’`]/g, '').split(/[^\p{L}\p{N}_]+/u).filter(Boolean);
+    }
+    function similarTitle(query, title) {
+        var wanted = titleWords(query).filter(function (word) { return !TITLE_FILLER[word]; }), have = titleWords(title);
+        if (!wanted.length || !have.length) return 0;
+        var found = wanted.filter(function (word) {
+            return have.some(function (other) {
+                return other === word || (Math.min(other.length, word.length) >= 4 && other.slice(0, 4) === word.slice(0, 4));
+            });
+        });
+        return found.length / wanted.length;
+    }
+
     // -- searches ----------------------------------------------------------------------------------
 
     var current = {token: null};
@@ -1906,6 +1925,23 @@
                 var fresh = offer(cards);
                 fresh.forEach(function (c) { c.ms = Date.now() - started; });
                 report('web search', started, fresh.length);
+                enrich(fresh);
+            });
+        });
+        // A title remembered a little wrong ("Move aside ill become a magical girl" for "...Be the Magical Girl!"):
+        // the words unquoted, for the engines to correct, and only hits whose title carries most of them.
+        if (!only.length && mode === 'name') sources.push(function () {
+            var started = Date.now();
+            return webSearch(text + ' novel OR manga OR manhwa', token).then(function (hits) {
+                hits = hits.filter(function (hit) { return similarTitle(text, hit.title) >= 0.6; });
+                webFirst(hits.map(function (hit) { return hit.url; }));
+                var cards = hits.filter(function (hit) {
+                    return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (siteFor(hit.url) || knownSite(hit.url));
+                }).map(function (hit) { return card(hit.url, hit.title, hit.snippet, 'web'); });
+                summary.web += cards.length;
+                var fresh = offer(cards);
+                fresh.forEach(function (c) { c.ms = Date.now() - started; });
+                report('web search (close titles)', started, fresh.length);
                 enrich(fresh);
             });
         });

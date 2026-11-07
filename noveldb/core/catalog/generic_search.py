@@ -277,6 +277,28 @@ def web_search(query: str, fetch: Callable) -> List[dict]:
     return results
 
 
+_FILLER = {"a", "an", "the", "of", "to", "in", "on", "and", "is", "be", "i", "my", "novel", "manga", "manhwa", "webtoon"}
+
+
+def _title_words(text: str) -> List[str]:
+    """A title's words for a loose comparison: lower case, apostrophes dropped ("I'll" is "ill"), no punctuation."""
+    text = re.sub(r"['’`]", "", (text or "").lower())
+    return [word for word in re.split(r"[^\w]+", text) if word]
+
+
+def similar_title(query: str, title: str) -> float:
+    """How much of `query` is in `title` (0 to 1), word by word, a word matching one that starts like it ("magic"
+    and "magical"); the small words do not count. For the web search's loose pass: a misremembered title."""
+    wanted = [word for word in _title_words(query) if word not in _FILLER]
+    have = _title_words(title)
+    if not wanted or not have:
+        return 0.0
+    def found(word: str) -> bool:
+        return any(other == word or (min(len(other), len(word)) >= 4 and (other.startswith(word[:4]) and word.startswith(other[:4])))
+                   for other in have)
+    return sum(found(word) for word in wanted) / len(wanted)
+
+
 def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
     """Queries limited to groups of sites: `"text" (site:a OR site:b ...)`."""
     words = f'"{text}"' if mode == "name" else f'"{text}" (novel OR manga OR webtoon OR manhwa)'
@@ -495,12 +517,14 @@ class GenericSearch:
                         queue.remove(site)
                         queue.insert(0, site)
 
-        def from_web(query: str, open_search: bool):
+        def from_web(query: str, open_search: bool, loose: bool = False):
             if stop.is_set():
                 return
             started = time.monotonic()
             cards = []
             hits = web_search(query, self.fetch)
+            if loose:  # the unquoted pass: only titles that carry most of the words typed
+                hits = [hit for hit in hits if similar_title(text, _clean_title(hit["title"], hit["url"])) >= 0.6]
             web_first([hit["url"] for hit in hits])
             for hit in hits:
                 url = hit["url"]
@@ -681,6 +705,10 @@ class GenericSearch:
             open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
                           else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
             futures.append(pool.submit(from_web, open_words, True))
+            if mode == "name":
+                # A title remembered a little wrong ("Move aside I'll become a magical girl" for "...Be the Magical
+                # Girl!"): the words unquoted, for the engines to correct, and hits kept by how close their title is.
+                futures.append(pool.submit(from_web, f"{text} novel OR manga OR manhwa", True, True))
         if mode == "name":
             for entry in self._lncrawl_entries():
                 if self.picked(entry["_site"]["host"]):
