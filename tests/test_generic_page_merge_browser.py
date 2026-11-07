@@ -568,3 +568,27 @@ def test_a_novels_chapter_with_illustrations_reads_as_text(browser):
         assert tab.eval_on_selector_all("#flow p", "ps => ps.length") >= 80
     finally:
         context.close()
+
+
+def test_a_page_that_did_not_come_is_asked_again_and_shown_when_it_does(browser):
+    """Pages that came late showed as missing (a broken picture) until the reader was opened again."""
+    context, tab = comic_reader(browser, "scroll")
+    try:
+        chapter = [m for m in tab.evaluate("() => window.__sent") if m.get("type") == "genericChapter"][0]
+        late = "https://cdn.test/late.jpg"
+        tab.evaluate("a => window.NovelDBGeneric.readerImages(a[0], {images: [a[1], a[1], a[1], a[2]], total: 4})",
+                     [chapter["id"], PICTURE, late])
+        tab.wait_for_timeout(300)
+        asks = lambda: [m for m in tab.evaluate("() => window.__sent") if m.get("type") == "genericImage" and m["url"] == late]
+        assert len(asks()) == 1
+        tab.evaluate("id => window.NovelDBGeneric.fetched(id, null)", asks()[0]["id"])  # it did not come
+        tab.wait_for_timeout(300)
+        slot = "#flow img.slot:nth-of-type(4)"
+        assert tab.eval_on_selector(slot, "i => !i.classList.contains('ready') && !i.getAttribute('src')")  # Halgakos, no broken picture
+        tab.wait_for_timeout(1500)
+        assert len(asks()) == 2  # asked again
+        tab.evaluate("a => window.NovelDBGeneric.fetched(a[0], {dataUrl: a[1]})", [asks()[1]["id"], PICTURE])
+        tab.wait_for_timeout(500)
+        assert tab.eval_on_selector(slot, "i => i.classList.contains('ready')")
+    finally:
+        context.close()

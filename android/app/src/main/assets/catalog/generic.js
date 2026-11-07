@@ -2977,18 +2977,18 @@
             asked.then(function (data) {
                 if (token !== pictures.token) return;
                 pictures.active--;
-                pictures.done++;
+                var image = this;
                 if (data && data.dataUrl) {
                     pictures.bytes += data.bytes || Math.round(data.dataUrl.length * 0.75);
                     fetch(data.dataUrl).then(function (r) { return r.blob(); }).then(function (blob) {
                         var url = URL.createObjectURL(blob);
                         pictures.urls.push(url);
                         // The page's bytes are in the blob now; a copy as text in the slot would double them.
-                        if (/^data:/.test(this.dataset.src)) this.dataset.src = 'data:,kept';
-                        showSlot(this, url);
-                    }.bind(this));
+                        if (/^data:/.test(image.dataset.src)) image.dataset.src = 'data:,kept';
+                        showSlot(image, url, function () { retryPicture(image, token); });
+                    }, function () { retryPicture(image, token); });
                 } else {
-                    showSlot(this, this.dataset.src);  // the browser itself, as a last try
+                    retryPicture(image, token);
                 }
                 showPictures();
                 pumpPictures();
@@ -2996,12 +2996,59 @@
         }
         showPictures();
     }
-    // Halgakos stays until the picture is decoded and laid out (a slot never shows empty or collapses
-    // first); one that won't load keeps her.
-    function showSlot(image, src) {
-        image.addEventListener('load', function () { image.classList.add('ready'); countPagesSoon(); }, {once: true});
-        image.addEventListener('error', function () { image.removeAttribute('src'); image.title = 'This image could not be loaded'; }, {once: true});
-        image.src = src;
+    // A page that did not come (the app's request timed out behind others, the site refused it a moment): asked
+    // again after 1.5, 3, 6, 12 and 20 s, Halgakos holding its place meanwhile; then the browser itself tries. One
+    // still missing is asked again when tapped. (Pages that came late showed as missing until the page was
+    // opened again.)
+    var RETRY_MS = [1500, 3000, 6000, 12000, 20000];
+    function retryPicture(image, token) {
+        if (token !== pictures.token || !image.isConnected) return;
+        var tries = image.__tries = (image.__tries || 0) + 1;
+        if (tries <= RETRY_MS.length && !/^data:,kept$/.test(image.dataset.src)) {
+            setTimeout(function () { if (token === pictures.token && image.isConnected) fetchPicture(image); }, RETRY_MS[tries - 1]);
+            return;
+        }
+        showSlot(image, image.dataset.src, function () {
+            pictureCounted(image);
+            image.classList.add('failed');
+            image.title = 'This page did not load: tap to try again';
+            image.onclick = function (event) {
+                event.stopPropagation();  // not a tap on the page's turn zones
+                image.onclick = null;
+                image.__tries = 0;
+                image.classList.remove('failed');
+                image.title = '';
+                pictureCountedUndo(image);
+                fetchPicture(image);
+            };
+        });
+    }
+    function pictureCounted(image) {
+        if (image.__counted) return;
+        image.__counted = true;
+        pictures.done++;
+        showPictures();
+    }
+    function pictureCountedUndo(image) {
+        if (!image.__counted) return;
+        image.__counted = false;
+        pictures.done = Math.max(0, pictures.done - 1);
+        showPictures();
+    }
+    // Halgakos stays until the picture is decoded and laid out (a slot never shows empty or collapses, nor a
+    // broken picture's outline: it is loaded aside first); `failed`: it would not load.
+    function showSlot(image, src, failed) {
+        var probe = new Image();
+        probe.onload = function () {
+            if (!image.isConnected) return;
+            image.src = src;
+            image.classList.add('ready');
+            image.classList.remove('failed');
+            pictureCounted(image);
+            countPagesSoon();
+        };
+        probe.onerror = function () { if (failed) failed(); else image.title = 'This image could not be loaded'; };
+        probe.src = src;
     }
     // A chapter of images as slots: each shows Halgakos until its image arrives.
     function slotHtml(src) { return '<img class="slot" alt="" data-src="' + esc(src || '') + '">'; }

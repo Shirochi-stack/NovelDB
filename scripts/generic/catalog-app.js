@@ -89,7 +89,7 @@
         if (options.referer && !headers.Referer) headers.Referer = options.referer;
         if (DESKTOP_SITES.test(host(url)) && !headers['User-Agent']) headers['User-Agent'] = DESKTOP_AGENT;
         var details = {url: url, method: (options.method || 'GET').toUpperCase(), headers: headers,
-                       responseType: 'arraybuffer', timeout: options.quick ? 8000 : 15000};
+                       responseType: 'arraybuffer', timeout: options.timeout || (options.quick ? 8000 : 15000)};
         if (options.data != null) details.dataBase64 = base64Of(String(options.data));
         if (stopped(options.stop)) return Promise.resolve(null);
         // `priority`: a few small reads (NovelDB's index) that never wait behind the sites' pages.
@@ -2302,13 +2302,23 @@
         });
     }
 
+    var IMAGE_SLOTS = {free: 6, waiting: []};
     function image(id, url, referer) {
         var held = pages.cache[url];
         if (held) {
             call('fetched', id, {dataUrl: held, bytes: Math.round(held.length * 0.75)});
             return;
         }
-        fetchUrl(url, {binary: true, referer: referer, headers: {Accept: 'image/*'}}).then(function (result) {
+        // Slots of their own and longer to answer: behind a search's and a chapter's own requests (15 s each)
+        // pages timed out and showed as missing. A refused one is asked again with the site's home as Referer.
+        var ask = function (from) {
+            return fetchUrl(url, {binary: true, referer: from, pool: IMAGE_SLOTS, timeout: 30000, headers: {Accept: 'image/*'}});
+        };
+        ask(referer).then(function (result) {
+            var home = (/^https?:\/\/[^\/]+\//.exec(referer || '') || [])[0];
+            if (result && (result.status === 401 || result.status === 403) && home && home !== referer) return ask(home);
+            return result;
+        }).then(function (result) {
             if (!result || result.status >= 400 || !result.bytes.length) { call('fetched', id, null); return; }
             var kind = (/content-type:\s*(image\/[\w.+-]+)/i.exec(result.headers) || [])[1] || 'image/jpeg';
             var binary = '';

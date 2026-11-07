@@ -66,7 +66,7 @@ if getattr(sys, 'frozen', False):
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = _bundled_browsers
 
 from noveldb.core.engines import custom_engines
-from noveldb.core.engines.scraper_mixin import PAGE_SCRIPTS, PYTHON_ENGINES, SiteEnginesMixin
+from noveldb.core.engines.scraper_mixin import PAGE_SCRIPTS, PYTHON_ENGINES, SiteEnginesMixin, generic_first
 from noveldb.core.settings.model import (
     ENGINE_GENERIC,
     ENGINE_LABELS,
@@ -21458,6 +21458,11 @@ async (items) => {
                 self.log("Dynamic priority: trying " + ", ".join(engine_label(e) for e in listed)
                          + f" ({len(skipped)} other engine(s) don't list this site).")
                 order = listed
+        if native is None and ENGINE_GENERIC in order and generic_first(url):
+            # fanfox, mangahere and webtoons: the generic engine reads their desktop pages with every page of a
+            # chapter (gallery-dl and HaruNeko list the sites, but their pages there come up missing), as on the phones.
+            order = [ENGINE_GENERIC] + [e for e in order if e != ENGINE_GENERIC]
+            self.log("These sites read best with " + engine_label(ENGINE_GENERIC) + ": it goes first.")
         fallback = None
         page = None  # the book page for the JS engines: None, "open" or "failed"
         for position, engine in enumerate(order):

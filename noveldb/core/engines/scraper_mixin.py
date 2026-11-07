@@ -135,6 +135,19 @@ def _with_text(result: dict) -> dict:
 
 # Sites that show an age check unless a cookie says it was answered: their registered domain -> the cookies.
 # syosetu's adult site (novel18) sends every visitor to nl.syosetu.com/redirect/ageauth without `over18`.
+# The sites the generic engine reads best: their desktop pages with every page of a chapter (gallery-dl and HaruNeko
+# list them, but their pages come up missing there). It goes first for them, as on the phones
+# (SourceCatalog.genericFirst, SiteEngineRouter.genericFirst).
+GENERIC_FIRST = ("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com")
+
+
+def generic_first(url: str) -> bool:
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(url or "").hostname or "").lower()
+    return any(host == site or host.endswith("." + site) for site in GENERIC_FIRST)
+
+
 # fanfox and mangahere: isAdult answers their adult warning; MHNMM keeps a phone-sized browser on the desktop
 # pages (the mobile site's chapters say "licensed").
 _DM5_COOKIES = {"isAdult": "1", "MHNMM": "1"}

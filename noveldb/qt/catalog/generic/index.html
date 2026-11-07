@@ -296,6 +296,8 @@
     #flow img.slot { display: block; width: 100%; max-width: 900px; min-height: 320px; margin: 0 auto 6px;
                      background: url(halgakos-loading.webp) center / 180px auto no-repeat, var(--r-line); object-fit: contain; }
     #flow img.slot.ready { min-height: 0; background: none; }
+    /* A page that would not load after its tries: Halgakos stays, and a tap asks again. */
+    #flow img.slot.failed { cursor: pointer; outline: 2px dashed var(--r-ink-2); outline-offset: -8px; }
     .rprogress { display: none; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
     .rprogress.on { display: inline-flex; }
     .rprogress i { display: block; width: 140px; height: 6px; border-radius: 3px; background: var(--r-line); position: relative; overflow: hidden; }
