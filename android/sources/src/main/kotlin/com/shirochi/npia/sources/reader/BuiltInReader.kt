@@ -7,6 +7,7 @@ import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SiteEngine
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.sources.SourceCatalog
+import com.shirochi.npia.sources.npia.NpiaAdapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -55,17 +56,40 @@ internal object BuiltInReader {
         val engines = (details["engines"] as? JsonPrimitive)?.booleanOrNull == true
         val adapter = (if (engines) enginesFor(url, context) else adapterFor(url))
             ?: return buildJsonObject { put("error", if (engines) "no site engine lists this site" else "no built-in scraper for this site"); put("skip", true) }.toString()
-        val key = if (engines) "engines|$url" else url
+        val reader = (details["reader"] as? JsonPrimitive)?.contentOrNull
+        val page = (details["page"] as? JsonPrimitive)?.intOrNull
+        val key = when {
+            engines -> "engines|$url"
+            adapter is NpiaAdapter && reader != null -> "$reader|$url"
+            else -> url
+        }
         return try {
             when (op) {
-                "book" -> book(key, url, adapter, context)
-                else -> chapter(key, url, (details["index"] as? JsonPrimitive)?.intOrNull ?: -1, adapter, context)
+                "book" -> if (adapter is NpiaAdapter && reader != null && page != null)
+                    npiaPage(key, url, page, context) else book(key, url, adapter, context)
+                else -> chapter(key, url, (details["index"] as? JsonPrimitive)?.intOrNull ?: -1, adapter, context,
+                    paged = adapter is NpiaAdapter && reader != null)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             buildJsonObject { put("error", (e.message ?: e.toString()).lineSequence().first().take(300)) }.toString()
         }
+    }
+
+    private suspend fun npiaPage(key: String, url: String, page: Int, context: SourceContext): String {
+        require(page in 0 until 5000)
+        val opened = if (page == 0) NpiaAdapter().let { it to it.openBook(it.canonicalUrl(url), context) }
+            else synchronized(books) { books[key] } ?: error("the reader was closed")
+        val npia = opened.first as NpiaAdapter
+        val book = opened.second
+        val added = npia.chapterPage(book.id, page, book.chapters.size, book.chapters.map { it.id }.toMutableSet(), context)
+        if (page == 0 && added.isEmpty()) error("no chapters found")
+        synchronized(books) { books[key] = npia to book.copy(chapters = book.chapters + added) }
+        return buildJsonObject {
+            put("chapters", buildJsonArray { added.forEach { add(buildJsonObject { put("name", it.title) }) } })
+            put("more", added.isNotEmpty() && page < 4999)
+        }.toString()
     }
 
     private suspend fun open(key: String, url: String, adapter: SourceAdapter, context: SourceContext): BookInfo {
@@ -86,9 +110,11 @@ internal object BuiltInReader {
         }.toString()
     }
 
-    private suspend fun chapter(key: String, url: String, index: Int, adapter: SourceAdapter, context: SourceContext): String {
-        val book = open(key, url, adapter, context)
-        val adapter = synchronized(books) { books[key]?.first } ?: adapter
+    private suspend fun chapter(key: String, url: String, index: Int, adapter: SourceAdapter, context: SourceContext,
+                                paged: Boolean): String {
+        val known = synchronized(books) { books[key] }
+        val book = known?.second ?: if (paged) error("the reader was closed") else open(key, url, adapter, context)
+        val adapter = known?.first ?: synchronized(books) { books[key]?.first } ?: adapter
         val ref = book.chapters.getOrNull(index) ?: return buildJsonObject { put("error", "no such chapter") }.toString()
         return when (val result = adapter.parseChapter(ref, book, context)) {
             is ChapterResult.Content -> {

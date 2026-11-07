@@ -431,6 +431,7 @@ class GenericCatalog(QObject):
     _ndb_tags = Signal(list)
     _reader_status = Signal(int, str)
     _reader_images = Signal(int, dict)
+    _reader_chapters = Signal(int, list)
 
     DETAILS_DAYS = 3
     # The details cache's name: a new one drops details read by older code (link tags, HTML synopses).
@@ -470,6 +471,7 @@ class GenericCatalog(QObject):
         self._top_sites: list = []  # the sites of the Top list shown, for its next pages
         self._reader_status.connect(lambda fid, text: self._call("readerStatus", fid, text))
         self._reader_images.connect(lambda fid, found: self._call("readerImages", fid, found))
+        self._reader_chapters.connect(lambda fid, chapters: self._call("readerChapters", fid, chapters))
         # The downloader's own browser worker (`context.browser.submit`), for books the quick engines
         # can't read: it has the saved sessions of Enter Browser. Set by the Catalog page.
         self.downloader: Optional[Callable] = None
@@ -560,7 +562,11 @@ class GenericCatalog(QObject):
                 and not self._in_library(data["url"]):
             self._fetched.emit(data["id"], {"error": "only books in the Library can be read"})
         elif kind == "genericBook":
-            self._background(self._read, data["id"], self.reader.book, data["url"])
+            fetch_id = data["id"]
+            generation = getattr(self, "_reader_generation", 0)
+            self._background(self._read, fetch_id, self.reader.book, data["url"],
+                             on_chapters=lambda chapters: self._reader_chapters.emit(fetch_id, chapters),
+                             active=lambda: generation == getattr(self, "_reader_generation", 0))
         elif kind == "genericChapter":
             self._background(self._read, data["id"], self._chapter, data["url"], data["index"],
                              force_downloader=data.get("recovery") == "cloudflare")
@@ -841,11 +847,15 @@ class GenericCatalog(QObject):
         if fetch_id is not None:
             self._reader_status.emit(fetch_id, text)
 
-    def _read(self, fetch_id: int, function, *args, force_downloader: bool = False) -> None:
+    def _read(self, fetch_id: int, function, *args, force_downloader: bool = False,
+              on_chapters=None, active=lambda: True) -> None:
         """The reader's book or chapter: the quick engines, then the downloader with its saved sessions;
         else {error, blocked} for the page to show (with Enter Browser)."""
         _reading.id = fetch_id
         try:
+            if not active():
+                self._fetched.emit(fetch_id, {"error": "the reader was closed"})
+                return
             url = args[0]
             if url.startswith("file:"):
                 self._fetched.emit(fetch_id, function(*args))  # a Library EPUB: no downloader
@@ -863,6 +873,26 @@ class GenericCatalog(QObject):
                     self._fetched.emit(fetch_id, {"error": f"Cloudflare recovery failed: {str(e)[:240]}",
                                                   "blocked": True, "message": BLOCKED})
                 return
+            streamed = False
+
+            def publish(chapters):
+                nonlocal streamed
+                streamed = True
+                on_chapters(chapters)
+
+            if on_chapters is not None and self.downloader is not None:
+                from noveldb.core.npia.ids import SITE_DOMAIN, extract_novel_id
+
+                novel_id = extract_novel_id(url) if urlsplit(url).hostname in (SITE_DOMAIN, "www." + SITE_DOMAIN) else None
+                if novel_id:
+                    try:
+                        self._fetched.emit(fetch_id, self._npia_reader_book(url, novel_id, publish, active))
+                        return
+                    except Exception as e:
+                        if streamed or not active():
+                            self._fetched.emit(fetch_id, {"error": str(e)[:300]})
+                            return
+                        log.info("generic reader (npia chapter list): %s", e)
             if url in self._downloader_books:
                 # (An exception here once ended the thread: the page waited on "Scraping…" for good.)
                 try:
@@ -882,10 +912,14 @@ class GenericCatalog(QObject):
                 except Exception as e:
                     log.info("generic reader (downloader, HaruNeko site): %s", e)
             try:
-                self._fetched.emit(fetch_id, function(*args))
+                kwargs = {"on_chapters": publish, "active": active} if on_chapters is not None else {}
+                self._fetched.emit(fetch_id, function(*args, **kwargs))
                 return
             except Exception as e:
                 quick_error = str(e)[:300] or type(e).__name__
+            if streamed or not active():
+                self._fetched.emit(fetch_id, {"error": quick_error})
+                return
             if self.downloader is None:
                 self._fetched.emit(fetch_id, {"error": quick_error, "blocked": True, "message": BLOCKED})
                 return
@@ -899,6 +933,52 @@ class GenericCatalog(QObject):
                                               "blocked": True, "message": BLOCKED})
         finally:
             _reading.id = None
+
+    def _npia_reader_book(self, url, novel_id, publish, active):
+        """Load the list over HTTP so the browser worker is free to read the selected episode."""
+        from external_scraper import ExternalScraper
+        from noveldb.core.engines.generic import extract_metadata
+        from noveldb.core.npia.ids import SITE_URL, novel_url
+
+        book_url = novel_url(novel_id)
+        page = self.fetch(book_url)
+        if _refused(page) or page["status"] != 200:
+            raise RuntimeError("the book page could not be read")
+        source = page.get("text") or ""
+        meta = extract_metadata(source, book_url)
+        chapters = ExternalScraper._npia_parse_notice_html(source)
+        count = 0
+        seen = set()
+        for number in range(1000):
+            if not active():
+                raise RuntimeError("the reader was closed")
+            result = self.fetch(SITE_URL + "proc/episode_list", method="POST", referer=book_url,
+                                data={"novel_no": novel_id, "sort": "DOWN", "page": number},
+                                headers={"X-Requested-With": "XMLHttpRequest"})
+            if not active():
+                raise RuntimeError("the reader was closed")
+            if _refused(result) or result["status"] != 200 or "Authentication required" in result.get("text", ""):
+                raise RuntimeError(f"chapter list page {number + 1} could not be read")
+            added = []
+            for chapter in ExternalScraper._npia_parse_episode_html(result.get("text")):
+                if chapter["id"] not in seen:
+                    seen.add(chapter["id"])
+                    count += 1
+                    chapter["_npiaChapterNumber"] = count
+                    added.append(chapter)
+            if not added:
+                break
+            delta = added if number else chapters + added
+            chapters = chapters + added
+            self._downloader_books[url] = {"chapters": chapters, "bookUrl": book_url, "_npia": True,
+                                           "_npia_reader_list": True, "_npia_novel_id": novel_id}
+            publish(LiveReader._chapter_names(delta, len(chapters) - len(delta)))
+        else:
+            raise RuntimeError("the chapter list exceeded the page limit")
+        if not count:
+            raise RuntimeError("no chapters found")
+        return {"title": meta.get("title") or "", "author": meta.get("author") or "", "engine": "npia",
+                "chapters": LiveReader._chapter_names(chapters)}
 
     def stop_reader(self) -> None:
         """The reader closed (or opened another book): the downloader stops the chapter it is reading for it, so
@@ -938,6 +1018,7 @@ class GenericCatalog(QObject):
                     getattr(scraper, "_book_url", None) == url
                     and isinstance(current, dict)
                     and current.get("chapters")
+                    and not current.get("_npia_reader_list")
                 ):
                     return current
                 return scraper.parse_book(url)
@@ -980,7 +1061,11 @@ class GenericCatalog(QObject):
             self._reader_scraper = scraper
             scraper._stop_requested = False  # a stop for an earlier book's chapter
             self._apply_engine_settings(scraper)
-            if getattr(scraper, "_book_url", None) != url:
+            if data.get("_npia_reader_list"):
+                if not scraper._start_npia_browser(data["bookUrl"]):
+                    raise RuntimeError("the npia viewer could not be opened")
+                scraper._book_data, scraper._book_url = data, data["bookUrl"]
+            elif getattr(scraper, "_book_url", None) != url:
                 scraper.parse_book(url)  # the worker may have read another book since
             scraper.on_image = page_in
             scraper_log(f"Reader: chapter {index + 1} ({chapter.get('name') or '?'})…")

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
+from copy import copy
 from typing import Callable, List, Optional
 
 KEEP_BOOKS = 6
@@ -76,7 +77,20 @@ class LiveReader:
         path = Path(unquote(urlsplit(url).path).lstrip("/") if __import__("os").name == "nt" else unquote(urlsplit(url).path))
         return path if path.suffix.lower() == ".epub" and path.is_file() else None
 
-    def book(self, url: str) -> dict:
+    @staticmethod
+    def _chapter_names(chapters, start=0):
+        return [{"name": chapter.get("name") or f"Chapter {index + 1}",
+                 "section": chapter.get("sectionName") or ""}
+                for index, chapter in enumerate(chapters, start)]
+
+    def _remember(self, url, name, data):
+        with self._lock:
+            self._books[url] = (name, data)
+            self._books.move_to_end(url)
+            while len(self._books) > KEEP_BOOKS:
+                self._books.popitem(last=False)
+
+    def book(self, url: str, *, on_chapters=None, active=lambda: True) -> dict:
         """{title, author, engine, chapters: [{name, section}]}; raises when no engine can read it."""
         local = self._local(url)
         if local is not None:
@@ -89,25 +103,38 @@ class LiveReader:
                     "chapters": [{"name": c["name"], "section": ""} for c in contents["chapters"]]}
         errors = []
         for name in self._candidates(url):
+            if not active():
+                raise RuntimeError("the reader was closed")
+            published = 0
+
+            def publish(chapters):
+                nonlocal published
+                if not active():
+                    return
+                self._remember(url, name, {"chapters": chapters, "bookUrl": chapters[0]["bookUrl"]})
+                on_chapters(self._chapter_names(chapters[published:], published))
+                published = len(chapters)
+
             try:
                 engine = self._engine(name)
-                data = engine.parse_book(url)
+                if name == "generic" and on_chapters is not None:
+                    data = engine.parse_book(url, on_chapters=publish, active=active)
+                else:
+                    data = engine.parse_book(url)
             except Exception as e:  # a missing dependency in this build, or the site refused
+                if published:
+                    raise
                 errors.append(f"{name}: {e}")
                 continue
             if data and data.get("chapters"):
-                with self._lock:
-                    self._books[url] = (name, data)
-                    self._books.move_to_end(url)
-                    while len(self._books) > KEEP_BOOKS:
-                        self._books.popitem(last=False)
+                if not active():
+                    raise RuntimeError("the reader was closed")
+                self._remember(url, name, data)
                 return {
                     "title": data.get("bookname") or "",
                     "author": data.get("author") or "",
                     "engine": data.get("ruleName") or name,
-                    "chapters": [{"name": chapter.get("name") or f"Chapter {index + 1}",
-                                  "section": chapter.get("sectionName") or ""}
-                                 for index, chapter in enumerate(data["chapters"])],
+                    "chapters": self._chapter_names(data["chapters"]),
                 }
             errors.append(f"{name}: no chapters found")
         raise RuntimeError("; ".join(errors)[:400] or "no engine could read the book")
@@ -132,12 +159,9 @@ class LiveReader:
         info = chapters[index]
         engine = self._engine(name)
         if on_images is not None and hasattr(engine, "on_images"):
+            engine = copy(engine)
             engine.on_images = on_images
-        try:
-            result = engine.parse_chapter(info, data)
-        finally:
-            if hasattr(engine, "on_images"):
-                engine.on_images = lambda _images, _total: None
+        result = engine.parse_chapter(info, data)
         if not result:
             raise RuntimeError("the chapter could not be read")
         return {"name": result.get("chapterName") or info.get("name") or "",

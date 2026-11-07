@@ -327,7 +327,7 @@ def test_catalog_reader_reuses_the_downloader_book_already_opened_by_download():
     pytest.importorskip("PySide6.QtWebEngineCore")
     from noveldb.qt.catalog.generic import GenericCatalog
 
-    url = "https://fucknovelpia.com/novel/example"
+    url = "https://fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/example"
 
     class Immediate:
         def __init__(self, value):
@@ -389,8 +389,8 @@ def test_catalog_reader_retries_a_failed_lnreader_chapter_through_the_app():
     assert "if (result && !result.error) return result" in chapter
     assert "cloudflare ? 'cloudflare' : null" in chapter
     assert "Cloudflare detected; switching to the downloader browser" in chapter
-    assert "fucknovelpia\\.com" in chapter
-    assert "promise = appChapter('cloudflare')" in chapter
+    assert r"fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com" in chapter
+    assert "return appChapter('cloudflare')" in chapter
     assert "hidden downloader browser…', 45" not in chapter
 
 

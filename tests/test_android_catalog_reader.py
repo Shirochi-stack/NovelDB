@@ -16,7 +16,7 @@ def test_mobile_catalogs_use_an_offscreen_webview_for_protected_chapters():
         assert "window.__noveldb_window_script" in chapter, script
         assert "document.querySelector('.reader')" in chapter, script
         assert "clone.querySelectorAll('.reader-nav,script,style')" in chapter, script
-        assert "fucknovelpia\\.com" in chapter, script
+        assert r"fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com" in chapter, script
         assert "promise = protectedChapter" in chapter, script
 
 

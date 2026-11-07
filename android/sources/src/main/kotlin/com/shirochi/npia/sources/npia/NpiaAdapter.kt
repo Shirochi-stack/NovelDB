@@ -49,6 +49,13 @@ class NpiaAdapter(
         sessionKey ?: context.secrets.get(SecretKey.NPIA_LOGIN_KEY)?.takeIf { it.isNotEmpty() }
 
     override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
+        val book = openBook(url, context)
+        val chapters = fetchChapterList(book.id, context)
+        if (chapters.isEmpty()) throw SourceException.Parse("no chapters found")
+        return book.copy(chapters = chapters)
+    }
+
+    internal suspend fun openBook(url: String, context: SourceContext): BookInfo {
         val novelId = NpiaParser.novelId(url) ?: throw SourceException.UnsupportedUrl(url)
         val key = NpiaAuth.prepare(context, cookies)
         sessionKey = key
@@ -68,49 +75,42 @@ class NpiaAdapter(
             emptyList()
         }
 
-        val chapters = fetchChapterList(novelId, key, context)
-        if (chapters.isEmpty()) throw SourceException.Parse("no chapters found")
-
         return BookInfo(
             source = SourceId.NPIA, id = novelId, url = pageUrl, title = meta.title, author = meta.author,
             synopsis = meta.synopsis.ifEmpty { null }, coverUrl = meta.coverUrl,
-            tags = meta.tags, status = meta.status, language = "ko", chapters = chapters, notices = notices,
+            tags = meta.tags, status = meta.status, language = "ko", chapters = emptyList(), notices = notices,
         )
     }
 
-    private suspend fun fetchChapterList(novelId: String, key: String, context: SourceContext): List<ChapterRef> {
-        val url = "https://${NpiaParser.HOST}/proc/episode_list"
-        val headers = NpiaAuth.headers(key, referer = NpiaParser.novelUrl(novelId), form = true)
+    private suspend fun fetchChapterList(novelId: String, context: SourceContext): List<ChapterRef> {
         val chapters = mutableListOf<ChapterRef>()
         val seen = mutableSetOf<String>()
-        var page = 0
-        // The desktop loop runs until a page adds nothing; the cap only guards against a server
-        // that keeps returning new ids forever.
-        while (page < 5000) {
-            coroutineContext.ensureActive()
-            val body = NpiaAuth.formBody(listOf("novel_no" to novelId, "sort" to "DOWN", "page" to page.toString()))
-            val response = context.http.send(HttpRequest(url, "POST", headers, body))
-            if (response.status != 200) {
-                throw SourceException.Parse("chapter list page $page returned HTTP ${response.status}; stopping to avoid an incomplete book")
-            }
-            if (response.text.contains("Authentication required")) {
-                if (chapters.isEmpty()) throw SourceException.LoginRequired(SourceId.NPIA)
-                context.logger.log(LogLevel.WARNING, "Authentication required during chapter scan; keeping ${chapters.size} chapters.")
-                break
-            }
-            val rows = NpiaParser.parseEpisodePage(response.text)
-            if (rows.isEmpty()) break
-            var added = 0
-            for (row in rows) {
-                if (!seen.add(row.id)) continue
-                chapters.add(ChapterRef(row.id, chapters.size + 1, row.title, NpiaParser.viewerUrl(row.id), isPaid = row.isPaid))
-                added++
-            }
-            if (added == 0 && page > 0) break
-            page++
+        for (page in 0 until 5000) {
+            val added = chapterPage(novelId, page, chapters.size, seen, context)
+            if (added.isEmpty()) break
+            chapters.addAll(added)
         }
         context.logger.log(LogLevel.INFO, "Found ${chapters.size} chapters.")
         return chapters
+    }
+
+    internal suspend fun chapterPage(novelId: String, page: Int, count: Int, seen: MutableSet<String>, context: SourceContext): List<ChapterRef> {
+        coroutineContext.ensureActive()
+        val url = "https://${NpiaParser.HOST}/proc/episode_list"
+        val headers = NpiaAuth.headers(sessionKey.orEmpty(), referer = NpiaParser.novelUrl(novelId), form = true)
+        val body = NpiaAuth.formBody(listOf("novel_no" to novelId, "sort" to "DOWN", "page" to page.toString()))
+        val response = context.http.send(HttpRequest(url, "POST", headers, body))
+        if (response.status != 200) {
+            throw SourceException.Parse("chapter list page $page returned HTTP ${response.status}; stopping to avoid an incomplete book")
+        }
+        if (response.text.contains("Authentication required")) {
+            if (count == 0) throw SourceException.LoginRequired(SourceId.NPIA)
+            context.logger.log(LogLevel.WARNING, "Authentication required during chapter scan; keeping $count chapters.")
+            return emptyList()
+        }
+        return NpiaParser.parseEpisodePage(response.text).filter { seen.add(it.id) }.mapIndexed { index, row ->
+            ChapterRef(row.id, count + index + 1, row.title, NpiaParser.viewerUrl(row.id), isPaid = row.isPaid)
+        }
     }
 
     override suspend fun parseChapter(ref: ChapterRef, book: BookInfo, context: SourceContext): ChapterResult {

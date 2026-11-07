@@ -2331,7 +2331,8 @@
 
     var BLOCKED = 'This page is blocked: the site may need you to sign in, or to buy the book. Sign in with Login '
         + '(the app keeps your login), then try again.';
-    var reading = {id: null};
+    var reading = {id: null, book: null};
+    var readerSession = Date.now().toString(36);
     var books = new Map();  // url -> {engine, data}; the last six
     function note(text) { if (reading.id != null) call('readerStatus', reading.id, text); }
 
@@ -2514,16 +2515,50 @@
         });
     }
 
-    function readBook(url) {
+    function readBook(url, id) {
         if (/^file:/i.test(url)) return epubBook(url);
         var engines = engineFor(url), errors = [];
+        var published = 0;
+        var session = id == null ? null : readerSession + '-' + id;
+        var active = function () { return id == null || reading.book === id; };
+        function names(chapters, start) {
+            return chapters.map(function (c, i) { return {name: c.name || 'Chapter ' + (start + i + 1), section: c.sectionName || ''}; });
+        }
+        function remember(name, data) {
+            books.delete(url);
+            books.set(url, {engine: name, data: data});
+            if (books.size > 6) books.delete(books.keys().next().value);
+        }
+        function publish(name, data) {
+            if (!active()) return;
+            var chapters = data.chapters;
+            remember(name, data);
+            call('readerChapters', id, names(chapters.slice(published), published));
+            published = chapters.length;
+        }
+        async function builtIn() {
+            var data = await appAsk({op: 'book', url: url, reader: session, page: 0});
+            if (session == null || !data || typeof data.more !== 'boolean') return data;
+            var chapters = [];
+            for (var page = 1; active(); page++) {
+                data = parseJson(data);
+                if (data.chapters.length) {
+                    chapters = chapters.concat(data.chapters);
+                    publish('app', {chapters: chapters, reader: session});
+                }
+                if (!data.more) return {chapters: chapters, reader: session};
+                data = await appAsk({op: 'book', url: url, reader: session, page: page});
+            }
+            throw new Error('the reader was closed');
+        }
         function next() {
+            if (!active()) return Promise.reject(new Error('the reader was closed'));
             if (!engines.length) return Promise.reject(new Error(errors.join('; ') || 'no engine could read the book'));
             var name = engines.shift();
             var start = name === 'app' || name === 'engines'
                 ? (note(name === 'app' ? 'Reading the book with the built-in scraper for its site…'
                         : 'Reading the book with the app’s site engines (gallery-dl, HaruNeko, …)…'),
-                   appAsk(name === 'app' ? {op: 'book', url: url} : {op: 'book', url: url, engines: true}).then(function (reply) {
+                   (name === 'app' ? builtIn() : appAsk({op: 'book', url: url, engines: true})).then(function (reply) {
                     if (reply && reply.skip) { name = ''; throw new Error('skip'); }
                     return reply;
                 }))
@@ -2533,17 +2568,19 @@
                     note('Reading the book with HaruNeko…');
                     return window.__HN_parseBook(url);
                 }))
-                : (note('Reading the chapter list…'), Promise.resolve(window.__GEN_parseBook(url)));
+                : (note('Reading the chapter list…'), Promise.resolve(window.__GEN_parseBook(url, id == null ? null : function (chapters) {
+                    publish('generic', {chapters: chapters});
+                }, active)));
             return start.then(parseJson).then(function (data) {
+                if (!active()) throw new Error('the reader was closed');
                 if (!(data.chapters || []).length) throw new Error('no chapters found');
-                books.set(url, {engine: name, data: data});
-                if (books.size > 6) books.delete(books.keys().next().value);
+                remember(name, data);
                 return {title: data.bookname || '', author: data.author || '', engine: data.ruleName || name,
-                        chapters: data.chapters.map(function (c, i) { return {name: c.name || 'Chapter ' + (i + 1), section: c.sectionName || ''}; })};
+                        chapters: names(data.chapters, 0)};
             }).catch(function (error) {
                 if (name) errors.push(name + ': ' + ((error && error.message) || error));
                 // A site the app's scraper owns but could not open (a sign-in, a lock): its message stands.
-                if (name === 'app') return Promise.reject(error);
+                if (name === 'app' || published) return Promise.reject(error);
                 return next();
             });
         }
@@ -2564,7 +2601,7 @@
             var item = JSON.stringify(info);
             var haruneko = known.engine === 'haruneko';
             if (haruneko) watchPages(reading.id);
-            var asked = known.engine === 'app' ? appAsk({op: 'chapter', url: url, index: index})
+            var asked = known.engine === 'app' ? appAsk({op: 'chapter', url: url, index: index, reader: known.data.reader})
                 : known.engine === 'engines' ? appAsk({op: 'chapter', url: url, index: index, engines: true})
                 : haruneko ? window.__HN_parseChapter(item) : window.__GEN_parseChapter(item);
             return Promise.resolve(asked).then(parseJson).then(function (result) {
@@ -2632,7 +2669,7 @@
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
         case 'genericStop': if (current.token) current.token.stopped = true; break;
         // The reader closed: the book's pages still arriving are not handed to it any more.
-        case 'genericReaderStop': pages.watching = null; reading.id = null; break;
+        case 'genericReaderStop': pages.watching = null; reading.id = null; reading.book = null; break;
         case 'genericTop':
             top(message.id || 0, message.kind, String(message.language || 'all').slice(0, 5),
                 (Array.isArray(message.sites) ? message.sites : []).filter(function (s) { return typeof s === 'string' && s; }).slice(0, 50));
@@ -2667,7 +2704,10 @@
         case 'genericCover': coverGet(String(message.key)).then(function (data) { call('fetched', message.id, data ? {dataUrl: data} : null); }); break;
         case 'genericCoverPut': if (/^data:image\//.test(message.dataUrl || '')) coverPut(String(message.key), message.dataUrl); break;
         case 'genericBook':
-            if (readable(message.url)) read(message.id, function () { return readBook(message.url); });
+            if (readable(message.url)) {
+                reading.book = message.id;
+                read(message.id, function () { return readBook(message.url, message.id); });
+            }
             else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
             break;
         case 'genericChapter':

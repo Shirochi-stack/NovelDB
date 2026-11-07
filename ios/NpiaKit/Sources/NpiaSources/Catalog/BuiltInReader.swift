@@ -17,7 +17,8 @@ actor BuiltInReader {
     private var books: [String: (adapter: any SourceAdapter, book: BookInfo)] = [:]
     private var order: [String] = []
 
-    func handle(op: String, address: String, index: Int, engines: Bool = false, context: SourceContext) async -> String {
+    func handle(op: String, address: String, index: Int, engines: Bool = false, reader: String? = nil,
+                page: Int? = nil, context: SourceContext) async -> String {
         guard let url = URL(string: address) else { return Self.json(["error": "not an address", "skip": true]) }
         let type = SourceCatalog.nativeAdapterType(for: url)
         // The app's site engines that list the address (a download's own order), none of the built-in or generic ones;
@@ -28,7 +29,13 @@ actor BuiltInReader {
             return Self.json(["error": engines ? "no site engine lists this site" : "no built-in scraper for this site", "skip": true])
         }
         do {
-            let (adapter, book) = try await open(engines ? "engines|" + address : address, url: url, type: type, steps: steps, context: context)
+            let paged = !engines && type?.id == .npia && reader != nil
+            let key = paged ? (reader ?? "") + "|" + address : engines ? "engines|" + address : address
+            if paged, op == "book", let page {
+                return try await npiaPage(key, url: url, page: page, context: context)
+            }
+            if paged && books[key] == nil { return Self.json(["error": "the reader was closed"]) }
+            let (adapter, book) = try await open(key, url: url, type: type, steps: steps, context: context)
             if op == "book" {
                 if book.chapters.isEmpty { return Self.json(["error": "no chapters found"]) }
                 return Self.json([
@@ -58,6 +65,27 @@ actor BuiltInReader {
         }
     }
 
+    private func npiaPage(_ key: String, url: URL, page: Int, context: SourceContext) async throws -> String {
+        guard (0..<5000).contains(page) else { return Self.json(["error": "invalid chapter list page"]) }
+        let adapter: NpiaAdapter
+        var book: BookInfo
+        if page == 0 {
+            adapter = NpiaAdapter()
+            book = try await adapter.openBook(NpiaAdapter.canonicalURL(url), context: context)
+        } else if let known = books[key], let npia = known.adapter as? NpiaAdapter {
+            adapter = npia
+            book = known.book
+        } else {
+            return Self.json(["error": "the reader was closed"])
+        }
+        var seen = Set(book.chapters.map(\.id))
+        let added = try await adapter.chapterPage(book.id, page: page, count: book.chapters.count, seen: &seen, context: context)
+        if page == 0 && added.isEmpty { return Self.json(["error": "no chapters found"]) }
+        book.chapters.append(contentsOf: added)
+        remember(key, adapter: adapter, book: book)
+        return Self.json(["chapters": added.map { ["name": $0.title] }, "more": !added.isEmpty && page < 4999])
+    }
+
     private func open(_ key: String, url: URL, type: (any SourceAdapter.Type)?, steps: [SiteEngine],
                       context: SourceContext) async throws -> (any SourceAdapter, BookInfo) {
         if let known = books[key] { return (known.adapter, known.book) }
@@ -71,11 +99,15 @@ actor BuiltInReader {
             adapter = opened.adapter
             book = opened.book
         }
+        remember(key, adapter: adapter, book: book)
+        return (adapter, book)
+    }
+
+    private func remember(_ key: String, adapter: any SourceAdapter, book: BookInfo) {
         books[key] = (adapter, book)
         order.removeAll { $0 == key }
         order.append(key)
         while order.count > 6 { books[order.removeFirst()] = nil }
-        return (adapter, book)
     }
 
     private static func mime(_ name: String) -> String {

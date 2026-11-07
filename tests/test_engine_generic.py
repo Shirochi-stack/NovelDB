@@ -100,6 +100,62 @@ def test_the_engine_follows_list_pages_and_reads_chapters():
     assert chapter["contentText"].startswith("The village was still burning")
 
 
+def test_the_live_reader_can_scrape_a_chapter_before_a_later_list_page_returns(monkeypatch):
+    from noveldb.core.catalog.live_reader import LiveReader
+
+    book_url = "https://novels.example/book/wandering-sword"
+    asked = []
+    batches = []
+
+    def fetch(url, **_options):
+        asked.append(url)
+        if url == book_url + "?page=2":
+            assert book_url + "/chapter-1" in asked
+            return page(PAGE_TWO, url)
+        if url == book_url + "/chapter-1":
+            return page(CHAPTER, url)
+        return page(BOOK_PAGE, url)
+
+    reader = LiveReader(fetch=fetch)
+    monkeypatch.setattr(reader, "_candidates", lambda _url: ["generic"])
+
+    def publish(chapters):
+        batches.append([chapter["name"] for chapter in chapters])
+        if len(batches) == 1:
+            assert "The village was still burning" in reader.chapter(book_url, 0)["text"]
+
+    book = reader.book(book_url, on_chapters=publish)
+    assert asked[:3] == [book_url, book_url + "/chapter-1", book_url + "?page=2"]
+    assert batches == [["Chapter 1: Ashes", "Chapter 2: Rain", "Chapter 3: The Gate"], ["Chapter 4", "Chapter 5"]]
+    assert [chapter["name"] for chapter in book["chapters"]] == sum(batches, [])
+
+
+def test_the_live_reader_looks_for_the_start_of_a_newest_first_list():
+    base = "https://novels.example/book/long-novel"
+    asked = []
+    batches = []
+
+    def listing(numbers, links=""):
+        return "<ul>" + "".join(
+            f'<li><a href="{base}/chapter-{n}">Chapter {n}</a></li>' for n in numbers
+        ) + "</ul>" + links
+
+    def fetch(url, **_options):
+        asked.append(url)
+        if url == base:
+            return page(listing([6, 5], '<a href="?page=2">2</a><a href="?page=3">3</a>'), url)
+        if url.endswith("=3"):
+            return page(listing([2, 1]), url)
+        assert batches == [["Chapter 1", "Chapter 2"]]
+        return page(listing([4, 3]), url)
+
+    book = GenericEngine(fetch=fetch).parse_book(
+        base, on_chapters=lambda chapters: batches.append([chapter["name"] for chapter in chapters])
+    )
+    assert asked == [base, base + "?page=3", base + "?page=2"]
+    assert [chapter["name"] for chapter in book["chapters"]] == [f"Chapter {i}" for i in range(1, 7)]
+
+
 def test_a_chapter_without_a_list_is_followed_through_next_links():
     chain = {
         "https://n.example/s/1": '<html><body><h1>Part 1</h1><div class="content"><p>' + "word " * 50 +

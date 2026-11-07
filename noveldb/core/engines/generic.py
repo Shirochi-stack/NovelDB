@@ -1525,7 +1525,7 @@ class GenericEngine:
         chapters = app_episode_rows(rows, final)
         return chapters[::-1] if str(props.get("episodeOrder") or "").lower() == "desc" else chapters
 
-    def parse_book(self, url: str) -> Optional[dict]:
+    def parse_book(self, url: str, *, on_chapters=None, active=lambda: True) -> Optional[dict]:
         url = asura_address(webtoons_series(dm5_desktop(url)))
         html, final = self._page(url)
         soup = soup_of(html)
@@ -1578,8 +1578,37 @@ class GenericEngine:
                 self.log(f"Generic: {len(episodes)} episodes from webtoons' episode list.")
                 chapters = episodes
             meta.update({k: v for k, v in webtoons_metadata(soup).items() if v})
+        published = []
+
+        def entries(chapters):
+            return [{"url": chapter["url"], "name": chapter["name"], "number": index + 1,
+                     "bookUrl": final, "isVIP": False, "isPaid": False}
+                    for index, chapter in enumerate(chapters)]
+
+        def publish(chapters, *, numbered=True):
+            ordered = _reading_order(chapters) if numbered else chapters
+            if numbered:
+                # Only expose the known beginning. A newest-first page or a gap cannot assign indices yet.
+                end = 0
+                for index, chapter in enumerate(ordered):
+                    number = _number(chapter["name"], chapter["url"])
+                    if index == 0:
+                        if number not in (0, 1):
+                            break
+                        expected_number = number
+                    if number is None or not expected_number - 1 < number <= expected_number:
+                        break
+                    if number == expected_number:
+                        expected_number += 1
+                    end += 1
+                ordered = ordered[:end]
+            if (len(ordered) > len(published)
+                    and all(a["url"] == b["url"] for a, b in zip(published, ordered))):
+                published[:] = ordered
+                on_chapters(entries(published))
+
         if chapters and not episodes:
-            chapters = self._more_list_pages(soup, final, chapters, warnings)
+            chapters = self._more_list_pages(soup, final, chapters, warnings, publish if on_chapters else None, active)
         listed = self._platform_chapters(html, final)
         if len(listed) > len(chapters):
             self.log(f"Generic: {len(listed)} chapters from the site's own chapter list.")
@@ -1603,17 +1632,19 @@ class GenericEngine:
                 if len(found) > len(chapters):
                     self.log(f"Generic: {len(found)} chapters once the page was scrolled to its end.")
                     chapters = found
-        else:
+        elif not chapters:
             # No list: the page may be a chapter itself; follow its "next" links.
             follow = next_link(soup, final)
             if follow:
-                chapters = self._chain(final, soup, warnings)
+                chapters = self._chain(final, soup, warnings,
+                                       (lambda found: publish(found, numbered=False)) if on_chapters else None, active)
         if not chapters:
             return None
-        listed = []
-        for index, chapter in enumerate(chapters):
-            listed.append({"url": chapter["url"], "name": chapter["name"], "number": index + 1,
-                           "bookUrl": final, "isVIP": False, "isPaid": False})
+        if published:
+            # Keep the indices already handed to the reader, including when a later page gives a fuller title.
+            by_url = {chapter["url"]: chapter for chapter in chapters}
+            chapters = [by_url.pop(chapter["url"], chapter) for chapter in published] + list(by_url.values())
+        listed = entries(chapters)
         return {
             "engine": "generic",
             "ruleName": "Generic (no site rules)",
@@ -1630,15 +1661,20 @@ class GenericEngine:
             "warnings": warnings,
         }
 
-    def _more_list_pages(self, soup, base: str, chapters: List[dict], warnings: List[str]) -> List[dict]:
+    def _more_list_pages(self, soup, base: str, chapters: List[dict], warnings: List[str],
+                         publish=None, active=lambda: True) -> List[dict]:
         seen_pages = {base}
         known = {c["url"] for c in chapters}
         queue = numbered_pages(_list_pages(soup, base, seen_pages))
-        if self.parallel and len(queue) > 2:
+        if self.parallel and len(queue) > 2 and publish is None:
             return self._list_pages_at_once(base, queue, chapters, known)
-        order_reversed = False
+        if publish is not None and queue and active():
+            publish(chapters)
+            first = _number(chapters[0]["name"], chapters[0]["url"])
+            if first is not None and first > 1:
+                queue.reverse()  # A newest-first list usually links its last (oldest) page.
         pages = 0
-        while queue and pages < self.MAX_LIST_PAGES:
+        while queue and pages < self.MAX_LIST_PAGES and active():
             page_url = queue.pop(0)
             if page_url in seen_pages:
                 continue
@@ -1657,10 +1693,10 @@ class GenericEngine:
                 if earlier is not None and _bare(earlier["name"]) and not _bare(chapter["name"]):
                     earlier["name"] = chapter["name"]
             more = [c for c in found if c["url"] not in known]
-            if not more:
-                continue
             known.update(c["url"] for c in more)
             chapters.extend(more)
+            if publish is not None and more and active():
+                publish(chapters)
             queue.extend(u for u in _list_pages(page_soup, final, seen_pages) if u not in queue)
         if pages >= self.MAX_LIST_PAGES:
             warnings.append(f"The chapter list goes on past {self.MAX_LIST_PAGES} pages; read the first ones.")
@@ -1689,13 +1725,15 @@ class GenericEngine:
                 chapters.extend(more)
         return _reading_order(chapters) if len(chapters) > 2 else chapters
 
-    def _chain(self, start: str, soup, warnings: List[str]) -> List[dict]:
+    def _chain(self, start: str, soup, warnings: List[str], publish=None, active=lambda: True) -> List[dict]:
         chapters, seen = [], set()
         url, page_soup = start, soup
-        while url and url not in seen and len(chapters) < self.MAX_CHAIN:
+        while url and url not in seen and len(chapters) < self.MAX_CHAIN and active():
             seen.add(url)
             heading = page_soup.find(["h1", "h2"])
             chapters.append({"url": url, "name": text_of(heading) or f"Chapter {len(chapters) + 1}"})
+            if publish is not None:
+                publish(chapters)
             following = next_link(page_soup, url)
             if not following or following in seen:
                 break

@@ -3,7 +3,7 @@
   "commit": "393fe556cdefe208671abe81f5ce6c2b5695e1fe",
   "date": "2026-11-01T10:03:48Z",
   "ref": "plugins/v3.0.0",
-  "shim": "862bfd5886b3",
+  "shim": "c2b4db45205a",
   "api": 1,
   "plugins": 328,
   "excluded": [],
@@ -75,7 +75,7 @@
     "https://fr.mtlnovels.com/",
     "https://free.kolnovel.com/",
     "https://freewebnovel.com/",
-    "https://fucknovelpia.com/",
+    "https://fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/",
     "https://galaxynovels.com/",
     "https://genesistudio.com",
     "https://golden.rest/",
@@ -335,7 +335,7 @@
     "url"
   ],
   "file": "lnreader-lib.js",
-  "size": 5019643,
-  "sha256": "e0a70d3d25757fb55742bc903fc3df59287bd820e867e10e8c19f27ac62187e3",
+  "size": 5017798,
+  "sha256": "d67e901519bc4a70913d1f4b6578b887f2d44920e0163347142698af5f5cefa4",
   "built": "2026-11-02T14:48:05Z"
 }

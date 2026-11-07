@@ -29,6 +29,13 @@ public struct NpiaAdapter: SourceAdapter {
     }
 
     public func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo {
+        var book = try await openBook(url, context: context)
+        book.chapters = try await fetchChapterList(book.id, context: context)
+        guard !book.chapters.isEmpty else { throw SourceError.parse("no chapters found") }
+        return book
+    }
+
+    func openBook(_ url: URL, context: SourceContext) async throws -> BookInfo {
         guard let novelID = NpiaParser.novelID(from: url) else { throw SourceError.unsupportedURL(url) }
         try await NpiaAuth.prepare(context: context, cookies: cookies)
 
@@ -48,48 +55,43 @@ public struct NpiaAdapter: SourceAdapter {
             }
         }
 
-        let chapters = try await fetchChapterList(novelID, context: context)
-        guard !chapters.isEmpty else { throw SourceError.parse("no chapters found") }
-
         return BookInfo(
             source: .npia, id: novelID, url: pageURL, title: meta.title, author: meta.author,
             synopsis: meta.synopsis.isEmpty ? nil : meta.synopsis, coverURL: meta.coverURL,
-            tags: meta.tags, status: meta.status, language: "ko", chapters: chapters, notices: notices
+            tags: meta.tags, status: meta.status, language: "ko", notices: notices
         )
     }
 
     func fetchChapterList(_ novelID: String, context: SourceContext) async throws -> [ChapterRef] {
-        let url = URL(string: "https://\(NpiaParser.host)/proc/episode_list")!
-        let headers = NpiaAuth.headers(referer: NpiaParser.novelURL(novelID).absoluteString, form: true)
         var chapters: [ChapterRef] = []
         var seen = Set<String>()
-        var page = 0
-        // The desktop loop runs until a page adds nothing; the cap only guards against a server
-        // that keeps returning new ids forever.
-        while page < 5000 {
-            try Task.checkCancellation()
-            let body = NpiaAuth.formBody([("novel_no", novelID), ("sort", "DOWN"), ("page", String(page))])
-            let response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers, body: body))
-            guard response.status == 200 else {
-                throw SourceError.parse("chapter list page \(page) returned HTTP \(response.status); stopping to avoid an incomplete book")
-            }
-            if response.text.contains("Authentication required") {
-                if chapters.isEmpty { throw SourceError.loginRequired(.npia) }
-                context.logger.log(.warning, "Authentication required during chapter scan; keeping \(chapters.count) chapters.")
-                break
-            }
-            let rows = NpiaParser.parseEpisodePage(response.text)
-            if rows.isEmpty { break }
-            var added = 0
-            for row in rows where seen.insert(row.id).inserted {
-                chapters.append(ChapterRef(id: row.id, index: chapters.count + 1, title: row.title, url: NpiaParser.viewerURL(row.id), isPaid: row.isPaid))
-                added += 1
-            }
-            if added == 0 && page > 0 { break }
-            page += 1
+        for page in 0..<5000 {
+            let added = try await chapterPage(novelID, page: page, count: chapters.count, seen: &seen, context: context)
+            if added.isEmpty { break }
+            chapters.append(contentsOf: added)
         }
         context.logger.log(.info, "Found \(chapters.count) chapters.")
         return chapters
+    }
+
+    func chapterPage(_ novelID: String, page: Int, count: Int, seen: inout Set<String>, context: SourceContext) async throws -> [ChapterRef] {
+        try Task.checkCancellation()
+        let url = URL(string: "https://\(NpiaParser.host)/proc/episode_list")!
+        let headers = NpiaAuth.headers(referer: NpiaParser.novelURL(novelID).absoluteString, form: true)
+        let body = NpiaAuth.formBody([("novel_no", novelID), ("sort", "DOWN"), ("page", String(page))])
+        let response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers, body: body))
+        guard response.status == 200 else {
+            throw SourceError.parse("chapter list page \(page) returned HTTP \(response.status); stopping to avoid an incomplete book")
+        }
+        if response.text.contains("Authentication required") {
+            if count == 0 { throw SourceError.loginRequired(.npia) }
+            context.logger.log(.warning, "Authentication required during chapter scan; keeping \(count) chapters.")
+            return []
+        }
+        let rows = NpiaParser.parseEpisodePage(response.text).filter { seen.insert($0.id).inserted }
+        return rows.enumerated().map { index, row in
+            ChapterRef(id: row.id, index: count + index + 1, title: row.title, url: NpiaParser.viewerURL(row.id), isPaid: row.isPaid)
+        }
     }
 
     public func parseChapter(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> ChapterResult {

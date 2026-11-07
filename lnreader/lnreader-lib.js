@@ -14,7 +14,7 @@ if (window.__LNR_READY) { return; }
 let __lnr_file = "prefix";
 try {
 
-const __LNR_META = {"engine": "lnreader", "commit": "60ed16e12cc161421c27f763bf5fae2892deeb33", "date": "2026-11-03T06:34:55Z", "ref": "60ed16e12cc161421c27f763bf5fae2892deeb33", "shim": "d357c9b64fb2"};
+const __LNR_META = {"engine": "lnreader", "commit": "60ed16e12cc161421c27f763bf5fae2892deeb33", "date": "2026-11-03T06:34:55Z", "ref": "60ed16e12cc161421c27f763bf5fae2892deeb33", "shim": "c2b4db45205a"};
 const __lnr_nativeFetch = window.fetch.bind(window);
 const __lnr_errors = [];
 
@@ -2127,18 +2127,19 @@ function __lnr_plainSummary(summary) {
     return text.split("\n").map(line => line.trim()).filter(line => line).join("\n");
 }
 
-async function __lnr_chapterPages(instance, path, novel) {
+async function __lnr_chapterPages(instance, path, novel, append, active, streaming) {
     let total = Math.min(Number(novel.totalPages) || 0, 1000);
     if (total <= 0 || typeof instance.parsePage !== "function") {
-        return [];
+        return;
     }
     let pages = [];
     for (let page = 1; page <= total; page++) {
         pages.push(String(page));
     }
-    let out = [];
-    for (let i = 0; i < pages.length; i += 5) {
-        let batch = await Promise.all(pages.slice(i, i + 5).map(async page => {
+    for (let i = 0; i < pages.length && active();) {
+        // Get the first page out before waiting for any other page in the batch.
+        let size = streaming && i === 0 ? 1 : 5;
+        let batch = pages.slice(i, i + size).map(async page => {
             try {
                 let result = await instance.parsePage(path, page);
                 return (result && result.chapters) || [];
@@ -2146,13 +2147,16 @@ async function __lnr_chapterPages(instance, path, novel) {
                 __lnr_errors.push("page " + page + ": " + ((error && error.message) || error));
                 return [];
             }
-        }));
-        batch.forEach(chapters => out.push(...chapters));
+        });
+        for (const pending of batch) {
+            let chapters = await pending;
+            if (active()) append(chapters);
+        }
+        i += size;
     }
-    return out;
 }
 
-async function __lnr_book(url) {
+async function __lnr_book(url, onChapters, active = () => true) {
     let candidates = __lnr_candidates(url);
     if (!candidates.length) {
         return { error: "LNReader has no plugin for this site", noParser: true };
@@ -2168,6 +2172,7 @@ async function __lnr_book(url) {
             continue;
         }
         for (let path of __lnr_paths(plugin, url)) {
+            if (!active()) return __lnr_error("the reader was closed");
             let novel;
             try {
                 novel = await instance.parseNovel(path);
@@ -2178,28 +2183,31 @@ async function __lnr_book(url) {
             if (!novel || (!novel.name && !(novel.chapters || []).length && !novel.totalPages)) {
                 continue;
             }
-            let chapters = (novel.chapters || []).concat(await __lnr_chapterPages(instance, novel.path || path, novel));
             let seen = new Set();
-            chapters = chapters.filter(chapter => {
-                if (!chapter || chapter.path == null || seen.has(chapter.path)) {
-                    return false;
+            let list = [];
+            function append(chapters) {
+                let start = list.length;
+                for (const chapter of chapters) {
+                    if (!chapter || chapter.path == null || seen.has(chapter.path)) continue;
+                    seen.add(chapter.path);
+                    list.push({
+                        url: __lnr_resolve(plugin, instance, chapter.path, false) || chapter.path,
+                        name: __lnr_text(chapter.name) || ("Chapter " + (list.length + 1)),
+                        number: list.length + 1,
+                        path: chapter.path,
+                        plugin: id,
+                        releaseTime: chapter.releaseTime || null,
+                        isVIP: false,
+                        isPaid: false
+                    });
                 }
-                seen.add(chapter.path);
-                return true;
-            });
-            if (!chapters.length && !novel.name) {
+                if (onChapters && list.length > start && active()) onChapters({chapters: list.slice()});
+            }
+            append(novel.chapters || []);
+            await __lnr_chapterPages(instance, novel.path || path, novel, append, active, !!onChapters);
+            if (!list.length && !novel.name) {
                 continue;
             }
-            let list = chapters.map((chapter, index) => ({
-                url: __lnr_resolve(plugin, instance, chapter.path, false) || chapter.path,
-                name: __lnr_text(chapter.name) || ("Chapter " + (index + 1)),
-                number: index + 1,
-                path: chapter.path,
-                plugin: id,
-                releaseTime: chapter.releaseTime || null,
-                isVIP: false,
-                isPaid: false
-            }));
             let tags = String(novel.genres || "").split(/[,\n]/).map(tag => tag.trim()).filter(tag => tag);
             return {
                 api: LNR_API,
@@ -2226,10 +2234,10 @@ async function __lnr_book(url) {
     return __lnr_error(lastError || "The LNReader plugin found no novel on this page");
 }
 
-window.__LNR_parseBook = async function (url) {
+window.__LNR_parseBook = async function (url, onChapters, active) {
     try {
         __lnr_errors.length = 0;
-        return JSON.stringify(await __lnr_book(url || location.href));
+        return JSON.stringify(await __lnr_book(url || location.href, onChapters, active));
     } catch (error) {
         return JSON.stringify(__lnr_error(error));
     }

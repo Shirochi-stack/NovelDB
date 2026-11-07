@@ -2648,7 +2648,7 @@
 
     function openReader(group, sourceIndex) {
         var reader = $('reader');
-        if (R.group && R.group !== group) send({type: 'genericReaderStop'});  // the last book's scraping stops
+        if (R.group) send({type: 'genericReaderStop'});  // stop the previous reader request, including on source changes
         R.group = group;
         R.blocked = '';
         R.comic = !!group.comic;
@@ -2661,6 +2661,12 @@
         R.done = new Set();  // chapters read (their pages show at once, no placeholders)
         R.alive = {};  // request id -> when it last streamed a page or a note
         R.chapters = [];
+        R.source = null;
+        R.lnreader = null;
+        R.tocLoading = true;
+        R.tocError = false;
+        R.bookRequest = null;
+        drawToc(false);
         // Nothing of the book read before stays: its streamed chapter (which kept the loading note from
         // showing), its pictures still coming, its page and place.
         R.streamed = -1;
@@ -2739,44 +2745,64 @@
             if (token !== R.token) return;
             if (i >= order.length) {
                 R.source = null;
+                R.tocLoading = false;
+                R.tocError = true;
+                if ($('toc').classList.contains('open')) drawToc(false);
                 failed(R.blocked || 'The book could not be read: ' + errors.join('; '), function () { openReader(group, start); }, !!R.blocked);
                 return;
             }
             R.tried = group.sources.indexOf(order[i]);
             var source = order[i];
             note('Reading the chapter list from ' + source.site + '…', 120);
-            bookProgress = {source: i + 1, sources: order.length, requests: 0, done: 0, page: 0};
+            var progress = bookProgress = {source: i + 1, sources: order.length, requests: 0, done: 0, page: 0};
             drawBookProgress();
-            loadBook(source).then(function (book) {
-                bookProgress = null;
+            var saved = group.start || store('noveldb.read.' + placeKey(source.url)) || {};
+            var wanted = saved.chapter || 0;
+            function update(book, more) {
                 if (token !== R.token) return;
-                if (!book || book.error || !book.chapters || !book.chapters.length) {
+                R.source = source;
+                if (more) R.chapters = R.chapters.concat(book.chapters);
+                else if (book.chapters) R.chapters = book.chapters;
+                if (book.lnreader) R.lnreader = book.lnreader;
+                R.tocLoading = more;
+                R.tocError = !!book.error;
+                if (R.index < 0 && (!more || wanted < R.chapters.length)) {
+                    if (bookProgress === progress) bookProgress = null;
+                    group.start = null;
+                    openChapter(Math.min(wanted, R.chapters.length - 1), saved.at || 0);
+                } else if (R.index >= 0) {
+                    chapterNumber();
+                    if (R.done.has(R.index) && R.index + 1 < R.chapters.length) {
+                        if (layout() === 'scroll' && !R.slots.length) nextChapterButton(R.index);
+                        loadChapter(R.index + 1);
+                    }
+                }
+                if ($('toc').classList.contains('open')) drawToc(false);
+            }
+            loadBook(source, token, function (book) { update(book, true); }).then(function (book) {
+                if (bookProgress === progress) bookProgress = null;
+                if (token !== R.token) return;
+                if (book && !book.error && book.chapters && book.chapters.length) {
+                    update(book, false);
+                } else if (R.chapters.length) {
+                    update({error: true}, false);
+                } else {
                     if (book && book.blocked) R.blocked = book.message;
                     errors.push(source.site + ': ' + ((book && book.error) || 'no chapters'));
                     attempt(i + 1);
-                    return;
                 }
-                R.source = source;
-                R.chapters = book.chapters;
-                R.lnreader = book.lnreader || null;
-                var saved = group.start || store('noveldb.read.' + placeKey(source.url)) || {};
-                group.start = null;
-                drawToc();
-                openChapter(Math.min(saved.chapter || 0, R.chapters.length - 1), saved.at || 0);
             });
         };
         attempt(0);
     }
-    // An app request that gives up after `seconds` (the reader shows what failed instead of waiting forever).
-    // `onId` hears the request's id (default: the reader's current request, for its progress notes).
-    /** askWithin for a chapter: the time limit counts from the request's last page or note, so a long chapter
-     *  still streaming in (or one waiting behind the chapter read ahead) is not given up on and scraped again. */
+    // Time out from the last page or progress note so a request that is still making progress can finish.
     function askAlive(message, seconds, onId) {
         var id = 0, started = Date.now();
         return new Promise(function (resolve) {
             var timer = setInterval(function () {
                 if (Date.now() - Math.max(started, R.alive[id] || 0) < seconds * 1000) return;
                 clearInterval(timer);
+                delete pending[id];
                 resolve({error: 'the site did not answer in ' + seconds + ' s'});
             }, 2000);
             ask(message, function (given) { id = given; if (onId) onId(given); }).then(function (value) {
@@ -2784,10 +2810,6 @@
                 resolve(value);
             });
         });
-    }
-    function askWithin(message, seconds, onId) {
-        return within(ask(message, onId || function (id) { R.requestId = id; }), seconds * 1000,
-                      {error: 'the site did not answer in ' + seconds + ' s'});
     }
     // A chapter of images reads as a comic: one scroll, each image showing as it arrives (the paged
     // layout could not count its pages until the last image was in).
@@ -2806,39 +2828,84 @@
         R.comic = true;
         applyLook();
     }
-    function loadBook(source) {
-        if (lnreaderSite(source) && window.__LNR_parseBook) {
-            return within(window.__LNR_parseBook(source.url), 60000, '{"error":"the site took too long"}').then(function (raw) {
-                var book = parse(raw) || {};
-                if (book.error || !(book.chapters || []).length) return askWithin({type: 'genericBook', url: source.url}, 90);
-                return {lnreader: book, chapters: book.chapters.map(function (c, i) { return {name: c.name || 'Chapter ' + (i + 1), section: c.sectionName || ''}; })};
+    function loadBook(source, token, onChapters) {
+        function appBook() {
+            var request;
+            return askAlive({type: 'genericBook', url: source.url}, 90, function (id) {
+                request = id;
+                R.bookRequest = {id: id, update: onChapters};
+                R.requestId = id;
+            }).then(function (book) {
+                if (R.bookRequest && R.bookRequest.id === request) R.bookRequest = null;
+                return book;
             });
         }
-        return askWithin({type: 'genericBook', url: source.url}, 90);
+        function lnBook(book, start) {
+            return {lnreader: book, chapters: book.chapters.slice(start).map(function (c, i) {
+                return {name: c.name || 'Chapter ' + (start + i + 1), section: c.sectionName || ''};
+            })};
+        }
+        if (lnreaderSite(source) && window.__LNR_parseBook) {
+            var count = 0, active = true;
+            var parsed = window.__LNR_parseBook(source.url, function (book) {
+                if (!active || token !== R.token) return;
+                onChapters(lnBook(book, count));
+                count = book.chapters.length;
+            }, function () { return active && token === R.token; });
+            return within(parsed, 60000, '{"error":"the site took too long"}').then(function (raw) {
+                active = false;
+                var book = parse(raw) || {};
+                if (book.error || !(book.chapters || []).length) return count || token !== R.token ? book : appBook();
+                return lnBook(book, 0);
+            });
+        }
+        return appBook();
     }
     function loadChapter(index) {
         if (R.cache.has(index)) return R.cache.get(index);
-        var source = R.source, promise;
+        var source = R.source, token = R.token, chapterName = R.chapters[index].name, promise;
         // The app-side reader uses the Catalog's hidden browser and, if necessary, the downloader's
         // saved browser session.  It is also the recovery path when an LNReader request hits Cloudflare.
         var appChapter = function (recovery) {
             return askAlive({type: 'genericChapter', url: source.url, index: index, recovery: recovery || null}, 90,
                              function (id) { R.chapterIds.set(index, id); });
         };
-        if (R.lnreader && /^https?:\/\/(?:www\.)?fucknovelpia\.com\//i.test(source.url || '')) {
-            // FuckNovelpia's book/TOC is safe in LNReader, but its chapter fetch
-            // is always challenged. Do not spend 60 seconds on a request known
-            // to fail; use the app's persistent hidden Chrome session directly.
-            promise = appChapter('cloudflare');
+        var protectedChapter = function (item) {
+            if (typeof window.__noveldb_window_script !== 'function') return appChapter('cloudflare');
+            var address;
+            try { address = new URL(item.url || item.path || '', source.url).href; }
+            catch (e) { return Promise.resolve({error: 'the chapter address is invalid'}); }
+            var script = "(async function () {"
+                + "var deadline=Date.now()+30000;"
+                + "while(Date.now()<deadline){"
+                + "var reader=document.querySelector('.reader');"
+                + "if(reader&&(reader.innerText||'').trim().length>20){"
+                + "var clone=reader.cloneNode(true);"
+                + "clone.querySelectorAll('.reader-nav,script,style').forEach(function(n){n.remove();});"
+                + "return {chapterName:" + JSON.stringify(item.name || chapterName)
+                + ",contentHtml:clone.innerHTML,contentText:clone.innerText};}"
+                + "await new Promise(function(resolve){setTimeout(resolve,250);});}"
+                + "throw new Error('Cloudflare verification did not expose the chapter within 30 seconds.');"
+                + "})()";
+            return Promise.resolve(window.__noveldb_window_script({url: address, script: script})).then(function (reply) {
+                if (typeof reply === 'string') reply = parse(reply);
+                return reply && reply.value && reply.value.contentHtml ? reply.value
+                    : {error: (reply && reply.error) || 'the hidden browser found no chapter text'};
+            }, function (error) { return {error: String(error)}; });
+        };
+        if (R.lnreader && /^https?:\/\/(?:www\.)?fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com\//i.test(source.url || '')) {
+            // The chapter needs the app's browser session even when the plugin can read the TOC.
+            promise = protectedChapter(R.lnreader.chapters[index]);
         } else if (R.lnreader) {
             var item = Object.assign({}, R.lnreader.chapters[index]);
             promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')
                 .then(parse).then(function (result) {
+                    if (token !== R.token) return null;
                     if (result && !result.error) return result;
                     var detail = ((result && result.error) || '') + ' ' + ((result && result.message) || '');
                     var cloudflare = /cloudflare|http\s*403|just a moment|verify you are human|checking your browser/i.test(detail);
-                    note(cloudflare ? 'Cloudflare detected; switching to the downloader browser…'
-                                    : 'The quick reader failed; retrying in the browser…', 90);
+                    if (index === R.index) note(cloudflare ? 'Cloudflare detected; switching to the downloader browser…'
+                                                           : 'The quick reader failed; retrying in the browser…', 90);
                     return appChapter(cloudflare ? 'cloudflare' : null)
                         .then(function (recovered) { return recovered || result; });
                 });
@@ -2848,6 +2915,7 @@
             promise = appChapter();
         }
         promise = promise.then(function (result) {
+            if (token !== R.token) return {error: 'the reader was closed'};
             if (!result || result.error) {
                 R.cache.delete(index);
                 R.done.delete(index);
@@ -2859,10 +2927,18 @@
             if (!html.replace(/<[^>]+>/g, '').trim() && html.indexOf('<img') < 0) html = textHtml(result.text || result.contentText);
             R.done.add(index);
             R.pagesFor.delete(index);  // its pages are in its HTML now (no second copy kept)
-            return {name: result.name || result.chapterName || R.chapters[index].name, html: html};
+            return {name: result.name || result.chapterName || chapterName, html: html};
         });
         R.cache.set(index, promise);
         return promise;
+    }
+    function chapterNumber() {
+        $('rChapterNo').textContent = 'Chapter ' + (R.index + 1) + (R.tocLoading ? '' : ' of ' + R.chapters.length);
+    }
+    function nextChapterButton(index) {
+        if (index + 1 >= R.chapters.length || $('rNextChapter')) return;
+        $('flow').insertAdjacentHTML('beforeend', '<p class="next-chapter"><button type="button" id="rNextChapter">Next chapter ›</button></p>');
+        $('rNextChapter').onclick = function () { openChapter(index + 1, 0); };
     }
     function openChapter(index, at) {
         // The chapter already streaming in (its pages arriving): left as it is, not started again.
@@ -2873,7 +2949,7 @@
         resetPictures();
         R.index = index;
         $('rChapter').textContent = '· ' + (R.chapters[index].name || '');
-        $('rChapterNo').textContent = 'Chapter ' + (index + 1) + ' of ' + R.chapters.length;
+        chapterNumber();
         markToc();
         var retry = function () { R.cache.delete(index); (R.pagesFor || new Map()).delete(index); openChapter(index, at); };
         note('Scraping chapter ' + (index + 1) + (R.chapters[index].name ? ' (' + R.chapters[index].name + ')' : '') + ' from '
@@ -2914,10 +2990,9 @@
                 resetPictures();
                 chapter.html = chapter.html.replace(/<img[^>]*?src="([^"]+)"[^>]*>/g, function (_tag, src) { return slotHtml(src); });
             }
-            $('flow').innerHTML = '<h2 class="chapter">' + esc(chapter.name) + '</h2>' + chapter.html
-                + (layout() === 'scroll' && last ? '<p class="next-chapter"><button type="button" id="rNextChapter">Next chapter ›</button></p>' : '');
+            $('flow').innerHTML = '<h2 class="chapter">' + esc(chapter.name) + '</h2>' + chapter.html;
+            if (layout() === 'scroll') nextChapterButton(index);
             if (R.translate) translateChapter(false);
-            if ($('rNextChapter')) $('rNextChapter').onclick = function () { openChapter(index + 1, 0); };
             if (many) {
                 $('flow').querySelectorAll('img.slot').forEach(function (slot) { fetchPicture(slot); });
                 pictures.total = $('flow').querySelectorAll('img.slot').length;
@@ -3209,7 +3284,7 @@
 
     // The contents: chapters (with the volume they're in) and the current chapter's pages.
     var tocTab = 'chapters';
-    function drawToc() {
+    function drawToc(scrollToChapter) {
         if (tocTab === 'pages') { drawPages(); return; }
         var filter = $('tocFilter').value.trim().toLowerCase(), section = null, html = '';
         R.chapters.forEach(function (chapter, index) {
@@ -3219,11 +3294,13 @@
             html += '<a data-chapter="' + index + '"' + (index === R.index ? ' class="on"' : '') + '>' + (index + 1) + '. ' + esc(chapter.name) + '</a>';
         });
         $('tocList').className = 'list';
-        $('tocList').innerHTML = html || '<div class="section">No chapter matches.</div>';
+        $('tocList').innerHTML = html + (R.tocLoading ? '<div class="section">Loading more chapters…</div>'
+            : R.tocError ? '<div class="section">The rest of the chapter list could not be loaded.</div>'
+            : html ? '' : '<div class="section">No chapter matches.</div>');
         $('tocList').querySelectorAll('[data-chapter]').forEach(function (link) {
             link.onclick = function () { $('toc').classList.remove('open'); openChapter(Number(link.dataset.chapter), 0); };
         });
-        markToc();
+        markToc(scrollToChapter);
     }
     function drawPages() {
         $('tocList').className = 'list pages';
@@ -3234,10 +3311,10 @@
             link.onclick = function () { R.page = Number(link.dataset.page); place(); };
         });
     }
-    function markToc() {
+    function markToc(scrollToChapter) {
         var on = $('tocList').querySelector('[data-chapter="' + R.index + '"]');
         $('tocList').querySelectorAll('a.on[data-chapter]').forEach(function (a) { a.classList.remove('on'); });
-        if (on) { on.classList.add('on'); if ($('toc').classList.contains('open')) on.scrollIntoView({block: 'center'}); }
+        if (on) { on.classList.add('on'); if (scrollToChapter !== false && $('toc').classList.contains('open')) on.scrollIntoView({block: 'center'}); }
     }
     function setTocTab(tab) {
         tocTab = tab;
@@ -3326,6 +3403,8 @@
         }
         if (R.full || R.switching) setFull(false, true);
         R.token++;
+        R.bookRequest = null;
+        bookProgress = null;
         send({type: 'genericReaderStop'});  // the app stops scraping this book (the next one need not wait)
         $('reader').classList.remove('open');
         $('toc').classList.remove('open');
@@ -3709,11 +3788,17 @@
         },
         readerStatus: function (id, text) {
             R.alive[id] = Date.now();
+            if (R.index >= 0 && R.bookRequest && id === R.bookRequest.id) return;
             if ((id !== R.requestId && id !== R.chapterIds.get(R.index)) || !R.drawNote) return;
             R.noteDetail = text;
             // Once the chapter's images are showing, the note would cover them: the bottom bar says it instead.
             if (streaming()) { $('rWhere').textContent = text; return; }
             R.drawNote();
+        },
+        readerChapters: function (id, chapters) {
+            if (!R.bookRequest || R.bookRequest.id !== id || !chapters.length) return;
+            R.alive[id] = Date.now();
+            R.bookRequest.update({chapters: chapters});
         },
         readerImages: function (id, found) {
             if (!found || !found.images) return;

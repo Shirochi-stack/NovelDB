@@ -1363,11 +1363,11 @@ function mergeNames(chapters, found) {
     }
 }
 
-async function moreListPages(doc, base, chapters, warnings) {
+async function moreListPages(doc, base, chapters, warnings, publish, active) {
     let seenPages = new Set([base]);
     let known = new Set(chapters.map(c => c.url));
     let queue = numberedPages(listPages(doc, base, seenPages));
-    if (queue.length > 2) {
+    if (queue.length > 2 && !publish) {
         // Every numbered list page at once (8 at a time), kept in page order.
         let pages = await pool(queue.slice(0, MAX_LIST_PAGES), 8, async url => {
             let read = await page(url, base);
@@ -1387,8 +1387,12 @@ async function moreListPages(doc, base, chapters, warnings) {
         }
         return chapters.length > 2 ? readingOrder(chapters) : chapters;
     }
+    if (publish && queue.length && active()) {
+        publish(chapters);
+        if (chapterNumber(chapters[0].name, chapters[0].url) > 1) queue.reverse();
+    }
     let pages = 0;
-    while (queue.length && pages < MAX_LIST_PAGES) {
+    while (queue.length && pages < MAX_LIST_PAGES && active()) {
         let url = queue.shift();
         if (seenPages.has(url)) {
             continue;
@@ -1404,11 +1408,9 @@ async function moreListPages(doc, base, chapters, warnings) {
         let found = findChapters(read.doc, read.url);
         mergeNames(chapters, found);
         let more = found.filter(c => !known.has(c.url));
-        if (!more.length) {
-            continue;
-        }
         more.forEach(c => known.add(c.url));
         chapters.push(...more);
+        if (publish && more.length && active()) publish(chapters);
         for (let next of listPages(read.doc, read.url, seenPages)) {
             if (!queue.includes(next)) {
                 queue.push(next);
@@ -1421,15 +1423,16 @@ async function moreListPages(doc, base, chapters, warnings) {
     return chapters.length > 2 ? readingOrder(chapters) : chapters;
 }
 
-async function chain(start, doc, warnings) {
+async function chain(start, doc, warnings, publish, active) {
     let chapters = [];
     let seen = new Set();
     let url = start;
     let current = doc;
-    while (url && !seen.has(url) && chapters.length < MAX_CHAIN) {
+    while (url && !seen.has(url) && chapters.length < MAX_CHAIN && active()) {
         seen.add(url);
         let heading = current.querySelector("h1, h2");
         chapters.push({ url: url, name: textOf(heading) || "Chapter " + (chapters.length + 1) });
+        if (publish) publish(chapters);
         let following = nextLink(current, url);
         if (!following || seen.has(following)) {
             break;
@@ -1531,7 +1534,7 @@ async function appChapters(doc, final) {
     return String(props.episodeOrder || "").toLowerCase() === "desc" ? chapters.reverse() : chapters;
 }
 
-async function book(url) {
+async function book(url, onChapters, active = () => true) {
     let doc, final;
     url = asuraAddress(webtoonsSeries(dm5Desktop(url || location.href)));
     if (sameAddress(url, location.href)) {
@@ -1600,9 +1603,35 @@ async function book(url) {
             }
         }
     }
-    if (chapters.length && !episodes.length) {
-        chapters = await moreListPages(doc, final, chapters, warnings);
+    let published = [];
+    const entries = chapters => chapters.map((chapter, index) => ({
+        url: chapter.url, name: chapter.name, number: index + 1, bookUrl: final, isVIP: false, isPaid: false
+    }));
+    function publish(chapters, numbered = true) {
+        let ordered = numbered ? readingOrder(chapters) : chapters.slice();
+        if (numbered) {
+            // Only publish the known beginning, including when the source lists its newest chapters first.
+            let expectedNumber = chapterNumber(ordered[0].name, ordered[0].url);
+            let end = 0;
+            if (expectedNumber === 0 || expectedNumber === 1) {
+                for (const chapter of ordered) {
+                    const number = chapterNumber(chapter.name, chapter.url);
+                    if (number == null || number <= expectedNumber - 1 || number > expectedNumber) break;
+                    if (number === expectedNumber) expectedNumber++;
+                    end++;
+                }
+            }
+            ordered = ordered.slice(0, end);
+        }
+        if (ordered.length > published.length && published.every((chapter, i) => chapter.url === ordered[i].url)) {
+            published = ordered;
+            onChapters(entries(published));
+        }
     }
+    if (chapters.length && !episodes.length) {
+        chapters = await moreListPages(doc, final, chapters, warnings, onChapters && publish, active);
+    }
+    if (!active()) return failure("the reader was closed");
     let listed = await platformChapters(doc, final);
     if (listed.length > chapters.length) {
         chapters = listed;
@@ -1630,14 +1659,20 @@ async function book(url) {
     }
     if (!chapters.length && nextLink(doc, final)) {
         // No list: the page may be a chapter itself; follow its "next" links.
-        chapters = await chain(final, doc, warnings);
+        chapters = await chain(final, doc, warnings, onChapters && (found => publish(found, false)), active);
     }
     if (!chapters.length) {
         return { error: "The generic engine found no chapter list on this page.", noParser: true };
     }
-    let list = chapters.map((chapter, index) => ({
-        url: chapter.url, name: chapter.name, number: index + 1, bookUrl: final, isVIP: false, isPaid: false
-    }));
+    if (published.length) {
+        const byUrl = new Map(chapters.map(chapter => [chapter.url, chapter]));
+        chapters = published.map(chapter => {
+            const named = byUrl.get(chapter.url) || chapter;
+            byUrl.delete(chapter.url);
+            return named;
+        }).concat(Array.from(byUrl.values()));
+    }
+    let list = entries(chapters);
     return {
         api: GEN_API,
         engine: "generic",
@@ -2322,9 +2357,9 @@ function failure(error) {
     return { error: String((error && error.message) || error || "unknown error") };
 }
 
-window.__GEN_parseBook = async function (url) {
+window.__GEN_parseBook = async function (url, onChapters, active) {
     try {
-        return JSON.stringify(await book(url || location.href));
+        return JSON.stringify(await book(url || location.href, onChapters, active));
     } catch (error) {
         return JSON.stringify(failure(error));
     }
