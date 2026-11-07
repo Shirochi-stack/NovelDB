@@ -150,7 +150,8 @@ class LiveReader:
             errors.append(f"{name}: no chapters found")
         raise RuntimeError("; ".join(errors)[:400] or "no engine could read the book")
 
-    def chapter(self, url: str, index: int, on_images: Optional[Callable[[List[str], int], None]] = None) -> dict:
+    def chapter(self, url: str, index: int, on_images: Optional[Callable[[List[str], int], None]] = None,
+                *, fetch: Optional[Callable] = None) -> dict:
         """{name, html} of the book's chapter at `index` (0-based), scraped now. A manga chapter's images
         reach `on_images(images so far, pages)` as its pages are read."""
         with self._lock:
@@ -169,8 +170,11 @@ class LiveReader:
             raise IndexError("no such chapter")
         info = chapters[index]
         engine = self._engine(name)
-        if on_images is not None and hasattr(engine, "on_images"):
+        if fetch is not None or (on_images is not None and hasattr(engine, "on_images")):
             engine = copy(engine)
+        if fetch is not None:
+            engine.fetch = fetch
+        if on_images is not None and hasattr(engine, "on_images"):
             engine.on_images = on_images
         result = engine.parse_chapter(info, data)
         if not result:

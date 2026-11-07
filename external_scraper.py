@@ -489,6 +489,9 @@ class ExternalScraper(SiteEnginesMixin):
                     cookie_header,
                 )
 
+            binary = details.get("responseType") in ("arraybuffer", "blob")
+            work = self.__dict__.get("reader_work")
+            stream = binary and work is not None
             response = self._gm_session().request(
                 method,
                 url,
@@ -496,6 +499,7 @@ class ExternalScraper(SiteEnginesMixin):
                 data=data,
                 timeout=timeout,
                 allow_redirects=True,
+                stream=stream,
             )
             response_headers = "\r\n".join(
                 f"{k}: {v}" for k, v in response.headers.items()
@@ -506,9 +510,17 @@ class ExternalScraper(SiteEnginesMixin):
                 "responseHeaders": response_headers,
                 "finalUrl": response.url,
             }
-            if details.get("responseType") in ("arraybuffer", "blob"):
+            if binary:
+                if stream:
+                    from noveldb.core.http_body import read_body
+
+                    content = read_body(response, work.wait)
+                    if content is None:
+                        return {"error": "the reader was closed"}
+                else:
+                    content = response.content
                 result["responseBase64"] = base64.b64encode(
-                    response.content
+                    content
                 ).decode("ascii")
                 result["responseText"] = ""
             else:

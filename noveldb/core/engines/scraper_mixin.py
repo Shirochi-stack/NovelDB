@@ -262,13 +262,14 @@ class SiteEnginesMixin:
         """Retry transient reader GETs with a bounded timeout and fetch refused images by their actual URL."""
         from urllib.parse import urlsplit
 
-        if getattr(self, "_stop_requested", False):
+        work = self.__dict__.get("reader_work")
+        if getattr(self, "_stop_requested", False) or (work is not None and not work.wait()):
             return {"error": "the reader was closed"}
         result = self._gm_xmlhttp_request(None, details, timeout_override=_READER_TIMEOUT)
         for attempt in (2, 3):
             timed_out = (result.get("status") in _READER_TIMEOUT_STATUSES
                          or re.search(r"timeout|timed out|ERR_CONNECTION_RESET|connection reset", str(result.get("error") or ""), re.I))
-            if not timed_out or getattr(self, "_stop_requested", False):
+            if not timed_out or getattr(self, "_stop_requested", False) or (work is not None and not work.wait()):
                 break
             note = f"Reader request timed out; retrying ({attempt}/3)…"
             self.log(note)
@@ -276,7 +277,7 @@ class SiteEnginesMixin:
             if progress:
                 progress(note)
             result = self._gm_xmlhttp_request(None, details, timeout_override=_READER_TIMEOUT)
-        if getattr(self, "_stop_requested", False):
+        if getattr(self, "_stop_requested", False) or (work is not None and not work.wait()):
             return {"error": "the reader was closed"}
         if _looks_refused(_with_text(result)):
             url = details.get("url") or ""
@@ -372,10 +373,18 @@ class SiteEnginesMixin:
         """Call `window[function](...args)` in `page`, running the browser jobs it queues meanwhile."""
         page.evaluate(_ASYNC_HELPER)
         call_id = page.evaluate("([name, args]) => window.__noveldb_async.start(name, args)", [function, args])
-        deadline = time.monotonic() + timeout
+        work = self.__dict__.get("reader_work")
+        clock = work.clock if work is not None else time.monotonic
+        deadline = clock() + timeout
         while True:
             jobs = self.__dict__.setdefault("_engine_jobs", [])
+            if work is not None and not work.wait():
+                jobs.clear()
+                raise RuntimeError("the reader was closed")
             while jobs:
+                if work is not None and not work.wait():
+                    jobs.clear()
+                    raise RuntimeError("the reader was closed")
                 job_id, kind, payload, origin = jobs.pop(0)
                 result = self._run_job(kind, payload)
                 if kind == "request":
@@ -390,7 +399,7 @@ class SiteEnginesMixin:
                 if state.get("error"):
                     raise RuntimeError(state["error"])
                 return state.get("value")
-            if time.monotonic() > deadline:
+            if clock() > deadline:
                 raise TimeoutError(f"{function} did not finish in {int(timeout)} s")
             if getattr(self, "_stop_requested", False):
                 raise RuntimeError("stopped")
@@ -553,6 +562,9 @@ class SiteEnginesMixin:
     def engine_fetch(self, url: str, *, method: str = "GET", data=None, headers: Optional[dict] = None,
                      binary: bool = False, referer: str = "") -> Optional[dict]:
         """One request for the Python engines: {status, url, text | content, headers}, or None."""
+        work = self.__dict__.get("reader_work")
+        if work is not None and not work.wait():
+            return None
         details = {"url": url, "method": method, "headers": dict(headers or {}),
                    "responseType": "arraybuffer" if binary else "", "timeout": 30000}
         extra = age_cookies(url)

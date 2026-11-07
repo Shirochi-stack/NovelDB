@@ -50,6 +50,25 @@ def test_bridge_script_bundles_channel_shim_and_bridge(qapp):
     assert source.index("window.NovelDBQt =") < source.index("window.NovelDBApp =")
 
 
+def test_leaving_the_catalog_pauses_the_same_reader_session(catalog, qtbot):
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QStackedWidget, QWidget
+
+    changes = []
+    catalog.view = QWidget(catalog)
+    catalog.generic = SimpleNamespace(set_reader_visible=changes.append)
+    stack = QStackedWidget()
+    qtbot.addWidget(stack)
+    stack.addWidget(catalog)
+    stack.addWidget(QWidget())
+    stack.show()
+    assert changes == [True]
+    stack.setCurrentIndex(1)
+    stack.setCurrentIndex(0)
+    assert changes == [True, False, True]
+
+
 @pytest.fixture
 def catalog(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))

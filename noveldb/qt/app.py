@@ -253,6 +253,15 @@ def main(argv=None) -> int:
     rules = os.environ.get("QT_LOGGING_RULES", "")
     if "qt.qpa.window" not in rules:
         os.environ["QT_LOGGING_RULES"] = ";".join(filter(None, [rules, "qt.qpa.window.warning=false"]))
+    from noveldb import features
+
+    if features.has_webengine():
+        try:
+            from noveldb.qt.catalog.reader_media import register_scheme
+        except ImportError:
+            pass  # the Catalog uses the external browser if WebEngine cannot load
+        else:
+            register_scheme()
     app = QApplication.instance() or QApplication(sys.argv[:1])
 
     key = _instance_key()

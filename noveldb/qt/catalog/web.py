@@ -48,6 +48,7 @@ from noveldb.core.settings.model import DEFAULT_CATALOG_URL, NOVELDB_CATALOG_URL
 from noveldb.core.sources import detect_source
 from noveldb.qt import icons
 from noveldb.qt.catalog import generic as generic_page
+from noveldb.qt.catalog.reader_media import SCHEME, ReaderMedia
 from noveldb.qt.context import AppContext
 from noveldb.qt.widgets import ButtonFeedback, Toast, hint
 
@@ -361,6 +362,13 @@ class CatalogPage(QWidget):
         super().showEvent(event)
         if self.view is None:
             QTimer.singleShot(0, self._create_view)
+        else:
+            self.generic.set_reader_visible(True)
+
+    def hideEvent(self, event):
+        if self.view is not None:
+            self.generic.set_reader_visible(False)
+        super().hideEvent(event)
 
     def _create_view(self) -> None:
         if self.view is not None:
@@ -388,6 +396,8 @@ class CatalogPage(QWidget):
             lambda url: sites.supported_site(url, self.context.settings.engines.enabled()), self,
             cache_mb=lambda: self.context.settings.catalog.offline_cache_mb)
         self.generic.logins.secrets = lambda: self.context.settings.secrets
+        self.generic.set_reader_visible(self.isVisible())
+        self.profile.installUrlSchemeHandler(SCHEME, ReaderMedia(lambda: self.generic.reader_session, self.profile))
         self.generic.engine_settings = lambda: self.context.settings.engines
         # The reader's own browser worker when there is one: it never waits behind a download.
         worker = getattr(self.context, "reader_browser", None) or self.context.browser
@@ -419,6 +429,7 @@ class CatalogPage(QWidget):
     def release(self) -> None:
         """Delete the page before its profile (Qt warns, and may crash, otherwise)."""
         if self.view is not None:
+            self.generic.stop_reader()
             self.view.setPage(None)
         if self.page is not None:
             self.page.deleteLater()
@@ -517,6 +528,8 @@ class CatalogPage(QWidget):
         QDesktopServices.openUrl(url if url.isValid() and not url.isEmpty() else QUrl(self.site))
 
     def _load_started(self) -> None:
+        if self._generic_ready:
+            self.generic.stop_reader()
         self._generic_ready = False
         self.progress.setValue(0)
         self.progress.show()

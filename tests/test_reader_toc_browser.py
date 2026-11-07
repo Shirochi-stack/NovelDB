@@ -93,3 +93,52 @@ def test_read_starts_while_the_next_toc_page_is_still_pending(browser, assets):
             page.evaluate("lastPage({chapters: [], more: false})")
         playwright.expect(page.locator("#flow")).to_contain_text("Chapter text 2")
         playwright.expect(page.locator("#rChapterNo")).to_have_text("Chapter 2 of 2")
+
+
+def test_desktop_reader_pauses_the_image_queue_and_read_ahead_without_moving(browser):
+    with browser.new_context(viewport={"width": 1100, "height": 700}) as context:
+        page = context.new_page()
+        page.route("**/*", lambda route: route.fulfill(path=DESKTOP / "index.html")
+                   if route.request.url.endswith("/index.html") else route.fulfill(body=""))
+        page.add_init_script("""
+            window.calls = [];
+            window.NovelDBQt = {postMessage(text) { calls.push(JSON.parse(text)); }};
+            localStorage.setItem('noveldb.reader.look.v2', JSON.stringify({comicLayout: 'scroll'}));
+        """)
+        page.goto("https://catalog.test/index.html")
+        page.add_script_tag(path=DESKTOP / "generic.js")
+        page.add_style_tag(content="#flow img.slot { height: 350px !important; }")
+        page.evaluate("""NovelDBGeneric.add([{title: 'A long comic', url: 'https://comics.test/book/1',
+                          site: 'Example', source: 'site', comic: true, verified: true}])""")
+        page.locator("#grid .card").first.click()
+        page.locator("[data-act=read]").click()
+        page.evaluate("""
+            const book = calls.find(m => m.type === 'genericBook');
+            NovelDBGeneric.fetched(book.id, {chapters: [{name: 'Chapter 1'}, {name: 'Chapter 2'}]});
+        """)
+        page.wait_for_function("calls.some(m => m.type === 'genericChapter' && m.index === 0)")
+        page.evaluate("""
+            const chapter = calls.find(m => m.type === 'genericChapter' && m.index === 0);
+            const html = Array.from({length: 8}, (_, i) => '<img src="https://comics.test/img/' + i + '.png">').join('');
+            NovelDBGeneric.fetched(chapter.id, {html, comic: true});
+        """)
+        page.wait_for_function("calls.filter(m => m.type === 'genericImage').length === 4")
+        position = page.evaluate("""() => {
+            const viewport = document.getElementById('viewport');
+            viewport.scrollTop = 450;
+            NovelDBGeneric.readerVisibility(false);
+            calls.filter(m => m.type === 'genericImage').forEach(m => NovelDBGeneric.fetched(m.id, {
+                dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/2QAAAAASUVORK5CYII='
+            }));
+            return viewport.scrollTop;
+        }""")
+        assert position == 450
+        playwright.expect(page.locator("#flow img.ready")).to_have_count(4)
+        assert page.evaluate("calls.filter(m => m.type === 'genericImage').length") == 4
+        assert page.evaluate("calls.filter(m => m.type === 'genericChapter').map(m => m.index)") == [0]
+
+        page.evaluate("NovelDBGeneric.readerVisibility(true)")
+        page.wait_for_function("calls.filter(m => m.type === 'genericImage').length === 8")
+        page.wait_for_function("calls.some(m => m.type === 'genericChapter' && m.index === 1)")
+        assert page.locator("#viewport").evaluate("element => element.scrollTop") == position
+        playwright.expect(page.locator("#rChapterNo")).to_have_text("Chapter 1 of 2")

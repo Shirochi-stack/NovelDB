@@ -87,7 +87,8 @@
     }
     window.__LNR_transport = function (request) {
         var progress = trackBookRequest(request || {});
-        return ask({type: 'genericFetch', request: request}).then(function (reply) {
+        var reader = $('reader').classList.contains('open') && !!(progress || R.lnreader);
+        return ask({type: 'genericFetch', request: request, reader: reader}).then(function (reply) {
             if (progress && bookProgress === progress) { progress.done++; drawBookProgress(); }
             return reply;
         });
@@ -2397,6 +2398,33 @@
     // e-book (two pages side by side in a wide window) or one long scroll; the place is remembered.
     var R = {group: null, source: null, chapters: [], index: 0, page: 0, pages: 1, cache: new Map(), token: 0, lnreader: null,
              done: new Set(), pagesFor: new Map(), alive: {}, lastPages: 0};
+    var readerPausedAt = null, readerPausedFor = 0;
+    function readerNow() {
+        return (readerPausedAt === null ? Date.now() : readerPausedAt) - readerPausedFor;
+    }
+    function readerVisibility(visible) {
+        if (!visible) {
+            if (readerPausedAt === null) readerPausedAt = Date.now();
+            return;
+        }
+        if (readerPausedAt === null) return;
+        readerPausedFor += Date.now() - readerPausedAt;
+        readerPausedAt = null;
+        if ($('reader').classList.contains('open')) {
+            pumpPictures();
+            readAhead();
+        }
+    }
+    function readerImageUrl(src) {
+        return /^noveldb-reader:[0-9a-f]{32}\/[0-9a-f]{64}\.[a-z0-9][a-z0-9.+-]{0,31}$/.test(src);
+    }
+    function readerDeadline(promise, ms, fallback) {
+        var deadline = readerNow() + ms, timer;
+        var timeout = new Promise(function (resolve) {
+            timer = setInterval(function () { if (readerNow() >= deadline) resolve(fallback); }, 1000);
+        });
+        return Promise.race([promise, timeout]).finally(function () { clearInterval(timer); });
+    }
     var LOOK_KEY = 'noveldb.reader.look.v2', look = Object.assign({size: 19, leading: 1.75, font: 'serif', theme: 'auto', layout: 'paged'}, store(LOOK_KEY) || {});
     // A phone reads smaller text by default. The text size stays the default until A− or A+ picks one
     // (a size saved before that rule counts as picked when it is not the old default, 19).
@@ -2632,7 +2660,7 @@
                 Array.prototype.slice.call(child.attributes).forEach(function (attribute) { child.removeAttribute(attribute.name); });
                 if (tag === 'img') {
                     try { src = new URL(src, base).href; } catch (e) { src = ''; }
-                    if (!/^(https?:|data:image\/)/i.test(src)) { child.remove(); return; }
+                    if (!/^(https?:|data:image\/)/i.test(src) && !readerImageUrl(src)) { child.remove(); return; }
                     child.setAttribute('src', src);
                     child.setAttribute('referrerpolicy', 'no-referrer');
                     child.setAttribute('loading', 'eager');
@@ -2696,12 +2724,13 @@
     // What the reader is doing, with a clock; after `limit` seconds it gives up with a way out.
     function note(text, limit, retry) {
         clearInterval(R.clock);
-        var started = Date.now(), token = R.token;
+        var started = readerNow(), token = R.token;
         R.noteText = text;
         R.noteDetail = '';
         var draw = R.drawNote = function () {
             if (token !== R.token || streaming()) { clearInterval(R.clock); return; }
-            var seconds = Math.round((Date.now() - started) / 1000);
+            if (readerPausedAt !== null) return;
+            var seconds = Math.round((readerNow() - started) / 1000);
             if (limit && seconds >= limit) {
                 clearInterval(R.clock);
                 failed(text.replace(/…$/, '') + ' took too long (' + limit + ' s).', retry);
@@ -2797,10 +2826,10 @@
     }
     // Time out from the last page or progress note so a request that is still making progress can finish.
     function askAlive(message, seconds, onId) {
-        var id = 0, started = Date.now();
+        var id = 0, started = readerNow();
         return new Promise(function (resolve) {
             var timer = setInterval(function () {
-                if (Date.now() - Math.max(started, R.alive[id] || 0) < seconds * 1000) return;
+                if (readerNow() - Math.max(started, R.alive[id] || 0) < seconds * 1000) return;
                 clearInterval(timer);
                 delete pending[id];
                 resolve({error: 'the site did not answer in ' + seconds + ' s'});
@@ -2898,7 +2927,7 @@
             promise = protectedChapter(R.lnreader.chapters[index]);
         } else if (R.lnreader) {
             var item = Object.assign({}, R.lnreader.chapters[index]);
-            promise = within(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')
+            promise = readerDeadline(window.__LNR_parseChapter(JSON.stringify(item)), 60000, '{"error":"the site took too long"}')
                 .then(parse).then(function (result) {
                     if (token !== R.token) return null;
                     if (result && !result.error) return result;
@@ -3022,7 +3051,8 @@
                 image.addEventListener('load', function () { paginate(readingAt()); }, {once: true});
                 image.addEventListener('error', function () {
                     ask({type: 'genericImage', url: image.src, referer: chapter.imageReferer, reader: true}).then(function (data) {
-                        if (data && data.dataUrl) image.src = data.dataUrl; else image.remove();
+                        var src = data && (data.imageUrl || data.dataUrl);
+                        if (src) image.src = src; else image.remove();
                     });
                 }, {once: true});
             });
@@ -3032,17 +3062,17 @@
         });
     }
     // -- chapter images: fetched by the app (no hotlink refusals), 4 at a time, counted ------------------
-    var pictures = {queue: [], active: 0, done: 0, total: 0, bytes: 0, started: 0, urls: []};
+    var pictures = {queue: [], active: 0, done: 0, total: 0, bytes: 0, started: 0, urls: [], token: 0};
     function resetPictures() {
         pictures.urls.forEach(function (url) { URL.revokeObjectURL(url); });
-        pictures = {queue: [], active: 0, done: 0, total: 0, bytes: 0, started: Date.now(), urls: [], token: R.token};
+        pictures = {queue: [], active: 0, done: 0, total: 0, bytes: 0, started: readerNow(), urls: [], token: pictures.token + 1};
         showPictures();
     }
     function showPictures() {
         var bar = $('rProgress');
         if (!pictures.total || pictures.done >= pictures.total) { bar.classList.remove('on'); return; }
         bar.classList.add('on');
-        var seconds = Math.max(0.5, (Date.now() - pictures.started) / 1000);
+        var seconds = Math.max(0.5, (readerNow() - pictures.started) / 1000);
         bar.firstElementChild.style.width = (100 * pictures.done / pictures.total) + '%';
         bar.lastElementChild.textContent = 'Images ' + pictures.done + ' of ' + pictures.total + ' · '
             + (pictures.bytes / 1048576).toFixed(1) + ' MB · ' + (pictures.bytes / 1048576 / seconds).toFixed(2) + ' MB/s';
@@ -3053,18 +3083,23 @@
         pumpPictures();
     }
     function pumpPictures() {
+        if (readerPausedAt !== null) return;
         while (pictures.active < 4 && pictures.queue.length) {
             var image = pictures.queue.shift(), token = pictures.token;
             pictures.active++;
             // A page the app already has (HaruNeko fetched it): its bytes, not the site asked again.
-            var asked = /^data:image\//.test(image.dataset.src)
+            var asked = readerImageUrl(image.dataset.src) ? Promise.resolve({imageUrl: image.dataset.src})
+                : /^data:image\//.test(image.dataset.src)
                 ? Promise.resolve({dataUrl: image.dataset.src, bytes: Math.round(image.dataset.src.length * 0.75)})
                 : askAlive({type: 'genericImage', url: image.dataset.src, referer: R.imageReferer || '', reader: true}, 35);
             asked.then(function (data) {
                 if (token !== pictures.token) return;
                 pictures.active--;
                 var image = this;
-                if (data && data.dataUrl && image.isConnected) {
+                if (data && readerImageUrl(data.imageUrl || '') && image.isConnected) {
+                    pictures.bytes += data.bytes || 0;
+                    showSlot(image, data.imageUrl, function () { retryPicture(image, token); });
+                } else if (data && data.dataUrl && image.isConnected) {
                     pictures.bytes += data.bytes || Math.round(data.dataUrl.length * 0.75);
                     fetch(data.dataUrl).then(function (r) { return r.blob(); }).then(function (blob) {
                         if (token !== pictures.token || !image.isConnected) return;
@@ -3226,6 +3261,7 @@
     }
 
     function readAhead() {
+        if (readerPausedAt !== null || !$('reader').classList.contains('open')) return;
         if (!R.done.has(R.index) || R.index + 1 >= R.chapters.length) return;
         if (R.comic && !$('flow').querySelector('.slot.ready')) return;
         if (R.imageFallback && pictures.done < pictures.total) return;
@@ -3458,6 +3494,10 @@
         if (R.full || R.switching) setFull(false, true);
         R.token++;
         resetPictures();
+        clearInterval(R.clock);
+        R.cache.clear();
+        R.pagesFor.clear();
+        $('flow').replaceChildren();
         R.bookRequest = null;
         bookProgress = null;
         send({type: 'genericReaderStop'});  // the app stops scraping this book (the next one need not wait)
@@ -3841,8 +3881,9 @@
             if ($('dialog').open) $('dialog').close();
             openReader(group, 0);
         },
+        readerVisibility: readerVisibility,
         readerStatus: function (id, text) {
-            R.alive[id] = Date.now();
+            R.alive[id] = readerNow();
             if (R.index >= 0 && R.bookRequest && id === R.bookRequest.id) return;
             if ((id !== R.requestId && id !== R.chapterIds.get(R.index)) || !R.drawNote) return;
             R.noteDetail = text;
@@ -3852,12 +3893,12 @@
         },
         readerChapters: function (id, chapters) {
             if (!R.bookRequest || R.bookRequest.id !== id || !chapters.length) return;
-            R.alive[id] = Date.now();
+            R.alive[id] = readerNow();
             R.bookRequest.update({chapters: chapters});
         },
         readerImages: function (id, found) {
             if (!found || !found.images) return;
-            R.alive[id] = Date.now();
+            R.alive[id] = readerNow();
             // Kept for the chapter it belongs to (one read ahead shows them when it is opened), shown when open.
             var index = -1;
             R.chapterIds.forEach(function (value, key) { if (value === id) index = key; });

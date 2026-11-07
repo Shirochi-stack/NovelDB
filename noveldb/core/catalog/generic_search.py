@@ -169,7 +169,8 @@ def _host(url: str) -> str:
 
 
 def default_fetch(url: str, method: str = "GET", data=None, headers: Optional[dict] = None,
-                  binary: bool = False, referer: str = "", timeout: float = 15.0, quick: bool = False) -> Optional[dict]:
+                  binary: bool = False, referer: str = "", timeout: float = 15.0, quick: bool = False,
+                  checkpoint=None) -> Optional[dict]:
     """A plain request: {status, url, content, text, headers}. `quick`: a short timeout, for guesses."""
     if quick:
         timeout = min(timeout, 8.0)
@@ -179,12 +180,24 @@ def default_fetch(url: str, method: str = "GET", data=None, headers: Optional[di
     if referer:
         sent.setdefault("Referer", referer)
     try:
-        response = requests.request(method, url, data=data, headers=sent, timeout=timeout, allow_redirects=True)
+        if checkpoint is not None and not checkpoint():
+            return None
+        stream = binary and checkpoint is not None
+        response = requests.request(method, url, data=data, headers=sent, timeout=timeout, allow_redirects=True,
+                                    stream=stream)
+        if stream:
+            from noveldb.core.http_body import read_body
+
+            content = read_body(response, checkpoint)
+            if content is None:
+                return None
+        else:
+            content = response.content
+        return {"status": response.status_code, "url": response.url, "content": content,
+                "text": "" if binary else response.text,
+                "headers": "\n".join(f"{k}: {v}" for k, v in response.headers.items())}
     except Exception:
         return None
-    return {"status": response.status_code, "url": response.url, "content": response.content,
-            "text": "" if binary else response.text,
-            "headers": "\n".join(f"{k}: {v}" for k, v in response.headers.items())}
 
 
 def looks_like_book(url: str, title: str = "") -> bool:

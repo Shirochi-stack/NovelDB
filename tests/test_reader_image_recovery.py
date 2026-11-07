@@ -72,22 +72,87 @@ def test_reader_cdn_timeout_does_not_open_the_cdn_homepage():
 
 
 def test_reader_uses_original_bytes_even_for_large_images_without_a_mime_type(monkeypatch):
-    import base64
-
     pytest.importorskip("PySide6.QtWebEngineCore")
     from noveldb.qt.catalog import generic
+    from noveldb.qt.catalog.reader_media import ReaderSession
 
     raw = b"RIFF1234WEBP" + bytes(8 << 20)
     monkeypatch.setattr(generic, "default_fetch", lambda *_args, **_options: {"status": 200, "content": raw})
     emitted = []
     catalog = SimpleNamespace(logins=SimpleNamespace(header=lambda _: ""),
                               _fetched=SimpleNamespace(emit=lambda _id, value: emitted.append(value)))
-    generic.GenericCatalog._image(catalog, 1, "https://cdn.example/page.webp", "", reader=True)
+    catalog._reader_answer = lambda *args: generic.GenericCatalog._reader_answer(catalog, *args)
+    session = ReaderSession()
+    with monkeypatch.context() as context:
+        context.setattr(generic._reading, "work", session, raising=False)
+        generic.GenericCatalog._image(catalog, 1, "https://cdn.example/page.webp", "", reader=True)
     generic.GenericCatalog._image(catalog, 2, "https://cdn.example/cover.webp", "")
-    header, payload = emitted[0]["dataUrl"].split(",", 1)
-    assert header == "data:image/webp;base64"
-    assert base64.b64decode(payload) == raw
+    url = emitted[0]["imageUrl"]
+    assert set(emitted[0]) == {"imageUrl", "bytes"}
+    assert url.startswith(f"noveldb-reader:{session.id}/") and url.endswith(".webp")
+    assert session.file_path(url.rsplit("/", 1)[1]).read_bytes() == raw
     assert emitted[1] is None
+    session.cleanup()
+
+
+def test_reader_image_transfer_pauses_between_chunks_and_keeps_downloaded_bytes(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    import requests
+
+    from noveldb.core.catalog.generic_search import default_fetch
+    from noveldb.qt.catalog.reader_media import ReaderSession
+
+    session = ReaderSession()
+    paused = Event()
+    chunks = []
+    address = "https://cdn.example/page.webp"
+    calls = 0
+
+    def checkpoint():
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            session.set_visible(False)
+            paused.set()
+        return session.wait()
+
+    class Response(requests.Response):
+        def iter_content(self, chunk_size):
+            for chunk in (b"first", b"second"):
+                chunks.append(chunk)
+                yield chunk
+
+    response = Response()
+    response.url, response.status_code = address, 200
+    response._content_consumed = True
+    monkeypatch.setattr(requests, "request", lambda *_args, **_kwargs: response)
+    with ThreadPoolExecutor(1) as pool:
+        download = pool.submit(default_fetch, address, binary=True, checkpoint=checkpoint)
+        try:
+            assert paused.wait(5)
+            assert chunks == [b"first"] and not download.done()
+            paused_at = session.clock()
+            assert session.clock() == paused_at
+        finally:
+            session.set_visible(True)
+        assert download.result(timeout=5)["content"] == b"firstsecond"
+
+
+def test_streamed_and_final_reader_images_share_a_binary_address():
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    from noveldb.qt.catalog.reader_media import ReaderSession
+
+    session = ReaderSession()
+    try:
+        address = "data:image/png;base64,aW1hZ2UgYnl0ZXM="
+        streamed = session.inline_image(address)
+        assert session.chapter_html(f'<p><img src="{address}"></p>') == f'<p><img src="{streamed}"></p>'
+        assert session.file_path(streamed.rsplit("/", 1)[1]).read_bytes() == b"image bytes"
+    finally:
+        session.cleanup()
 
 
 def test_reader_keeps_the_chapter_identity_when_switching_engines(monkeypatch):

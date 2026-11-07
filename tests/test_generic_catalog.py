@@ -370,6 +370,7 @@ def test_cloudflare_recovery_skips_the_quick_reader():
     catalog = type("Catalog", (), {})()
     catalog.downloader = object()
     catalog._fetched = type("Signal", (), {"emit": lambda _self, request_id, value: emitted.append((request_id, value))})()
+    catalog._reader_answer = lambda *args: GenericCatalog._reader_answer(catalog, *args)
     catalog._note = lambda _text: None
     catalog._downloader_read = lambda url, index: {"name": "Recovered", "html": "<p>Browser result</p>"}
 
@@ -479,6 +480,7 @@ def test_a_title_search_ends_soon_after_a_book_of_exactly_that_title(monkeypatch
 
 def test_closing_the_reader_stops_the_downloader_chapter_and_skips_queued_reads():
     from noveldb.qt.catalog.generic import GenericCatalog
+    from noveldb.qt.catalog.reader_media import ReaderSession
 
     class Immediate:
         def __init__(self, operation):
@@ -496,6 +498,9 @@ def test_closing_the_reader_stops_the_downloader_chapter_and_skips_queued_reads(
 
     scraper = Scraper()
     catalog = type("Catalog", (), {})()
+    catalog.reader_session = ReaderSession()
+    catalog._reader_visible = True
+    catalog._background = lambda work: work()
     catalog._downloader_books = {"https://books.example/book/1": {"chapters": [{"name": "Chapter 1"}]}}
     catalog._note = lambda _text: None
     catalog._apply_engine_settings = lambda _scraper: None
