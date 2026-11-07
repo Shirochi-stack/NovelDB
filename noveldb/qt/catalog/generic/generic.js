@@ -2154,7 +2154,8 @@
     // == the reader ===============================================================================
     // One chapter at a time, scraped when it is opened (the next one is read ahead). Paged like an
     // e-book (two pages side by side in a wide window) or one long scroll; the place is remembered.
-    var R = {group: null, source: null, chapters: [], index: 0, page: 0, pages: 1, cache: new Map(), token: 0, lnreader: null};
+    var R = {group: null, source: null, chapters: [], index: 0, page: 0, pages: 1, cache: new Map(), token: 0, lnreader: null,
+             done: new Set(), pagesFor: new Map(), alive: {}, lastPages: 0};
     var LOOK_KEY = 'noveldb.reader.look.v2', look = Object.assign({size: 19, leading: 1.75, font: 'serif', theme: 'auto', layout: 'paged'}, store(LOOK_KEY) || {});
     // A phone reads smaller text by default. The text size stays the default until A− or A+ picks one
     // (a size saved before that rule counts as picked when it is not the old default, 19).
@@ -2397,6 +2398,7 @@
 
     function openReader(group, sourceIndex) {
         var reader = $('reader');
+        if (R.group && R.group !== group) send({type: 'genericReaderStop'});  // the last book's scraping stops
         R.group = group;
         R.blocked = '';
         R.comic = !!group.comic;
@@ -2405,6 +2407,9 @@
         R.token++;
         R.cache = new Map();
         R.chapterIds = new Map();
+        R.pagesFor = new Map();  // chapter -> the pages streamed in so far (a chapter read ahead too)
+        R.done = new Set();  // chapters read (their pages show at once, no placeholders)
+        R.alive = {};  // request id -> when it last streamed a page or a note
         R.chapters = [];
         // Nothing of the book read before stays: its streamed chapter (which kept the loading note from
         // showing), its pictures still coming, its page and place.
@@ -2512,6 +2517,22 @@
     }
     // An app request that gives up after `seconds` (the reader shows what failed instead of waiting forever).
     // `onId` hears the request's id (default: the reader's current request, for its progress notes).
+    /** askWithin for a chapter: the time limit counts from the request's last page or note, so a long chapter
+     *  still streaming in (or one waiting behind the chapter read ahead) is not given up on and scraped again. */
+    function askAlive(message, seconds, onId) {
+        var id = 0, started = Date.now();
+        return new Promise(function (resolve) {
+            var timer = setInterval(function () {
+                if (Date.now() - Math.max(started, R.alive[id] || 0) < seconds * 1000) return;
+                clearInterval(timer);
+                resolve({error: 'the site did not answer in ' + seconds + ' s'});
+            }, 2000);
+            ask(message, function (given) { id = given; if (onId) onId(given); }).then(function (value) {
+                clearInterval(timer);
+                resolve(value);
+            });
+        });
+    }
     function askWithin(message, seconds, onId) {
         return within(ask(message, onId || function (id) { R.requestId = id; }), seconds * 1000,
                       {error: 'the site did not answer in ' + seconds + ' s'});
@@ -2539,7 +2560,7 @@
         // The app-side reader uses the Catalog's hidden browser and, if necessary, the downloader's
         // saved browser session.  It is also the recovery path when an LNReader request hits Cloudflare.
         var appChapter = function (recovery) {
-            return askWithin({type: 'genericChapter', url: source.url, index: index, recovery: recovery || null}, 90,
+            return askAlive({type: 'genericChapter', url: source.url, index: index, recovery: recovery || null}, 90,
                              function (id) { R.chapterIds.set(index, id); });
         };
         if (R.lnreader && /^https?:\/\/(?:www\.)?fucknovelpia\.com\//i.test(source.url || '')) {
@@ -2567,11 +2588,15 @@
         promise = promise.then(function (result) {
             if (!result || result.error) {
                 R.cache.delete(index);
+                R.done.delete(index);
+                R.pagesFor.delete(index);
                 return {error: (result && result.error) || 'the chapter could not be read', blocked: !!(result && result.blocked),
                         message: result && result.message};
             }
             var html = result.html || result.contentHtml ? clean(result.html || result.contentHtml, source.url) : '';
             if (!html.replace(/<[^>]+>/g, '').trim() && html.indexOf('<img') < 0) html = textHtml(result.text || result.contentText);
+            R.done.add(index);
+            R.pagesFor.delete(index);  // its pages are in its HTML now (no second copy kept)
             return {name: result.name || result.chapterName || R.chapters[index].name, html: html};
         });
         R.cache.set(index, promise);
@@ -2588,9 +2613,15 @@
         $('rChapter').textContent = '· ' + (R.chapters[index].name || '');
         $('rChapterNo').textContent = 'Chapter ' + (index + 1) + ' of ' + R.chapters.length;
         markToc();
-        var retry = function () { R.cache.delete(index); openChapter(index, at); };
+        var retry = function () { R.cache.delete(index); (R.pagesFor || new Map()).delete(index); openChapter(index, at); };
         note('Scraping chapter ' + (index + 1) + (R.chapters[index].name ? ' (' + R.chapters[index].name + ')' : '') + ' from '
              + R.source.site + '…', 90, retry);
+        // A comic's chapter shows its page slots at once: the pages already streamed (a chapter read ahead),
+        // else as many placeholders as the last chapter had pages, until its own count is known.
+        var early = R.pagesFor && R.pagesFor.get(index);
+        early = (early || []).filter(Boolean);
+        if (early.length) streamImages(index, {images: early, total: early.length});
+        else if (R.comic && !R.done.has(index)) streamImages(index, {images: [], total: R.lastPages || 6, placeholders: true});
         loadChapter(index).then(function (chapter) {
             if (token !== R.token || index !== R.index) return;
             clearInterval(R.clock);
@@ -2722,7 +2753,7 @@
         }
         // `from`: the place of the first of `images` (the desktop sends each page once, as it comes).
         var from = found.from || 0;
-        pictures.total = Math.max(found.total, from + found.images.length);
+        if (!found.placeholders) pictures.total = Math.max(found.total, from + found.images.length);
         found.images.forEach(function (src, n) {
             var i = from + n;
             while (R.slots.length < i) { flow.insertAdjacentHTML('beforeend', slotHtml('')); R.slots.push(flow.lastElementChild); }
@@ -2737,6 +2768,8 @@
         var images = (chapter.html.match(/<img[^>]+src="([^"]+)"/g) || []).map(function (tag) { return tag.match(/src="([^"]+)"/)[1]; });
         streamImages(R.index, {images: images, total: images.length});
         R.slots.slice(images.length).forEach(function (slot) { slot.remove(); });
+        R.slots.length = Math.min(R.slots.length, images.length);
+        if (images.length) R.lastPages = images.length;
         pictures.total = images.length;
         showPictures();
         // The reader stays where it is: a scrolled chapter keeps its scroll, pages are counted again.
@@ -2928,6 +2961,7 @@
     function closeReader() {
         if (R.full || R.switching) setFull(false, true);
         R.token++;
+        send({type: 'genericReaderStop'});  // the app stops scraping this book (the next one need not wait)
         $('reader').classList.remove('open');
         $('toc').classList.remove('open');
         $('look').classList.remove('open');
@@ -3232,6 +3266,7 @@
             openReader(group, 0);
         },
         readerStatus: function (id, text) {
+            R.alive[id] = Date.now();
             if ((id !== R.requestId && id !== R.chapterIds.get(R.index)) || !R.drawNote) return;
             R.noteDetail = text;
             // Once the chapter's images are showing, the note would cover them: the bottom bar says it instead.
@@ -3239,8 +3274,16 @@
             R.drawNote();
         },
         readerImages: function (id, found) {
-            if (id !== R.chapterIds.get(R.index) || !found || !found.images) return;
-            streamImages(R.index, found);
+            if (!found || !found.images) return;
+            R.alive[id] = Date.now();
+            // Kept for the chapter it belongs to (one read ahead shows them when it is opened), shown when open.
+            var index = -1;
+            R.chapterIds.forEach(function (value, key) { if (value === id) index = key; });
+            if (index < 0) return;
+            var kept = R.pagesFor.get(index) || [];
+            found.images.forEach(function (src, n) { kept[(found.from || 0) + n] = src; });
+            R.pagesFor.set(index, kept);
+            if (index === R.index) streamImages(R.index, found);
         },
         fetched: function (id, result) {
             var resolve = pending[id];

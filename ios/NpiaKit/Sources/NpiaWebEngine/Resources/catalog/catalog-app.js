@@ -2562,6 +2562,8 @@
         case 'genericReady': init(); break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
         case 'genericStop': if (current.token) current.token.stopped = true; break;
+        // The reader closed: the book's pages still arriving are not handed to it any more.
+        case 'genericReaderStop': pages.watching = null; reading.id = null; break;
         case 'genericTop':
             top(message.id || 0, message.kind, String(message.language || 'all').slice(0, 5),
                 (Array.isArray(message.sites) ? message.sites : []).filter(function (s) { return typeof s === 'string' && s; }).slice(0, 50));

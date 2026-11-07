@@ -36,7 +36,7 @@ PAGE_DIR = Path(__file__).with_name("generic")
 PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
 SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_index.INDEX_SORTS
-MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
+MESSAGE_TYPES = ("genericReady", "genericReaderStop", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
                  "genericNdbTags")
@@ -464,6 +464,8 @@ class GenericCatalog(QObject):
             self._background(self.ndb_top, int(data.get("id") or 0), data["sources"], int(data.get("page") or 0))
         elif kind == "genericStop":
             self._stop.set()
+        elif kind == "genericReaderStop":
+            self.stop_reader()
         elif kind == "genericFetch":
             self._background(self._transport, data["id"], data["request"])
         elif kind == "genericImage":
@@ -805,6 +807,15 @@ class GenericCatalog(QObject):
         finally:
             _reading.id = None
 
+    def stop_reader(self) -> None:
+        """The reader closed (or opened another book): the downloader stops the chapter it is reading for it, so
+        the next book does not wait behind it (and the chapter read ahead is not started)."""
+        self._reader_generation = getattr(self, "_reader_generation", 0) + 1  # queued reads for it are skipped
+        scraper = getattr(self, "_reader_scraper", None)
+        if scraper is not None:
+            scraper._stop_requested = True
+            log.info("generic reader: stopping the downloader's chapter (the reader closed)")
+
     def _apply_engine_settings(self, scraper) -> None:
         settings = self.engine_settings()
         if settings is None:
@@ -823,7 +834,11 @@ class GenericCatalog(QObject):
         # for the URL, so initialise its book state here before asking it for the matching chapter.
         if index is None or url not in self._downloader_books:
             self._note("The quick engines couldn't read it; trying the downloader with your saved logins…")
+            asked = getattr(self, "_reader_generation", 0)
+
             def load_or_reuse(scraper):
+                if getattr(self, "_reader_generation", 0) != asked:
+                    raise RuntimeError("the reader was closed")
                 self._apply_engine_settings(scraper)
                 current = getattr(scraper, "_book_data", None)
                 if (
@@ -862,9 +877,15 @@ class GenericCatalog(QObject):
 
         scraper_log = lambda _text: None  # noqa: E731
 
+        asked_in = getattr(self, "_reader_generation", 0)
+
         def read(scraper):
+            if getattr(self, "_reader_generation", 0) != asked_in:
+                raise RuntimeError("the reader was closed")  # queued behind a chapter of a book since closed
             nonlocal scraper_log
             scraper_log = getattr(scraper, "log", scraper_log)
+            self._reader_scraper = scraper
+            scraper._stop_requested = False  # a stop for an earlier book's chapter
             self._apply_engine_settings(scraper)
             if getattr(scraper, "_book_url", None) != url:
                 scraper.parse_book(url)  # the worker may have read another book since
@@ -874,6 +895,7 @@ class GenericCatalog(QObject):
                 done = scraper.parse_chapter(index, chapter, interval=0)
             finally:
                 scraper.on_image = None
+                self._reader_scraper = None
             pages = len((done or {}).get("images") or [])
             scraper_log(f"Reader: chapter {index + 1} " + (f"read, {pages} page(s)." if done and not done.get("_locked")
                                                            else "could not be read."))

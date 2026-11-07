@@ -475,3 +475,41 @@ def test_a_title_search_ends_soon_after_a_book_of_exactly_that_title(monkeypatch
     engine.run(title, "name", found.extend, threading.Event(), summaries.append, deadline=45)
     assert time.monotonic() - started < generic_search.EXACT_GRACE + 3
     assert [c["url"] for c in found] == ["https://s0.example/book/1"] and not summaries[-1]["timed_out"]
+
+
+def test_closing_the_reader_stops_the_downloader_chapter_and_skips_queued_reads():
+    from noveldb.qt.catalog.generic import GenericCatalog
+
+    class Immediate:
+        def __init__(self, operation):
+            self.operation = operation
+
+        def result(self, timeout):
+            return self.operation(scraper)
+
+    class Scraper:
+        _book_url = "https://books.example/book/1"
+        _stop_requested = False
+
+        def parse_chapter(self, index, chapter, interval=0):
+            raise AssertionError("a read queued for a closed book is not started")
+
+    scraper = Scraper()
+    catalog = type("Catalog", (), {})()
+    catalog._downloader_books = {"https://books.example/book/1": {"chapters": [{"name": "Chapter 1"}]}}
+    catalog._note = lambda _text: None
+    catalog._apply_engine_settings = lambda _scraper: None
+    queued = []
+    catalog.downloader = lambda operation: queued.append(operation) or Immediate(operation)
+
+    # The reader closes while the chapter waits in the downloader's queue.
+    catalog._reader_scraper = scraper
+    original = catalog.downloader
+    catalog.downloader = lambda operation: (GenericCatalog.stop_reader(catalog), original(operation))[1]
+    try:
+        GenericCatalog._downloader_read(catalog, "https://books.example/book/1", 0)
+    except RuntimeError as e:
+        assert "closed" in str(e)
+    else:
+        raise AssertionError("the stale read went ahead")
+    assert scraper._stop_requested is True
