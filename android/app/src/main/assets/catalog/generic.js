@@ -1905,9 +1905,15 @@
     function notInTop(item) {
         return NOT_IN_TOP.test(item.title || '') || (item.tags || []).some(function (tag) { return NOT_IN_TOP.test(tag); });
     }
-    function dropFromTop(group) {
+    // A book whose page shows it does not belong (another language, nothing to tell) leaves the top list, but not
+    // once it is on screen or above it: cards vanished as the list was scrolled and the ones after them moved up.
+    // `always`: it leaves anyway (a book kept out of the top lists).
+    function dropFromTop(group, always) {
+        var box = !always && group.element && group.element.parentNode ? group.element.getBoundingClientRect() : null;
+        if (box && box.height && box.top < window.innerHeight) return false;  // shown (a hidden card has no box)
         group.sources.slice().forEach(function (source) { drop(group, source.url); });
         topRedrawSoon();  // the next book in line takes its place
+        return true;
     }
     function topCollect(card, weight, position, length) {
         if (view !== 'top') return;  // a search started meanwhile: its results own the page
@@ -1939,7 +1945,8 @@
             // (Not in NovelDB's list of a language: its books are that language whatever their titles. Not
             // for picked sites either: they show whatever they list, in any language.)
             if (entry.group && !top.ndbOnly && !top.only.length && !inLanguage(entry.cards[0])) {
-                entry.excluded = true; dropFromTop(entry.group); return;
+                if (dropFromTop(entry.group)) entry.excluded = true;
+                return;
             }
             if (entry.group && !groups.has(entry.group.key)) { entry.excluded = true; return; }  // dropped from the list
             if (!entry.group) {
@@ -3526,14 +3533,14 @@
             // Its page shows tags the list card lacked.
             // (Picked sites show whatever they list, in any language, with or without a synopsis.)
             var picked = view === 'top' && (top.only.length > 0 || !!top.ndbOnly);
-            if (view === 'top' && (notInTop(group) || (!picked && !inLanguage(card)))) { dropFromTop(group); return; }
+            if (view === 'top' && notInTop(group)) { dropFromTop(group, true); return; }
+            if (view === 'top' && !picked && !inLanguage(card) && dropFromTop(group)) return;
             var asking = moreDetails(group, card);
             // A book no site tells anything of (no synopsis, no tags) leaves the top list for the next.
             // (Not the one whose panel is open: it would vanish under the reader's eyes.)
             if (view === 'top' && !picked && !asking && thin(group) && !(openGroup === group && $('dialog').open)) {
                 thinSite(group.sources[0].site);
-                dropFromTop(group);
-                return;
+                if (dropFromTop(group)) return;
             }
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();

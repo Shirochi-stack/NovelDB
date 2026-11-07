@@ -2112,7 +2112,9 @@
                 if (cards.length && !stopped(token)) call('add', cards, id);
             });
         }, token);
-        return within(all, 40000, token).then(function () { return {results: Object.keys(seen).length}; });
+        // Done after 40 s, but the sites still waiting go on (not stopped, as a search's are): their books come in
+        // as they answer, for the list's next rows (the manga list ended after a page or two).
+        return within(all, 40000).then(function () { return {results: Object.keys(seen).length}; });
     }
 
     function search(id, queries) {

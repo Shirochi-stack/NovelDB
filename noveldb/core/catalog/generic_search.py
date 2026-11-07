@@ -1005,7 +1005,6 @@ class GenericSearch:
         its place in the list ("position") for the page to score. Cards without a cover get their page read."""
         import time
 
-        pool = ThreadPoolExecutor(min(self.workers, 16), thread_name_prefix="generic-top")
         progress({"total": len(sites)})
         seen = set()
         lock = threading.Lock()
@@ -1032,13 +1031,38 @@ class GenericSearch:
             if cards and not stop.is_set():
                 emit(cards)
 
-        futures = [pool.submit(one, index, site) for index, site in enumerate(sites)]
-        try:
-            for future in as_completed(futures, timeout=deadline):
-                future.result()
-        except TimeoutError:
-            pass
-        pool.shutdown(wait=False, cancel_futures=True)
+        # The sites still waiting their turn go on after the deadline (unless the list is left): cancelled, the
+        # manga list had the 9 of its 80 sites that answered in 40 s, and its end came after a page or two.
+        # Their books come in as they answer, for the list's next rows. Daemon threads: quitting the app does
+        # not wait for them.
+        import queue
+
+        waiting = queue.SimpleQueue()
+        for index, site in enumerate(sites):
+            waiting.put((index, site))
+        left = [len(sites)]
+        finished = threading.Event()
+
+        def work():
+            while not stop.is_set():
+                try:
+                    index, site = waiting.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    one(index, site)
+                except Exception:
+                    pass
+                with lock:
+                    left[0] -= 1
+                    if not left[0]:
+                        finished.set()
+
+        if not sites:
+            finished.set()
+        for _ in range(min(self.workers, 16, len(sites))):
+            threading.Thread(target=work, name="generic-top", daemon=True).start()
+        finished.wait(deadline)
         done({"results": len(seen)})
 
     def _detail_and_emit(self, card: dict, emit, stop: threading.Event, summary: dict) -> None:

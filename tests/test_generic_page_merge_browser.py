@@ -205,6 +205,25 @@ def test_a_card_that_leaves_a_sorted_list_leaves_its_place_not_a_gap_at_the_top(
     assert cells == ["Book 4", "Book 3", "hole", "Book 1"]
 
 
+def test_a_top_list_book_found_thin_stays_once_seen_and_leaves_if_not(page):
+    """Books left the top list when their pages came in: cards vanished as it was scrolled, the rest moved up."""
+    page.evaluate("() => { window.__sent = []; window.NovelDBQt = {postMessage: m => window.__sent.push(JSON.parse(m))}; }")
+    page.select_option("#kind", "manga")
+    page.evaluate("() => window.NovelDBGeneric.init({sites: ['comics.test'], comic: ['comics.test'], lnreader: []})")
+    page.wait_for_timeout(200)
+    top = page.evaluate("() => window.__sent.filter(m => m.type === 'genericTop').pop()")
+    cards = [{"url": f"https://comics.test/manga/{n}", "title": f"Comic {n}", "site": "comics.test", "source": "site",
+              "comic": True, "tags": [], "description": "", "via": "top", "siteRank": 0, "position": n, "listLength": 40}
+             for n in range(40)]
+    page.evaluate("a => window.NovelDBGeneric.add(a[0], a[1])", [cards, top["id"]])
+    page.wait_for_timeout(800)
+    for n in (0, 39):  # on screen, and far below it
+        page.evaluate("card => window.NovelDBGeneric.details(card)", dict(cards[n], via=None, complete=True))
+    page.wait_for_timeout(300)
+    shown = titles(page)
+    assert "Comic 0" in shown and "Comic 39" not in shown
+
+
 def test_one_books_page_on_a_site_written_two_ways_is_one_source_and_one_row(page):
     """A site's search and a web search wrote one page two ways: the details listed the site twice."""
     book = "https://mangadex.test/title/a1b2c3d4-1111-2222-3333-444455556666"
