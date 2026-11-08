@@ -491,5 +491,17 @@ def test_blocked_image_host_downloads_original_size_lossless_webp_through_helper
             assert helper_requests==[{'url':['https://covers.test/npia/7.svg'],'output':['webp'],'ll':['1'],'n':['-1']}]
             assert 'image helper' in await page.locator('.cover-save-notice').inner_text()
             assert await page.locator('canvas.card-cover.loaded').evaluate('c=>c.width<=320')
+            await open_settings(page)
+            await page.locator('#lowResCovers').uncheck()
+            await close_settings(page)
+            await page.locator('img.card-cover.loaded').wait_for()
+            unexpected_downloads = []
+            page.on('download', lambda download: unexpected_downloads.append(download))
+            await page.get_by_role('button', name='View Details').click()
+            await page.get_by_role('dialog').get_by_role('button', name='Download Image').click()
+            await page.wait_for_function('''document.querySelector('.cover-save-notice')
+                ?.textContent.includes('blocks direct browser downloads')''', timeout=5000)
+            assert not unexpected_downloads
+            assert len(helper_requests) == 1
             await browser.close()
     asyncio.run(scenario())

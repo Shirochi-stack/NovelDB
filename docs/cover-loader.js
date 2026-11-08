@@ -56,8 +56,8 @@
         return Math.max(1,Math.floor(width*resolution/100));
     }
     const heightFor=()=>Math.max(1,Math.floor(MAX_HEIGHT*resolution/100));
-    async function drawThumbnail(img, image) {
-        if (!img.isConnected) return;
+    async function drawThumbnail(img, image, signal) {
+        if (!img.isConnected || signal.aborted) return;
         const width = image.naturalWidth || image.width, height = image.naturalHeight || image.height;
         const scale = Math.min(1,widthFor(img)/width,heightFor()/height);
         const canvas = document.createElement('canvas');
@@ -75,7 +75,7 @@
         try { blob = await new Promise(resolve => canvas.toBlob(resolve,'image/webp',quality/100)); }
         catch (_) { /* Display-only cross-origin images taint the canvas. */ }
         if (blob?.type !== 'image/webp') blob = null;
-        if (!img.isConnected) return;
+        if (!img.isConnected || signal.aborted) return;
         if (blob) {
             const thumbnail = document.createElement('img'), url = URL.createObjectURL(blob);
             thumbnail.className = img.className; thumbnail.dataset.src = img.dataset.src;
@@ -84,7 +84,7 @@
             thumbnail.src = url;
             objectUrls.set(thumbnail,url);
             await thumbnail.decode().catch(()=>{});
-            if (!img.isConnected) { URL.revokeObjectURL(url); objectUrls.delete(thumbnail); return; }
+            if (!img.isConnected || signal.aborted) { URL.revokeObjectURL(url); objectUrls.delete(thumbnail); return; }
             img.replaceWith(thumbnail); img.removeAttribute('src');
             return thumbnail;
         }
@@ -100,6 +100,8 @@
         replaceCover(canvas,job);
     }
     function replaceCover(cover,options) {
+        const wrap = cover.parentElement;
+        if (!wrap || wrap.querySelector(':scope > .cover-replacement')) return;
         const img = document.createElement('img');
         img.className = 'card-cover'; img.dataset.src = cover.dataset.src;
         img.alt = cover.alt || options.alt || ''; img.decoding = 'async';
@@ -107,14 +109,21 @@
         const stage = document.createElement('span');
         stage.className = 'cover-replacement';
         stage.style.cssText = 'position:absolute;inset:0;visibility:hidden;pointer-events:none';
-        stage.appendChild(img); cover.parentElement?.appendChild(stage);
+        stage.appendChild(img); wrap.appendChild(stage);
         window.NovelCovers.load(img,{...options,ready:replacement=>{
             if (!cover.isConnected || !stage.isConnected) {stage.remove();return;}
             cover.replaceWith(replacement); stage.remove();
             replacement._coverOptions = options;
             if(recoverable.has(replacement)) recoverable.set(replacement,{...options,src:img.dataset.src,alt:img.alt});
             options.ready(replacement); window.NovelCovers.prune();
-        },missing:()=>{stage.remove();window.NovelCovers.prune();}});
+        },missing:()=>{
+            stage.remove();
+            const compressed = recoverable.has(cover) || objectUrls.has(cover);
+            if (cover.isConnected && (!cover.classList.contains('loaded') || (!lowResolution && compressed))) {
+                options.missing(cover);
+            }
+            window.NovelCovers.prune();
+        }});
     }
     function restoreCovers() {
         if (document.visibilityState === 'hidden') return;
@@ -172,7 +181,7 @@
                 try {await scrollPause(signal);} finally {waiting--;}
             }
             if (!img.isConnected || signal.aborted) return;
-            return await drawThumbnail(img,source);
+            return await drawThumbnail(img,source,signal);
         } finally {source.removeAttribute('src');}
     }
     async function decode(img,url,policy,signal,job) {
@@ -199,7 +208,7 @@
                         bitmap = await createImageBitmap(blob,{resizeWidth:Math.max(1,Math.round(size[0]*scale)),
                             resizeQuality:'high'});
                         if (signal.aborted) throw new DOMException('Cover cancelled','AbortError');
-                        return await drawThumbnail(img,bitmap);
+                        return await drawThumbnail(img,bitmap,signal);
                     }
                 } catch (error) {
                     if (signal.aborted) throw error;
@@ -223,9 +232,10 @@
         const attempts = [[img.dataset.src,'no-referrer'],[img.dataset.src,'strict-origin-when-cross-origin']];
         if (fallback && fallback !== img.dataset.src) attempts.push([fallback,'no-referrer']);
         for (const [url,policy] of attempts) {
+            if (controller.signal.aborted || !img.isConnected) return;
             try {
                 const cover = await decode(img,url,policy,controller.signal,job);
-                if (cover?.isConnected) {cover.dataset.originalSrc=url;ready(cover);}
+                if (cover?.isConnected && !controller.signal.aborted) {cover.dataset.originalSrc=url;ready(cover);}
                 return;
             } catch (error) {if (controller.signal.aborted || !img.isConnected) return;}
         }
@@ -268,6 +278,8 @@
         refresh() {
             // Decode behind the current image, then swap in one paint. Never
             // remove a visible cover while its replacement is still loading.
+            for (const {img} of queue.splice(0)) img._coverQueued = false;
+            for (const controller of active.values()) controller.abort();
             for (const stage of document.querySelectorAll('.cover-replacement')) stage.remove();
             for (const cover of document.querySelectorAll('.card-cover[data-src]')) {
                 const options = cover._coverOptions || recoverable.get(cover);

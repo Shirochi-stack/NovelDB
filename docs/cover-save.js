@@ -66,7 +66,7 @@
             const blob=await readOriginal(url,signal);
             return {blob,format:await imageType(blob),helper:false};
         } catch(error) {
-            if(signal.aborted) throw error;
+            if(signal.aborted || !window.NovelCovers.lowResolutionEnabled) throw error;
             // Static hosting cannot read a CDN response without CORS. Ask the
             // public image helper for a lossless WebP at its original size,
             // including every animation frame. Never submit a local address.

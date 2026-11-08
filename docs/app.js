@@ -6090,6 +6090,7 @@
         placeholder.className = "card-cover no-img";
         placeholder.textContent = "📖";
         placeholder.dataset.src = img.dataset.src;
+        placeholder._coverOptions = img._coverOptions;
         img.parentElement?.classList.add("cover-ready");
         img.replaceWith(placeholder);
     }
@@ -6099,6 +6100,7 @@
     }
 
     function loadCardCover(img) {
+        if (img.parentElement?.querySelector(':scope > .cover-replacement')) return;
         window.NovelCovers.load(img,{fallback:img._coverFallback,ready:markCoverReady,missing:showMissingCover});
     }
 
@@ -6117,7 +6119,7 @@
         // are released and callbacks cannot start obsolete image requests.
         coverObserver?.disconnect();
         window.NovelCovers.prune();
-        for (const img of resultsEl.querySelectorAll("img.card-cover[data-src]:not([src])")) {
+        for (const img of resultsEl.querySelectorAll(".card-cover-wrap > img.card-cover[data-src]:not([src])")) {
             if (coverObserver) coverObserver.observe(img);
             else loadCardCover(img);
         }
@@ -6241,6 +6243,7 @@
 
     function renderCard(n, card = document.createElement("div")) {
         const previousImage = card.querySelector(".card-cover[data-src]");
+        const pendingCover = previousImage?.parentElement?.querySelector(":scope > .cover-replacement");
         const savedSynopsis = n.synopsis || card._synopsis;
         card._synopsis = savedSynopsis;
         card.className = "novel-card";
@@ -6341,6 +6344,7 @@
         const nextImage = card.querySelector("img.card-cover");
         if (previousImage && nextImage && previousImage.dataset.src === nextImage.dataset.src) {
             nextImage.replaceWith(previousImage);
+            if (pendingCover) previousImage.parentElement.appendChild(pendingCover);
             if (previousImage.classList.contains("loaded") || previousImage.classList.contains("no-img")) markCoverReady(previousImage);
         } else if (nextImage) attachCoverHandlers(nextImage, fallbackSrc);
         else card.querySelector(".card-cover-wrap").classList.add("cover-ready");

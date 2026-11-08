@@ -60,6 +60,75 @@ def test_cover_resolution_toggle_changes_pixels_without_moving_cards_and_survive
     asyncio.run(scenario())
 
 
+def test_disabling_image_compression_discards_an_inflight_thumbnail():
+    async def scenario():
+        data = io.BytesIO()
+        Image.new('RGB', (800, 1200), '#8040c0').save(data, format='PNG')
+        native_requested, release_native = asyncio.Event(), asyncio.Event()
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = FixtureSite(covers=True)
+
+            async def route(r):
+                url = urlsplit(r.request.url)
+                if url.path == '/same-books.js':
+                    await r.fulfill(content_type='text/javascript', body='''
+                        globalThis.NovelSameBooks = {
+                            load: ({addresses} = {}) => !addresses ? Promise.resolve(null) : new Promise(resolve => {
+                                globalThis.finishCrossLinks = () => resolve({
+                                    also: () => [['kpage', '9', 'https://example.com/9']],
+                                    find: () => null
+                                });
+                            })
+                        };
+                    ''')
+                    return
+                if url.hostname != 'covers.test':
+                    await site.route(r)
+                    return
+                if r.request.resource_type == 'image':
+                    native_requested.set()
+                    await release_native.wait()
+                await r.fulfill(body=data.getvalue(), content_type='image/png',
+                                headers={'access-control-allow-origin': '*'})
+
+            await page.route('**/*', route)
+            await page.add_init_script('''{
+                const toBlob = HTMLCanvasElement.prototype.toBlob;
+                HTMLCanvasElement.prototype.toBlob = function (callback, ...args) {
+                    window.finishThumbnail = () => new Promise(resolve => toBlob.call(this, blob => {
+                        callback(blob);
+                        resolve();
+                    }, ...args));
+                };
+                const decode = HTMLImageElement.prototype.decode;
+                HTMLImageElement.prototype.decode = function () {
+                    return this.src.startsWith('blob:') ? Promise.resolve() : decode.call(this);
+                };
+            }''')
+            await page.goto('https://metadata.test/')
+            await wait_loaded(page)
+            await page.wait_for_function('typeof finishThumbnail === "function"')
+            await open_settings(page)
+            await page.locator('#lowResCovers').uncheck()
+            await asyncio.wait_for(native_requested.wait(), timeout=5)
+            # Finish the previous canvas job while the original is still loading.
+            await page.evaluate('finishThumbnail()')
+            # A background catalog update re-renders the card during the swap.
+            await page.evaluate('finishCrossLinks()')
+            await page.locator('.card-also').wait_for()
+            release_native.set()
+            await page.wait_for_function('''() => {
+                const cover = document.querySelector('.card-cover-wrap > img.card-cover.loaded');
+                return cover?.naturalWidth === 800 && cover.src.startsWith('https://covers.test/');
+            }''', timeout=5000)
+            assert await page.locator('.cover-replacement').count() == 0
+            assert not await page.locator('#lowResCovers').is_checked()
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_clear_cache_preserves_visible_page_and_other_apps_reports_size_with_open_tabs():
     async def scenario():
         async with async_playwright() as p:
