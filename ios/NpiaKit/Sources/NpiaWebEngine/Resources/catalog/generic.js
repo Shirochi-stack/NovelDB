@@ -2645,7 +2645,9 @@
                 // Hidden on the site (its style, which goes below): hidden here too, not shown as text.
                 if (HIDDEN.test(child.getAttribute('style') || '')) { child.remove(); return; }
                 walk(child);
-                if (!KEEP.test(tag)) {
+                var whiteSpace = tag === 'div' && child.classList.contains('mpia-content') ? child.style.whiteSpace : '';
+                var keepWhiteSpace = /^(pre|pre-wrap|pre-line|break-spaces)$/.test(whiteSpace);
+                if (!KEEP.test(tag) && !keepWhiteSpace) {
                     // A block that isn't one of ours becomes a paragraph when it holds text, else its contents stay.
                     if (/^(div|section|article|main)$/.test(tag) && !child.querySelector('p, div, img, h1, h2, h3, table, ul, ol') && child.textContent.trim()) {
                         var p = dom.createElement('p');
@@ -2658,6 +2660,10 @@
                 }
                 var src = tag === 'img' ? (child.getAttribute('data-src') || child.getAttribute('data-original') || child.getAttribute('src') || '') : '';
                 Array.prototype.slice.call(child.attributes).forEach(function (attribute) { child.removeAttribute(attribute.name); });
+                if (keepWhiteSpace) {
+                    child.className = 'mpia-content';
+                    child.style.whiteSpace = whiteSpace;
+                }
                 if (tag === 'img') {
                     try { src = new URL(src, base).href; } catch (e) { src = ''; }
                     if (!/^(https?:|data:image\/)/i.test(src) && !readerImageUrl(src)) { child.remove(); return; }

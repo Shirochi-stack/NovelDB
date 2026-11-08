@@ -3609,6 +3609,10 @@
         error: 'Reader content not found',
       };
     }
+    // The mobile article can be one text node. Its computed white-space rule
+    // gives the original newlines and spaces their meaning in the viewer.
+    const whiteSpace = mobile ? getComputedStyle(content).whiteSpace : '';
+    const preserveWhiteSpace = /^(pre|pre-wrap|pre-line|break-spaces)$/.test(whiteSpace);
     const node = content.cloneNode(true);
     node.querySelectorAll('.dummy, script, style, noscript, iframe, button, object, embed, form').forEach((el) => el.remove());
     node.querySelectorAll('*').forEach((el) => {
@@ -3628,11 +3632,13 @@
       .map((el) => tidy(el.textContent)).filter(Boolean);
     if (!blocks.length) blocks = tidy(node.textContent).split('\n').map((line) => tidy(line)).filter(Boolean);
     const contentText = blocks.join('\n');
+    const style = preserveWhiteSpace ? ` style="white-space: ${whiteSpace}"` : '';
+    const html = preserveWhiteSpace ? node.innerHTML : node.innerHTML.trim();
     return {
       locked: !contentText && !images.length,
       chapterName: mobile ? '' : heading,
       contentText,
-      contentHtml: `<div class="mpia-content">${node.innerHTML.trim()}</div>`,
+      contentHtml: `<div class="mpia-content"${style}>${html}</div>`,
       images,
     };
   };

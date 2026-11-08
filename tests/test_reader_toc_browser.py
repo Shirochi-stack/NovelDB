@@ -1,6 +1,9 @@
+import json
 from pathlib import Path
 
 import pytest
+
+import hard_sources_support as hs
 
 playwright = pytest.importorskip("playwright.sync_api")
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +21,54 @@ def browser():
             pytest.skip("Playwright's Chromium is not installed")
         with api.chromium.launch() as browser:
             yield browser
+
+
+@pytest.mark.parametrize("assets", MOBILE, ids=["android", "ios"])
+def test_mpia_reader_preserves_the_source_articles_line_breaks(browser, assets):
+    origin = "https://m.\u006d\u0075\u006e\u0070\u0069\u0061.com"
+    chapter_url = origin + "/novel/viewer/1/2"
+    source_text = "\n  First line.\n\nSecond line.\nThird line.\n"
+    with browser.new_context(viewport={"width": 390, "height": 800}) as context:
+        source = context.new_page()
+        source.add_init_script(hs.script_source())
+        source.route(chapter_url, lambda route: route.fulfill(
+            content_type="text/html",
+            body=('<style>.content > article {white-space: pre-wrap}</style>'
+                  f'<div class="content"><article>{source_text}</article></div>'),
+        ))
+        source.goto(chapter_url)
+        article = source.locator("article")
+        assert article.evaluate("(node) => getComputedStyle(node).whiteSpace") == "pre-wrap"
+        result = source.evaluate("() => window.__npiaHard.mpia.extract({chapterIndex: 1})")
+        source.close()
+
+        page = context.new_page()
+
+        def serve(route):
+            name = route.request.url.rsplit("/", 1)[-1]
+            if name in ("index.html", "generic.js", "catalog-app.js", "generic-lib.js"):
+                route.fulfill(path=assets / name)
+            elif name.endswith(".json"):
+                route.fulfill(json={})
+            else:
+                route.fulfill(body="")
+
+        page.route("**/*", serve)
+        page.add_init_script(f"window.fixtureChapter = {json.dumps(result)};" + """
+            window.NovelDBTransport = (request) => Promise.resolve(
+                request.op === 'book' ? {chapters: [{name: 'Chapter 1'}]} :
+                request.op === 'chapter' ? window.fixtureChapter : {skip: true});
+        """)
+        page.goto("https://catalog.test/index.html")
+        page.evaluate("""(url) => NovelDBGeneric.add([{title: 'Example book', url,
+            site: 'mpia', source: 'site', verified: true}])""", origin + "/novel/detail/1")
+        page.locator("#grid .card").first.click()
+        page.locator("[data-act=read]").click()
+        body = page.locator("#flow > :not(h2)").first
+        playwright.expect(body).to_contain_text("Third line.")
+        assert body.evaluate("(node) => getComputedStyle(node).whiteSpace") == "pre-wrap"
+        assert body.text_content() == source_text
+        assert body.locator("p, br").count() == 0
 
 
 @pytest.mark.parametrize("assets", [DESKTOP, *MOBILE], ids=["desktop", "android", "ios"])
