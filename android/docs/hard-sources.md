@@ -16,7 +16,7 @@ The split is deliberate. **All page-side logic is one JavaScript file** that run
 | `hard-sources.js` | The shared script (about 100 KB, plain ES2020, no dependencies). Copy it byte for byte into the iOS bundle. |
 | `qdn/NotoSansCJKsc-Regular-hanzi.otf` | Reference font for glyph matching (2.2 MB, OFL, `qdn/OFL.txt`). |
 | `qdn/zh_char_frequency.txt` | `<char>\t<count>` per line (80 KB). Settles look-alike glyphs. Optional but expected. |
-| `qdn/qdn_verified_maps.json` | Glyph answers checked against screenshots for exact font bytes (13 KB). Optional. |
+| `qdn/qdn_verified_maps.json` | Glyph answers checked against screenshots for exact font bytes. Optional. |
 | `qdn/qdn_outline_table.json` | Labelled glyph outlines (4,947 exemplars of 2,499 characters, 1.9 MB), a copy of the desktop's `data/qdn_outline_table.json`. Optional. |
 | `qdn/brotli_dictionary.bin` | The brotli static dictionary (120 KB, MIT, `qdn/BROTLI-LICENSE.txt`); WOFF2 fonts may refer to it. Optional, needed with the outline table. |
 

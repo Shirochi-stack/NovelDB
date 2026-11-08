@@ -12,7 +12,7 @@ final class HardResourcesTests: XCTestCase {
         "qdn/BROTLI-LICENSE.txt": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94",
         "qdn/brotli_dictionary.bin": "20e42eb1b511c21806d4d227d07e5dd06877d8ce7b3a817f378f313653f35c70",
         "qdn/qdn_outline_table.json": "120c6332630516c2916260c5014e963adf34ca0fd4170020b2a904e5ff069b2c",
-        "qdn/qdn_verified_maps.json": "9e6ff0c465fa50b511eede08bf07272fa39d7a32d49ff836af3e315892b90793",
+        "qdn/qdn_verified_maps.json": "899a9394b413ef7c9844cacd098df43836ce51d79e99926a7ca490465a427d6e",
         "qdn/zh_char_frequency.txt": "555c0d7862cf307c7aeacf3091e081dc8e80ca6e60baf79b93d7ff26af1ff7e2",
     ]
 

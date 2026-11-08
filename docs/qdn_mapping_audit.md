@@ -25,7 +25,7 @@ is excluded from this report and from the generated mapping.
 ## Verified partial lookup
 
 `data/qdn_verified_maps.json` contains 479 observed character-code/mirror
-pairs for two exact captured font files. These pairs were built by aligning
+pairs for two exact captured font files from chapter 76. These pairs were built by aligning
 the painted captured character stream with the manually checked chapter 76
 screenshot reference, after excluding unpainted attribute decoys. The
 builder rejects unequal paragraph lengths, changed literal text, and
@@ -43,8 +43,15 @@ cannot inherit these entries. Statistics and chapter logs distinguish
 verified lookups from shape matching. Both full application packages include
 the optional mapping file.
 
-Run `python scripts/build_qdn_verified_map.py` to reproduce the lookup from
-the checked fixtures. The regression suite checks deterministic generation,
+Two additional `cES = 2` captures, chapters 1 and 52, supply 65 verified
+pairs for two more per-chapter fonts. The pairs cover 99 glyph occurrences
+aligned against the supplied screenshots. All 99 also matched the outline
+table. The archive supplies the shared fonts by URL only. The saved HTML
+for chapter 76 also includes off-screen text substitutions, so it was
+excluded from these additions.
+
+Run `python scripts/build_qdn_verified_map.py` to reproduce the desktop,
+Android, and iOS lookups from the checked fixtures. The regression suite checks deterministic generation,
 complete chapter agreement with shape matching disabled, and fallback for
 unseen codes, changed fonts, mirror states, and a corrupt optional map.
 

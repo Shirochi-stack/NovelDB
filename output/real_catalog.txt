@@ -1,0 +1,8 @@
+SCRAPER Dynamic priority: trying HaruNeko websites, gallery-dl extractors, Generic fallback (5 other engine(s) don't list this site).
+SCRAPER These sites read best with Generic fallback: it goes first.
+SCRAPER Book: Onepunch-Man by ONE — 469 chapters (Generic (no site rules))
+BOOK window.NovelDBGeneric && NovelDBGeneric.fetched(1, {"title": "Onepunch-Man", "author": "ONE", "engine": "downloader (saved logins)", "chapters": [{"name": "Vol.01 Ch.001 - 1st Punch [One Punch]", "section": ""}, {"name": "Vol.01 Ch.002 - 2nd Punch [Crab & Job Hunting]", "section": ""}, {"name": "Vol
+SCRAPER Reader: chapter 1 (Vol.01 Ch.001 - 1st Punch [One Punch])…
+SCRAPER   Page 1 downloaded (201 KB)
+SCRAPER Reader: chapter 1 read, 0 page(s).
+CHAPTER window.NovelDBGeneric && NovelDBGeneric.fetched(2, {"name": "Vol.01 Ch.001 - 1st Punch [One Punch]", "html": "<p><img src=\"https://zjcdn.mangafox.me/store/manga/11362/01-001.0/compressed/copm_001_001.jpg?token=1d6db667e1ee37cf96631056d23dfdc2acb5cc13&ttl=1794153600\" alt=\"\"/></p><p><img src=\"https://zjcdn.mangafox.me/store/manga/11362/01-001.0/compressed/copm_001_002.jpg?token=6c9d907d531424fc

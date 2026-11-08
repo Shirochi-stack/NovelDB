@@ -12,7 +12,14 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import qdn_font_decoder as qdn
-from scripts.source_names import dump
+from scripts.source_names import dumps
+
+FIXTURES = ROOT / 'tests/fixtures'
+DESTINATIONS = (
+    ROOT / 'data/qdn_verified_maps.json',
+    ROOT / 'android/sources/src/main/resources/com/shirochi/npia/sources/hard/qdn/qdn_verified_maps.json',
+    ROOT / 'ios/NpiaKit/Sources/NpiaSources/Hard/HardResources/qdn/qdn_verified_maps.json',
+)
 
 
 def build(sample, expected):
@@ -53,12 +60,27 @@ def build(sample, expected):
     }, 'fonts': {digest: {'entries': table} for digest, table in mappings.items()}}
 
 
-if __name__ == '__main__':
-    sample = json.loads((ROOT / 'tests/fixtures/qdn_chapter76_capture.json').read_text(encoding='utf-8'))
-    expected = json.loads((ROOT / 'tests/fixtures/qdn_chapter76_expected.json').read_text(encoding='utf-8'))['paragraphs']
+def build_bundled():
+    sample = json.loads((FIXTURES / 'qdn_chapter76_capture.json').read_text(encoding='utf-8'))
+    expected = json.loads((FIXTURES / 'qdn_chapter76_expected.json').read_text(encoding='utf-8'))['paragraphs']
     result = build(sample, expected)
-    destination = ROOT / 'data/qdn_verified_maps.json'
-    with destination.open('w', encoding='utf-8') as stream:
-        dump(result, stream, ensure_ascii=False, indent=2)
+    excerpts = json.loads((FIXTURES / 'qdn_verified_glyph_excerpts.json').read_text(encoding='utf-8'))
+    for excerpt in excerpts:
+        digest = excerpt['font_sha256']
+        table = result['fonts'].setdefault(digest, {'entries': {}})['entries']
+        for source, mirrored, character in excerpt['glyphs']:
+            key = f'{ord(source):X}:{int(mirrored)}'
+            if key in table and table[key] != character:
+                raise ValueError(f'Conflicting verified entry for {digest} / {key}')
+            table[key] = character
+    result['provenance']['additional_chapters'] = [excerpt['chapter'] for excerpt in excerpts]
+    return result
+
+
+if __name__ == '__main__':
+    result = build_bundled()
+    encoded = dumps(result, ensure_ascii=False, indent=2).encode('utf-8')
+    for destination in DESTINATIONS:
+        destination.write_bytes(encoded)
     print('Verified fonts:', len(result['fonts']))
     print('Verified entries:', sum(len(font['entries']) for font in result['fonts'].values()))

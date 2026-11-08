@@ -1,0 +1,17 @@
+C:\Users\ADMIN\AppData\Local\NovelDB
+C:\Users\ADMIN\AppData\Local\NovelDB :: 
+C:\Users\ADMIN\AppData\Local\NovelDB\NovelDB :: 
+=========
+python.exe                   32108 Console                    1     13,020 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:16 N/A                                                                     
+python.exe                   26640 Console                    1     13,004 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:11 N/A                                                                     
+python.exe                   48888 Console                    1     20,924 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:09 N/A                                                                     
+python.exe                   66984 Console                    1     25,572 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:01:03 N/A                                                                     
+python.exe                   58048 Console                    1     16,976 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:01 N/A                                                                     
+python.exe                   19556 Console                    1    502,080 K Running         DESKTOP-5G7877B\ADMIN                                   0:01:14 ?? Manga Panel Translator                                               
+python.exe                   56440 Console                    1    108,988 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:07 N/A                                                                     
+python.exe                   26356 Console                    1    956,300 K Running         DESKTOP-5G7877B\ADMIN                                   0:01:52 ?? Manga Panel Translator                                               
+python.exe                   38672 Console                    1    134,304 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:24 N/A                                                                     
+python.exe                   22260 Console                    1    615,496 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:03:15 N/A                                                                     
+python.exe                   49632 Console                    1  1,075,380 K Not Responding  DESKTOP-5G7877B\ADMIN                                   0:02:50 N/A                                                                     
+python.exe                   34492 Console                    1    214,964 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:13 N/A                                                                     
+python.exe                   21876 Console                    1     14,600 K Unknown         DESKTOP-5G7877B\ADMIN                                   0:00:00 N/A                                                                     

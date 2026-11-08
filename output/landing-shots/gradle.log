@@ -1,0 +1,36 @@
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Could not determine the dependencies of task ':app:compileDebugJavaWithJavac'.
+> Could not resolve all dependencies for configuration ':app:debugCompileClasspath'.
+   > Could not resolve project :pipeline.
+     Required by:
+         project :app
+      > Failed to calculate the value of task ':pipeline:compileJava' property 'javaCompiler'.
+         > Cannot find a Java installation on your machine matching this tasks requirements: {languageVersion=17, vendor=any vendor, implementation=vendor-specific} for WINDOWS on x86_64.
+            > No locally installed toolchains match and toolchain download repositories have not been configured.
+   > Could not resolve project :net.
+     Required by:
+         project :app
+         project :app > project :webengine
+      > Failed to calculate the value of task ':net:compileJava' property 'javaCompiler'.
+         > Cannot find a Java installation on your machine matching this tasks requirements: {languageVersion=17, vendor=any vendor, implementation=vendor-specific} for WINDOWS on x86_64.
+            > No locally installed toolchains match and toolchain download repositories have not been configured.
+   > Could not resolve project :core.
+     Required by:
+         project :app > project :webengine
+         project :app > project :images
+      > Failed to calculate the value of task ':core:compileJava' property 'javaCompiler'.
+         > Cannot find a Java installation on your machine matching this tasks requirements: {languageVersion=17, vendor=any vendor, implementation=vendor-specific} for WINDOWS on x86_64.
+            > No locally installed toolchains match and toolchain download repositories have not been configured.
+
+* Try:
+> Learn more about toolchain auto-detection at https://docs.gradle.org/8.11.1/userguide/toolchains.html#sec:auto_detection.
+> Learn more about toolchain repositories at https://docs.gradle.org/8.11.1/userguide/toolchains.html#sub:download_repositories.
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 47s

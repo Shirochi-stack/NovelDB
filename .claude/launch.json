@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "noveldb-pages",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "18437", "--directory", "docs"],
+      "port": 18437,
+      "autoPort": false
+    }
+  ]
+}

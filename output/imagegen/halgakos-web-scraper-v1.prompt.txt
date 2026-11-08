@@ -1,0 +1,8 @@
+Generated using the built-in image_gen tool.
+Reference: C:\Users\ADMIN\Dev\Glossarion\assets\Halgakos.png
+Transparent background: true
+
+Use case: identity-preserve
+Asset type: square web scraper application icon, transparent PNG.
+Input image 1 is the character identity reference: Halgakos. Create a new polished icon illustration of THIS SAME character, closely preserving her recognizable pink long hair and bangs, pink cat ears with pale inner fur, two curved segmented dark purple horns, pink eyes, gentle mischievous smile, white sailor blouse with navy collar and pink necktie, and asymmetric white feathered wing on the viewer's left and dark bat wing on the viewer's right.
+Composition: a single centered chibi head-and-upper-torso portrait with a large expressive face, both ears and horns completely within frame, compact small wings peeking at either side. She holds a simple navy browser-window panel in front of her lower torso. The panel has three tiny browser dots, a clear pale globe symbol and a bold pink downward collection/download arrow, conveying collecting data from the web. Keep the panel simple and subordinate to her face. Simplify hair strands and wing detail for legibility at 48 and 64 pixels; strong clean silhouettes, bold dark plum outlines, crisp anime cel shading, faithful soft pink/navy/plum colors. Square 1024x1024 layout with comfortable transparent padding around the whole silhouette, optimized for an app icon. Actual transparent background, no background tile, no scene, no text, no letters, no watermark, no additional characters. Keep her immediately recognizable from the reference; cute and capable expression.

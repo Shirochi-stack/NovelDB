@@ -1,0 +1,9 @@
+grab download True 1440 900
+grab catalog True 1440 900
+grab library True 1440 900
+library books 596 epub 578
+grab book True 1440 900
+library books 596 epub 578
+grab reader True 1440 900
+grab queue True 1440 900
+grab settings True 1440 900

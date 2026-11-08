@@ -1,0 +1,38 @@
+LOG order ['native', 'novel_downloader', 'webtoepub', 'lncrawl', 'lnreader', 'fanficfare', 'haruneko', 'gallerydl', 'generic']
+LOG Dynamic priority: trying HaruNeko websites, gallery-dl extractors, Generic fallback (5 other engine(s) don't list this site).
+LOG These sites read best with Generic fallback: it goes first.
+LOG PAGE https://fanfox.net/manga/one_piece/ -> https://fanfox.net/manga/one_piece/ len=619450 chapterfun=False imagecount=False title='<title>One Piece Manga - Read One Piece Manga Online for Free</title>    <link r'
+LOG Book: One Piece by ODA Eiichiro — 1234 chapters (Generic (no site rules))
+LOG PAGE https://fanfox.net/manga/one_piece/v01/c001/1.html -> https://fanfox.net/manga/one_piece/v01/c001/1.html len=165576 chapterfun=False imagecount=True title='<title>One Piece 1: Romance Dawn v01: Romance Dawn - Read One Piece 1: Romance D'
+LOG RESULT https://fanfox.net/manga/one_piece/ images=61
+LOG Dynamic priority: trying HaruNeko websites, gallery-dl extractors, Generic fallback (5 other engine(s) don't list this site).
+LOG These sites read best with Generic fallback: it goes first.
+LOG PAGE https://fanfox.net/manga/onepunch_man/ -> https://fanfox.net/manga/onepunch_man/ len=254382 chapterfun=False imagecount=False title='<title>Onepunch-Man Manga - Read Onepunch Man Manga Online for Free</title>    <'
+LOG Book: Onepunch-Man by ONE — 469 chapters (Generic (no site rules))
+LOG PAGE https://fanfox.net/manga/onepunch_man/v01/c001/1.html -> https://fanfox.net/manga/onepunch_man/v01/c001/1.html len=75995 chapterfun=False imagecount=True title='<title>Onepunch Man 1: 1st Punch [One Punch] v01: 1st Punch [One Punch] - Read O'
+LOG RESULT https://fanfox.net/manga/onepunch_man/ images=19
+LOG Dynamic priority: trying HaruNeko websites, gallery-dl extractors, Generic fallback (5 other engine(s) don't list this site).
+LOG These sites read best with Generic fallback: it goes first.
+LOG PAGE https://fanfox.net/manga/sakamoto_days/ -> https://fanfox.net/manga/sakamoto_days/ len=150092 chapterfun=False imagecount=False title='<title>Sakamoto Days Manga - Read Sakamoto Days Manga Online for Free</title>   '
+LOG Book: Sakamoto Days by SUZUKI Yuuto — 282 chapters (Generic (no site rules))
+LOG PAGE https://fanfox.net/manga/sakamoto_days/c001/1.html -> https://fanfox.net/manga/sakamoto_days/c001/1.html len=44601 chapterfun=False imagecount=True title='<title>Sakamoto Days 1  - Read Sakamoto Days 1 Online - Page 1</title>    <link '
+LOG RESULT https://fanfox.net/manga/sakamoto_days/ images=52
+LOG Dynamic priority: trying HaruNeko websites, gallery-dl extractors, Generic fallback (5 other engine(s) don't list this site).
+LOG These sites read best with Generic fallback: it goes first.
+LOG PAGE https://fanfox.net/manga/one_piece/ -> https://fanfox.net/manga/one_piece/ len=619450 chapterfun=False imagecount=False title='<title>One Piece Manga - Read One Piece Manga Online for Free</title>    <link r'
+LOG Book: One Piece by ODA Eiichiro — 1234 chapters (Generic (no site rules))
+LOG PAGE https://fanfox.net/manga/one_piece/v01/c001/1.html -> https://fanfox.net/manga/one_piece/v01/c001/1.html len=165576 chapterfun=False imagecount=True title='<title>One Piece 1: Romance Dawn v01: Romance Dawn - Read One Piece 1: Romance D'
+LOG RESULT https://fanfox.net/manga/one_piece/ images=61
+LOG Dynamic priority: trying HaruNeko websites, gallery-dl extractors, Generic fallback (5 other engine(s) don't list this site).
+LOG These sites read best with Generic fallback: it goes first.
+LOG PAGE https://fanfox.net/manga/onepunch_man/ -> https://fanfox.net/manga/onepunch_man/ len=254382 chapterfun=False imagecount=False title='<title>Onepunch-Man Manga - Read Onepunch Man Manga Online for Free</title>    <'
+LOG Book: Onepunch-Man by ONE — 469 chapters (Generic (no site rules))
+LOG PAGE https://fanfox.net/manga/onepunch_man/v01/c001/1.html -> https://fanfox.net/manga/onepunch_man/v01/c001/1.html len=75995 chapterfun=False imagecount=True title='<title>Onepunch Man 1: 1st Punch [One Punch] v01: 1st Punch [One Punch] - Read O'
+LOG RESULT https://fanfox.net/manga/onepunch_man/ images=19
+LOG Dynamic priority: trying HaruNeko websites, gallery-dl extractors, Generic fallback (5 other engine(s) don't list this site).
+LOG These sites read best with Generic fallback: it goes first.
+LOG PAGE https://fanfox.net/manga/sakamoto_days/ -> https://fanfox.net/manga/sakamoto_days/ len=150092 chapterfun=False imagecount=False title='<title>Sakamoto Days Manga - Read Sakamoto Days Manga Online for Free</title>   '
+LOG Book: Sakamoto Days by SUZUKI Yuuto — 282 chapters (Generic (no site rules))
+LOG PAGE https://fanfox.net/manga/sakamoto_days/c001/1.html -> https://fanfox.net/manga/sakamoto_days/c001/1.html len=44601 chapterfun=False imagecount=True title='<title>Sakamoto Days 1  - Read Sakamoto Days 1 Online - Page 1</title>    <link '
+LOG RESULT https://fanfox.net/manga/sakamoto_days/ images=52
+LOG DONE

@@ -124,15 +124,16 @@ def test_complete_verified_chapter_never_uses_shape_matching(monkeypatch):
 
 
 def test_verified_mapping_builder_is_reproducible_and_never_matches(monkeypatch):
-    from scripts.build_qdn_verified_map import build
+    from scripts.build_qdn_verified_map import DESTINATIONS, build, build_bundled
     def forbidden(*_args):
         raise AssertionError('Building verified mappings must not guess')
     monkeypatch.setattr(q, '_vector', forbidden)
     monkeypatch.setattr(q._Reference, 'get', forbidden)
     sample = _chapter_payload()
     expected = json.loads((Path(__file__).parent / 'fixtures' / 'qdn_chapter76_expected.json').read_text(encoding='utf-8'))['paragraphs']
-    saved = json.loads((Path(BUNDLED).parents[1] / 'qdn_verified_maps.json').read_text(encoding='utf-8'))
-    assert build(sample, expected) == saved
+    bundled = build_bundled()
+    for path in DESTINATIONS:
+        assert json.loads(path.read_text(encoding='utf-8')) == bundled
     bad = list(expected)
     bad[0] += '假'
     with pytest.raises(ValueError, match='Unaligned'):

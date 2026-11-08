@@ -16,7 +16,7 @@ The split is deliberate. **All page-side logic is one JavaScript file** that run
 | `hard-sources.js` | The shared script (about 100 KB, plain ES2020, no dependencies). Copy it byte for byte into the iOS bundle. |
 | `qdn/NotoSansCJKsc-Regular-hanzi.otf` | Reference font for glyph matching (2.2 MB, OFL, `qdn/OFL.txt`). |
 | `qdn/zh_char_frequency.txt` | `<char>\t<count>` per line (80 KB). Settles look-alike glyphs. Optional but expected. |
-| `qdn/qdn_verified_maps.json` | Glyph answers checked against screenshots for exact font bytes (13 KB). Optional. |
+| `qdn/qdn_verified_maps.json` | Glyph answers checked against screenshots for exact font bytes. Optional. |
 | `qdn/qdn_outline_table.json` | Labelled glyph outlines (4,947 exemplars of 2,499 characters, 1.9 MB), a copy of the desktop's `data/qdn_outline_table.json`. Optional. |
 | `qdn/brotli_dictionary.bin` | The brotli static dictionary (120 KB, MIT, `qdn/BROTLI-LICENSE.txt`); WOFF2 fonts may refer to it. Optional, needed with the outline table. |
 
@@ -285,7 +285,7 @@ The script and its resources are the Android bytes (they are marked `-text` in `
 | `hard-sources.js` | `bec598ad653e313000ea981ea07f580b3e536eb3791927d3b3d2d466fb3377cd` |
 | `qdn/NotoSansCJKsc-Regular-hanzi.otf` | `81805f27acfad19ca7509a17e0b8d2fdf0bb944558612de120047b194f195eaa` |
 | `qdn/OFL.txt` | `acc077d31316a689a0b0512998c47331278e4ae61d134e1edeae5a7a95916961` |
-| `qdn/qdn_verified_maps.json` | `9e6ff0c465fa50b511eede08bf07272fa39d7a32d49ff836af3e315892b90793` |
+| `qdn/qdn_verified_maps.json` | `899a9394b413ef7c9844cacd098df43836ce51d79e99926a7ca490465a427d6e` |
 | `qdn/zh_char_frequency.txt` | `555c0d7862cf307c7aeacf3091e081dc8e80ca6e60baf79b93d7ff26af1ff7e2` |
 | `qdn/qdn_outline_table.json` | `120c6332630516c2916260c5014e963adf34ca0fd4170020b2a904e5ff069b2c` |
 | `qdn/brotli_dictionary.bin` | `20e42eb1b511c21806d4d227d07e5dd06877d8ce7b3a817f378f313653f35c70` |
