@@ -32,8 +32,8 @@ from noveldb.qt.scale import bind_size, bind_title, on_scale
 from noveldb.qt.widgets import Chip, dspin, field_group, flow, hint, section, set_quietly, spin
 
 NL = chr(10)
-FORMAT_LABELS = {"epub": "EPUB", "txt": "TXT", "pdf": "PDF", "cbz": "CBZ"}
-NPIA_FORMATS = ("epub", "txt", "pdf")
+FORMAT_LABELS = {"epub": "EPUB", "txt": "TXT", "pdf": "PDF", "cbz": "CBZ", "folder": "Folder", "zip": "ZIP"}
+NPIA_FORMATS = ("epub", "txt", "pdf", "folder", "zip")
 
 
 class InputBox(QPlainTextEdit):
@@ -87,6 +87,7 @@ class DownloadPage(QWidget):
     openCart = Signal()
     queued = Signal(int)
     toolRequested = Signal(str)
+    stitchingRequested = Signal()
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -169,6 +170,12 @@ class DownloadPage(QWidget):
         self.format_chips = {fmt: Chip(FORMAT_LABELS[fmt], on_change=lambda on, f=fmt: self._toggle_format(f, on))
                              for fmt in OUTPUT_FORMATS}
         formats_row = flow(*self.format_chips.values())
+        self.manga_layout = Chip("Manga", on_change=lambda _on: self._set_export_layout(False))
+        self.webtoon_layout = Chip("Webtoon", on_change=lambda _on: self._set_export_layout(True))
+        self.stitching_settings = QPushButton("Stitching settings")
+        self.stitching_settings.clicked.connect(self.stitchingRequested)
+        self.export_layout_row = flow(QLabel("Image layout"), self.manga_layout,
+                                      self.webtoon_layout, self.stitching_settings)
 
         self.threads = spin(1, 1, 64, lambda v: self._run(threads=v))
         self.workers_label = QLabel("Image Workers")
@@ -233,6 +240,7 @@ class DownloadPage(QWidget):
         layout.addLayout(self.detected_holder)
         layout.addWidget(section("Output formats"))
         layout.addWidget(formats_row)
+        layout.addWidget(self.export_layout_row)
         layout.addWidget(section("Speed"))
         layout.addWidget(self.scope)
         layout.addWidget(threads_row)
@@ -394,6 +402,10 @@ class DownloadPage(QWidget):
         for fmt, chip in self.format_chips.items():
             chip.set_quietly(fmt in run.formats)
             chip.setVisible(not (npia and fmt not in NPIA_FORMATS))
+        self.export_layout_row.setVisible("folder" in run.formats or "zip" in run.formats)
+        self.manga_layout.set_quietly(not s.images.webtoon_export)
+        self.webtoon_layout.set_quietly(s.images.webtoon_export)
+        self.stitching_settings.setVisible(s.images.webtoon_export)
         set_quietly(self.threads, run.threads)
         self.workers_label.setText("Compression Workers" if npia else "Image Workers")
         set_quietly(self.workers, s.images.compression_workers if npia else run.image_workers)
@@ -417,6 +429,11 @@ class DownloadPage(QWidget):
     def _run(self, **changes) -> None:
         source = self._source
         self.context.update_settings(lambda s: s.edit_run_settings(source, lambda run: replace(run, **changes)))
+
+    def _set_export_layout(self, webtoon: bool) -> None:
+        self.context.update_settings(lambda s: replace(s, images=replace(s.images, webtoon_export=webtoon)))
+        self.manga_layout.set_quietly(not webtoon)
+        self.webtoon_layout.set_quietly(webtoon)
 
     def _toggle_format(self, fmt: str, on: bool) -> None:
         current = list(self.context.settings.effective(self._source).formats)

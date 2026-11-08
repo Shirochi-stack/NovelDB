@@ -12,7 +12,11 @@ enum class OutputFormat(val raw: String) {
     @SerialName("txt") TXT("txt"),
     @SerialName("pdf") PDF("pdf"),
     @SerialName("html") HTML("html"),
-    @SerialName("cbz") CBZ("cbz");
+    @SerialName("cbz") CBZ("cbz"),
+    @SerialName("folder") FOLDER("folder"),
+    @SerialName("zip") ZIP("zip");
+
+    val label: String get() = if (this == FOLDER) "Folder" else raw.uppercase()
 
     companion object {
         fun fromRaw(raw: String): OutputFormat? = entries.firstOrNull { it.raw == raw.lowercase() }
@@ -126,6 +130,10 @@ data class SharedOverrides(
 
 @Serializable
 data class ImageSettings(
+    val webtoonExport: Boolean = false,
+    val stitchImages: Boolean = true,
+    val stitchHeight: Int = 16_000, // Zero means Unlimited.
+    val stitchChapterFolders: Boolean = false,
     val compress: Boolean = true,
     val quality: Int = 90,
     val format: ImageFormat = ImageFormat.WEBP,
@@ -135,11 +143,20 @@ data class ImageSettings(
     val compressCover: Boolean = false,
     val coverQuality: Int = 90,
     val coverFormat: ImageFormat = ImageFormat.JPEG,
-    val zipCompressImages: Boolean = false,
     val compressionWorkers: Int = 4,
-    val longImageLayout: Boolean = false,
     @SerialName("saveImageURLsOnly") val saveImageUrlsOnly: Boolean = false,
-)
+) {
+    val compressAfterStitch get() = webtoonExport && stitchImages && compress && !saveImageUrlsOnly
+    val exportStitchHeight: Int get() {
+        val height = stitchHeight.coerceIn(0, 32_000)
+        val limit = if (compressAfterStitch) when (format) {
+            ImageFormat.WEBP -> 16_383
+            ImageFormat.JPEG -> 65_500
+            else -> return height
+        } else return height
+        return minOf(if (height == 0) limit else height, limit)
+    }
+}
 
 @Serializable
 data class TextSettings(

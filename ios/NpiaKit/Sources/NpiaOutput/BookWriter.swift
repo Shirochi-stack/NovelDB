@@ -50,6 +50,8 @@ public enum Writers {
         case .pdf: return PDFWriter()
         case .html: return HTMLWriter()
         case .cbz: return CBZWriter()
+        case .folder: return FolderWriter(format: .folder)
+        case .zip: return FolderWriter(format: .zip)
         }
     }
 

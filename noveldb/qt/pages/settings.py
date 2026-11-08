@@ -11,9 +11,10 @@ import threading
 from dataclasses import replace
 from typing import Callable
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QBoxLayout,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSlider,
     QSpinBox,
     QStackedWidget,
     QTreeWidget,
@@ -483,7 +485,7 @@ class OverridesForm(Form):
             signal.connect(lambda v, n=name: self._value(n, v))
             self.controls[name] = (toggle, value)
         self.format_toggle = QCheckBox("Formats")
-        self.format_chips = {fmt: Chip(fmt.upper(), on_change=lambda on, x=fmt: self._format(x, on)) for fmt in OUTPUT_FORMATS}
+        self.format_chips = {fmt: Chip("Folder" if fmt == "folder" else fmt.upper(), on_change=lambda on, x=fmt: self._format(x, on)) for fmt in OUTPUT_FORMATS}
         self.format_toggle.toggled.connect(lambda on: self._toggle("formats", on))
         self.add(self.format_toggle)
         self.add(flow(*self.format_chips.values()))
@@ -849,19 +851,36 @@ def engines_form(context: AppContext) -> Form:
     return f
 
 
+class ImageColumns(QWidget):
+    def __init__(self, left: QWidget, right: QWidget) -> None:
+        super().__init__()
+        self.left = left
+        self.right = right
+        self.columns = QBoxLayout(QBoxLayout.TopToBottom, self)
+        self.columns.setContentsMargins(0, 0, 0, 0)
+        self.columns.setSpacing(12)
+        self.columns.addWidget(left, 1)
+        self.columns.addWidget(right, 1)
+
+    def minimumSizeHint(self) -> QSize:
+        width = max(self.left.minimumSizeHint().width(), self.right.minimumSizeHint().width())
+        return QSize(width, self.columns.minimumSize().height())
+
+    def resizeEvent(self, event) -> None:
+        combined_width = self.left.minimumSizeHint().width() + self.right.minimumSizeHint().width()
+        wide = event.size().width() >= combined_width + self.columns.spacing()
+        self.columns.setDirection(QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom)
+        super().resizeEvent(event)
+
+
 def images_form(context: AppContext, panel: bool = False) -> Form:
-    """Image options in two columns: compression on the left; animations, cover and comics on the right."""
     f = Form(context, "Images", panel=panel)
     left, right = Form(context, "", bare=True), Form(context, "", bare=True)
-    columns = QWidget()
-    row = QHBoxLayout(columns)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(20)
-    row.addWidget(left, 1, Qt.AlignTop)
-    row.addWidget(right, 1, Qt.AlignTop)
+    f.add(ImageColumns(left, right))
 
     left.check("Save image addresses only", "images.save_image_urls_only")
-    compress = left.check("Compress images", "images.compress")
+    compress = left.check("Compress chapter images", "images.compress")
+    compress.setToolTip("Re-encode chapter images using the format and quality below, including for CBZ, Folder and ZIP.")
     quality = left.spin("Quality", "images.quality", 1, 100)
     fmt = left.combo("Format", "images.format", {k: k for k in IMAGE_FORMATS})
     workers = left.spin("Workers (npia)", "images.compression_workers", 1, 32)
@@ -875,16 +894,51 @@ def images_form(context: AppContext, panel: bool = False) -> Form:
     cover = right.check("Compress the cover", "images.compress_cover")
     cover_quality = right.spin("Quality", "images.cover_quality", 1, 100)
     cover_format = right.combo("Format", "images.cover_format", {k: k for k in IMAGE_FORMATS})
-    right.add_section("Comics")
-    zip_images = right.check("Compress CBZ images", "images.zip_compress_images")
-    zip_images.setToolTip("Compress the images stored inside CBZ files.")
-    long_layout = right.check("Long-strip layout", "images.long_image_layout")
-    f.add(columns)
+    stitching = Form(context, "", bare=True)
+    stitching.setObjectName("stitchingSection")
+    f.add(stitching)
+    stitching.add_section("Stitching")
+    stitch = stitching.check("Stitch Webtoon images", "images.stitch_images")
+    stitch.setToolTip("Applies to Folder and ZIP exports in Webtoon mode.")
+    stitching.add(QLabel("Max strip height"))
+    height_row = QWidget()
+    height_layout = QHBoxLayout(height_row)
+    height_layout.setContentsMargins(0, 0, 0, 0)
+    height_slider = QSlider(Qt.Horizontal)
+    height_input = SpinBox()
+    unlimited = 32_001
+    height_slider.setObjectName("stitchHeightSlider")
+    height_slider.setAccessibleName("Max strip height. Far right is Unlimited.")
+    height_slider.setRange(1, unlimited)
+    height_slider.valueChanged.connect(
+        lambda value: stitching.change("images.stitch_height", 0 if value == unlimited else value))
+    stitching._bind(height_slider, lambda s: height_slider.setValue(s.images.stitch_height or unlimited))
+    height_input.setObjectName("stitchHeightInput")
+    height_input.setAccessibleName("Max strip height in pixels")
+    height_input.setRange(0, unlimited - 1)
+    height_input.setSpecialValueText("Unlimited")
+    height_input.valueChanged.connect(lambda value: stitching.change("images.stitch_height", value))
+    stitching._bind(height_input, lambda s: height_input.setValue(s.images.stitch_height))
+    height_slider.setSingleStep(100)
+    height_slider.setTracking(False)
+    height_input.setKeyboardTracking(False)
+    height_input.setSuffix(" px")
+    bind_size(height_input, fixed_width=134)
+    height_layout.addWidget(height_slider, 1)
+    endpoint = QLabel("∞")
+    endpoint.setToolTip("Drag to the far right for one strip per chapter.")
+    height_layout.addWidget(endpoint)
+    height_layout.addWidget(height_input)
+    stitching.add(height_row)
+    stitch_folders = stitching.check("Always create chapter subfolders", "images.stitch_chapter_folders")
+    stitch_folders.setToolTip("Chapters with multiple stitched strips always get a subfolder. This includes single-strip chapters too.")
 
     def gate(s):
         on = not s.images.save_image_urls_only
-        for widget in (compress, gifs, static, workers, target, cover, zip_images, long_layout):
+        for widget in (compress, gifs, static, workers, target, cover, stitch):
             widget.setEnabled(on)
+        height_row.setEnabled(on and s.images.stitch_images)
+        stitch_folders.setEnabled(on and s.images.stitch_images)
         for widget in (quality, fmt):
             widget.setEnabled(on and s.images.compress)
         target_mb.setEnabled(on and s.images.recompress_target_enable)
@@ -895,6 +949,7 @@ def images_form(context: AppContext, panel: bool = False) -> Form:
     f.add_hint("Saving image addresses only turns the other image options off.")
     left.finish()
     right.finish()
+    stitching.finish()
     f.finish()
     return f
 
@@ -1246,6 +1301,7 @@ CATEGORIES = (
     ("Per-source overrides", OverridesForm),
     ("Source options", sources_form),
     ("Site engines", engines_form),
+    ("Images", images_form),
     ("Text and PDF", text_form),
     ("Upload and share", upload_form),
     ("Catalog site", catalog_form),
@@ -1282,3 +1338,10 @@ class SettingsPage(QWidget):
         names = [n for n, _ in CATEGORIES]
         if name in names:
             self.categories.setCurrentRow(names.index(name))
+
+    def show_stitching(self) -> None:
+        self.show_category("Images")
+        images = self.forms["Images"]
+        scroll = images.findChild(QScrollArea)
+        stitching = images.findChild(QWidget, "stitchingSection")
+        QTimer.singleShot(0, lambda: scroll.ensureWidgetVisible(stitching))

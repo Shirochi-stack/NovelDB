@@ -85,12 +85,16 @@ private val BOOK_EXTENSIONS = setOf("epub", "pdf", "txt", "html", "htm", "cbz", 
 fun scanLibrary(folder: File): List<LibraryBook> {
     val entries = folder.listFiles().orEmpty().filter { file ->
         !file.name.startsWith(".") && when {
-            file.isDirectory -> file.listFiles().orEmpty().any { it.isFile && it.extension.lowercase() in setOf("txt", "html", "jpg", "png", "webp") }
+            file.isDirectory -> file.listFiles().orEmpty().any {
+                file.extension.equals("folder", ignoreCase = true) ||
+                    (it.isFile && it.extension.lowercase() in setOf("txt", "html", "jpg", "png", "webp"))
+            }
             else -> file.extension.lowercase() in BOOK_EXTENSIONS
         }
     }
-    return entries.groupBy { (if (it.isDirectory) it.name else it.nameWithoutExtension).lowercase() }
-        .map { (_, files) -> LibraryBook(files.first().let { if (it.isDirectory) it.name else it.nameWithoutExtension }, files) }
+    fun title(file: File) = if (file.isDirectory && !file.extension.equals("folder", ignoreCase = true)) file.name else file.nameWithoutExtension
+    return entries.groupBy { title(it).lowercase() }
+        .map { (_, files) -> LibraryBook(title(files.first()), files) }
         .sortedByDescending { it.modified }
 }
 
@@ -138,7 +142,7 @@ private fun unescapeXml(text: String) = text.replace("&lt;", "<").replace("&gt;"
 
 /** "EPUB · TXT · 5.3 MB": a book's formats and size, for its shelf tile. */
 private fun formats(book: LibraryBook): String {
-    val kinds = book.files.map { if (it.isDirectory) "TXT" else it.extension.uppercase() }.distinct()
+    val kinds = book.files.map(::fileKind).distinct()
     val bytes = book.files.sumOf { f -> if (f.isDirectory) f.walkTopDown().filter { it.isFile }.sumOf { it.length() } else f.length() }
     val size = if (bytes >= 1_048_576) String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0) else "${maxOf(1, bytes / 1024)} KB"
     return (kinds + size).joinToString(" · ")
@@ -356,7 +360,11 @@ fun LibraryScreen(model: AppViewModel) {
 }
 
 /** "EPUB", "TXT" (a TXT folder too), "PDF": a file's kind, for the selection's filter. */
-private fun fileKind(file: File): String = if (file.isDirectory) "TXT" else file.extension.uppercase()
+private fun fileKind(file: File): String = when {
+    file.isDirectory && file.extension.equals("folder", ignoreCase = true) -> "Folder"
+    file.isDirectory -> "TXT"
+    else -> file.extension.uppercase()
+}
 
 /** A book's cover on the shelf: its EPUB's own, else its initial on a tinted tile. Fills its width at 2:3. */
 @Composable

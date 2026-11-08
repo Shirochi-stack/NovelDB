@@ -17,6 +17,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -26,6 +28,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -543,32 +546,67 @@ fun NpiaSettingsScreen(model: AppViewModel) {
 // Images
 
 @Composable
-fun ImageSettingsScreen(model: AppViewModel) {
+fun ImageSettingsScreen(model: AppViewModel, stitchingOnly: Boolean = false) {
     val (settings, update) = settingsState(model)
     val images = settings.images
     fun set(change: (com.shirochi.npia.core.ImageSettings) -> com.shirochi.npia.core.ImageSettings) = update { it.copy(images = change(it.images)) }
-    val chapterEnabled = images.compress && !images.saveImageUrlsOnly
     SettingsColumn {
-        SectionHeader("Chapter images")
-        SwitchRow("Save Image URLs Only", images.saveImageUrlsOnly, { v -> set { it.copy(saveImageUrlsOnly = v) } })
-        SwitchRow("Compress Images", images.compress, { v -> set { it.copy(compress = v) } })
-        ChoiceRow("Format", images.format, ImageFormat.entries, { it.label }, { v -> set { it.copy(format = v) } }, enabled = chapterEnabled)
-        StepperRow("Quality", images.quality, 10..100, { v -> set { it.copy(quality = v) } }, step = 5, enabled = chapterEnabled)
-        SwitchRow("Convert GIFs", images.convertGifs, { v -> set { it.copy(convertGifs = v) } }, enabled = chapterEnabled)
-        SwitchRow("Static images only", images.staticOnly, { v -> set { it.copy(staticOnly = v) } }, enabled = chapterEnabled)
-        StepperRow("Image Compression Workers", images.compressionWorkers, 1..8, { v -> set { it.copy(compressionWorkers = v) } }, enabled = chapterEnabled)
-        Footnote("Animated images keep their animation unless Static images only is on, since Android cannot encode animated WebP or PNG.")
+        if (!stitchingOnly) {
+            val chapterEnabled = images.compress && !images.saveImageUrlsOnly
+            SectionHeader("Chapter images")
+            SwitchRow("Save Image URLs Only", images.saveImageUrlsOnly, { v -> set { it.copy(saveImageUrlsOnly = v) } })
+            SwitchRow("Compress chapter images", images.compress, { v -> set { it.copy(compress = v) } })
+            ChoiceRow("Format", images.format, ImageFormat.entries, { it.label }, { v -> set { it.copy(format = v) } }, enabled = chapterEnabled)
+            StepperRow("Quality", images.quality, 10..100, { v -> set { it.copy(quality = v) } }, step = 5, enabled = chapterEnabled)
+            SwitchRow("Convert GIFs", images.convertGifs, { v -> set { it.copy(convertGifs = v) } }, enabled = chapterEnabled)
+            SwitchRow("Static images only", images.staticOnly, { v -> set { it.copy(staticOnly = v) } }, enabled = chapterEnabled)
+            StepperRow("Image Compression Workers", images.compressionWorkers, 1..8, { v -> set { it.copy(compressionWorkers = v) } }, enabled = chapterEnabled)
+            Footnote("Includes CBZ, Folder and ZIP exports. Animated images keep their animation unless Static images only is on, since Android cannot encode animated WebP or PNG.")
 
-        SectionHeader("Cover")
-        SwitchRow("Compress Cover", images.compressCover, { v -> set { it.copy(compressCover = v) } })
-        ChoiceRow("Cover format", images.coverFormat, ImageFormat.entries, { it.label }, { v -> set { it.copy(coverFormat = v) } }, enabled = images.compressCover)
-        StepperRow("Cover quality", images.coverQuality, 10..100, { v -> set { it.copy(coverQuality = v) } }, step = 5, enabled = images.compressCover)
+            SectionHeader("Cover")
+            SwitchRow("Compress Cover", images.compressCover, { v -> set { it.copy(compressCover = v) } })
+            ChoiceRow("Cover format", images.coverFormat, ImageFormat.entries, { it.label }, { v -> set { it.copy(coverFormat = v) } }, enabled = images.compressCover)
+            StepperRow("Cover quality", images.coverQuality, 10..100, { v -> set { it.copy(coverQuality = v) } }, step = 5, enabled = images.compressCover)
 
-        SectionHeader("Book")
-        OptionalDecimalRow("Recompress to meet target size (MB)", images.recompressTargetMb, 20.0) { v -> set { it.copy(recompressTargetMb = v) } }
-        SwitchRow("Long image layout", images.longImageLayout, { v -> set { it.copy(longImageLayout = v) } })
-        SwitchRow("ZIP Compress", images.zipCompressImages, { v -> set { it.copy(zipCompressImages = v) } })
-        Footnote("The size target re-encodes JPEG and WebP images at lower quality, up to four passes. Long image layout shows webtoon strips edge to edge without chapter titles.")
+            SectionHeader("Book")
+            OptionalDecimalRow("Recompress to meet target size (MB)", images.recompressTargetMb, 20.0) { v -> set { it.copy(recompressTargetMb = v) } }
+            Footnote("The size target re-encodes JPEG and WebP images at lower quality, up to four passes.")
+            SectionHeader("Stitching")
+        }
+        SwitchRow("Stitch Webtoon images", images.stitchImages, { v -> set { it.copy(stitchImages = v) } },
+            enabled = !images.saveImageUrlsOnly)
+        val canStitch = images.stitchImages && !images.saveImageUrlsOnly
+        val unlimited = 32_001f
+        val height = images.stitchHeight.coerceIn(0, 32_000)
+        var sliderHeight by remember(height) { mutableStateOf(if (height == 0) unlimited else height.toFloat()) }
+        var heightText by remember(height) { mutableStateOf(if (height == 0) "" else height.toString()) }
+        MiniLabel("Max strip height")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Slider(
+                value = sliderHeight, onValueChange = { sliderHeight = it },
+                onValueChangeFinished = { set { it.copy(stitchHeight = if (sliderHeight == unlimited) 0 else sliderHeight.toInt()) } },
+                valueRange = 1f..unlimited, enabled = canStitch, modifier = Modifier.weight(1f),
+            )
+            Text("∞")
+            OutlinedTextField(
+                value = heightText,
+                onValueChange = { typed ->
+                    if (typed.length <= 5 && typed.all(Char::isDigit)) {
+                        heightText = typed
+                        typed.toIntOrNull()?.takeIf { it in 0..32_000 }?.let { value ->
+                            set { it.copy(stitchHeight = value) }
+                        }
+                    }
+                },
+                label = { Text(if (sliderHeight == unlimited) "Unlimited" else "Height (px)") },
+                singleLine = true, enabled = canStitch,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(112.dp),
+            )
+        }
+        SwitchRow("Always create chapter subfolders", images.stitchChapterFolders,
+            { v -> set { it.copy(stitchChapterFolders = v) } }, enabled = canStitch)
+        Footnote("Chapters with multiple stitched strips always get a subfolder.")
     }
 }
 

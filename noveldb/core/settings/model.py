@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields, replace
 from typing import Callable, Optional
 
-OUTPUT_FORMATS = ("epub", "txt", "pdf", "cbz")
+OUTPUT_FORMATS = ("epub", "txt", "pdf", "cbz", "folder", "zip")
 IMAGE_FORMATS = ("WEBP", "JPEG", "PNG", "AVIF")
 NAMING_MODES = ("title", "id")
 THEMES = ("system", "light", "dark", "amoled")
@@ -190,6 +190,10 @@ class SharedOverrides:
 
 @dataclass(frozen=True)
 class ImageSettings:
+    webtoon_export: bool = False
+    stitch_images: bool = True
+    stitch_height: int = 16_000  # 0 means one unlimited strip per chapter.
+    stitch_chapter_folders: bool = False
     compress: bool = True
     quality: int = 50
     format: str = "WEBP"
@@ -200,9 +204,7 @@ class ImageSettings:
     compress_cover: bool = False
     cover_quality: int = 90
     cover_format: str = "JPEG"
-    zip_compress_images: bool = False
     compression_workers: int = 1
-    long_image_layout: bool = False
     save_image_urls_only: bool = False
 
 

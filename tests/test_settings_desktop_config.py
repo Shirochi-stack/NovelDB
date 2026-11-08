@@ -97,6 +97,14 @@ def test_export_keeps_unknown_keys_and_writes_legacy_keys():
     assert again == dc.import_config(dc.export_config(again, out))
 
 
+def test_legacy_long_image_layout_is_dropped_without_affecting_stitching():
+    legacy = {"ext_long_image_layout": True, "webtoon_export": True, "stitch_images": True}
+    settings = dc.import_config(legacy)
+
+    assert settings.images.webtoon_export and settings.images.stitch_images
+    assert "ext_long_image_layout" not in dc.export_config(settings, legacy)
+
+
 def test_export_without_secrets_drops_credentials():
     s = replace(AppSettings(), secrets=replace(AppSettings().secrets, email="me@example.com", password="pw"))
     assert dc.export_config(s)["wd"] == "pw"

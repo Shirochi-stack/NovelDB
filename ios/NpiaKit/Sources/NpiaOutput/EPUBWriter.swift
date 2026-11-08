@@ -68,13 +68,12 @@ public struct EPUBWriter: BookWriter {
             try add(archive, "OEBPS/Text/" + page.filename, Data(page.xhtml.utf8))
         }
 
-        let compressImages = bundle.settings.images.zipCompressImages
         if let cover = bundle.cover, let coverName {
-            try add(archive, "OEBPS/" + coverName, cover.data, compressed: compressImages)
+            try add(archive, "OEBPS/" + coverName, cover.data, compressed: false)
         }
         let imageNames = bundle.images.keys.filter { $0 != coverName }.sorted()
         for name in imageNames {
-            try add(archive, "OEBPS/" + name, bundle.images[name]!, compressed: compressImages)
+            try add(archive, "OEBPS/" + name, bundle.images[name]!, compressed: false)
         }
 
         try add(archive, "OEBPS/nav.xhtml", Data(Self.nav(pages, book: book).utf8))

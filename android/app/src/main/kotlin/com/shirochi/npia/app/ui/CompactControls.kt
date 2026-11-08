@@ -105,7 +105,7 @@ fun ToggleChip(label: String, selected: Boolean, enabled: Boolean = true, onChan
 fun FormatChips(formats: List<OutputFormat>, onChange: (List<OutputFormat>) -> Unit) {
     ChipFlow {
         OutputFormat.entries.forEach { format ->
-            ToggleChip(format.raw.uppercase(), format in formats) { onChange(toggleFormat(formats, format)) }
+            ToggleChip(format.label, format in formats) { onChange(toggleFormat(formats, format)) }
         }
     }
 }

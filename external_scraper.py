@@ -15162,9 +15162,9 @@ async (ids) => {
         self._hide_chrome_windows_for_profile(self._get_user_data_dir())
         return ([self._page] + self._worker_pages)[:count]
 
-    def _mpia_api_get(self, path):
+    def _mpia_api_get(self, path, page=None):
         """Read the website API in its logged-in, same-origin browser session."""
-        response = self._page.evaluate("""
+        response = (page or self._page).evaluate("""
             async (path) => {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), 30000);
@@ -15239,23 +15239,46 @@ async (ids) => {
         """Read the current Mpia detail API using the saved browser profile."""
         self._stop_requested = False
         self._book_data = None
+        try:
+            data = next(self._mpia_book_pages(url), None)
+        except Exception as error:
+            self.log(f'[Mpia] ERROR: Could not parse book: {error}')
+            return None
+        if data is None or self._stop_requested:
+            return None
+        self._book_data = data
+        self._book_url = data['bookUrl']
+        chapters = data['chapters']
+        free_count = sum(not ch['isVIP'] for ch in chapters)
+        owned_count = sum(ch['isVIP'] and ch['isAccessible'] for ch in chapters)
+        self.log(
+            f"[Mpia] Book: {data['bookname']} by {data['author']} - "
+            f'{len(chapters)} chapters ({free_count} free, '
+            f'{owned_count} purchased/rented accessible).'
+        )
+        return data
+
+    def _mpia_book_pages(self, url, *, reader=False):
+        """Yield reader snapshots, or one fully validated book for bulk downloads."""
         novel_id = self._mpia_novel_id(url)
         if not novel_id:
             self.log('[Mpia] ERROR: Could not extract novel id from URL.')
-            return None
+            return
         # The legacy novel.\u006d\u0075\u006e\u0070\u0069\u0061.com URLs now redirect to this website too.
         book_url = f'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/detail/{novel_id}'
-        if not self._start_mpia_browser(book_url):
-            return None
+        if not self._start_mpia_browser('about:blank' if reader else book_url):
+            return
+        page = self._context.new_page() if reader else self._page
+        api = (lambda path: self._mpia_api_get(path, page=page)) if reader else self._mpia_api_get
         try:
-            self._page.goto(book_url, wait_until='domcontentloaded', timeout=_page_ms(30000))
-            if not self._mpia_wait_for_selector(self._page, 'main h1'):
+            page.goto(book_url, wait_until='domcontentloaded', timeout=_page_ms(30000))
+            if not self._mpia_wait_for_selector(page, 'main h1'):
                 self.log(
                     '[Mpia] ERROR: Novel page did not load. Use Enter Browser '
                     'to check the saved session, then retry.'
                 )
-                return None
-            detail = self._mpia_api_get(f'/api/v1/pc/novel-detail/{novel_id}')
+                return
+            detail = api(f'/api/v1/pc/novel-detail/{novel_id}')
             info = detail.get('novelInfo') or {}
             if str(info.get('id')) != novel_id or not info.get('title'):
                 raise ValueError('Invalid novel metadata')
@@ -15269,10 +15292,26 @@ async (ids) => {
             chapters = []
             seen = set()
             total = None
+            introduction = str(info.get('introduction') or '')
+            book = {
+                'bookname': info['title'],
+                'author': info.get('authorName') or '',
+                'coverUrl': info.get('coverUrl') or '',
+                'introduction': introduction,
+                'introductionHTML': '<br/>'.join(html.escape(introduction).splitlines()),
+                'bookUrl': book_url,
+                'language': 'ko',
+                'tags': [tag['title'] for tag in (info.get('tags') or [])
+                         if isinstance(tag, dict) and tag.get('title')],
+                'status': 'Completed' if info.get('finish') else 'Ongoing',
+                '_mpia': True,
+                '_mpia_novel_id': novel_id,
+                '_mpia_logged_in': logged_in,
+            }
             for page_no in range(1, 1001):
-                if not self._mpia_wait_list_interval():
-                    return None
-                listing = self._mpia_api_get(
+                if not reader and not self._mpia_wait_list_interval():
+                    return
+                listing = api(
                     f'/api/v1/pc/novel-detail/{novel_id}/chapters'
                     f'?order=ENTRY_FIRST&page={page_no}&size=30'
                 )
@@ -15282,58 +15321,43 @@ async (ids) => {
                 rows = listing.get('list')
                 if not isinstance(rows, list):
                     raise ValueError('Invalid chapter list')
-                added = 0
+                added = []
                 for row in rows:
                     chapter = self._mpia_chapter_from_api(row, novel_id, logged_in)
                     if chapter is None:
                         raise ValueError('Invalid chapter entry')
                     if chapter['neSrl'] not in seen:
-                        chapters.append(chapter)
+                        added.append(chapter)
                         seen.add(chapter['neSrl'])
-                        added += 1
-                if len(chapters) >= total:
-                    break
                 if not added:
+                    if not chapters and total == 0:
+                        break
                     raise ValueError(
                         f'Incomplete chapter list: received {len(chapters)} of {total}'
                     )
+                added.sort(key=lambda chapter: (chapter['order'], int(chapter['neSrl'])))
+                chapters.extend(added)
+                complete = len(chapters) >= total
+                if reader or complete:
+                    if self._stop_requested and not reader:
+                        return
+                    ordered = chapters.copy() if reader else sorted(
+                        chapters, key=lambda chapter: (chapter['order'], int(chapter['neSrl'])))
+                    data = dict(book, chapters=ordered, chapterCount=len(chapters),
+                                _mpia_declared_count=info.get('chapterCount') or total)
+                    if reader:
+                        data.update(_mpia_reader_list=True, _mpia_reader_complete=complete)
+                    yield data
+                if complete:
+                    return
             if not chapters or total is None or len(chapters) < total:
                 raise ValueError('No complete chapter list was returned')
-        except Exception as error:
-            self.log(f'[Mpia] ERROR: Could not parse book: {error}')
-            return None
-        if self._stop_requested:
-            return None
-        chapters.sort(key=lambda chapter: (chapter['order'], int(chapter['neSrl'])))
-        introduction = str(info.get('introduction') or '')
-        data = {
-            'bookname': info['title'],
-            'author': info.get('authorName') or '',
-            'coverUrl': info.get('coverUrl') or '',
-            'introduction': introduction,
-            'introductionHTML': '<br/>'.join(html.escape(introduction).splitlines()),
-            'bookUrl': book_url,
-            'chapterCount': len(chapters),
-            'chapters': chapters,
-            'language': 'ko',
-            'tags': [tag['title'] for tag in (info.get('tags') or [])
-                     if isinstance(tag, dict) and tag.get('title')],
-            'status': 'Completed' if info.get('finish') else 'Ongoing',
-            '_mpia': True,
-            '_mpia_novel_id': novel_id,
-            '_mpia_logged_in': logged_in,
-            '_mpia_declared_count': info.get('chapterCount') or total,
-        }
-        self._book_data = data
-        self._book_url = book_url
-        free_count = sum(not ch['isVIP'] for ch in chapters)
-        owned_count = sum(ch['isVIP'] and ch['isAccessible'] for ch in chapters)
-        self.log(
-            f"[Mpia] Book: {data['bookname']} by {data['author']} - "
-            f'{len(chapters)} chapters ({free_count} free, '
-            f'{owned_count} purchased/rented accessible).'
-        )
-        return data
+        finally:
+            if reader:
+                try:
+                    page.close()
+                except Exception:
+                    pass
 
 
     _MPIA_READER_SELECTOR = (

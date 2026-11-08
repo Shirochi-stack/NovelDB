@@ -1,7 +1,9 @@
 import Foundation
 
 public enum OutputFormat: String, Codable, CaseIterable, Sendable {
-    case epub, txt, pdf, html, cbz
+    case epub, txt, pdf, html, cbz, folder, zip
+
+    public var label: String { self == .folder ? "Folder" : rawValue.uppercased() }
 }
 
 public enum ImageFormat: String, Codable, CaseIterable, Sendable {
@@ -131,6 +133,27 @@ public struct SharedOverrides: Codable, Sendable, Equatable {
 }
 
 public struct ImageSettings: Codable, Sendable, Equatable {
+    // Optional on disk so settings saved before stitching still decode.
+    public var webtoonExport: Bool?
+    public var stitchImages: Bool?
+    public var stitchHeight: Int?  // Zero means Unlimited.
+    public var stitchChapterFolders: Bool?
+
+    public var stitchingEnabled: Bool { stitchImages ?? true }
+    public var stitchMaxHeight: Int { min(32_000, max(0, stitchHeight ?? 16_000)) }
+    public var chapterFoldersEnabled: Bool { stitchChapterFolders ?? false }
+    public var compressAfterStitch: Bool { webtoonExport == true && stitchingEnabled && compress && !saveImageURLsOnly }
+    public var exportStitchHeight: Int {
+        let limit: Int
+        guard compressAfterStitch else { return stitchMaxHeight }
+        switch format {
+        case .webp: limit = 16_383
+        case .jpeg: limit = 65_500
+        default: return stitchMaxHeight
+        }
+        return min(stitchMaxHeight == 0 ? limit : stitchMaxHeight, limit)
+    }
+
     public var compress = true
     public var quality = 90
     public var format: ImageFormat = .webp
@@ -140,9 +163,7 @@ public struct ImageSettings: Codable, Sendable, Equatable {
     public var compressCover = false
     public var coverQuality = 90
     public var coverFormat: ImageFormat = .jpeg
-    public var zipCompressImages = false
     public var compressionWorkers = 4
-    public var longImageLayout = false
     public var saveImageURLsOnly = false
 
     public init() {}

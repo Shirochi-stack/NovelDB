@@ -24,7 +24,12 @@ public struct ImageStage: Sendable {
         public var failed: Int
     }
 
-    public func run(_ chapters: [ChapterContent], onProgress: @escaping @Sendable (_ done: Int, _ total: Int) -> Void = { _, _ in }) async throws -> Output {
+    public func run(
+        _ chapters: [ChapterContent],
+        preserveChapterSources: Bool = false,
+        onChapterReady: (@Sendable (ChapterContent, [String: Data]) async throws -> Void)? = nil,
+        onProgress: @escaping @Sendable (_ done: Int, _ total: Int) -> Void = { _, _ in }
+    ) async throws -> Output {
         if settings.images.saveImageURLsOnly {
             return Output(chapters: chapters.map(Self.remoteOnly), images: [:], failed: 0)
         }
@@ -44,40 +49,96 @@ public struct ImageStage: Sendable {
         let workers = max(1, settings.effective(for: source).imageWorkers)
         let compressionGate = AsyncGate(limit: max(1, settings.images.compressionWorkers))
         var processed: [String: ProcessedImage] = [:]
+        var panels: [String: ProcessedImage] = [:]
+        var unfinished = onChapterReady == nil ? [] : seen
+        let ordered = onChapterReady == nil ? [] : chapters.filter(\.ref.isNotice) + chapters.filter { !$0.ref.isNotice }
+        var panelUses: [String: Int] = [:]
+        if preserveChapterSources {
+            for chapter in ordered {
+                for name in Set(chapter.images.map(\.filename)) { panelUses[name, default: 0] += 1 }
+            }
+        }
+        var nextChapter = 0
         var failed = 0
         var done = 0
         onProgress(0, unique.count)
 
-        try await withThrowingTaskGroup(of: (String, ProcessedImage?).self) { group in
+        func publishReady() async throws {
+            guard let onChapterReady else { return }
+            while nextChapter < ordered.count {
+                var chapter = ordered[nextChapter]
+                if chapter.images.contains(where: { unfinished.contains($0.filename) }) { break }
+                var names: [String] = []
+                var ready: [String: ProcessedImage] = [:]
+                var known = Set<String>()
+                for ref in chapter.images where known.insert(ref.filename).inserted {
+                    names.append(ref.filename)
+                    ready[ref.filename] = preserveChapterSources ? panels[ref.filename] : processed[ref.filename]
+                    if let uses = panelUses[ref.filename] {
+                        if uses == 1 {
+                            panels[ref.filename] = nil
+                            panelUses[ref.filename] = nil
+                        } else { panelUses[ref.filename] = uses - 1 }
+                    }
+                }
+                let renamed = Self.renames(for: names, processed: ready)
+                // Keep missing refs in this view so a failed panel cannot join strips across a gap.
+                for index in chapter.images.indices {
+                    let name = chapter.images[index].filename
+                    chapter.images[index].filename = renamed[name] ?? name
+                    chapter.images[index].data = nil
+                }
+                try await onChapterReady(chapter, Self.imageView(ready, renames: renamed))
+                nextChapter += 1
+            }
+        }
+        try await publishReady()
+        try await withThrowingTaskGroup(of: (String, ProcessedImage?, ProcessedImage?).self) { group in
             var pending = Array(unique.reversed())
             for _ in 0..<workers {
                 guard let ref = pending.popLast() else { break }
                 let page = pageOf[ref.filename]
-                group.addTask { (ref.filename, try await self.fetch(ref, page: page, processor: processor, gate: compressionGate)) }
+                group.addTask {
+                    let (image, raw) = try await self.fetch(ref, page: page, processor: processor, gate: compressionGate,
+                                                            preserveSource: preserveChapterSources)
+                    return (ref.filename, image, raw)
+                }
             }
-            while let (name, image) = try await group.next() {
+            while let (name, image, raw) = try await group.next() {
                 if let image { processed[name] = image } else { failed += 1 }
+                if let raw { panels[name] = raw }
+                unfinished.remove(name)
                 done += 1
                 onProgress(done, unique.count)
                 if let ref = pending.popLast() {
                     let page = pageOf[ref.filename]
-                    group.addTask { (ref.filename, try await self.fetch(ref, page: page, processor: processor, gate: compressionGate)) }
+                    group.addTask {
+                        let (image, raw) = try await self.fetch(ref, page: page, processor: processor, gate: compressionGate,
+                                                                preserveSource: preserveChapterSources)
+                        return (ref.filename, image, raw)
+                    }
                 }
+                try await publishReady()
             }
         }
 
         let renames = Self.renames(for: unique.map(\.filename), processed: processed)
+        let rewritten = chapters.map { Self.apply(renames, to: $0, keeping: processed) }
+        return Output(chapters: rewritten, images: Self.imageView(processed, renames: renames), failed: failed)
+    }
+
+    private static func imageView(_ processed: [String: ProcessedImage], renames: [String: String]) -> [String: Data] {
         var images: [String: Data] = [:]
         images.reserveCapacity(processed.count)
         for (name, image) in processed {
             images[renames[name] ?? name] = image.data
         }
-        let rewritten = chapters.map { Self.apply(renames, to: $0, keeping: processed) }
-        return Output(chapters: rewritten, images: images, failed: failed)
+        return images
     }
 
     /// `page`: the chapter's address, sent as the Referer when the image server refuses a request without one (fanfox).
-    private func fetch(_ ref: ImageRef, page: URL?, processor: ImageProcessor, gate: AsyncGate) async throws -> ProcessedImage? {
+    private func fetch(_ ref: ImageRef, page: URL?, processor: ImageProcessor, gate: AsyncGate,
+                       preserveSource: Bool) async throws -> (ProcessedImage?, ProcessedImage?) {
         try Task.checkCancellation()
         let data: Data
         if let bytes = ref.data {
@@ -90,21 +151,22 @@ public struct ImageStage: Sendable {
                 }
                 guard (200..<300).contains(response.status), !response.body.isEmpty else {
                     logger.log(.warning, "Image failed (\(response.status)): \(ref.url.absoluteString)")
-                    return nil
+                    return (nil, nil)
                 }
                 data = response.body
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 logger.log(.warning, "Image failed: \(ref.url.absoluteString): \(error.localizedDescription)")
-                return nil
+                return (nil, nil)
             }
         }
         await gate.acquire()
         let result = Task.isCancelled ? nil : ((try? processor.process(data)) ?? ProcessedImage(data: data, fileExtension: ImageProcessor.sniffExtension(data)))
         await gate.release()
         try Task.checkCancellation()
-        return result
+        let raw = preserveSource ? ProcessedImage(data: data, fileExtension: ImageProcessor.sniffExtension(data)) : nil
+        return (result, raw)
     }
 
     /// Old name -> new name for every image whose extension changed. Collisions get a

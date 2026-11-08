@@ -250,6 +250,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
 
     i = base.images
     target_mb = _float(c.get("recompress_target_mb"))
+    stitch_height = _int(c.get("stitch_height"))
     images = replace(
         i,
         compress=_first_bool(c, "compress_images", i.compress),
@@ -262,9 +263,11 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         compress_cover=_first_bool(c, "compress_cover", i.compress_cover),
         cover_quality=_int(c.get("cover_quality")) or i.cover_quality,
         cover_format=_choice(c.get("cover_format"), IMAGE_FORMATS, i.cover_format, upper=True),
-        zip_compress_images=_first_bool(c, "zip_compress_images", i.zip_compress_images),
         compression_workers=_int(c.get("image_compression_workers")) or i.compression_workers,
-        long_image_layout=_first_bool(c, "ext_long_image_layout", i.long_image_layout),
+        webtoon_export=_first_bool(c, "webtoon_export", i.webtoon_export),
+        stitch_images=_first_bool(c, "stitch_images", i.stitch_images),
+        stitch_height=i.stitch_height if stitch_height is None else min(32_000, max(0, stitch_height)),
+        stitch_chapter_folders=_first_bool(c, "stitch_chapter_folders", i.stitch_chapter_folders),
         save_image_urls_only=_first_bool(c, "save_image_urls_only", i.save_image_urls_only),
     )
 
@@ -527,9 +530,13 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["compress_cover"] = i.compress_cover
     c["cover_quality"] = i.cover_quality
     c["cover_format"] = i.cover_format
-    c["zip_compress_images"] = i.zip_compress_images
+    c.pop("zip_compress_images", None)
     c["image_compression_workers"] = i.compression_workers
-    c["ext_long_image_layout"] = i.long_image_layout
+    c.pop("ext_long_image_layout", None)
+    c["webtoon_export"] = i.webtoon_export
+    c["stitch_images"] = i.stitch_images
+    c["stitch_height"] = i.stitch_height
+    c["stitch_chapter_folders"] = i.stitch_chapter_folders
     c["save_image_urls_only"] = i.save_image_urls_only
 
     t = s.text

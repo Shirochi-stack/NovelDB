@@ -1,4 +1,5 @@
 import copy
+from types import SimpleNamespace
 
 import pytest
 
@@ -288,6 +289,45 @@ def test_mpia_cancellation_during_pagination_discards_partial_book(book_setup):
     assert scraper._mpia_parse_book(BOOK_URL) is None
     assert scraper._book_data is None
     assert len(page.evaluations) == 2
+
+
+def test_catalog_mpia_reads_chapter_one_between_toc_pages(book_setup):
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    from noveldb.core.external.browser_worker import BrowserWorker
+    from noveldb.qt.catalog.generic import GenericCatalog
+
+    scraper, listing_page, responses, _detail, _messages = book_setup
+    page_one = f'{DETAIL_PATH}/chapters?order=ENTRY_FIRST&page=1&size=30'
+    page_two = f'{DETAIL_PATH}/chapters?order=ENTRY_FIRST&page=2&size=30'
+    responses[page_one] = envelope({'total': 2, 'list': [chapter_row(1)]})
+    responses[page_two] = envelope({'total': 2, 'list': [chapter_row(2)]})
+    closed = []
+    listing_page.close = lambda: closed.append(True)
+    scraper._context = SimpleNamespace(new_page=lambda: listing_page)
+    scraper.parse_chapter = lambda index, chapter, **_options: {
+        "chapterName": chapter["name"], "contentHtml": "<p>Chapter one text</p>",
+    }
+    worker = BrowserWorker(scraper_factory=lambda **_options: scraper)
+    catalog = SimpleNamespace(downloader=worker.submit, _downloader_books={}, _note=lambda _note: None,
+                              _apply_engine_settings=lambda _scraper: None)
+    received = []
+
+    def publish(chapters):
+        received.extend(chapter["name"] for chapter in chapters)
+        if len(received) == 1:
+            assert [path for _, path in listing_page.evaluations] == [DETAIL_PATH, page_one]
+            chapter = GenericCatalog._downloader_read(catalog, BOOK_URL, 0)
+            assert chapter["html"] == "<p>Chapter one text</p>"
+            assert [path for _, path in listing_page.evaluations] == [DETAIL_PATH, page_one]
+
+    try:
+        result = GenericCatalog._mpia_reader_book(catalog, BOOK_URL, publish, lambda: True, None)
+        worker.submit(lambda _scraper: None).result(timeout=3)
+        assert received == ["Episode 1", "Episode 2"]
+        assert result["engine"] == "mpia"
+        assert closed == [True]
+    finally:
+        worker.shutdown()
 
 
 def test_mpia_list_pacing_uses_min_max_and_stop_interrupts_sleep(monkeypatch):

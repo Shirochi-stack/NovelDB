@@ -46,7 +46,12 @@ class ImageStage(
         val failed: Int,
     )
 
-    suspend fun run(chapters: List<ChapterContent>, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): Output {
+    suspend fun run(
+        chapters: List<ChapterContent>,
+        preserveChapterSources: Boolean = false,
+        onChapterReady: (suspend (ChapterContent, Map<String, ByteArray>) -> Unit)? = null,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): Output {
         if (settings.images.saveImageUrlsOnly) {
             return Output(chapters.map(::remoteOnly), emptyMap(), 0)
         }
@@ -57,32 +62,65 @@ class ImageStage(
         val downloads = Semaphore(settings.effective(source).imageWorkers.coerceAtLeast(1))
         val encodes = Semaphore(settings.images.compressionWorkers.coerceAtLeast(1))
         val progress = Mutex()
+        val processed = mutableMapOf<String, ProcessedImage>()
+        val panels = if (preserveChapterSources) mutableMapOf<String, ProcessedImage>() else processed
+        val unfinished = if (onChapterReady == null) mutableSetOf() else unique.mapTo(mutableSetOf()) { it.filename }
+        val ordered = if (onChapterReady == null) emptyList()
+            else chapters.filter { it.ref.isNotice } + chapters.filter { !it.ref.isNotice }
+        var nextChapter = 0
         var done = 0
         onProgress(0, unique.size)
 
-        val results = coroutineScope {
+        suspend fun publishReady() {
+            if (onChapterReady == null) return
+            while (nextChapter < ordered.size) {
+                val chapter = ordered[nextChapter]
+                if (chapter.images.any { it.filename in unfinished }) break
+                val names = chapter.images.map { it.filename }.distinct()
+                val ready = names.mapNotNull { name -> panels[name]?.let { name to it } }.toMap()
+                val renamed = renames(names, ready)
+                // Keep missing refs in this view so a failed panel cannot join two strips across a gap.
+                val refs = chapter.images.map { ImageRef(it.url, renamed[it.filename] ?: it.filename) }
+                onChapterReady(chapter.copy(images = refs), imageView(ready, renamed,
+                    if (preserveChapterSources) RAW else ENCODED))
+                nextChapter += 1
+            }
+        }
+        publishReady()
+        coroutineScope {
             unique.map { ref ->
                 async {
+                    var original: ProcessedImage? = null
                     // The download slot is held through encoding so raw bytes never pile up.
                     val image = downloads.withPermit {
-                        download(ref, pageOf[ref.filename])?.let { data -> encodes.withPermit { encode(data) } }
+                        download(ref, pageOf[ref.filename])?.let { data ->
+                            if (preserveChapterSources) {
+                                store?.put(RAW + ref.filename, data)
+                                original = ProcessedImage(if (store == null) data else ByteArray(0), sniffImageExtension(data))
+                            }
+                            encodes.withPermit { encode(data) }
+                        }
                     }?.let { stored(ref.filename, it) }
                     progress.withLock {
+                        if (image != null) processed[ref.filename] = image
+                        original?.let { panels[ref.filename] = it }
+                        unfinished.remove(ref.filename)
                         done += 1
                         onProgress(done, unique.size)
+                        publishReady()
                     }
-                    ref.filename to image
                 }
             }.awaitAll()
         }
 
-        val processed = results.mapNotNull { (name, image) -> image?.let { name to it } }.toMap()
-        val failed = results.count { it.second == null }
         val renames = renames(unique.map { it.filename }, processed)
-        val images = store?.view(processed.keys.associate { name -> (renames[name] ?: name) to ENCODED + name })
-            ?: processed.entries.associate { (name, image) -> (renames[name] ?: name) to image.data }
-        return Output(chapters.map { apply(renames, it, processed.keys) }, images, failed)
+        return Output(chapters.map { apply(renames, it, processed.keys) }, imageView(processed, renames), unique.size - processed.size)
     }
+
+    private fun imageView(processed: Map<String, ProcessedImage>, renames: Map<String, String>,
+                          prefix: String = ENCODED): Map<String, ByteArray> =
+        store?.view(processed.keys.associate { name -> (renames[name] ?: name) to prefix + name })
+            ?: processed.entries.associate { (name, image) -> (renames[name] ?: name) to image.data }
 
     /** `page`: the chapter's address, sent as the Referer when the image server refuses a request without one (fanfox). */
     private suspend fun download(ref: ImageRef, page: String? = null): ByteArray? {
@@ -128,6 +166,7 @@ class ImageStage(
 
     companion object {
         private const val ENCODED = "encoded:"
+        private const val RAW = "raw:"
 
         /**
          * Old name -> new name for every image whose extension changed. Collisions get a numeric

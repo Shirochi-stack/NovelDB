@@ -319,7 +319,6 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         self.var_compress_cover = tk.BooleanVar(value=False)
         self.var_cover_quality = tk.IntVar(value=90)
         self.var_cover_format = tk.StringVar(value="JPEG")  # JPEG, PNG, WEBP
-        self.var_zip_compress_images = tk.BooleanVar(value=False)  # ZIP_STORED by default
         self.var_threads = tk.IntVar(value=1)
         self.var_image_compression_workers = tk.IntVar(value=1)
         self.var_interval = tk.DoubleVar(value=2.0)
@@ -340,6 +339,12 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         self.var_save_txt = tk.BooleanVar(value=False)
         self.var_separate_txt = tk.BooleanVar(value=False)
         self.var_save_pdf = tk.BooleanVar(value=False)
+        self.var_save_folder = tk.BooleanVar(value=False)
+        self.var_save_zip = tk.BooleanVar(value=False)
+        self.var_webtoon_export = tk.BooleanVar(value=False)
+        self.var_stitch_images = tk.BooleanVar(value=True)
+        self.var_stitch_height = tk.IntVar(value=16000)
+        self.var_stitch_chapter_folders = tk.BooleanVar(value=False)
         self.var_font_path = tk.StringVar()
         self.var_include_notices = tk.BooleanVar(value=True)
         self.var_number_chapters = tk.BooleanVar(value=False)
@@ -562,6 +567,8 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         ttk.Checkbutton(fmt_frame, text="EPUB", variable=self.var_save_epub).pack(side="left", padx=(5, 15))
         ttk.Checkbutton(fmt_frame, text="TXT", variable=self.var_save_txt).pack(side="left")
         ttk.Checkbutton(fmt_frame, text="PDF", variable=self.var_save_pdf).pack(side="left", padx=(15, 0))
+        ttk.Checkbutton(fmt_frame, text="Folder", variable=self.var_save_folder).pack(side="left", padx=(15, 0))
+        ttk.Checkbutton(fmt_frame, text="ZIP", variable=self.var_save_zip).pack(side="left", padx=(15, 0))
         ToolTip(
             fmt_frame,
             "Select one or more output formats. Chapters are downloaded once,\n"
@@ -607,7 +614,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
 
         comp_frame = ttk.Frame(dl_inner)
         comp_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
-        chk_compress_images = ttk.Checkbutton(comp_frame, text="Compress Images", variable=self.var_compress_images)
+        chk_compress_images = ttk.Checkbutton(comp_frame, text="Compress chapter images", variable=self.var_compress_images)
         chk_compress_images.pack(side="left")
         lbl_image_quality = ttk.Label(comp_frame, text="Quality")
         lbl_image_quality.pack(side="left", padx=(15, 5))
@@ -648,8 +655,6 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         cov_fmt_cb = ttk.Combobox(cover_frame, textvariable=self.var_cover_format, values=["JPEG", "WEBP", "PNG", "AVIF"], state="readonly", width=7)
         cov_fmt_cb.pack(side="left")
         ToolTip(cov_fmt_cb, "Output format for the cover image.\nAVIF requires 'pillow-avif-plugin'.")
-        chk_zip_compress = ttk.Checkbutton(cover_frame, text="ZIP Compress", variable=self.var_zip_compress_images)
-        chk_zip_compress.pack(side="left", padx=(15, 0))
 
         # --- Target-size recompression row ---
         target_frame = ttk.Frame(dl_inner)
@@ -731,7 +736,6 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
             (spn_cover_quality, "normal"),
             (lbl_cover_format, "normal"),
             (cov_fmt_cb, "readonly"),
-            (chk_zip_compress, "normal"),
             (chk_target, "normal"),
             (lbl_target_size, "normal"),
             (spn_target, "normal"),
@@ -1971,7 +1975,6 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
                 self.var_compress_cover.set(cfg.get("compress_cover", False))
                 self.var_cover_quality.set(cfg.get("cover_quality", 90))
                 self.var_cover_format.set(cfg.get("cover_format", "JPEG"))
-                self.var_zip_compress_images.set(cfg.get("zip_compress_images", False))
                 self.var_include_notices.set(cfg.get("include_notices", True))
                 self.var_number_chapters.set(cfg.get("number_chapters", False))
                 self.var_strip_leading_spaces.set(cfg.get("strip_leading_spaces", False))
@@ -1981,13 +1984,19 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
                     configured_formats = [cfg.get("save_format", "epub")]
                 configured_formats = [
                     fmt for fmt in configured_formats
-                    if fmt in ("epub", "txt", "pdf")
+                    if fmt in ("epub", "txt", "pdf", "folder", "zip")
                 ]
                 if not configured_formats:
                     configured_formats = ["epub"]
                 self.var_save_epub.set("epub" in configured_formats)
                 self.var_save_txt.set("txt" in configured_formats)
                 self.var_save_pdf.set("pdf" in configured_formats)
+                self.var_save_folder.set("folder" in configured_formats)
+                self.var_save_zip.set("zip" in configured_formats)
+                self.var_webtoon_export.set(cfg.get("webtoon_export", False))
+                self.var_stitch_images.set(cfg.get("stitch_images", True))
+                self.var_stitch_height.set(cfg.get("stitch_height", 16000))
+                self.var_stitch_chapter_folders.set(cfg.get("stitch_chapter_folders", False))
                 self.var_save_format.set(configured_formats[0])
                 self.var_save_html.set(cfg.get("save_html", False))
                 self.var_separate_txt.set(cfg.get("separate_txt", False))
@@ -2100,7 +2109,10 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
             "compress_cover": self.var_compress_cover.get(),
             "cover_quality": self.var_cover_quality.get(),
             "cover_format": self.var_cover_format.get(),
-            "zip_compress_images": self.var_zip_compress_images.get(),
+            "webtoon_export": self.var_webtoon_export.get(),
+            "stitch_images": self.var_stitch_images.get(),
+            "stitch_height": self.var_stitch_height.get(),
+            "stitch_chapter_folders": self.var_stitch_chapter_folders.get(),
             "include_notices": self.var_include_notices.get(),
             "number_chapters": self.var_number_chapters.get(),
             "strip_leading_spaces": self.var_strip_leading_spaces.get(),

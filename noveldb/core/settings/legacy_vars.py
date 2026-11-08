@@ -43,7 +43,7 @@ def npia_values(settings: AppSettings, novel_input: str, output_dir: Optional[st
     """Attributes for `NpiaPipelineMixin`, using npia's effective run settings."""
     run = settings.effective(NPIA)
     images, text, npia = settings.images, settings.text, settings.npia
-    formats = [f for f in run.formats if f in ("epub", "txt", "pdf")] or ["epub"]
+    formats = [f for f in run.formats if f in ("epub", "txt", "pdf", "folder", "zip")] or ["epub"]
     quick, folder = _output_target(settings, output_dir)
     values = {
         "var_novel_id": novel_input,
@@ -58,6 +58,12 @@ def npia_values(settings: AppSettings, novel_input: str, output_dir: Optional[st
         "var_save_epub": "epub" in formats,
         "var_save_txt": "txt" in formats,
         "var_save_pdf": "pdf" in formats,
+        "var_save_folder": "folder" in formats,
+        "var_save_zip": "zip" in formats,
+        "var_webtoon_export": images.webtoon_export,
+        "var_stitch_images": images.stitch_images,
+        "var_stitch_height": images.stitch_height,
+        "var_stitch_chapter_folders": images.stitch_chapter_folders,
         "var_save_format": formats[0],
         "var_separate_txt": run.separate_txt,
         "var_number_chapters": run.number_chapters,
@@ -80,7 +86,6 @@ def npia_values(settings: AppSettings, novel_input: str, output_dir: Optional[st
         "var_compress_cover": images.compress_cover,
         "var_cover_quality": images.cover_quality,
         "var_cover_format": images.cover_format,
-        "var_zip_compress_images": images.zip_compress_images,
         "var_image_compression_workers": images.compression_workers,
         "var_include_notices": npia.include_notices,
         "var_quick_enable": quick,
@@ -99,7 +104,7 @@ def external_values(
     """Attributes for `ExternalPipelineMixin`: its `_var_*` options, `_parent_gui` and retries."""
     run = settings.effective(source)
     images, text, sources = settings.images, settings.text, settings.sources
-    formats = [f for f in run.formats if f in ("epub", "txt", "pdf", "cbz")] or ["epub"]
+    formats = [f for f in run.formats if f in ("epub", "txt", "pdf", "cbz", "folder", "zip")] or ["epub"]
     quick, folder = _output_target(settings, output_dir)
     values = {
         "_url_var": url,
@@ -108,6 +113,13 @@ def external_values(
         "_var_format_txt": "txt" in formats,
         "_var_format_pdf": "pdf" in formats,
         "_var_format_cbz": "cbz" in formats,
+        "_var_format_folder": "folder" in formats,
+        "_var_format_zip": "zip" in formats,
+        "_var_webtoon_export": images.webtoon_export,
+        "_var_stitch_images": images.stitch_images,
+        "_var_stitch_height": images.stitch_height,
+        "_var_stitch_chapter_folders": images.stitch_chapter_folders,
+        "_var_save_image_urls_only": images.save_image_urls_only,
         "_var_separate_txt": run.separate_txt,
         "_var_ext_threads": run.threads,
         "_var_ext_image_workers": run.image_workers,
@@ -123,7 +135,6 @@ def external_values(
         "_var_use_cache": run.use_cache,
         "_var_cache_images": run.cache_images,
         "_var_blank_paragraph_lines": text.blank_paragraph_lines,
-        "_var_long_image_layout": images.long_image_layout,
         "_var_kobo_horizontal_layout": sources.kobo_horizontal_layout,
         "_var_regular_browser": sources.regular_browser,
         "_var_engine_order": list(settings.engines.enabled()),
@@ -146,7 +157,6 @@ def external_values(
             "var_compress_images": images.compress,
             "var_jpeg_quality": images.quality,
             "var_image_format": images.format,
-            "var_zip_compress_images": images.zip_compress_images,
             "var_compress_cover": images.compress_cover,
             "var_cover_quality": images.cover_quality,
             "var_cover_format": images.cover_format,

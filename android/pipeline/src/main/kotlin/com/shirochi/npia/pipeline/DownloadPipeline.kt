@@ -26,6 +26,7 @@ import com.shirochi.npia.core.sniffImageExtension
 import com.shirochi.npia.net.OkHttpFetcher
 import com.shirochi.npia.output.BookBundle
 import com.shirochi.npia.output.BookWriter
+import com.shirochi.npia.output.FolderWriter
 import com.shirochi.npia.output.OutputSkipped
 import com.shirochi.npia.output.Writers
 import com.shirochi.npia.sources.SourceCatalog
@@ -39,8 +40,11 @@ import com.shirochi.npia.upload.UploadStem
 import com.shirochi.npia.upload.UploaderCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -147,8 +151,43 @@ class DownloadPipeline(
             "Chapters: ${chapters.size} downloaded" + (if (skipped.isNotEmpty()) ", ${skipped.size} skipped or failed" else ""),
         )
 
-        val imageOutput = ImageStage(http, settings, owner.id, images, logger, store).run(chapters) { done, total ->
-            onPhase(JobPhase.DownloadingImages(done, total))
+        val chapterExport = if (!settings.images.saveImageUrlsOnly &&
+            shared.formats.any { it == OutputFormat.FOLDER || it == OutputFormat.ZIP }) {
+            FolderWriter.Prepared(outputDirectory, settings.images, images)
+        } else null
+        return chapterExport.use { prepared ->
+            writeOutputs(book, chapters, skipped, owner.id, shared, settings, http, url, store, started, onPhase, prepared)
+        }
+    }
+
+    private suspend fun writeOutputs(
+        book: BookInfo, chapters: MutableList<ChapterContent>, skipped: List<Pair<ChapterRef, String>>,
+        source: SourceId, shared: SharedSettings, settings: AppSettings, http: HttpFetching,
+        url: String, store: ImageStore, started: Long, onPhase: (JobPhase) -> Unit,
+        prepared: FolderWriter.Prepared?,
+    ): JobOutcome {
+        val compressAfter = prepared != null && settings.images.compressAfterStitch
+        val otherImageOutputs = shared.formats.any { it == OutputFormat.EPUB || it == OutputFormat.CBZ || it == OutputFormat.PDF }
+        val stage = ImageStage(http, settings, source,
+            if (compressAfter && !otherImageOutputs) PassthroughImages else images, logger, store)
+        val progress: (Int, Int) -> Unit = { done, total -> onPhase(JobPhase.DownloadingImages(done, total)) }
+        val imageOutput = if (prepared == null) stage.run(chapters, onProgress = progress) else coroutineScope {
+            val ready = Channel<Pair<ChapterContent, Map<String, ByteArray>>>(capacity = 1)
+            val writer = launch {
+                for ((chapter, bytes) in ready) {
+                    if (settings.images.webtoonExport && settings.images.stitchImages &&
+                        chapter.images.size > 1 && chapter.images.all { bytes.containsKey(it.filename) }) {
+                        logger.log(LogLevel.INFO, "Stitching chapter ${chapter.ref.index}: ${chapter.ref.title}")
+                    }
+                    prepared.append(chapter, bytes)
+                }
+            }
+            val output = stage.run(chapters, preserveChapterSources = compressAfter && otherImageOutputs,
+                onChapterReady = { chapter, bytes -> ready.send(chapter to bytes) },
+                onProgress = progress)
+            ready.close()
+            writer.join()
+            output
         }
         logger.log(
             if (imageOutput.failed > 0) LogLevel.WARNING else LogLevel.INFO,
@@ -177,7 +216,13 @@ class DownloadPipeline(
             logger.log(LogLevel.INFO, "Writing ${format.raw.uppercase()}")
             val writer = Writers.writer(format)
             var file = try {
-                writer.write(bundle, baseName, outputDirectory)
+                if (prepared != null && (format == OutputFormat.FOLDER || format == OutputFormat.ZIP)) {
+                    if (format == OutputFormat.FOLDER &&
+                        shared.formats.indexOf(OutputFormat.FOLDER) < shared.formats.indexOf(OutputFormat.ZIP)) {
+                        prepared.pack()
+                    }
+                    prepared.publish(format, baseName)
+                } else writer.write(bundle, baseName, outputDirectory)
             } catch (e: OutputSkipped) {
                 logger.log(LogLevel.WARNING, e.message.orEmpty())
                 return@mapNotNull null
@@ -194,7 +239,7 @@ class DownloadPipeline(
         if (settings.upload.autoUpload && files.isNotEmpty()) {
             // Folder outputs (separate TXT) are zipped by the catalog; several files may share a ZIP.
             // The stem names files whose titles hosts would reduce to nothing (npia_123456.epub).
-            val stem = UploadStem.of(owner.id.raw, UploadStem.bookId(url, book.id))
+            val stem = UploadStem.of(source.raw, UploadStem.bookId(url, book.id))
             val upload = settings.upload
             val uploadContext = UploadContext(secrets, upload)
             val plan = UploaderCatalog.plan(files.map { UploadItem(it, stem) }, upload, uploadContext)

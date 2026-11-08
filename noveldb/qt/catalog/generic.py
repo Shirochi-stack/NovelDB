@@ -950,6 +950,16 @@ class GenericCatalog(QObject):
                 streamed = True
                 on_chapters(chapters)
 
+            from external_scraper import ExternalScraper
+
+            mpia = ExternalScraper.is_mpia(url) and self._builtin_scrapers_enabled()
+            if on_chapters is not None and self.downloader is not None and mpia:
+                try:
+                    answer(self._mpia_reader_book(url, publish, active, work))
+                except Exception as e:
+                    answer({"error": str(e)[:300], "blocked": True, "message": BLOCKED})
+                return
+
             if on_chapters is not None and self.downloader is not None:
                 from noveldb.core.npia.ids import SITE_DOMAIN, extract_novel_id
 
@@ -974,11 +984,9 @@ class GenericCatalog(QObject):
                     answer({"error": str(e)[:300], "blocked": True, "message": BLOCKED})
                 return
             from noveldb.core.engines.comix import knows as comix_reader
-            from external_scraper import ExternalScraper
 
             # Let the site-specific browser engines handle the reader before the quick generic parser.
             comix = comix_reader(url) and self._builtin_scrapers_enabled()
-            mpia = ExternalScraper.is_mpia(url) and self._builtin_scrapers_enabled()
             if self.downloader is not None and mpia:
                 try:
                     answer(self._downloader_read(url, *args[1:]))
@@ -1062,6 +1070,51 @@ class GenericCatalog(QObject):
         return {"title": meta.get("title") or "", "author": meta.get("author") or "", "engine": "npia",
                 "chapters": LiveReader._chapter_names(chapters)}
 
+    def _mpia_reader_book(self, url, publish, active, work):
+        """Yield the browser worker after each TOC page so it can read the selected chapter."""
+        iterator = None
+        first_read = threading.Event()
+        handoff = (url, first_read)
+        self._mpia_reader_handoff = handoff
+
+        def next_page(scraper):
+            nonlocal iterator
+            if not active():
+                raise RuntimeError("the reader was closed")
+            if iterator is None:
+                self._apply_engine_settings(scraper)
+                iterator = scraper._mpia_book_pages(url, reader=True)
+            return next(iterator, None)
+
+        count = 0
+        try:
+            while active():
+                future = self.downloader(next_page)
+                data = work.result(future) if work else future.result(timeout=90)
+                if not active():
+                    break
+                if not data:
+                    raise RuntimeError("no chapters found")
+                self._downloader_books[url] = data
+                chapters = data["chapters"]
+                publish(LiveReader._chapter_names(chapters[count:], count))
+                if data["_mpia_reader_complete"]:
+                    return {"title": data["bookname"], "author": data["author"], "engine": "mpia",
+                            "chapters": LiveReader._chapter_names(chapters)}
+                if count == 0:
+                    # Usually the displayed chapter is handed back immediately. Bound the wait
+                    # because a saved position may be on a later TOC page.
+                    first_read.wait(0.75)
+                else:
+                    time.sleep(0.3)
+                count = len(chapters)
+            raise RuntimeError("the reader was closed")
+        finally:
+            if getattr(self, "_mpia_reader_handoff", None) is handoff:
+                self._mpia_reader_handoff = None
+            if iterator is not None:
+                self.downloader(lambda _scraper: iterator.close())
+
     def stop_reader(self) -> None:
         """The reader closed (or opened another book): the downloader stops the chapter it is reading for it, so
         the next book does not wait behind it (and the chapter read ahead is not started)."""
@@ -1117,6 +1170,7 @@ class GenericCatalog(QObject):
                     and isinstance(current, dict)
                     and current.get("chapters")
                     and not current.get("_npia_reader_list")
+                    and not current.get("_mpia_reader_list")
                 ):
                     return current
                 scraper.reader_work = work
@@ -1174,6 +1228,13 @@ class GenericCatalog(QObject):
                 if data.get("_npia_reader_list"):
                     if not scraper._start_npia_browser(data["bookUrl"]):
                         raise RuntimeError("the npia viewer could not be opened")
+                    scraper._book_data, scraper._book_url = data, data["bookUrl"]
+                elif data.get("_mpia_reader_list"):
+                    handoff = getattr(self, "_mpia_reader_handoff", None)
+                    if handoff and handoff[0] == url:
+                        handoff[1].set()
+                    if not scraper._start_mpia_browser(data["bookUrl"]):
+                        raise RuntimeError("the mpia viewer could not be opened")
                     scraper._book_data, scraper._book_url = data, data["bookUrl"]
                 elif getattr(scraper, "_book_url", None) != url:
                     scraper.parse_book(url)  # the worker may have read another book since

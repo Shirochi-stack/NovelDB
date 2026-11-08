@@ -77,9 +77,11 @@ object DesktopConfig {
             compressCover = c.bool("compress_cover") ?: i.compressCover,
             coverQuality = c.int("cover_quality") ?: i.coverQuality,
             coverFormat = c.string("cover_format")?.let(ImageFormat::fromRaw) ?: i.coverFormat,
-            zipCompressImages = c.bool("zip_compress_images") ?: i.zipCompressImages,
             compressionWorkers = c.int("image_compression_workers") ?: i.compressionWorkers,
-            longImageLayout = c.bool("ext_long_image_layout") ?: i.longImageLayout,
+            webtoonExport = c.bool("webtoon_export") ?: i.webtoonExport,
+            stitchImages = c.bool("stitch_images") ?: i.stitchImages,
+            stitchHeight = (c.int("stitch_height") ?: i.stitchHeight).coerceIn(0, 32_000),
+            stitchChapterFolders = c.bool("stitch_chapter_folders") ?: i.stitchChapterFolders,
             saveImageUrlsOnly = c.bool("save_image_urls_only") ?: i.saveImageUrlsOnly,
         )
 
@@ -225,9 +227,13 @@ object DesktopConfig {
         put("compress_cover", i.compressCover)
         put("cover_quality", i.coverQuality)
         put("cover_format", i.coverFormat.raw)
-        put("zip_compress_images", i.zipCompressImages)
+        c.remove("zip_compress_images")
         put("image_compression_workers", i.compressionWorkers)
-        put("ext_long_image_layout", i.longImageLayout)
+        c.remove("ext_long_image_layout")
+        put("webtoon_export", i.webtoonExport)
+        put("stitch_images", i.stitchImages)
+        put("stitch_height", i.stitchHeight)
+        put("stitch_chapter_folders", i.stitchChapterFolders)
         put("save_image_urls_only", i.saveImageUrlsOnly)
 
         val t = s.text

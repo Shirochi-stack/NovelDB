@@ -7,6 +7,7 @@ import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SiteEngine
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.sources.SourceCatalog
+import com.shirochi.npia.sources.mpia.MpiaAdapter
 import com.shirochi.npia.sources.npia.NpiaAdapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -63,23 +64,43 @@ internal object BuiltInReader {
             ?: return buildJsonObject { put("error", if (engines) "no site engine lists this site" else "no built-in scraper for this site"); put("skip", true) }.toString()
         val reader = (details["reader"] as? JsonPrimitive)?.contentOrNull
         val page = (details["page"] as? JsonPrimitive)?.intOrNull
+        val paged = reader != null && (adapter is NpiaAdapter || adapter is MpiaAdapter)
         val key = when {
             engines -> "engines|$url"
-            adapter is NpiaAdapter && reader != null -> "$reader|$url"
+            paged -> "$reader|$url"
             else -> url
         }
         return try {
             when (op) {
-                "book" -> if (adapter is NpiaAdapter && reader != null && page != null)
-                    npiaPage(key, url, page, context) else book(key, url, adapter, context)
+                "book" -> when {
+                    paged && page != null && adapter is NpiaAdapter -> npiaPage(key, url, page, context)
+                    paged && page != null && adapter is MpiaAdapter -> mpiaPage(key, url, page, adapter, context)
+                    else -> book(key, url, adapter, context)
+                }
                 else -> chapter(key, url, (details["index"] as? JsonPrimitive)?.intOrNull ?: -1, adapter, context,
-                    paged = adapter is NpiaAdapter && reader != null)
+                    paged = paged)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             buildJsonObject { put("error", (e.message ?: e.toString()).lineSequence().first().take(300)) }.toString()
         }
+    }
+
+    private suspend fun mpiaPage(key: String, url: String, page: Int, adapter: MpiaAdapter, context: SourceContext): String {
+        val previous = if (page == 0) null else {
+            synchronized(books) { books[key]?.second } ?: error("the reader was closed")
+        }
+        val (book, more) = adapter.readerPage(url, page, previous, context)
+        val added = book.chapters.drop(previous?.chapters?.size ?: 0)
+        synchronized(books) { books[key] = adapter to book }
+        return buildJsonObject {
+            put("bookname", book.title)
+            put("author", book.author.orEmpty())
+            put("engine", adapter.id.raw)
+            put("chapters", buildJsonArray { added.forEach { add(buildJsonObject { put("name", it.title) }) } })
+            put("more", more)
+        }.toString()
     }
 
     private suspend fun npiaPage(key: String, url: String, page: Int, context: SourceContext): String {

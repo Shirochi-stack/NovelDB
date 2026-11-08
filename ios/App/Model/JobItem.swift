@@ -33,7 +33,10 @@ struct JobItem: Identifiable, Codable {
     var displayTitle: String { title ?? url.absoluteString }
 
     func files(in directory: URL) -> [URL] {
-        fileNames.map { directory.appendingPathComponent($0) }
+        fileNames.map { name in
+            let url = directory.appendingPathComponent(name)
+            return url.pathExtension.lowercased() == "folder" ? directory.appendingPathComponent(name, isDirectory: true) : url
+        }
     }
 
     mutating func apply(_ phase: JobPhase) {

@@ -8,7 +8,6 @@ enum SourceOptionGroup: Hashable {
     case kpage
     case ntkCover
     case koboLayout
-    case longImages
 }
 
 enum SourceInfo {
@@ -34,10 +33,9 @@ enum SourceInfo {
     static func groups(for source: SourceID) -> [SourceOptionGroup] {
         switch source {
         case .npia: return [.npia]
-        case .kpage: return [.kpage, .longImages]
-        case .ntk: return [.ntkCover, .longImages]
+        case .kpage: return [.kpage]
+        case .ntk: return [.ntkCover]
         case .kobo: return [.koboLayout]
-        case .floo, .rbooks, .qdn: return [.longImages]
         default: return []
         }
     }

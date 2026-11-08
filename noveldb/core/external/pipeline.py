@@ -22,6 +22,8 @@ import threading
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
+from pathlib import Path
 
 from external_scraper import ExternalScraper, write_text_output
 from noveldb.core.net_timeouts import page_timeout_ms, request_timeout
@@ -748,6 +750,9 @@ class ExternalPipelineMixin:
                                 "the site's anti-copy protection). Saved as it came."
                             )
                     results[idx] = data
+                    lookahead = getattr(self, "_kpage_images", None)
+                    if lookahead and data and not data.get("_locked") and self._downloading:
+                        lookahead.offer(data)
                     if isinstance(data, dict) and use_cache:
                         cache_key = (
                             ExternalPipelineMixin._external_cache_chapter_key(
@@ -1149,14 +1154,21 @@ class ExternalPipelineMixin:
                   f"threads={num_threads}, interval={interval_display}"
                   + (', skipping paid' if skip_paid else ''))
 
-        self._do_download(chapters, start, end, interval, num_threads,
-                          skip_paid, retry_passes,
-                          interval_max=(
-                              interval_max if interval_max_supplied else None
-                          ))
-
-        # Generate output and signal completion
         try:
+            formats = (getattr(self, "_active_output_formats", None) or self._selected_output_formats()) if data.get("_kpage") else ()
+            if (data.get("_kpage") and any(fmt != "txt" for fmt in formats)
+                    and not (getattr(self, "_var_save_image_urls_only", None) and self._var_save_image_urls_only.get())):
+                from noveldb.core.external.kpage_images import KpageImages
+
+                workers = min(32, max(1, self._var_ext_image_workers.get()))
+                try:
+                    self._kpage_images = KpageImages(self, data.get("bookUrl") or url, workers)
+                    self._log(f"[Kpage] Downloading images as episode lists arrive ({workers} workers).")
+                except OSError:
+                    self._log("[Kpage] Temporary image storage unavailable. Images will download during export.")
+            self._do_download(chapters, start, end, interval, num_threads, skip_paid, retry_passes,
+                              interval_max=interval_max if interval_max_supplied else None)
+
             generate_after_stop = (
                 self._download_cancelled
                 and bool(getattr(
@@ -1183,11 +1195,15 @@ class ExternalPipelineMixin:
                 return
             if successes > 0:
                 self._book_data = data
-                self._log(f"Generating output from {successes} chapter(s)...")
+                self._log(f"Chapter details ready for {successes} chapter(s).")
                 self._generate_output()
         except Exception as e:
             self._log(f"❌ Output generation error: {e}")
         finally:
+            lookahead = getattr(self, "_kpage_images", None)
+            if lookahead:
+                self._kpage_images = None
+                lookahead.close()
             self._log("Finished.")
             self._msg_queue.put(("finished", None))
 
@@ -1322,7 +1338,7 @@ class ExternalPipelineMixin:
                 old_book = self._book_data
                 self._book_data = data
                 try:
-                    self._log(f"Generating output from {successes} chapter(s)...")
+                    self._log(f"Chapter details ready for {successes} chapter(s).")
                     self._generate_output()
                 except Exception as e:
                     self._log(f"❌ Output generation error: {e}")
@@ -1348,8 +1364,10 @@ class ExternalPipelineMixin:
                 ('txt', self._var_format_txt),
                 ('pdf', self._var_format_pdf),
                 ('cbz', self._var_format_cbz),
+                ('folder', getattr(self, '_var_format_folder', None)),
+                ('zip', getattr(self, '_var_format_zip', None)),
             )
-            if variable.get()
+            if variable is not None and variable.get()
         ]
 
     def _numbered_title(self, chapter_number, chapter_name):
@@ -1396,7 +1414,7 @@ class ExternalPipelineMixin:
 
         self._var_format.set(formats[0])
         self._log(
-            "Generating format(s): "
+            "Selected outputs: "
             + ", ".join(fmt.upper() for fmt in formats)
         )
         # A Stop pressed from here on ends the build; one pressed earlier with "generate on
@@ -1417,14 +1435,41 @@ class ExternalPipelineMixin:
                 and not getattr(self, '_generation_stop_baseline', True))
 
     def _generate_formats(self, data, formats, title, author):
+        chapter_exports = {"folder", "zip"}.intersection(formats)
+        if not chapter_exports:
+            return ExternalPipelineMixin._write_selected_formats(self, data, formats, title, author,
+                                                                chapter_exports, None, None)
 
-        long_image_to_cbz = (
-            'epub' in formats
-            and 'cbz' not in formats
-            and not data.get('_kobo_desktop')
-            and self._var_long_image_layout.get()
-            and self._has_long_image_chapters()
-        )
+        from noveldb.core.chapter_folder import ChapterWrites
+
+        links_only, height, chapter_folders = self._folder_options()
+        compression = self._stitch_compression() if height is not None else None
+        with ExitStack() as stack:
+            early = None
+            if chapter_exports and not links_only and {"epub", "cbz"}.intersection(formats):
+                stage = Path(stack.enter_context(tempfile.TemporaryDirectory(
+                    dir=self._get_output_dir(), prefix=".noveldb-chapters-")))
+                pool = stack.enter_context(ThreadPoolExecutor(max_workers=1))
+                early = ChapterWrites(stage, pool)
+
+            early_failed = False
+
+            def chapter_ready(index, chapter, pages):
+                nonlocal early_failed
+                if early_failed or index in early.submitted or ExternalPipelineMixin._generation_stopped(self):
+                    return
+                try:
+                    early.submit(index, self._write_export_chapter, chapter, pages, (), height, chapter_folders, compression)
+                except Exception as error:
+                    early_failed = True
+                    self._log(f"  Could not prepare the chapter export: {error}")
+
+            self._write_selected_formats(data, formats, title, author, chapter_exports, early,
+                                         chapter_ready if early is not None else None, preserve_panels=bool(compression))
+
+    def _write_selected_formats(self, data, formats, title, author, chapter_exports, early, chapter_ready,
+                                preserve_panels=False):
+        image_archive = None
         for fmt in formats:
             if (data.get('_kobo_desktop') and fmt != 'epub'
                     and any(r and r.get('_nativeEpubBytes')
@@ -1437,14 +1482,174 @@ class ExternalPipelineMixin:
             elif fmt == "pdf":
                 self._generate_pdf(title, author)
             elif fmt == "cbz":
-                self._generate_image_archive(title, author)
-            elif long_image_to_cbz:
-                # Preserve the legacy behavior where long-image mode turns a
-                # lone EPUB choice into a CBZ. If CBZ is explicitly checked,
-                # EPUB remains an EPUB and both requested files are written.
-                self._generate_image_archive(title, author)
+                if chapter_exports and image_archive is None:
+                    image_entries = {}
+                    cbz_path = self._generate_image_archive(title, author, image_entries=image_entries,
+                                                            on_chapter_ready=chapter_ready, preserve_panels=preserve_panels)
+                    if cbz_path and image_entries:
+                        image_archive = cbz_path, image_entries
+                else:
+                    self._generate_image_archive(title, author)
+            elif fmt in chapter_exports:
+                if fmt == "zip" and "folder" in chapter_exports:
+                    continue
+                self._generate_folder(title, fmt, image_archive=image_archive, also_zip=len(chapter_exports) == 2,
+                                      early=early)
             else:
-                self._generate_epub(title, author)
+                if chapter_exports:
+                    image_entries = {}
+                    epub_path = self._generate_epub(title, author, image_entries=image_entries,
+                                                   on_chapter_ready=chapter_ready, preserve_panels=preserve_panels)
+                    if epub_path and image_entries:
+                        image_archive = epub_path, image_entries
+                else:
+                    self._generate_epub(title, author)
+
+    def _folder_options(self):
+        links = getattr(self, "_var_save_image_urls_only", None)
+        links_only = bool(links and links.get())
+        webtoon = getattr(self, "_var_webtoon_export", None)
+        stitch = not links_only and webtoon is not None and webtoon.get() and self._var_stitch_images.get()
+        height = min(32_000, max(0, self._var_stitch_height.get())) if stitch else None
+        return links_only, height, bool(stitch and self._var_stitch_chapter_folders.get())
+
+    def _stitch_compression(self):
+        pg = self._parent_gui
+        enabled = getattr(pg, "var_compress_images", None)
+        if enabled and enabled.get():
+            return pg.var_image_format.get(), pg.var_jpeg_quality.get()
+        return None
+
+    def _write_export_chapter(self, stage, index, chapter, pages, links, height, chapter_folders, compression):
+        from noveldb.core.chapter_folder import chapter_text, write_chapter
+
+        if ExternalPipelineMixin._generation_stopped(self):
+            return
+        number = ExternalPipelineMixin._result_chapter_number(self, index, chapter)
+        name = chapter.get("chapterName") or f"Chapter {number}"
+        text = chapter_text(chapter.get("contentHtml") or "")
+        if not text and not chapter.get("images"):
+            text = (chapter.get("contentText") or "").strip()
+        action = "Stitching" if height is not None and len(pages) > 1 else "Writing"
+        self._log(f"  {action} chapter {number}: {name} ({len(pages)} image(s) ready)")
+        write_chapter(stage, number, name, text, pages, links, max_height=height,
+                      chapter_folders=chapter_folders, compression=compression)
+
+    def _generate_folder(self, title, output_format, *, image_archive=None, also_zip=False, early=None):
+        import requests
+
+        from noveldb.core.chapter_folder import ChapterWrites, folder_export
+
+        path = Path(self._get_output_dir()) / f"{title}.{output_format}"
+        data = self._book_data or {}
+        workers = min(32, max(1, self._var_ext_image_workers.get()))
+        links_only, height, subfolders = self._folder_options()
+        stitch_compression = self._stitch_compression() if height is not None else None
+        pg = self._parent_gui
+        compression = getattr(pg, "var_compress_images", None)
+        compress = bool(compression and compression.get())
+        quality = pg.var_jpeg_quality.get() if compress else None
+        image_format = pg.var_image_format.get() if compress else None
+        session_pool = queue.Queue()
+        with ExitStack() as stack:
+            network = stack.enter_context(ExitStack())
+            saved_images = {}
+            archive = None
+            if image_archive and not links_only and not stitch_compression:
+                candidates = {key: name for key, name in image_archive[1].items()
+                              if not early or key[0] not in early.submitted}
+            else:
+                candidates = {}
+            if candidates:
+                try:
+                    archive = stack.enter_context(zipfile.ZipFile(image_archive[0]))
+                    names = set(archive.namelist())
+                    saved_images = {key: name for key, name in candidates.items() if name in names}
+                    if saved_images:
+                        self._log(f"  Reusing {len(saved_images)} image(s) from {Path(image_archive[0]).suffix.upper()[1:]}.")
+                except (OSError, zipfile.BadZipFile):
+                    self._log("  Could not reopen the previous export. Fetching chapter images as needed.")
+
+            def open_sessions():
+                if not session_pool.empty():
+                    return
+                template = network.enter_context(requests.Session())
+                self._copy_browser_cookies_to_session(template)
+                for _ in range(workers):
+                    session = network.enter_context(requests.Session())
+                    session.headers["Referer"] = data.get("bookUrl") or ""
+                    session.cookies.update(template.cookies)
+                    session_pool.put(session)
+
+            pool = stack.enter_context(ThreadPoolExecutor(max_workers=workers))
+
+            def fetch(item, chapter_index, chapter_cookies):
+                if ExternalPipelineMixin._generation_stopped(self):
+                    return None
+                position, info = item
+                archived = saved_images.get((chapter_index, position))
+                if archived:
+                    raw = archive.read(archived)
+                    return self._image_ext_from_bytes(raw), raw
+                cookies = info.get("_cookies") or chapter_cookies
+                raw = ExternalPipelineMixin._decode_image_data_url(info.get("data"))
+                url = html.unescape(info.get("url", "")).strip()
+                if not raw and url:
+                    session = session_pool.get()
+                    try:
+                        if info.get("candidates"):
+                            raw = ExternalPipelineMixin._download_image_mirrors(
+                                self, [url, *info["candidates"]], "Image", session=session, request_cookies=cookies)
+                        else:
+                            raw = self._download_image_python(url, "Image", session=session,
+                                                              request_cookies=cookies, log_success=False)
+                    finally:
+                        session_pool.put(session)
+                if raw and compress and not stitch_compression:
+                    raw = self._compress_image(raw, quality, image_format)
+                return (self._image_ext_from_bytes(raw), raw) if raw else None
+
+            with folder_export(path, also_zip=also_zip,
+                               prepared=early.root if early else None) as stage, ExitStack() as output_workers:
+                if early:
+                    writer = early
+                else:
+                    writer = ChapterWrites(stage, output_workers.enter_context(ThreadPoolExecutor(max_workers=1)))
+                for index, chapter in enumerate(self._chapter_results):
+                    if ExternalPipelineMixin._generation_stopped(self):
+                        raise _OutputStopped()
+                    if not chapter or chapter.get("_locked") or index in writer.submitted:
+                        continue
+                    number = ExternalPipelineMixin._result_chapter_number(self, index, chapter)
+                    name = chapter.get("chapterName") or f"Chapter {number}"
+                    images = chapter.get("images") or []
+                    links = [html.unescape(img["url"]) for img in images if img.get("url")] if links_only else []
+                    image_items = list(enumerate(images, 1))
+                    missing = sum(1 for position, info in image_items
+                                  if (index, position) not in saved_images and info.get("url") and not info.get("data"))
+                    if not links_only and missing:
+                        self._log(f"  Downloading {missing} image(s) for chapter {number}: {name}")
+                        open_sessions()
+                    elif not links_only and any(info.get("url") and (index, position) not in saved_images
+                                                for position, info in image_items):
+                        open_sessions()  # a bad inline image may still need its URL
+                    pages = [] if links_only else list(pool.map(
+                        lambda item: fetch(item, index, chapter.get("_imageCookies")), image_items))
+                    if ExternalPipelineMixin._generation_stopped(self):
+                        raise _OutputStopped()
+                    available = [(idx, page) for idx, page in enumerate(pages, 1) if page is not None]
+                    if len(available) != len(pages):
+                        self._log(f"    {len(pages) - len(available)} image(s) could not be downloaded.")
+                    writer.submit(index, self._write_export_chapter, chapter, available, links,
+                                  height if len(available) == len(images) else None, subfolders, stitch_compression)
+                writer.finish()
+                if ExternalPipelineMixin._generation_stopped(self):
+                    raise _OutputStopped()
+                if output_format == "zip" or also_zip:
+                    self._log("  Packaging the prepared chapter files into ZIP.")
+        self._log(f"✅ Saved: {path}")
+        if also_zip:
+            self._log(f"✅ Saved: {path.with_suffix('.zip')}")
 
     def _get_output_dir(self):
         """Get output directory — respects parent GUI's Quick Download path."""
@@ -1544,7 +1749,7 @@ class ExternalPipelineMixin:
         ext = (fmt or '').lower()
         return 'jpg' if ext == 'jpeg' else (ext or 'jpg')
 
-    def _generate_image_archive(self, title, author):
+    def _generate_image_archive(self, title, author, *, image_entries=None, on_chapter_ready=None, preserve_panels=False):
         """Generate a CBZ image archive for webtoon-style image chapters."""
         output_dir = self._get_output_dir()
         filename = f"{title}.cbz"
@@ -1557,8 +1762,6 @@ class ExternalPipelineMixin:
         jpeg_quality = jpeg_quality.get() if jpeg_quality else 80
         image_format = getattr(pg, 'var_image_format', None)
         image_format = image_format.get() if image_format else 'WEBP'
-        zip_compress = getattr(pg, 'var_zip_compress_images', None)
-        zip_compress = zip_compress.get() if zip_compress else False
 
         compress_cover = getattr(pg, 'var_compress_cover', None)
         compress_cover = compress_cover.get() if compress_cover else False
@@ -1606,9 +1809,7 @@ class ExternalPipelineMixin:
                 'Origin': 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com',
             })
             self._copy_browser_cookies_to_session(img_session)
-        img_compress_type = (
-            zipfile.ZIP_DEFLATED if zip_compress else zipfile.ZIP_STORED
-        )
+        img_compress_type = zipfile.ZIP_STORED
 
         def fetch_image(img_url, label, img_data_url=None, log_failure=False,
                         request_cookies=None, candidates=None):
@@ -1639,7 +1840,7 @@ class ExternalPipelineMixin:
             return None
 
         try:
-            self._log("  Long image layout: saving CBZ image archive")
+            self._log("  Saving CBZ image archive")
             written = 0
             with zipfile.ZipFile(filepath, "w") as zf:
                 cover_url, cover_data = ExternalPipelineMixin._preferred_external_cover(
@@ -1702,6 +1903,7 @@ class ExternalPipelineMixin:
                     chapter_start = time.time()
                     chapter_bytes = 0
                     failed_count = 0
+                    prepared = []
                     for img_idx, img_info in enumerate(images, 1):
                         img_url = html.unescape(
                             img_info.get('url', '')
@@ -1720,6 +1922,7 @@ class ExternalPipelineMixin:
                         if not raw:
                             failed_count += 1
                             continue
+                        panel = raw
                         ext = self._image_ext_from_bytes(raw)
                         if compress_images:
                             raw = self._compress_image(
@@ -1735,6 +1938,11 @@ class ExternalPipelineMixin:
                             raw,
                             compress_type=img_compress_type,
                         )
+                        if image_entries is not None:
+                            image_entries[(i, img_idx)] = archive_name
+                        if on_chapter_ready is not None:
+                            page = panel if preserve_panels else raw
+                            prepared.append((img_idx, (self._image_ext_from_bytes(page), page)))
                         chapter_bytes += len(raw)
                         written += 1
                         if img_idx % 5 == 0 or img_idx == len(images):
@@ -1742,6 +1950,8 @@ class ExternalPipelineMixin:
                                 f"    Images ready: {img_idx}/"
                                 f"{len(images)}"
                             )
+                    if on_chapter_ready is not None and len(prepared) == len(images):
+                        on_chapter_ready(i, ch_data, prepared)
                     elapsed = max(0.01, time.time() - chapter_start)
                     mb = chapter_bytes / (1024 * 1024)
                     ready_count = len(images) - failed_count
@@ -1757,6 +1967,7 @@ class ExternalPipelineMixin:
                         )
             if written:
                 self._log(f"\u2705 Saved: {filepath}")
+                return filepath
             else:
                 self._log("\u274c CBZ generation failed: no images were downloaded.")
         except Exception as e:
@@ -1818,54 +2029,6 @@ body {
                 css_parts.append(css)
         return '\n\n'.join(css_parts)
 
-    def _has_long_image_chapters(self):
-        """Return True when chapters look like vertical image-strip content."""
-        data = self._book_data or {}
-        if data.get('_ntk_kind') == 'webtoon':
-            return True
-        for ch_data in self._chapter_results or []:
-            if not ch_data or ch_data.get('_locked'):
-                continue
-            content_html = ch_data.get('contentHtml') or ''
-            content_css = ch_data.get('contentCss') or ''
-            if (
-                'ntk-webtoon-page' in content_html
-                or 'ntk-webtoon-page' in content_css
-            ):
-                return True
-        return False
-
-    def _long_image_layout_css(self):
-        """CSS for webtoon-style chapters made of tall image strips."""
-        return """
-body {
-  margin: 0;
-  padding: 0;
-}
-.ntk-webtoon-page {
-  margin: 0;
-  padding: 0;
-  text-align: center;
-  line-height: 0;
-}
-.ntk-webtoon-page img,
-.chapter > img,
-p > img {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  max-height: none;
-  height: auto;
-  margin: 0 auto;
-  padding: 0;
-  page-break-inside: avoid;
-  break-inside: avoid;
-}
-.ntk-webtoon-page + .ntk-webtoon-page {
-  margin-top: 0;
-}
-""".strip()
-
     @staticmethod
     def _write_native_epub(filepath, payload):
         """Keep the publisher's chapter order, layout, cover, and TOC."""
@@ -1888,7 +2051,7 @@ p > img {
             if temporary and os.path.exists(temporary):
                 os.remove(temporary)
 
-    def _generate_epub(self, title, author):
+    def _generate_epub(self, title, author, *, image_entries=None, on_chapter_ready=None, preserve_panels=False):
         """Generate an EPUB file using the existing epub_generator."""
         native = [result['_nativeEpubBytes']
                   for result in self._chapter_results or []
@@ -1920,8 +2083,6 @@ p > img {
         jpeg_quality = jpeg_quality.get() if jpeg_quality else 80
         image_format = getattr(pg, 'var_image_format', None)
         image_format = image_format.get() if image_format else 'WEBP'
-        zip_compress = getattr(pg, 'var_zip_compress_images', None)
-        zip_compress = zip_compress.get() if zip_compress else False
 
         # Cover-specific compression settings
         compress_cover = getattr(pg, 'var_compress_cover', None)
@@ -1946,10 +2107,6 @@ p > img {
 
         data = self._book_data
         is_kpage = bool(data.get('_kpage'))
-        use_long_image_layout = (
-            bool(self._var_long_image_layout.get())
-            and self._has_long_image_chapters()
-        )
 
         # Default CSS for external novels
         css = """body { margin: 2%; }
@@ -1962,12 +2119,6 @@ img { display: block; max-width: 100%; max-height: 100%;
         chapter_css = self._chapter_extra_css()
         if chapter_css and not is_kpage:
             css = f"{css}\n\n/* Scraper-provided chapter CSS */\n{chapter_css}\n"
-        if use_long_image_layout:
-            css = (
-                f"{css}\n\n/* Long image layout */\n"
-                f"{self._long_image_layout_css()}\n"
-            )
-            self._log("  Long image layout: ON")
         kpage_css = self._kpage_extra_css()
         if kpage_css:
             css = f"{css}\n\n/* Kpage original viewer CSS */\n{kpage_css}\n"
@@ -2030,7 +2181,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         img_counter = [0]
 
         try:
-            epub = EpubGenerator(metadata, filepath, css, zip_compress)
+            epub = EpubGenerator(metadata, filepath, css)
 
             # Download and add cover image via the correct API
             # (EpubGenerator looks for images named 'cover.*')
@@ -2121,12 +2272,12 @@ img { display: block; max-width: 100%; max-height: 100%;
                 img_total = len(ch_data.get('images') or [])
                 if img_total:
                     self._log(
-                        f"  Building EPUB chapter {chapter_number}: {ch_name} "
+                        f"  Preparing EPUB chapter {chapter_number}: {ch_name} "
                         f"({img_total} image(s))"
                     )
                 else:
                     self._log(
-                        f"  Building EPUB chapter {chapter_number}: {ch_name}"
+                        f"  Preparing EPUB chapter {chapter_number}: {ch_name}"
                     )
 
                 # Process images: use browser-provided base64 data when
@@ -2231,6 +2382,7 @@ img { display: block; max-width: 100%; max-height: 100%;
 
                         if not raw:
                             return img_idx, None
+                        panel = raw if preserve_panels else None
 
                         orig_name = img_info.get(
                             'name', f'img_{i}_{img_idx}.jpg'
@@ -2263,6 +2415,7 @@ img { display: block; max-width: 100%; max-height: 100%;
 
                         return img_idx, {
                             'raw': raw,
+                            'panel': panel,
                             'orig_name': orig_name,
                             'img_name': img_name,
                             'url': img_url,
@@ -2350,6 +2503,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                         img_name = result['img_name']
                         image_bytes += len(result['raw'])
                         epub.add_image(img_name, result['raw'])
+                        if image_entries is not None:
+                            image_entries[(i, img_idx)] = img_name
 
                         orig_name = result['orig_name']
                         if img_name != orig_name:
@@ -2364,6 +2519,13 @@ img { display: block; max-width: 100%; max-height: 100%;
                                 html.escape(img_url, quote=True),
                                 f'../Images/{img_name}'
                             )
+                    if (on_chapter_ready is not None and len(image_results) == len(image_items)
+                            and all(image_results.values())):
+                        prepared = []
+                        for position, result in sorted(image_results.items()):
+                            page = result["panel"] or result["raw"]
+                            prepared.append((position, (self._image_ext_from_bytes(page), page)))
+                        on_chapter_ready(i, ch_data, prepared)
                     # A mirrored page every host failed would only stall the inline
                     # retry below one page at a time; leave it out of the chapter.
                     dropped = 0
@@ -2390,7 +2552,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                         )
                         failed_count = len(image_items) - ready_count - dropped
                         self._log(
-                            f"    Images embedded: {ready_count}/"
+                            f"    Chapter images ready: {ready_count}/"
                             f"{len(image_items)}, "
                             f"{mb:.1f} MB for this chapter in {elapsed:.1f}s "
                             f"({_format_size(int(image_bytes / elapsed))}/s)"
@@ -2417,28 +2579,24 @@ img { display: block; max-width: 100%; max-height: 100%;
                     content_html, rename_map
                 )
 
-                show_chapter_title = not is_kpage
-                if use_long_image_layout and ch_data.get('images'):
-                    show_chapter_title = False
                 toc_sections = ch_data.get('tocSections') or []
-                if toc_sections:
-                    show_chapter_title = False
                 epub.add_chapter(
                     ch_name if is_notice else ExternalPipelineMixin._numbered_title(
                         self, chapter_number, ch_data.get('chapterName')),
-                    content_html, show_title=show_chapter_title,
+                    content_html, show_title=not is_kpage and not toc_sections,
                     is_notice=is_notice,
                     chapter_number=None if is_notice else chapter_number,
                     toc_sections=toc_sections,
                 )
 
+            duplicates = {}
             if is_kpage and self._var_kpage_dedupe_images.get():
                 max_positions = max(
                     1, min(10, self._var_kpage_dedupe_leading_images.get())
                 )
-                self._remove_kpage_duplicate_cover_pages(
+                duplicates = self._remove_kpage_duplicate_cover_pages(
                     epub, max_positions=max_positions
-                )
+                ) or {}
 
             # Fallback: if no cover was found, use the first chapter
             # image larger than 400px as the cover.
@@ -2448,8 +2606,13 @@ img { display: block; max-width: 100%; max-height: 100%;
                     epub, compress_images, jpeg_quality, image_format
                 )
 
+            self._log("Writing EPUB to disk…")
             epub.generate()
             self._log(f"✅ Saved: {filepath}")
+            if image_entries is not None:
+                for key, name in image_entries.items():
+                    image_entries[key] = f"OEBPS/Images/{duplicates.get(name, name)}"
+            return filepath
 
         except Exception as e:
             self._log(f"❌ EPUB generation failed: {e}")
@@ -2528,14 +2691,14 @@ img { display: block; max-width: 100%; max-height: 100%;
                         'filename': filename,
                     })
 
-        duplicate_names = set()
+        duplicate_names = {}
         for occurrences in occurrences_by_bytes.values():
             chapter_count = len({item['chapter_index'] for item in occurrences})
             if chapter_count < 2:
                 continue
             # Keep the first copy in reading order and remove later repeats.
             for item in occurrences[1:]:
-                duplicate_names.add(item['filename'])
+                duplicate_names[item['filename']] = occurrences[0]['filename']
 
         if not duplicate_names:
             return
@@ -2554,6 +2717,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             f"  Removed {len(duplicate_names)} duplicate Kpage "
             "boilerplate image occurrence(s), keeping the first copy."
         )
+        return duplicate_names
 
     def _remove_image_page_by_filename(self, html_str, filename):
         """Remove a Kpage image-page wrapper, falling back to the img tag."""
@@ -2615,7 +2779,7 @@ img { display: block; max-width: 100%; max-height: 100%;
     def _download_image_python(self, url, label="Image", session=None,
                                max_retries=3, log_success=True,
                                log_failure=False, request_cookies=None,
-                               timeout=None):
+                               timeout=None, use_prefetch=True):
         """Download an image using requests (no CORS/mixed-content issues).
 
         Automatically upgrades http:// to https:// and retries on failure.
@@ -2624,6 +2788,11 @@ img { display: block; max-width: 100%; max-height: 100%;
         import requests as _req
 
         url = html.unescape((url or '').strip())
+        lookahead = getattr(self, "_kpage_images", None)
+        if use_prefetch and lookahead:
+            cached = lookahead.read(url)
+            if cached:
+                return cached
 
         # Upgrade http to https (many sites serve images on http but
         # support https — and some block http entirely)

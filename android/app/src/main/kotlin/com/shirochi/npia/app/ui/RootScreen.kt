@@ -55,6 +55,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
@@ -84,6 +85,7 @@ class TopBarState {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RootScreen(model: AppViewModel) {
+    val saveableState = rememberSaveableStateHolder()
     val manager = model.manager
     val jobs by manager.jobs.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -182,7 +184,9 @@ fun RootScreen(model: AppViewModel) {
         ) {
             when (route) {
                 null -> when (model.tab) {
-                    Tab.ADD -> AddScreen(model, onQueued = { model.openQueue() })
+                    Tab.ADD -> saveableState.SaveableStateProvider("add") {
+                        AddScreen(model, onQueued = { model.openQueue() })
+                    }
                     Tab.CATALOG -> CatalogScreen(catalog, model, topBar)
                     Tab.BROWSER -> BrowserScreen(model, topBar)
                     Tab.LIBRARY -> LibraryScreen(model)
@@ -201,6 +205,7 @@ fun RootScreen(model: AppViewModel) {
                 Route.EnterApp -> EnterAppScreen(model)
                 Route.TagSearch -> TagSearchScreen(model)
                 Route.Images -> ImageSettingsScreen(model)
+                Route.Stitching -> ImageSettingsScreen(model, stitchingOnly = true)
                 Route.Text -> TextSettingsScreen(model)
                 Route.Upload -> UploadSettingsScreen(model)
                 Route.LinkCart -> LinkCartScreen(model, topBar)

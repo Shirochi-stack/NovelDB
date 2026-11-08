@@ -559,46 +559,100 @@ struct NpiaSettingsForm: View {
 
 struct ImageSettingsForm: View {
     @Environment(AppModel.self) private var model
+    @FocusState private var editingHeight: Bool
+    @State private var heightText = ""
+    let stitchingOnly: Bool
+
+    init(stitchingOnly: Bool = false) {
+        self.stitchingOnly = stitchingOnly
+    }
 
     var body: some View {
         @Bindable var model = model
         Form {
-            Section("Chapter images") {
-                Toggle("Save Image URLs Only", isOn: $model.settings.images.saveImageURLsOnly)
-                Toggle("Compress Images", isOn: $model.settings.images.compress)
-                Group {
-                    Picker("Format", selection: $model.settings.images.format) {
-                        ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
+            if !stitchingOnly {
+                Section("Chapter images") {
+                    Toggle("Save Image URLs Only", isOn: $model.settings.images.saveImageURLsOnly)
+                    Toggle("Compress chapter images", isOn: $model.settings.images.compress)
+                    Group {
+                        Picker("Format", selection: $model.settings.images.format) {
+                            ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
+                        }
+                        Stepper("Quality: \(model.settings.images.quality)", value: $model.settings.images.quality, in: 10...100, step: 5)
+                        Toggle("Convert GIFs", isOn: $model.settings.images.convertGIFs)
+                        Toggle("Static images only", isOn: $model.settings.images.staticOnly)
+                        Stepper("Image Compression Workers: \(model.settings.images.compressionWorkers)", value: $model.settings.images.compressionWorkers, in: 1...8)
                     }
-                    Stepper("Quality: \(model.settings.images.quality)", value: $model.settings.images.quality, in: 10...100, step: 5)
-                    Toggle("Convert GIFs", isOn: $model.settings.images.convertGIFs)
-                    Toggle("Static images only", isOn: $model.settings.images.staticOnly)
-                    Stepper("Image Compression Workers: \(model.settings.images.compressionWorkers)", value: $model.settings.images.compressionWorkers, in: 1...8)
+                    .disabled(!model.settings.images.compress || model.settings.images.saveImageURLsOnly)
+                    Text("Includes CBZ, Folder and ZIP exports.").font(.footnote).foregroundStyle(.secondary)
                 }
-                .disabled(!model.settings.images.compress || model.settings.images.saveImageURLsOnly)
-            }
-            Section("Cover") {
-                Toggle("Compress Cover", isOn: $model.settings.images.compressCover)
-                Group {
-                    Picker("Cover format", selection: $model.settings.images.coverFormat) {
-                        ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
+                Section("Cover") {
+                    Toggle("Compress Cover", isOn: $model.settings.images.compressCover)
+                    Group {
+                        Picker("Cover format", selection: $model.settings.images.coverFormat) {
+                            ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
+                        }
+                        Stepper("Cover quality: \(model.settings.images.coverQuality)", value: $model.settings.images.coverQuality, in: 10...100, step: 5)
                     }
-                    Stepper("Cover quality: \(model.settings.images.coverQuality)", value: $model.settings.images.coverQuality, in: 10...100, step: 5)
+                    .disabled(!model.settings.images.compressCover)
                 }
-                .disabled(!model.settings.images.compressCover)
+                Section {
+                    OptionalNumberField(title: "Shrink EPUB/PDF to target size (MB)", value: $model.settings.images.recompressTargetMB, defaultValue: 20)
+                } header: {
+                    Text("Book")
+                } footer: {
+                    Text("The size target re-encodes JPEG and WebP images at lower quality, up to four passes.")
+                }
             }
-            Section {
-                OptionalNumberField(title: "Shrink EPUB/PDF to target size (MB)", value: $model.settings.images.recompressTargetMB, defaultValue: 20)
-                Toggle("Long image layout", isOn: $model.settings.images.longImageLayout)
-                Toggle("ZIP Compress", isOn: $model.settings.images.zipCompressImages)
-            } header: {
-                Text("Book")
-            } footer: {
-                Text("The size target re-encodes JPEG and WebP images at lower quality, up to four passes. Long image layout shows webtoon strips edge to edge without chapter titles.")
+            Section("Stitching") {
+                Toggle("Stitch Webtoon images", isOn: Binding(
+                    get: { model.settings.images.stitchingEnabled },
+                    set: { model.settings.images.stitchImages = $0 }
+                ))
+                let height = model.settings.images.stitchMaxHeight
+                let unlimited = 32_001.0
+                Text("Max strip height")
+                HStack {
+                    Slider(value: Binding(
+                        get: { height == 0 ? unlimited : Double(height) },
+                        set: {
+                            editingHeight = false
+                            model.settings.images.stitchHeight = $0 == unlimited ? 0 : Int($0)
+                        }
+                    ), in: 1...unlimited) { Text("Max strip height") }
+                    .accessibilityValue(Text(height == 0 ? "Unlimited" : "\(height) pixels"))
+                    Text("∞").accessibilityHidden(true)
+                    TextField("Height (px)", text: $heightText, prompt: Text("Unlimited"))
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 88)
+                        .accessibilityLabel("Max strip height in pixels")
+                        .focused($editingHeight)
+                        .onChange(of: height, initial: true) {
+                            if !editingHeight { heightText = height == 0 ? "" : String(height) }
+                        }
+                        .onChange(of: editingHeight) {
+                            if !editingHeight { heightText = height == 0 ? "" : String(height) }
+                        }
+                        .onChange(of: heightText) {
+                            if editingHeight, let value = Int(heightText), (0...32_000).contains(value) {
+                                model.settings.images.stitchHeight = value
+                            }
+                        }
+                }
+                .disabled(!model.settings.images.stitchingEnabled)
+                Toggle("Always create chapter subfolders", isOn: Binding(
+                    get: { model.settings.images.chapterFoldersEnabled },
+                    set: { model.settings.images.stitchChapterFolders = $0 }
+                ))
+                .disabled(!model.settings.images.stitchingEnabled)
+                Text("Chapters with multiple stitched strips always get a subfolder.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
+            .disabled(model.settings.images.saveImageURLsOnly)
         }
         .themedBackground()
-        .navigationTitle("Images")
+        .navigationTitle(stitchingOnly ? "Stitching" : "Images")
     }
 }
 

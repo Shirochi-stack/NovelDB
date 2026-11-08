@@ -28,6 +28,7 @@ sealed class Route(val title: String) {
     data object EnterApp : Route("Enter App")
     data object TagSearch : Route("Tag search")
     data object Images : Route("Images")
+    data object Stitching : Route("Stitching")
     data object Text : Route("Text and PDF")
     data object Upload : Route("Upload")
     data object LinkCart : Route("Link cart")

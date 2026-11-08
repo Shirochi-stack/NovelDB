@@ -21,12 +21,21 @@ import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.WebLoadState
 import com.shirochi.npia.core.WebPageDriving
+import com.shirochi.npia.output.Writers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.ZipFile
 
 class DownloadPipelineTest {
     /** PNG signature plus filler; enough for extension sniffing. */
@@ -111,6 +120,67 @@ class DownloadPipelineTest {
             "chapter-2" to """{"chapterName":"Chapter 2","contentHtml":"<p>Two.</p>","contentText":"Two.","imageCount":0,"images":[]}""",
         ),
     )
+
+    @Test
+    fun stitchesWhileTheNextChapterDownloadsAndSharesTheStitchesWithZip() = runBlocking {
+        val output = Files.createTempDirectory("overlapped-chapters").toFile()
+        val originalStitcher = Writers.chapterStitcher
+        val nextRequest = CompletableDeferred<Unit>()
+        val releaseNext = CompletableDeferred<Unit>()
+        val firstStitch = CompletableDeferred<Unit>()
+        val stitches = AtomicInteger()
+        try {
+            val pages = W2ePage(mechanicPage().book, (1..2).associate { chapter ->
+                "chapter-$chapter" to
+                    """{"chapterName":"Chapter $chapter","contentHtml":"<img src=\"https://img.example/$chapter/a.png\"><img src=\"https://img.example/$chapter/b.png\">","contentText":"","imageCount":0,"images":[]}"""
+            })
+            val http = object : HttpFetching {
+                override suspend fun send(request: HttpRequest): HttpResponse {
+                    if (request.url.contains("/2/")) {
+                        nextRequest.complete(Unit)
+                        releaseNext.await()
+                    }
+                    return HttpResponse(request.url, 200, emptyMap(), PNG)
+                }
+            }
+            Writers.chapterStitcher = { images, _, target ->
+                if (stitches.incrementAndGet() == 1) firstStitch.complete(Unit)
+                target("png", false).writeBytes(images.flatMap { it.second.asIterable() }.toByteArray())
+            }
+            val settings = AppSettings().let {
+                it.copy(shared = SharedSettings(intervalMin = 0.0, intervalMax = 0.0, imageWorkers = 1,
+                    formats = listOf(OutputFormat.FOLDER, OutputFormat.ZIP)),
+                    images = it.images.copy(webtoonExport = true))
+            }
+            val job = async {
+                DownloadPipeline(InMemorySecretStore(), output, web = WebOf(pages), httpFactory = { http })
+                    .run(mechanicUrl, settings)
+            }
+            try {
+                withTimeout(10_000) {
+                    nextRequest.await()
+                    firstStitch.await()
+                    assertFalse(job.isCompleted)
+                    assertTrue(output.listFiles().orEmpty().none { !it.name.startsWith(".") })
+                }
+            } finally {
+                releaseNext.complete(Unit)
+            }
+            val files = job.await().files
+            assertEquals(2, stitches.get())
+            val folder = files.single { it.isDirectory }
+            ZipFile(files.single { it.extension == "zip" }).use { zip ->
+                val names = zip.entries().toList().map { it.name }
+                assertEquals(2, names.size)
+                for (name in names) {
+                    assertArrayEquals(File(folder, name).readBytes(), zip.getInputStream(zip.getEntry(name)).use { it.readBytes() })
+                }
+            }
+        } finally {
+            Writers.chapterStitcher = originalStitcher
+            output.deleteRecursively()
+        }
+    }
 
     @Test
     fun aDownloadLogsEveryStageInDetail() = runTest {

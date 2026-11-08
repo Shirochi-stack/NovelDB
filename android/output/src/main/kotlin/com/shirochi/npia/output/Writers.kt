@@ -33,6 +33,7 @@ class OutputNotImplemented(format: OutputFormat) : Exception("${format.raw.upper
 object Writers {
     /** PDF needs Android graphics, so the app registers its writer here at startup. */
     @Volatile var pdfWriter: BookWriter = PendingWriter(OutputFormat.PDF)
+    @Volatile var chapterStitcher: ((List<Pair<String, ByteArray>>, Int, (String, Boolean) -> File) -> Unit)? = null
 
     fun writer(format: OutputFormat): BookWriter = when (format) {
         OutputFormat.EPUB -> EpubWriter()
@@ -40,6 +41,8 @@ object Writers {
         OutputFormat.HTML -> HtmlWriter()
         OutputFormat.PDF -> pdfWriter
         OutputFormat.CBZ -> CbzWriter()
+        OutputFormat.FOLDER -> FolderWriter(OutputFormat.FOLDER)
+        OutputFormat.ZIP -> FolderWriter(OutputFormat.ZIP)
     }
 
     /** Output file name without extension, following `namingMode` and `appendRange`. */

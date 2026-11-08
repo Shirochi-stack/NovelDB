@@ -7,7 +7,7 @@ struct FormatPicker: View {
 
     var body: some View {
         ForEach(OutputFormat.allCases, id: \.self) { format in
-            Toggle(format.rawValue.uppercased(), isOn: Binding(
+            Toggle(format.label, isOn: Binding(
                 get: { formats.contains(format) },
                 set: { on in
                     if on {

@@ -54,7 +54,7 @@ def test_message_poll_yields_to_gui_when_log_queue_is_busy():
     assert scheduled == [10]
 
 
-def make_dialog(formats, *, long_image_layout=False, has_long_images=False):
+def make_dialog(formats):
     selected = set(formats)
     calls = []
     logs = []
@@ -65,9 +65,7 @@ def make_dialog(formats, *, long_image_layout=False, has_long_images=False):
         _var_format_txt=Setting("txt" in selected),
         _var_format_pdf=Setting("pdf" in selected),
         _var_format_cbz=Setting("cbz" in selected),
-        _var_long_image_layout=Setting(long_image_layout),
         _log=logs.append,
-        _has_long_image_chapters=lambda: has_long_images,
         _generate_epub=lambda title, author: calls.append(("epub", title, author)),
         _generate_txt=lambda title, author: calls.append(("txt", title, author)),
         _generate_pdf=lambda title, author: calls.append(("pdf", title, author)),
@@ -110,24 +108,14 @@ def test_external_output_uses_selection_snapshotted_at_download_start():
     assert [call[0] for call in calls] == ["pdf", "cbz"]
 
 
-def test_long_image_mode_preserves_legacy_epub_to_cbz_conversion():
-    dialog, calls, _logs = make_dialog(
-        ["epub"], long_image_layout=True, has_long_images=True
-    )
+@pytest.mark.parametrize("formats", [["epub"], ["cbz"], ["epub", "cbz"]])
+def test_webtoon_exports_the_selected_formats(formats):
+    dialog, calls, _logs = make_dialog(formats)
+    dialog._book_data["_ntk_kind"] = "webtoon"
 
     ExternalNovelDialog._generate_output(dialog)
 
-    assert [call[0] for call in calls] == ["cbz"]
-
-
-def test_explicit_epub_and_cbz_selection_generates_both_in_long_image_mode():
-    dialog, calls, _logs = make_dialog(
-        ["epub", "cbz"], long_image_layout=True, has_long_images=True
-    )
-
-    ExternalNovelDialog._generate_output(dialog)
-
-    assert [call[0] for call in calls] == ["epub", "cbz"]
+    assert [call[0] for call in calls] == formats
 
 
 def test_external_retry_passes_use_main_gui_setting():
@@ -178,13 +166,15 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
     setting_names = (
         '_url_var', '_var_format_epub', '_var_format_txt',
         '_var_format_pdf', '_var_format_cbz', '_var_format',
+        '_var_format_folder', '_var_format_zip', '_var_webtoon_export',
+        '_var_stitch_images', '_var_stitch_height', '_var_stitch_chapter_folders',
         '_var_ext_threads', '_var_ext_image_workers', '_var_interval',
         '_var_interval_max', '_var_from_enabled', '_var_to_enabled',
         '_var_from', '_var_to', '_var_skip_paid', '_var_number_chapters',
         '_var_regular_browser', '_var_blank_paragraph_lines',
         '_var_generate_on_stop',
         '_var_ntk_npia_cover', '_var_syosetu_amazon_cover',
-        '_var_long_image_layout', '_var_kpage_skip_last_page',
+        '_var_kpage_skip_last_page',
         '_var_kpage_keep_filler', '_var_kpage_dedupe_images',
         '_var_kpage_dedupe_leading_images',
     )
@@ -273,7 +263,7 @@ def test_generate_on_stop_toggle_controls_partial_output_generation():
 
         if enabled:
             assert any(
-                "Generating output from 1 chapter(s)" in message
+                "Chapter details ready for 1 chapter(s)" in message
                 for message in logs
             )
 
@@ -552,7 +542,6 @@ def test_external_epub_filename_uses_preserved_range_number(tmp_path):
     }]
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
-    dialog._var_long_image_layout = Setting(False)
     dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)
@@ -585,7 +574,6 @@ def test_npia_epub_info_includes_status(tmp_path, status, introduction):
     }]
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
-    dialog._var_long_image_layout = Setting(False)
     dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)
@@ -620,7 +608,6 @@ def test_external_epub_uses_separate_notice_filenames(tmp_path):
     ]
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
-    dialog._var_long_image_layout = Setting(False)
     dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)
@@ -651,7 +638,6 @@ def test_blank_paragraph_lines_epub_and_txt_are_opt_in(tmp_path):
         }]
         dialog._parent_gui = SimpleNamespace()
         dialog._scraper = None
-        dialog._var_long_image_layout = Setting(False)
         dialog._var_kpage_dedupe_images = Setting(False)
         dialog._var_ext_image_workers = Setting(1)
         dialog._get_output_dir = lambda folder=folder: str(folder)
@@ -945,7 +931,6 @@ def test_epub_toc_and_headings_are_numbered_by_book_position(tmp_path, numbered)
     ]
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
-    dialog._var_long_image_layout = Setting(False)
     dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)

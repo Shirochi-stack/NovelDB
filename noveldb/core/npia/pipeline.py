@@ -430,7 +430,8 @@ class NpiaPipelineMixin:
         # what the cache was written with, invalidate the processed
         # html + images from each entry but keep the raw chapter JSON so
         # we don't have to re-download the text.
-        current_fp = self._image_cache_fingerprint()
+        stitch_compression = self._stitch_output_compression(output_formats)
+        current_fp = self._image_cache_fingerprint() + ("-raw" if stitch_compression else "")
         if use_cache:
             cache_dir = _writable_data_dir('.cache')
             if not cache_dir:
@@ -849,7 +850,7 @@ table, th, td {
         interval_max = max(0.0, min(300.0, raw_interval_max))
         if interval_max < interval:
             interval, interval_max = interval_max, interval
-        compress_images = self.var_compress_images.get()
+        compress_images = self.var_compress_images.get() and stitch_compression is None
         effective_image_compression_workers = (
             image_compression_workers
             if compress_images and not save_image_urls_only
@@ -1110,16 +1111,21 @@ table, th, td {
         # Recompression receives the original results for each rich format, so
         # lowering image quality for one file never leaks into another.
         output_errors = []
+        rich_results = None
         for output_format in self._output_formats:
             self._output_format = output_format
             self._output_path = self._output_paths[output_format]
             try:
                 if output_format in ('epub', 'pdf'):
+                    if rich_results is None:
+                        rich_results = self._compress_rich_chapters(results, stitch_compression) if stitch_compression else results
                     self._build_output(
-                        results, meta, css, cover_image, info_html,
+                        rich_results, meta, css, cover_image, info_html,
                         chapter_start=start_idx + 1,
                         notice_count=len(notice_items),
                     )
+                elif output_format in ('folder', 'zip'):
+                    self._write_folder_output(results, start_idx + 1, len(notice_items))
                 else:
                     self._write_text_output(
                         results, remove_newlines,
@@ -1144,7 +1150,7 @@ table, th, td {
                     target_mb = 0
                 if target_mb > 0:
                     self._recompress_to_target_size(
-                        results, meta, css, cover_image, info_html,
+                        rich_results, meta, css, cover_image, info_html,
                         int(target_mb * 1024 * 1024),
                         chapter_start=start_idx + 1,
                         notice_count=len(notice_items),
@@ -1291,8 +1297,10 @@ table, th, td {
                 ('epub', self.var_save_epub),
                 ('txt', self.var_save_txt),
                 ('pdf', self.var_save_pdf),
+                ('folder', getattr(self, 'var_save_folder', None)),
+                ('zip', getattr(self, 'var_save_zip', None)),
             )
-            if variable.get()
+            if variable is not None and variable.get()
         ]
 
     @staticmethod
@@ -1303,11 +1311,11 @@ table, th, td {
         Multiple selections share a base name and use canonical extensions.
         """
         formats = list(output_formats)
-        if len(formats) == 1:
+        if len(formats) == 1 and formats[0] not in {"folder", "zip"}:
             return {formats[0]: anchor_path}
 
         base, extension = os.path.splitext(anchor_path)
-        if extension.lower().lstrip('.') not in {'epub', 'txt', 'pdf'}:
+        if extension.lower().lstrip('.') not in {'epub', 'txt', 'pdf', 'folder', 'zip'}:
             base = anchor_path
         return {fmt: f"{base}.{fmt}" for fmt in formats}
 
@@ -1366,6 +1374,69 @@ table, th, td {
             self.log_message(f"TXT output folder: {location}")
 
 
+    def _stitch_output_compression(self, formats):
+        webtoon = getattr(self, "var_webtoon_export", None)
+        if ({"folder", "zip"}.intersection(formats) and webtoon is not None and webtoon.get()
+                and self.var_stitch_images.get() and self.var_compress_images.get()
+                and not self.var_save_image_urls_only.get()):
+            return self.var_image_format.get(), self.var_jpeg_quality.get()
+        return None
+
+    def _compress_rich_chapters(self, results, compression):
+        """Use the same original pages for rich output without encoding the stitch inputs."""
+        converted = []
+        for result in results:
+            if not result or Image is None:
+                converted.append(result)
+                continue
+            title, markup, images, notice = result
+            pages = []
+            for filename, data in images:
+                name, ext = os.path.splitext(filename)
+                try:
+                    with Image.open(io.BytesIO(data)) as source:
+                        if source.format == "GIF" and not self.var_convert_gifs.get():
+                            buf = io.BytesIO()
+                            source.save(buf, "GIF", save_all=not self.var_static_only.get(), optimize=True)
+                            data = buf.getvalue()
+                        else:
+                            data, encoded_ext = _encode_image_bytes(source, *compression, static_only=self.var_static_only.get())
+                            ext = "." + encoded_ext
+                except (OSError, ValueError, MemoryError):
+                    pass
+                renamed = name + ext
+                if renamed != filename:
+                    markup = markup.replace(f'src="../Images/{filename}"', f'src="../Images/{renamed}"')
+                pages.append((renamed, data))
+            converted.append((title, markup, pages, notice))
+        return converted
+
+    def _write_folder_output(self, results, chapter_start, notice_count):
+        from noveldb.core.chapter_folder import chapter_text, folder_export, write_chapter
+
+        links_only = self.var_save_image_urls_only.get()
+        webtoon = getattr(self, "var_webtoon_export", None)
+        stitch = not links_only and webtoon is not None and webtoon.get() and self.var_stitch_images.get()
+        height = min(32_000, max(0, self.var_stitch_height.get())) if stitch else None
+        compression = self._stitch_output_compression(self._output_formats) if stitch else None
+        with folder_export(self._output_path) as stage:
+            for index, result in enumerate(results):
+                if not result:
+                    continue
+                title, markup, images, notice = result
+                text = chapter_text(markup)
+                links = [html.unescape(url) for url in re.findall(
+                    r'<img\b[^>]*\bsrc=["\'](https?://[^"\']+)', markup, flags=re.I
+                )] if links_only else []
+                number = index + 1 if notice else chapter_start + index - notice_count
+                pages = []
+                for position, (filename, data) in enumerate(images, 1):
+                    ext = os.path.splitext(filename)[1].lower()
+                    ext = ext if re.fullmatch(r"\.[a-z0-9]{1,8}", ext) else ".jpg"
+                    pages.append((position, (ext[1:], data)))
+                write_chapter(stage, number, title or "Chapter", text, pages, links, max_height=height,
+                              chapter_folders=bool(stitch and self.var_stitch_chapter_folders.get()), compression=compression)
+
     def _build_output(self, results, meta, css, cover_image, info_html,
                       chapter_start=1, notice_count=0):
         """Write the current output file (EPUB or PDF) from the given results.
@@ -1384,7 +1455,6 @@ table, th, td {
                 meta,
                 self._output_path,
                 css,
-                self.var_zip_compress_images.get(),
                 remote_cover_url=(
                     DownloaderCore.normalize_chapter_image_url(meta.get('cover_url'))
                     if self.var_save_image_urls_only.get()

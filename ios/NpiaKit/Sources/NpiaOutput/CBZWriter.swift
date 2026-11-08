@@ -38,10 +38,9 @@ public struct CBZWriter: BookWriter {
 
     /// Every archive entry in order. Separate from `write` so the layout can be tested.
     public static func entries(for bundle: BookBundle) -> [Entry] {
-        let compressImages = bundle.settings.images.zipCompressImages
         var entries: [Entry] = []
         if let cover = bundle.cover {
-            entries.append(Entry(path: "0000_cover." + cover.fileExtension.lowercased(), data: cover.data, compressed: compressImages))
+            entries.append(Entry(path: "0000_cover." + cover.fileExtension.lowercased(), data: cover.data, compressed: false))
         }
         let book = bundle.book
         let info = """
@@ -63,7 +62,7 @@ public struct CBZWriter: BookWriter {
             for (offset, image) in images.enumerated() {
                 var ext = (image.0 as NSString).pathExtension.lowercased()
                 if ext.isEmpty { ext = "jpg" }
-                entries.append(Entry(path: folder + "/" + String(format: "%04d.", offset + 1) + ext, data: image.1, compressed: compressImages))
+                entries.append(Entry(path: folder + "/" + String(format: "%04d.", offset + 1) + ext, data: image.1, compressed: false))
             }
         }
         return entries

@@ -50,20 +50,18 @@ class PdfDocumentPlanTest {
     }
 
     @Test
-    fun numbersChaptersAndHidesStripTitles() {
+    fun numbersImageChaptersAndKeepsTheirImages() {
         val strip = ChapterContent(
             ChapterRef("1", 1, "Episode"), "<div class=\"ntk-webtoon-page\"><img src=\"images/1.png\"/></div>",
             listOf(ImageRef("https://example.com/1.png", "images/1.png")),
         )
         val notice = ChapterContent(ChapterRef("n", 0, "Notice", isNotice = true), "<p>Read me</p>")
         val base = AppSettings()
-        val settings = base.copy(shared = base.shared.copy(numberChapters = true), images = base.images.copy(longImageLayout = true))
+        val settings = base.copy(shared = base.shared.copy(numberChapters = true))
         val plan = PdfDocumentPlan(bundle(listOf(notice, strip), settings = settings))
-        assertTrue(plan.longImageLayout)
         assertEquals(listOf("Notice", "1. Episode"), plan.chapters.map { it.title })
-        assertEquals(listOf(true, false), plan.chapters.map { it.showTitle })
+        assertEquals(listOf(PdfBlock.Image("images/1.png")), plan.chapters.last().blocks)
         assertEquals(listOf("Ongoing", "fantasy"), plan.details)
-        assertFalse(PdfDocumentPlan(bundle(listOf(strip))).longImageLayout)
     }
 
     @Test

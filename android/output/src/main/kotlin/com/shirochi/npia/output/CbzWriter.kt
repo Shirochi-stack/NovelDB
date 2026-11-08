@@ -14,7 +14,7 @@ class OutputSkipped(message: String) : Exception(message)
 /**
  * Comic archive laid out like the desktop CBZ export: `0000_cover.<ext>`, `ComicInfo.xml`, then
  * `NNNN_<chapter title>/NNNN.<ext>` for each chapter's images in reading order. Chapters
- * without images are left out. Images are stored unless `zipCompressImages` is on.
+ * without images are left out. Images are stored without a second compression pass.
  */
 class CbzWriter : BookWriter {
     override val format = OutputFormat.CBZ
@@ -25,12 +25,11 @@ class CbzWriter : BookWriter {
         directory.mkdirs()
         val file = File(directory, "$baseName.cbz")
         val temp = File(directory, "$baseName.cbz.part")
-        val compressImages = bundle.settings.images.zipCompressImages
         ZipOutputStream(temp.outputStream().buffered()).use { zip ->
             for ((path, load) in entries) {
                 val data = load()
                 val entry = ZipEntry(path)
-                if (path == "ComicInfo.xml" || compressImages) {
+                if (path == "ComicInfo.xml") {
                     entry.method = ZipEntry.DEFLATED
                 } else {
                     entry.method = ZipEntry.STORED

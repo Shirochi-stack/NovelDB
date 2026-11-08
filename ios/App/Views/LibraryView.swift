@@ -30,13 +30,20 @@ struct LibraryBook: Identifiable {
                 bytes += (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             }
         }
-        let kinds = files.map { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true ? "TXT" : $0.pathExtension.uppercased() }
+        let kinds = files.map(Self.kind)
         var seen: [String] = []
         for kind in kinds where !seen.contains(kind) { seen.append(kind) }
         return (seen + [ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)]).joined(separator: " · ")
     }
 
     static let extensions: Set<String> = ["epub", "pdf", "txt", "html", "htm", "cbz", "zip"]
+
+    static func kind(_ file: URL) -> String {
+        if file.hasDirectoryPath {
+            return file.pathExtension.lowercased() == "folder" ? "Folder" : "TXT"
+        }
+        return file.pathExtension.uppercased()
+    }
 
     /// The books in the app's download folder, newest first.
     static func scan(_ folder: URL) -> [LibraryBook] {
@@ -48,11 +55,12 @@ struct LibraryBook: Identifiable {
             let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isFolder {
                 let inside = (try? manager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
-                guard inside.contains(where: { ["txt", "html", "jpg", "png", "webp"].contains($0.pathExtension.lowercased()) }) else { continue }
+                let chapterFolder = url.pathExtension.lowercased() == "folder" && !inside.isEmpty
+                guard chapterFolder || inside.contains(where: { ["txt", "html", "jpg", "png", "webp"].contains($0.pathExtension.lowercased()) }) else { continue }
             } else if !extensions.contains(url.pathExtension.lowercased()) {
                 continue
             }
-            let name = isFolder ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
+            let name = isFolder && url.pathExtension.lowercased() != "folder" ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             var group = groups[name.lowercased()] ?? (name, [], .distantPast)
             group.files.append(url)
@@ -213,7 +221,7 @@ struct LibraryView: View {
 
     /// "EPUB", "TXT" (a TXT folder too), "PDF": a file's kind, for the selection's filter.
     private static func kind(_ file: URL) -> String {
-        file.hasDirectoryPath ? "TXT" : file.pathExtension.uppercased()
+        LibraryBook.kind(file)
     }
 
     /// The picked books' files, to open in another app together (the share sheet: a reader, Files, a chat),
@@ -224,7 +232,7 @@ struct LibraryView: View {
         var kinds: [String] = []
         for kind in all.map(Self.kind) where !kinds.contains(kind) { kinds.append(kind) }
         let kept = all.filter { !kindsOff.contains(Self.kind($0)) }
-        let files = kept.flatMap { $0.hasDirectoryPath ? FolderZip.files(in: $0) : [$0] }
+        let files = kept.map(SharedOutput.init(url:))
         return VStack(spacing: 8) {
             if kinds.count > 1 {
                 HStack(spacing: 8) {
@@ -243,7 +251,9 @@ struct LibraryView: View {
                 Button(role: .destructive) { deletingPicked = kept } label: { Label("Delete", systemImage: "trash") }
                     .buttonStyle(.bordered)
                     .disabled(kept.isEmpty)
-                ShareLink(items: files) { Label("Open in app", systemImage: "square.and.arrow.up") }
+                ShareLink(items: files, preview: { SharePreview($0.url.lastPathComponent) }) {
+                    Label("Open in app", systemImage: "square.and.arrow.up")
+                }
                     .buttonStyle(.borderedProminent)
                     .disabled(files.isEmpty)
             }

@@ -70,9 +70,11 @@ public enum DesktopConfig {
         s.images.compressCover = bool(c["compress_cover"]) ?? s.images.compressCover
         s.images.coverQuality = int(c["cover_quality"]) ?? s.images.coverQuality
         s.images.coverFormat = imageFormat(c["cover_format"]) ?? s.images.coverFormat
-        s.images.zipCompressImages = bool(c["zip_compress_images"]) ?? s.images.zipCompressImages
         s.images.compressionWorkers = int(c["image_compression_workers"]) ?? s.images.compressionWorkers
-        s.images.longImageLayout = bool(c["ext_long_image_layout"]) ?? s.images.longImageLayout
+        s.images.webtoonExport = bool(c["webtoon_export"])
+        s.images.stitchImages = bool(c["stitch_images"])
+        s.images.stitchHeight = int(c["stitch_height"]).map { min(32_000, max(0, $0)) }
+        s.images.stitchChapterFolders = bool(c["stitch_chapter_folders"])
         s.images.saveImageURLsOnly = bool(c["save_image_urls_only"]) ?? s.images.saveImageURLsOnly
 
         // Text and PDF.
@@ -196,9 +198,13 @@ public enum DesktopConfig {
         c["compress_cover"] = s.images.compressCover
         c["cover_quality"] = s.images.coverQuality
         c["cover_format"] = s.images.coverFormat.rawValue
-        c["zip_compress_images"] = s.images.zipCompressImages
+        c.removeValue(forKey: "zip_compress_images")
         c["image_compression_workers"] = s.images.compressionWorkers
-        c["ext_long_image_layout"] = s.images.longImageLayout
+        c.removeValue(forKey: "ext_long_image_layout")
+        c["webtoon_export"] = s.images.webtoonExport ?? false
+        c["stitch_images"] = s.images.stitchingEnabled
+        c["stitch_height"] = s.images.stitchMaxHeight
+        c["stitch_chapter_folders"] = s.images.chapterFoldersEnabled
         c["save_image_urls_only"] = s.images.saveImageURLsOnly
 
         c["strip_leading_spaces"] = s.text.stripLeadingSpaces

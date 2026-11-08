@@ -19,6 +19,7 @@ class NpiaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Writers.pdfWriter = AndroidPdfWriter()
+        Writers.chapterStitcher = ChapterStrips::write
         NpiaFontMapping.attach(java.io.File(filesDir, "font-mapping.json"))
         // Downloaded rule engine updates live here; the download manager checks for new ones.
         RuleEngines.configure(java.io.File(filesDir, "engines"))

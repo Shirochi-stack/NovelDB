@@ -7,6 +7,54 @@ import NpiaSources
 import NpiaUpload
 import NpiaWebEngine
 
+/// One active write and one queued chapter. Cleanup waits for both before removing the staging files.
+private actor ChapterExportQueue {
+    private let output: FolderWriter.Prepared
+    private let options: ImageSettings
+    private let logger: any JobLogging
+    private var pending: [Task<Void, Error>] = []
+
+    init(output: FolderWriter.Prepared, options: ImageSettings, logger: any JobLogging) {
+        self.output = output
+        self.options = options
+        self.logger = logger
+    }
+
+    func submit(_ chapter: ChapterContent, images: [String: Data]) async throws {
+        if pending.count == 2 {
+            try await pending[0].value
+            pending.removeFirst()
+        }
+        try Task.checkCancellation()
+        let previous = pending.last
+        let write = Task<Void, Error>.detached(priority: .utility) { [output, options, logger] in
+            if let previous { try await previous.value }
+            try Task.checkCancellation()
+            if options.webtoonExport == true && options.stitchingEnabled &&
+                chapter.images.count > 1 && chapter.images.allSatisfy({ images[$0.filename] != nil }) {
+                logger.log(.info, "Stitching chapter \(chapter.ref.index): \(chapter.ref.title)")
+            }
+            try output.append(chapter, images: images)
+        }
+        pending.append(write)
+    }
+
+    func finish() async throws {
+        for task in pending { try await task.value }
+        pending.removeAll()
+    }
+
+    func requestCancellation() {
+        for task in pending { task.cancel() }
+    }
+
+    func cancelAndWait() async {
+        requestCancellation()
+        for task in pending { _ = try? await task.value }
+        pending.removeAll()
+    }
+}
+
 /// Turns upload events into short job status text such as "book.epub - Gofile 42%", so the
 /// queue shows which host is being tried and how far it got.
 private final class UploadStatusRelay: @unchecked Sendable {
@@ -167,9 +215,40 @@ public struct DownloadPipeline: Sendable {
         logger.log(skipped.isEmpty ? .info : .warning, "Read \(chapters.count) of \(selected.count) chapters" + (skipped.isEmpty ? "" : ", \(skipped.count) skipped"))
 
         let processor = ImageProcessor(settings: settings.images)
-        let stage = ImageStage(http: client, settings: settings, source: source, logger: logger)
-        let imageOutput = try await stage.run(chapters) { done, total in
+        let prepared = !settings.images.saveImageURLsOnly && shared.formats.contains(where: { $0 == .folder || $0 == .zip })
+            ? try FolderWriter.Prepared(directory: outputDirectory, options: settings.images, encode: {
+                try processor.process($0)
+            }) : nil
+        defer { prepared?.close() }
+        let compressAfter = prepared != nil && settings.images.compressAfterStitch
+        let otherImageOutputs = shared.formats.contains { $0 == .epub || $0 == .cbz || $0 == .pdf }
+        var stageSettings = settings
+        if compressAfter && !otherImageOutputs { stageSettings.images.compress = false }
+        let stage = ImageStage(http: client, settings: stageSettings, source: source, logger: logger)
+        let progress: @Sendable (Int, Int) -> Void = { done, total in
             onPhase(.downloadingImages(done: done, total: total))
+        }
+        let imageOutput: ImageStage.Output
+        if let prepared {
+            let queue = ChapterExportQueue(output: prepared, options: settings.images, logger: logger)
+            do {
+                let selectedChapters = chapters
+                imageOutput = try await withTaskCancellationHandler {
+                    let output = try await stage.run(selectedChapters, preserveChapterSources: compressAfter && otherImageOutputs,
+                                                     onChapterReady: { chapter, images in
+                        try await queue.submit(chapter, images: images)
+                    }, onProgress: progress)
+                    try await queue.finish()
+                    return output
+                } onCancel: {
+                    Task { await queue.requestCancellation() }
+                }
+            } catch {
+                await queue.cancelAndWait()
+                throw error
+            }
+        } else {
+            imageOutput = try await stage.run(chapters, onProgress: progress)
         }
         logger.log(.info, "Images: \(imageOutput.images.count) ready" + (imageOutput.failed > 0 ? ", \(imageOutput.failed) failed" : ""))
         if imageOutput.failed > 0 {
@@ -196,7 +275,15 @@ public struct DownloadPipeline: Sendable {
             }
             var file: URL
             do {
-                file = try await writer.write(bundle, baseName: baseName, to: outputDirectory)
+                if let prepared, format == .folder || format == .zip {
+                    if format == .folder, let folderIndex = shared.formats.firstIndex(of: .folder),
+                       let zipIndex = shared.formats.firstIndex(of: .zip), folderIndex < zipIndex {
+                        try prepared.pack()
+                    }
+                    file = try prepared.publish(format, baseName: baseName)
+                } else {
+                    file = try await writer.write(bundle, baseName: baseName, to: outputDirectory)
+                }
             } catch OutputError.nothingToWrite(let reason) {
                 logger.log(.warning, reason)
                 continue

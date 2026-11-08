@@ -151,7 +151,9 @@ struct QueueView: View {
                     if let file = LibraryBook.readerFile(in: files) {
                         Button("Open", systemImage: "book") { reading = file }
                     }
-                    ShareLink(items: files) { Label("Share files", systemImage: "square.and.arrow.up") }
+                    ShareLink(items: files.map(SharedOutput.init(url:)), preview: { SharePreview($0.url.lastPathComponent) }) {
+                        Label("Share files", systemImage: "square.and.arrow.up")
+                    }
                     Button("Upload", systemImage: "icloud.and.arrow.up") { model.upload(jobs: [job.id]) }
                     Button("Show in Files", systemImage: "folder") { FilesApp.reveal(files[0]) }
                     Button("Select", systemImage: "checkmark.circle") {
@@ -189,7 +191,7 @@ struct QueueView: View {
                 .font(.subheadline)
             }
             HStack(spacing: 12) {
-                ShareLink(items: files) {
+                ShareLink(items: files.map(SharedOutput.init(url:)), preview: { SharePreview($0.url.lastPathComponent) }) {
                     Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -288,7 +290,9 @@ struct JobDetailView: View {
                     ForEach(files, id: \.self) { file in
                         FileRow(file: file, jobID: job.id)
                     }
-                    ShareLink(items: files) { Label("Share all", systemImage: "square.and.arrow.up") }
+                    ShareLink(items: files.map(SharedOutput.init(url:)), preview: { SharePreview($0.url.lastPathComponent) }) {
+                        Label("Share all", systemImage: "square.and.arrow.up")
+                    }
                     if model.isUploadable(job) {
                         Button { model.upload(jobs: [job.id]) } label: {
                             Label("Upload all", systemImage: "icloud.and.arrow.up")
@@ -468,13 +472,13 @@ struct FolderZip: Transferable {
 
     /// Only for a folder that holds more than one file; a folder of one file is shared as that file.
     init?(sharing url: URL) {
-        guard url.hasDirectoryPath, FolderZip.files(in: url).count > 1 else { return nil }
+        guard url.hasDirectoryPath, url.pathExtension.lowercased() == "folder" || FolderZip.files(in: url).count > 1 else { return nil }
         folder = url
     }
 
     /// The one file inside a single-file folder.
     static func single(_ url: URL) -> URL? {
-        guard url.hasDirectoryPath else { return nil }
+        guard url.hasDirectoryPath, url.pathExtension.lowercased() != "folder" else { return nil }
         let files = files(in: url)
         return files.count == 1 ? files[0] : nil
     }
@@ -498,12 +502,28 @@ struct FolderZip: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(exportedContentType: .zip) { item in
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("share", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let target = directory.appendingPathComponent(item.folder.lastPathComponent + ".zip")
-            try? FileManager.default.removeItem(at: target)
-            try item.zippedData().write(to: target, options: .atomic)
-            return SentTransferredFile(target)
+            try SentTransferredFile(item.shareFile())
+        }
+    }
+
+    func shareFile() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("share", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = directory.appendingPathComponent(folder.lastPathComponent + ".zip")
+        try zippedData().write(to: target, options: .atomic)
+        return target
+    }
+}
+
+struct SharedOutput: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .item) { output in
+            if let zip = FolderZip(sharing: output.url) {
+                return try SentTransferredFile(zip.shareFile())
+            }
+            return SentTransferredFile(FolderZip.single(output.url) ?? output.url)
         }
     }
 }

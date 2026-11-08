@@ -166,6 +166,12 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
         self._var_separate_txt = tk.BooleanVar(value=False)
         self._var_format_pdf = tk.BooleanVar(value=False)
         self._var_format_cbz = tk.BooleanVar(value=False)
+        self._var_format_folder = tk.BooleanVar(value=False)
+        self._var_format_zip = tk.BooleanVar(value=False)
+        self._var_webtoon_export = tk.BooleanVar(value=False)
+        self._var_stitch_images = tk.BooleanVar(value=True)
+        self._var_stitch_height = tk.IntVar(value=16000)
+        self._var_stitch_chapter_folders = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             fmt_frame, text="EPUB", variable=self._var_format_epub
         ).pack(side="left", padx=5)
@@ -177,6 +183,12 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
         ).pack(side="left", padx=5)
         ttk.Checkbutton(
             fmt_frame, text="CBZ", variable=self._var_format_cbz
+        ).pack(side="left", padx=5)
+        ttk.Checkbutton(
+            fmt_frame, text="Folder", variable=self._var_format_folder
+        ).pack(side="left", padx=5)
+        ttk.Checkbutton(
+            fmt_frame, text="ZIP", variable=self._var_format_zip
         ).pack(side="left", padx=5)
 
         ttk.Checkbutton(
@@ -298,12 +310,6 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
                 )
             )
         )
-        self._var_long_image_layout = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            dedupe_frame,
-            text="Long image layout",
-            variable=self._var_long_image_layout,
-        ).pack(anchor="w")
         self._var_syosetu_amazon_cover = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             dedupe_frame,
@@ -1047,7 +1053,7 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
                 configured_formats = [cfg.get("ext_format", "epub")]
             configured_formats = [
                 fmt for fmt in configured_formats
-                if fmt in ("epub", "txt", "pdf", "cbz")
+                if fmt in ("epub", "txt", "pdf", "cbz", "folder", "zip")
             ]
             if not configured_formats:
                 configured_formats = ["epub"]
@@ -1055,6 +1061,12 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
             self._var_format_txt.set("txt" in configured_formats)
             self._var_format_pdf.set("pdf" in configured_formats)
             self._var_format_cbz.set("cbz" in configured_formats)
+            self._var_format_folder.set("folder" in configured_formats)
+            self._var_format_zip.set("zip" in configured_formats)
+            self._var_webtoon_export.set(cfg.get("webtoon_export", False))
+            self._var_stitch_images.set(cfg.get("stitch_images", True))
+            self._var_stitch_height.set(cfg.get("stitch_height", 16000))
+            self._var_stitch_chapter_folders.set(cfg.get("stitch_chapter_folders", False))
             self._var_format.set(configured_formats[0])
             if hasattr(self, "_var_separate_txt"):
                 self._var_separate_txt.set(cfg.get("ext_separate_txt", False))
@@ -1095,9 +1107,6 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
             )
             self._var_syosetu_amazon_cover.set(
                 cfg.get("ext_syosetu_amazon_cover", False)
-            )
-            self._var_long_image_layout.set(
-                cfg.get("ext_long_image_layout", False)
             )
             self._var_kpage_skip_last_page.set(
                 cfg.get("ext_kpage_skip_last_page", False)
@@ -1171,7 +1180,11 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
         cfg["ext_syosetu_amazon_cover"] = (
             self._var_syosetu_amazon_cover.get()
         )
-        cfg["ext_long_image_layout"] = self._var_long_image_layout.get()
+        cfg.pop("ext_long_image_layout", None)
+        cfg["webtoon_export"] = self._var_webtoon_export.get()
+        cfg["stitch_images"] = self._var_stitch_images.get()
+        cfg["stitch_height"] = self._var_stitch_height.get()
+        cfg["stitch_chapter_folders"] = self._var_stitch_chapter_folders.get()
         cfg["ext_kpage_skip_last_page"] = (
             self._var_kpage_skip_last_page.get()
         )

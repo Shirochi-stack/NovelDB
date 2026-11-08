@@ -54,7 +54,6 @@ struct PDFDocumentPlan {
     struct Chapter {
         var title: String
         var anchor: String
-        var showTitle: Bool
         var blocks: [PDFBlock]
     }
 
@@ -67,7 +66,6 @@ struct PDFDocumentPlan {
     var chapters: [Chapter]
     var images: [String: Data]
     var imagesByLeaf: [String: Data]
-    var longImageLayout: Bool
     var showTOC: Bool
     var pageNumbers: Bool
     var jpegQuality: Int
@@ -75,7 +73,6 @@ struct PDFDocumentPlan {
     init(_ bundle: BookBundle) {
         let book = bundle.book
         let shared = bundle.settings.effective(for: book.source)
-        let longLayout = LongImageLayout.applies(to: bundle)
         title = book.title
         author = book.author
         details = [book.status, book.tags.isEmpty ? nil : book.tags.joined(separator: ", ")].compactMap { $0 }
@@ -87,7 +84,6 @@ struct PDFDocumentPlan {
             return Chapter(
                 title: title,
                 anchor: "chapter-\(offset + 1)",
-                showTitle: !LongImageLayout.hidesTitle(chapter, layoutApplies: longLayout),
                 blocks: PDFHTMLParser.blocks(chapter.html)
             )
         }
@@ -97,7 +93,6 @@ struct PDFDocumentPlan {
             leaves[(name as NSString).lastPathComponent] = data
         }
         imagesByLeaf = leaves
-        longImageLayout = longLayout
         showTOC = bundle.settings.text.pdfTOC
         pageNumbers = bundle.settings.text.pdfPageNumbers
         jpegQuality = bundle.settings.images.quality
@@ -152,9 +147,7 @@ final class PDFRenderer {
             beginPage()
             starts.append(pageCount)
             context?.addDestination(chapter.anchor as CFString, at: CGPoint(x: content.minX, y: content.maxY))
-            if chapter.showTitle {
-                drawText(attributed([PDFRun(text: chapter.title, bold: true, italic: false)], style: .chapterTitle))
-            }
+            drawText(attributed([PDFRun(text: chapter.title, bold: true, italic: false)], style: .chapterTitle))
             drawBlocks(chapter.blocks)
         }
         endPage()
@@ -346,10 +339,6 @@ final class PDFRenderer {
     private func drawImage(_ data: Data) {
         guard let size = PDFImages.pixelSize(data), size.width > 0, size.height > 0 else { return }
         ensurePage()
-        if plan.longImageLayout {
-            drawStrip(data, pixelSize: size)
-            return
-        }
         // CSS px (96 dpi) to points, never wider than the text column or taller than a page.
         var width = min(content.width, size.width * 0.75)
         var height = size.height * width / size.width
@@ -363,38 +352,6 @@ final class PDFRenderer {
             context.draw(image, in: rect)
         }
         cursor += height + 6
-    }
-
-    /// Full-width strip, sliced across pages with no gaps.
-    private func drawStrip(_ data: Data, pixelSize size: CGSize) {
-        let width = content.width
-        let height = size.height * width / size.width
-        if height <= remaining || (cursor == 0 && height <= content.height) {
-            let rect = CGRect(x: content.minX, y: content.maxY - cursor - height, width: width, height: height)
-            if let context, let image = PDFImages.drawable(data, quality: plan.jpegQuality) {
-                context.draw(image, in: rect)
-            }
-            cursor += height
-            return
-        }
-        let source = context == nil ? nil : PDFImages.decoded(data)
-        var drawn: CGFloat = 0
-        while drawn < height - 0.5 {
-            if remaining < 1 { beginPage() }
-            let slice = min(remaining, height - drawn)
-            if let context, let source {
-                let top = Int((drawn / height * size.height).rounded(.down))
-                let bottom = min(Int(size.height), Int(((drawn + slice) / height * size.height).rounded(.up)))
-                if bottom > top,
-                   let cropped = source.cropping(to: CGRect(x: 0, y: top, width: Int(size.width), height: bottom - top)),
-                   let image = PDFImages.jpegBacked(cropped, quality: plan.jpegQuality) {
-                    let rect = CGRect(x: content.minX, y: content.maxY - cursor - slice, width: width, height: slice)
-                    context.draw(image, in: rect)
-                }
-            }
-            cursor += slice
-            drawn += slice
-        }
     }
 
     // MARK: - Styles

@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.em
 import com.shirochi.npia.app.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.SourceOptionGroup
 import com.shirochi.npia.app.model.editRunSettings
@@ -114,6 +115,21 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
 
         CompactHeader("Format")
         FormatChips(run.formats) { f -> edit { it.copy(formats = f) } }
+        if (OutputFormat.FOLDER in run.formats || OutputFormat.ZIP in run.formats) {
+            val webtoon = settings.images.webtoonExport
+            CompactHeader("Image layout")
+            ChipFlow {
+                ToggleChip("Manga", !webtoon) {
+                    manager.updateSettings { it.copy(images = it.images.copy(webtoonExport = false)) }
+                }
+                ToggleChip("Webtoon", webtoon) {
+                    manager.updateSettings { it.copy(images = it.images.copy(webtoonExport = true)) }
+                }
+            }
+            if (webtoon) {
+                TextButton(onClick = { model.push(Route.Stitching) }) { Text("Stitching settings") }
+            }
+        }
         if (OutputFormat.TXT in run.formats) {
             ChipFlow { ToggleChip("Separate TXT files", run.separateTxt) { v -> edit { it.copy(separateTxt = v) } } }
         }
@@ -325,8 +341,6 @@ fun SourceOptions(source: SourceId, draft: AppSettings, onChange: (AppSettings) 
                     ToggleChip("Prefer source cover", s.ntkNpiaCover) { onChange(draft.copy(sources = s.copy(ntkNpiaCover = it))) }
                 SourceOptionGroup.KOBO_LAYOUT ->
                     ToggleChip("Horizontal Japanese text", s.koboHorizontalLayout) { onChange(draft.copy(sources = s.copy(koboHorizontalLayout = it))) }
-                SourceOptionGroup.LONG_IMAGES ->
-                    ToggleChip("Long image layout", draft.images.longImageLayout) { onChange(draft.copy(images = draft.images.copy(longImageLayout = it))) }
             }
         }
     }

@@ -151,6 +151,7 @@ class MainWindow(QMainWindow):
         self.download.toolRequested.connect(self.tools.run)
         context.toolRequested.connect(self.tools.run)
         self.download.openCart.connect(self.show_cart)
+        self.download.stitchingRequested.connect(self.show_stitching_settings)
         self.catalog.openCart.connect(self.show_cart)
         self.library.openInCatalog.connect(self.open_in_catalog)
         self.queue.readOutput.connect(self.read_queue_output)
@@ -201,6 +202,10 @@ class MainWindow(QMainWindow):
         self._restore_geometry()
 
     # -- navigation ----------------------------------------------------------------------
+
+    def show_stitching_settings(self) -> None:
+        self.show_page(self.stack.indexOf(self.settings_page))
+        self.settings_page.show_stitching()
 
     def show_page(self, index: int) -> None:
         self.sidebar.setCurrentRow(index)

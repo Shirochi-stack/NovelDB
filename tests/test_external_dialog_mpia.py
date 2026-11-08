@@ -276,7 +276,6 @@ def test_mpia_output_images_reuse_scoped_browser_cookies(
         }],
     ))
     dialog._parent_gui = SimpleNamespace()
-    dialog._var_long_image_layout = Setting(False)
     dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(2)
     dialog._get_output_dir = lambda: str(tmp_path)

@@ -128,6 +128,8 @@ def _epub_meta(path: Path, size: int, modified: float) -> dict:
 
 def _format_of(path: Path) -> Optional[str]:
     if path.is_dir():
+        if path.suffix.lower() == ".folder" and any(path.iterdir()):
+            return "Folder"
         kinds = {item.suffix.lower() for item in path.iterdir() if item.is_file()}
         if not kinds or not kinds & set(FOLDER_FILES):
             return None
@@ -169,7 +171,7 @@ def scan(folder: Path, progress=None, found=None) -> List[LibraryBook]:
         try:
             if path.is_dir():
                 size, modified = _folder_size(path)
-                name = path.name
+                name = path.stem if path.suffix.lower() == ".folder" else path.name
             else:
                 stat = path.stat()
                 size, modified = stat.st_size, stat.st_mtime

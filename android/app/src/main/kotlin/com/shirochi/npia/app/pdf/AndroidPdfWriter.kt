@@ -1,16 +1,12 @@
 package com.shirochi.npia.app.pdf
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.BitmapRegionDecoder
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
-import android.os.Build
 import android.text.Layout
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -115,7 +111,7 @@ internal class PdfRenderer(
             currentCoroutineContext().ensureActive()
             beginPage()
             starts += pageCount
-            if (chapter.showTitle) drawParagraph(listOf(PdfRun(chapter.title, bold = true)), Style.CHAPTER_TITLE)
+            drawParagraph(listOf(PdfRun(chapter.title, bold = true)), Style.CHAPTER_TITLE)
             for (block in chapter.blocks) {
                 when (block) {
                     is PdfBlock.Paragraph -> drawParagraph(
@@ -278,10 +274,6 @@ internal class PdfRenderer(
     private fun drawImage(data: ByteArray) {
         val (w, h) = AndroidImageProcessor.pixelSize(data) ?: return
         ensurePage()
-        if (plan.longImageLayout) {
-            drawStrip(data, w, h)
-            return
-        }
         // CSS px (96 dpi) to points, never wider than the text column or taller than a page.
         var width = minOf(CONTENT_WIDTH, w * 0.75f)
         var height = h * width / w
@@ -294,54 +286,6 @@ internal class PdfRenderer(
         drawBitmap(data, w, width, RectF(left, MARGIN + cursor, left + width, MARGIN + cursor + height))
         cursor += height + 6
     }
-
-    /** Full-width strip, sliced across pages with no gaps. */
-    private fun drawStrip(data: ByteArray, w: Int, h: Int) {
-        val width = CONTENT_WIDTH
-        val height = h * width / w
-        if (height <= remaining || (cursor == 0f && height <= CONTENT_HEIGHT)) {
-            drawBitmap(data, w, width, RectF(MARGIN, MARGIN + cursor, MARGIN + width, MARGIN + cursor + height))
-            cursor += height
-            return
-        }
-        val regions = if (document == null) null else regionDecoder(data)
-        val whole = if (document != null && regions == null) AndroidImageProcessor.decode(data) else null
-        try {
-            var drawn = 0f
-            while (drawn < height - 0.5f) {
-                if (remaining < 1) beginPage()
-                val slice = minOf(remaining, height - drawn)
-                val top = (drawn / height * h).toInt()
-                val bottom = minOf(h, kotlin.math.ceil((drawn + slice) / height * h).toInt())
-                val canvas = canvas
-                if (canvas != null && bottom > top) {
-                    val dest = RectF(MARGIN, MARGIN + cursor, MARGIN + width, MARGIN + cursor + slice)
-                    val source = Rect(0, top, w, bottom)
-                    if (regions != null) {
-                        runCatching { regions.decodeRegion(source, BitmapFactory.Options()) }.getOrNull()?.let { bitmap ->
-                            canvas.drawBitmap(bitmap, null, dest, bitmapPaint)
-                        }
-                    } else if (whole != null) {
-                        canvas.drawBitmap(whole, source, dest, bitmapPaint)
-                    }
-                }
-                cursor += slice
-                drawn += slice
-            }
-        } finally {
-            // Bitmaps drawn into a page stay referenced until `finishPage`, so only the decoder is freed.
-            regions?.recycle()
-        }
-    }
-
-    private fun regionDecoder(data: ByteArray): BitmapRegionDecoder? = runCatching {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            BitmapRegionDecoder.newInstance(data, 0, data.size)
-        } else {
-            @Suppress("DEPRECATION")
-            BitmapRegionDecoder.newInstance(data, 0, data.size, false)
-        }
-    }.getOrNull()
 
     /** Decodes at about twice the drawn resolution so large sources do not bloat the PDF. */
     private fun drawBitmap(data: ByteArray, pixelWidth: Int, drawnWidth: Float, dest: RectF) {

@@ -87,18 +87,7 @@ class MpiaAdapter internal constructor(
         val page = openPage(context.web)
         try {
             loadQuietly(page, MpiaSite.bookUrl(novelId), context)
-            var detail: MpiaDetail? = null
-            for (poll in 0 until timing.detailPolls) {
-                val answer = page.hard<MpiaDetail>("mpia.detail(${HardScripts.literal(novelId)})")
-                if (answer.ok) {
-                    detail = answer
-                    break
-                }
-                delay(timing.pollMillis)
-            }
-            val info = detail ?: throw SourceException.Blocked(
-                "the mpia book page did not return its details; sign in or clear the site's security check in the Browser tab, then retry",
-            )
+            val info = readDetail(page, novelId)
             log(
                 context, LogLevel.INFO,
                 if (info.login) "Signed in: free chapters and the ones you own are included." else "Not signed in: only free chapters download. Sign in in Settings > Enter App.",
@@ -108,7 +97,7 @@ class MpiaAdapter internal constructor(
             val seen = HashSet<String>()
             var pageNo = 1
             while (pageNo <= timing.maxListPages) {
-                val listing = page.hard<MpiaChapterList>("mpia.chapters(${HardScripts.literal(novelId)}, $pageNo)")
+                val listing = chapterList(page, novelId, pageNo)
                 if (!listing.ok) {
                     if (rows.isEmpty()) throw SourceException.Parse("the mpia chapter list could not be read (${listing.error.ifEmpty { "page $pageNo" }})")
                     log(context, LogLevel.WARNING, "Stopped reading the chapter list at page $pageNo: ${listing.error}")
@@ -125,26 +114,64 @@ class MpiaAdapter internal constructor(
             }
             if (rows.isEmpty()) throw SourceException.Parse("no chapters were found for this mpia book")
 
-            val chapters = rows
-                .sortedWith(compareBy({ it.order }, { it.id.toLongOrNull() ?: 0L }))
-                .mapIndexed { index, row ->
-                    ChapterRef(
-                        id = row.id, index = index + 1,
-                        title = row.title.ifEmpty { "Chapter ${row.order}" }, url = row.url, isPaid = row.isPaid,
-                    )
-                }
-            val book = BookInfo(
-                source = SourceId.MPIA, id = novelId, url = MpiaSite.bookUrl(novelId),
-                title = info.title.ifEmpty { "mpia $novelId" }, author = info.author.ifEmpty { null },
-                synopsis = info.synopsis.ifEmpty { null }, coverUrl = info.cover.ifEmpty { null }, tags = info.tags,
-                status = if (info.finished) "Completed" else "Ongoing", language = "ko", chapters = chapters,
-            )
-            log(context, LogLevel.INFO, "Book: ${book.title} by ${book.author ?: "?"} - ${chapters.size} chapters")
+            val book = bookInfo(novelId, info).copy(chapters = chapterRefs(rows, 0))
+            log(context, LogLevel.INFO, "Book: ${book.title} by ${book.author ?: "?"} - ${book.chapters.size} chapters")
             return book
         } finally {
             closeQuietly(page)
         }
     }
+
+    /** The reader requests the next list page independently from its chapter WebView. */
+    internal suspend fun readerPage(url: String, index: Int, existing: BookInfo?, context: SourceContext): Pair<BookInfo, Boolean> {
+        require(index in 0 until timing.maxListPages)
+        val novelId = MpiaSite.novelId(url)
+        if (novelId.isEmpty()) throw SourceException.UnsupportedUrl(url)
+        if (index > 0) delay(timing.listIntervalMillis)
+        val page = openPage(context.web)
+        try {
+            loadQuietly(page, MpiaSite.bookUrl(novelId), context)
+            val book = existing ?: bookInfo(novelId, readDetail(page, novelId))
+            val listing = chapterList(page, novelId, index + 1)
+            if (!listing.ok) throw SourceException.Parse("the mpia chapter list could not be read (${listing.error})")
+            val seen = book.chapters.map { it.id }.toHashSet()
+            val added = chapterRefs(listing.list.filter { it.id.isNotEmpty() && seen.add(it.id) }, book.chapters.size)
+            if (added.isEmpty() && (book.chapters.isEmpty() || book.chapters.size < listing.total)) {
+                throw SourceException.Parse("the mpia chapter list ended early")
+            }
+            val chapters = book.chapters + added
+            val more = added.isNotEmpty() && (listing.total <= 0 || chapters.size < listing.total) && index + 1 < timing.maxListPages
+            return book.copy(chapters = chapters) to more
+        } finally {
+            closeQuietly(page)
+        }
+    }
+
+    private suspend fun readDetail(page: WebPageDriving, novelId: String): MpiaDetail {
+        repeat(timing.detailPolls) {
+            val answer = page.hard<MpiaDetail>("mpia.detail(${HardScripts.literal(novelId)})")
+            if (answer.ok) return answer
+            delay(timing.pollMillis)
+        }
+        throw SourceException.Blocked(
+            "the mpia book page did not return its details; sign in or clear the site's security check in the Browser tab, then retry",
+        )
+    }
+
+    private suspend fun chapterList(page: WebPageDriving, novelId: String, number: Int): MpiaChapterList =
+        page.hard("mpia.chapters(${HardScripts.literal(novelId)}, $number)")
+
+    private fun chapterRefs(rows: List<MpiaChapterRow>, offset: Int): List<ChapterRef> =
+        rows.sortedWith(compareBy({ it.order }, { it.id.toLongOrNull() ?: 0L })).mapIndexed { index, row ->
+            ChapterRef(row.id, offset + index + 1, row.title.ifEmpty { "Chapter ${row.order}" }, row.url, row.isPaid)
+        }
+
+    private fun bookInfo(novelId: String, info: MpiaDetail): BookInfo = BookInfo(
+        source = SourceId.MPIA, id = novelId, url = MpiaSite.bookUrl(novelId),
+        title = info.title.ifEmpty { "mpia $novelId" }, author = info.author.ifEmpty { null },
+        synopsis = info.synopsis.ifEmpty { null }, coverUrl = info.cover.ifEmpty { null }, tags = info.tags,
+        status = if (info.finished) "Completed" else "Ongoing", language = "ko",
+    )
 
     // Chapters
 

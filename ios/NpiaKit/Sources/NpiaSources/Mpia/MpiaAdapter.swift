@@ -52,13 +52,24 @@ public struct MpiaAdapter: SourceAdapter {
     // MARK: - Book
 
     public func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo {
+        let (book, _) = try await loadBook(url, index: nil, existing: nil, context: context)
+        return book
+    }
+
+    func readerPage(_ url: URL, index: Int, existing: BookInfo?, context: SourceContext) async throws -> (BookInfo, Bool) {
+        guard (0..<timing.maxListPages).contains(index) else { throw SourceError.parse("invalid mpia chapter list page") }
+        if index > 0 { try await HTTPSourceSupport.sleep(seconds: timing.listInterval) }
+        return try await loadBook(url, index: index, existing: existing, context: context)
+    }
+
+    private func loadBook(_ url: URL, index: Int?, existing: BookInfo?, context: SourceContext) async throws -> (BookInfo, Bool) {
         let novelID = MpiaSite.novelID(url)
         if novelID.isEmpty { throw SourceError.unsupportedURL(url) }
         let page = try await HardSupport.openPage(
             context.web, userAgent: MpiaSite.userAgent, width: MpiaSite.viewportWidth, height: MpiaSite.viewportHeight
         )
         do {
-            let book = try await readBook(page, novelID: novelID, context: context)
+            let book = try await readBook(page, novelID: novelID, index: index, existing: existing, context: context)
             await HardSupport.closeQuietly(page)
             return book
         } catch {
@@ -67,8 +78,61 @@ public struct MpiaAdapter: SourceAdapter {
         }
     }
 
-    private func readBook(_ page: any WebPageDriving, novelID: String, context: SourceContext) async throws -> BookInfo {
+    private func readBook(_ page: any WebPageDriving, novelID: String, index: Int?,
+                          existing: BookInfo?, context: SourceContext) async throws -> (BookInfo, Bool) {
         try await HardSupport.loadQuietly(page, MpiaSite.bookURL(novelID), timeout: timing.loadTimeout) { log(context, .warning, $0) }
+        var book: BookInfo
+        if let existing {
+            book = existing
+        } else {
+            let info = try await readDetail(page, novelID: novelID)
+            log(context, .info, info.login
+                ? "Signed in: free chapters and the ones you own are included."
+                : "Not signed in: only free chapters download. Sign in in Settings > Enter App.")
+            book = BookInfo(
+                source: .mpia, id: novelID, url: MpiaSite.bookURL(novelID),
+                title: info.title.isEmpty ? "mpia \(novelID)" : info.title, author: info.author.isEmpty ? nil : info.author,
+                synopsis: info.synopsis.isEmpty ? nil : info.synopsis, coverURL: URL(string: info.cover), tags: info.tags,
+                status: info.finished ? "Completed" : "Ongoing", language: "ko"
+            )
+        }
+        var rows: [MpiaChapterRow] = []
+        var seen = Set(book.chapters.map(\.id))
+        var pageNo = (index ?? 0) + 1
+        var more = false
+        while pageNo <= timing.maxListPages {
+            let listing = MpiaChapterList(try await page.hardObject("mpia.chapters(\(HardScripts.literal(novelID)), \(pageNo))"))
+            if !listing.ok {
+                if rows.isEmpty || index != nil {
+                    throw SourceError.parse("the mpia chapter list could not be read (\(listing.error.isEmpty ? "page \(pageNo)" : listing.error))")
+                }
+                log(context, .warning, "Stopped reading the chapter list at page \(pageNo): \(listing.error)")
+                break
+            }
+            let added = listing.list.filter { !$0.id.isEmpty && seen.insert($0.id).inserted }
+            rows += added
+            let count = book.chapters.count + rows.count
+            if index != nil && added.isEmpty && count < listing.total {
+                throw SourceError.parse("the mpia chapter list ended early")
+            }
+            more = !added.isEmpty && (listing.total <= 0 || count < listing.total) && pageNo < timing.maxListPages
+            if index != nil || !more { break }
+            pageNo += 1
+            try await HTTPSourceSupport.sleep(seconds: timing.listInterval)
+        }
+        let offset = book.chapters.count
+        book.chapters += rows.sorted { a, b in
+            a.order != b.order ? a.order < b.order : (Int64(a.id) ?? 0) < (Int64(b.id) ?? 0)
+        }.enumerated().map { position, row in
+            ChapterRef(id: row.id, index: offset + position + 1, title: row.title.isEmpty ? "Chapter \(row.order)" : row.title,
+                       url: URL(string: row.url), isPaid: row.isPaid)
+        }
+        if book.chapters.isEmpty { throw SourceError.parse("no chapters were found for this mpia book") }
+        if index == nil { log(context, .info, "Book: \(book.title) by \(book.author ?? "?") - \(book.chapters.count) chapters") }
+        return (book, more)
+    }
+
+    private func readDetail(_ page: any WebPageDriving, novelID: String) async throws -> MpiaDetail {
         var detail: MpiaDetail?
         for _ in 0..<timing.detailPolls {
             let answer = MpiaDetail(try await page.hardObject("mpia.detail(\(HardScripts.literal(novelID)))"))
@@ -78,50 +142,7 @@ public struct MpiaAdapter: SourceAdapter {
         guard let info = detail else {
             throw SourceError.blocked("the mpia book page did not return its details; sign in or clear the site's security check in the Browser tab, then retry")
         }
-        log(context, .info, info.login
-            ? "Signed in: free chapters and the ones you own are included."
-            : "Not signed in: only free chapters download. Sign in in Settings > Enter App.")
-
-        var rows: [MpiaChapterRow] = []
-        var seen = Set<String>()
-        var pageNo = 1
-        while pageNo <= timing.maxListPages {
-            let listing = MpiaChapterList(try await page.hardObject("mpia.chapters(\(HardScripts.literal(novelID)), \(pageNo))"))
-            if !listing.ok {
-                if rows.isEmpty {
-                    throw SourceError.parse("the mpia chapter list could not be read (\(listing.error.isEmpty ? "page \(pageNo)" : listing.error))")
-                }
-                log(context, .warning, "Stopped reading the chapter list at page \(pageNo): \(listing.error)")
-                break
-            }
-            var added = 0
-            for row in listing.list where !row.id.isEmpty && seen.insert(row.id).inserted {
-                rows.append(row)
-                added += 1
-            }
-            if added == 0 || listing.list.isEmpty || (listing.total > 0 && rows.count >= listing.total) { break }
-            pageNo += 1
-            try await HTTPSourceSupport.sleep(seconds: timing.listInterval)
-        }
-        if rows.isEmpty { throw SourceError.parse("no chapters were found for this mpia book") }
-
-        let sorted = rows.sorted { a, b in
-            a.order != b.order ? a.order < b.order : (Int64(a.id) ?? 0) < (Int64(b.id) ?? 0)
-        }
-        let chapters = sorted.enumerated().map { offset, row in
-            ChapterRef(
-                id: row.id, index: offset + 1,
-                title: row.title.isEmpty ? "Chapter \(row.order)" : row.title, url: URL(string: row.url), isPaid: row.isPaid
-            )
-        }
-        let book = BookInfo(
-            source: .mpia, id: novelID, url: MpiaSite.bookURL(novelID),
-            title: info.title.isEmpty ? "mpia \(novelID)" : info.title, author: info.author.isEmpty ? nil : info.author,
-            synopsis: info.synopsis.isEmpty ? nil : info.synopsis, coverURL: URL(string: info.cover), tags: info.tags,
-            status: info.finished ? "Completed" : "Ongoing", language: "ko", chapters: chapters
-        )
-        log(context, .info, "Book: \(book.title) by \(book.author ?? "?") - \(chapters.count) chapters")
-        return book
+        return info
     }
 
     // MARK: - Chapters

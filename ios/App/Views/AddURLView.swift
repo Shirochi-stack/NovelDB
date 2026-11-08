@@ -71,7 +71,20 @@ struct AddURLView: View {
                     Text("Format").font(.caption).foregroundStyle(.secondary)
                     FlowLayout(spacing: 8) {
                         ForEach(OutputFormat.allCases, id: \.self) { format in
-                            ChipToggle(title: format.rawValue.uppercased(), isOn: formatBinding(format))
+                            ChipToggle(title: format.label, isOn: formatBinding(format))
+                        }
+                    }
+                    if effective.formats.contains(.folder) || effective.formats.contains(.zip) {
+                        Picker("Image layout", selection: Binding(
+                            get: { model.settings.images.webtoonExport ?? false },
+                            set: { model.settings.images.webtoonExport = $0 }
+                        )) {
+                            Text("Manga").tag(false)
+                            Text("Webtoon").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        if model.settings.images.webtoonExport == true {
+                            NavigationLink("Stitching settings") { ImageSettingsForm(stitchingOnly: true) }
                         }
                     }
                     if effective.formats.contains(.txt) {
@@ -228,8 +241,6 @@ struct AddURLView: View {
                             ChipToggle(title: "Prefer source cover", isOn: settingsBinding(\.sources.ntkNpiaCover))
                         case .koboLayout:
                             ChipToggle(title: "Horizontal Japanese text", isOn: settingsBinding(\.sources.koboHorizontalLayout))
-                        case .longImages:
-                            ChipToggle(title: "Long image layout", isOn: settingsBinding(\.images.longImageLayout))
                         }
                     }
                 }

@@ -74,11 +74,10 @@ class EpubWriter : BookWriter {
             zip.add("OEBPS/Text/info.xhtml", document(book.title, infoBody(book)).encodeToByteArray())
             for (page in pages) zip.add("OEBPS/Text/${page.filename}", page.xhtml.encodeToByteArray())
 
-            val compressImages = bundle.settings.images.zipCompressImages
             val cover = bundle.cover
-            if (cover != null && coverName != null) zip.add("OEBPS/$coverName", cover.data, compressImages)
+            if (cover != null && coverName != null) zip.add("OEBPS/$coverName", cover.data, false)
             val imageNames = bundle.images.keys.filter { it != coverName }.sorted()
-            for (name in imageNames) zip.add("OEBPS/$name", bundle.images.getValue(name), compressImages)
+            for (name in imageNames) zip.add("OEBPS/$name", bundle.images.getValue(name), false)
 
             zip.add("OEBPS/nav.xhtml", nav(pages, book).encodeToByteArray())
             zip.add("OEBPS/toc.ncx", ncx(pages, book, identifier).encodeToByteArray())

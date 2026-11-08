@@ -19,11 +19,9 @@ final class CBZWriterTests: XCTestCase {
         XCTAssertTrue(XMLParser(data: info.data).parse())
     }
 
-    func testImagesAreStoredUnlessZipCompressionIsOn() {
-        var bundle = makeWriterBundle()
+    func testAlreadyEncodedImagesAreStored() {
+        let bundle = makeWriterBundle()
         XCTAssertFalse(CBZWriter.entries(for: bundle).first { $0.path.hasSuffix(".png") }!.compressed)
-        bundle.settings.images.zipCompressImages = true
-        XCTAssertTrue(CBZWriter.entries(for: bundle).first { $0.path.hasSuffix(".png") }!.compressed)
     }
 
     func testWritesArchiveAndSkipsBooksWithoutImages() async throws {

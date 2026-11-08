@@ -31,9 +31,12 @@ actor BuiltInReader {
             return Self.json(["error": engines ? "no site engine lists this site" : "no built-in scraper for this site", "skip": true])
         }
         do {
-            let paged = !engines && type?.id == .npia && reader != nil
+            let paged = !engines && reader != nil && (type?.id == .npia || type?.id == .mpia)
             let key = paged ? (reader ?? "") + "|" + address : engines ? "engines|" + address : address
             if paged, op == "book", let page {
+                if type?.id == .mpia {
+                    return try await mpiaPage(key, url: url, page: page, context: context)
+                }
                 return try await npiaPage(key, url: url, page: page, context: context)
             }
             if paged && books[key] == nil { return Self.json(["error": "the reader was closed"]) }
@@ -74,6 +77,17 @@ actor BuiltInReader {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             return Self.json(["error": String(message.prefix(300))])
         }
+    }
+
+    private func mpiaPage(_ key: String, url: URL, page: Int, context: SourceContext) async throws -> String {
+        let previous = page == 0 ? nil : books[key]?.book
+        if page > 0 && previous == nil { return Self.json(["error": "the reader was closed"]) }
+        let adapter = MpiaAdapter()
+        let (book, more) = try await adapter.readerPage(url, index: page, existing: previous, context: context)
+        let added = book.chapters.dropFirst(previous?.chapters.count ?? 0)
+        remember(key, adapter: adapter, book: book)
+        return Self.json(["bookname": book.title, "author": book.author ?? "", "engine": SourceID.mpia.rawValue,
+                          "chapters": added.map { ["name": $0.title] }, "more": more])
     }
 
     private func npiaPage(_ key: String, url: URL, page: Int, context: SourceContext) async throws -> String {

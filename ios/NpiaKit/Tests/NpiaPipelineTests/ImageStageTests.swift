@@ -46,6 +46,27 @@ private final class StubHTTP: HTTPFetching, @unchecked Sendable {
     }
 }
 
+private actor HeldChapterHTTP: HTTPFetching {
+    let png: Data
+    let secondRequest: XCTestExpectation
+    private var released = false
+
+    init(png: Data, secondRequest: XCTestExpectation) {
+        self.png = png
+        self.secondRequest = secondRequest
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if request.url.lastPathComponent == "second" {
+            secondRequest.fulfill()
+            while !released { try await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        return HTTPResponse(url: request.url, status: 200, headers: [:], body: png)
+    }
+
+    func release() { released = true }
+}
+
 final class ImageStageTests: XCTestCase {
     private func url(_ name: String) -> URL { URL(string: "https://img.example.com/\(name)")! }
 
@@ -139,6 +160,33 @@ final class ImageStageTests: XCTestCase {
         XCTAssertGreaterThan(http.maxActive, 1)
         XCTAssertEqual(progress.last?.0, 12)
         XCTAssertEqual(progress.last?.1, 12)
+    }
+
+    func testFirstChapterIsReadyWhileTheNextDownloadIsPending() async throws {
+        let secondRequest = expectation(description: "next image request is in flight")
+        let firstReady = expectation(description: "first chapter can be stitched")
+        let png = makePNG()
+        let http = HeldChapterHTTP(png: png, secondRequest: secondRequest)
+        var settings = AppSettings()
+        settings.images.compress = false
+        settings.shared.imageWorkers = 1
+        let stage = ImageStage(http: http, settings: settings, source: .reader)
+        let chapters = [
+            chapter(1, images: [ImageRef(url: url("first"), filename: "first.png")]),
+            chapter(2, images: [ImageRef(url: url("second"), filename: "second.png")]),
+        ]
+        let result = Task {
+            try await stage.run(chapters, onChapterReady: { chapter, bytes in
+                if chapter.ref.index == 1 {
+                    XCTAssertEqual(bytes, ["first.png": png])
+                    firstReady.fulfill()
+                }
+            })
+        }
+        await fulfillment(of: [secondRequest, firstReady], timeout: 3)
+        await http.release()
+        let output = try await result.value
+        XCTAssertEqual(output.images.count, 2)
     }
 
     func testSaveImageURLsOnlyPointsAtRemote() async throws {

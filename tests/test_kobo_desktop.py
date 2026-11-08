@@ -125,7 +125,6 @@ def test_desktop_export_matches_revision_and_preserves_epub(tmp_path,
     dialog._chapter_results = [{'_nativeEpubBytes': payload}]
     dialog._active_output_formats = ('epub',)
     dialog._var_format = SimpleNamespace(set=lambda value: None)
-    dialog._var_long_image_layout = SimpleNamespace(get=lambda: False)
     dialog._get_output_dir = lambda: str(tmp_path)
     dialog._log = messages.append
     dialog._generate_output()

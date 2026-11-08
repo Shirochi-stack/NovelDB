@@ -107,21 +107,16 @@ final class PDFWriterTests: XCTestCase {
         XCTAssertGreaterThan(sizeWith, sizeWithout)
     }
 
-    func testLongImageLayoutSlicesStrips() async throws {
+    func testTallImageFitsOnOnePage() async throws {
         let strip = png(width: 100, height: 3_000)
         let chapter = ChapterContent(
             ref: ChapterRef(id: "1", index: 1, title: "Episode"),
             html: #"<div class="ntk-webtoon-page"><img src="images/1.png"/></div>"#,
             images: [ImageRef(url: URL(string: "https://example.com/1.png")!, filename: "images/1.png")]
         )
-        let normal = try await PDFWriter().write(bundle(chapters: [chapter], images: ["images/1.png": strip]), baseName: "n", to: tempDir)
+        let pdf = try await PDFWriter().write(bundle(chapters: [chapter], images: ["images/1.png": strip]), baseName: "n", to: tempDir)
         // Info page, then the title and the page-sized image on its own page.
-        XCTAssertEqual(pageCount(normal), 3)
-
-        let long = try await PDFWriter().write(bundle(chapters: [chapter], images: ["images/1.png": strip]) { $0.images.longImageLayout = true }, baseName: "l", to: tempDir)
-        // 3000 px scaled to the 451 pt column is about 13,500 pt: 21 pages of 698 pt.
-        XCTAssertGreaterThanOrEqual(pageCount(long), 20)
-        XCTAssertTrue(LongImageLayout.applies(to: bundle(chapters: [chapter]) { $0.images.longImageLayout = true }))
+        XCTAssertEqual(pageCount(pdf), 3)
     }
 
     func testParserBlocks() {

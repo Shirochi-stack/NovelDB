@@ -36,7 +36,9 @@ object FileActions {
         files.flatMap { file ->
             if (!file.isDirectory) return@flatMap listOf(file)
             val inside = file.listFiles()?.filter(File::isFile)?.sortedBy(File::getName).orEmpty()
-            if (inside.size > 1) listOfNotNull(zipForSharing(context, file)) else inside
+            if (file.extension.equals("folder", ignoreCase = true) || inside.size > 1) {
+                listOfNotNull(zipForSharing(context, file))
+            } else inside
         }.filter { it.exists() }
 
     private fun zipForSharing(context: Context, folder: File): File? = runCatching {
