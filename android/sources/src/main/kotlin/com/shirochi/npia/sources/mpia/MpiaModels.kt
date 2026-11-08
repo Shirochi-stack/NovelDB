@@ -58,4 +58,5 @@ internal data class MpiaReaderState(
     val ready: Boolean = false,
     val denied: Boolean = false,
     val found: Boolean = false,
+    val error: String = "",
 )

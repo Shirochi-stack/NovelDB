@@ -6958,7 +6958,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         host = (parsed.hostname or '').lower()
         if parsed.scheme not in ('http', 'https'):
             return False
-        if host in ('\u006d\u0075\u006e\u0070\u0069\u0061.com', 'www.\u006d\u0075\u006e\u0070\u0069\u0061.com'):
+        domain = '\u006d\u0075\u006e\u0070\u0069\u0061.com'
+        if host in (domain, 'www.' + domain, 'm.' + domain):
             return bool(re.fullmatch(
                 r'/novel/(?:detail/\d+|viewer/\d+/\d+)/?',
                 parsed.path or '/',

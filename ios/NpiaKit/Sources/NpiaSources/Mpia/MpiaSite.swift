@@ -5,6 +5,7 @@ import NpiaCore
 enum MpiaSite {
     static let domain = "\u{6d}\u{75}\u{6e}\u{70}\u{69}\u{61}.com"
     static let wwwOrigin = "https://www." + domain
+    static let mobileOrigin = "https://m." + domain
 
     /// The site serves its desktop reader to a desktop browser, which is what the page logic expects.
     static let userAgent =
@@ -18,6 +19,11 @@ enum MpiaSite {
         URL(string: wwwOrigin + "/novel/viewer/" + novelID + "/" + chapterID)!
     }
 
+    static func mobileViewerURL(_ url: URL) -> URL {
+        guard pathMatches(#"^/novel/viewer/\d+/\d+/?$"#, url) else { return url }
+        return URL(string: mobileOrigin + url.path) ?? url
+    }
+
     private static func lowerHost(_ url: URL) -> String { (url.host ?? "").lowercased() }
 
     private static func pathMatches(_ pattern: String, _ url: URL) -> Bool {
@@ -28,7 +34,7 @@ enum MpiaSite {
     static func matches(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
         switch lowerHost(url) {
-        case domain, "www." + domain:
+        case domain, "www." + domain, "m." + domain:
             return pathMatches(#"^/novel/(?:detail/\d+|viewer/\d+/\d+)/?$"#, url)
         case "novel." + domain:
             return pathMatches(#"^/\d+(?:/page/\d+)?(?:/neSrl/\d+)?/?$"#, url)

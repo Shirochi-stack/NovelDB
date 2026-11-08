@@ -12,6 +12,9 @@ final class MpiaAdapterTests: XCTestCase {
         XCTAssertTrue(MpiaAdapter.matches(url("https://www.\(host)/novel/detail/12345")))
         XCTAssertTrue(MpiaAdapter.matches(url("https://\(host)/novel/detail/12345/")))
         XCTAssertTrue(MpiaAdapter.matches(url("https://www.\(host)/novel/viewer/12345/67890")))
+        let mobileViewer = url("https://m.\(host)/novel/viewer/12345/67890")
+        XCTAssertTrue(MpiaAdapter.matches(mobileViewer))
+        XCTAssertEqual(MpiaSite.mobileViewerURL(MpiaSite.viewerURL("12345", "67890")), mobileViewer)
         XCTAssertTrue(MpiaAdapter.matches(url("https://novel.\(host)/12345")))
         XCTAssertTrue(MpiaAdapter.matches(url("https://novel.\(host)/12345/page/2")))
     }

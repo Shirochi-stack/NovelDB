@@ -6,6 +6,7 @@ import com.shirochi.npia.sources.http.HttpSourceSupport
 internal object MpiaSite {
     const val DOMAIN = "\u006d\u0075\u006e\u0070\u0069\u0061.com"
     const val WWW_ORIGIN = "https://www.$DOMAIN"
+    const val MOBILE_ORIGIN = "https://m.$DOMAIN"
 
     /** The site serves its desktop reader to a desktop browser, which is what the page logic expects. */
     const val USER_AGENT =
@@ -17,6 +18,11 @@ internal object MpiaSite {
 
     fun viewerUrl(novelId: String, chapterId: String) = "$WWW_ORIGIN/novel/viewer/$novelId/$chapterId"
 
+    fun mobileViewerUrl(url: String): String {
+        val path = HttpSourceSupport.path(url)
+        return if (Regex("""^/novel/viewer/\d+/\d+/?$""").matches(path)) MOBILE_ORIGIN + path else url
+    }
+
     /** Book-detail and viewer URLs, plus the legacy per-id host that now redirects to the www site. */
     fun matches(url: String): Boolean {
         val scheme = HttpSourceSupport.scheme(url)?.lowercase()
@@ -24,7 +30,7 @@ internal object MpiaSite {
         val host = HttpSourceSupport.host(url)
         val path = HttpSourceSupport.path(url)
         return when (host) {
-            DOMAIN, "www.$DOMAIN" -> Regex("""^/novel/(?:detail/\d+|viewer/\d+/\d+)/?$""").matches(path)
+            DOMAIN, "www.$DOMAIN", "m.$DOMAIN" -> Regex("""^/novel/(?:detail/\d+|viewer/\d+/\d+)/?$""").matches(path)
             "novel.$DOMAIN" -> Regex("""^/\d+(?:/page/\d+)?(?:/neSrl/\d+)?/?$""").matches(path)
             else -> false
         }

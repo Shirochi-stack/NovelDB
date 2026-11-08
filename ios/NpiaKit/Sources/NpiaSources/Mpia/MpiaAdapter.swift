@@ -185,13 +185,14 @@ final class MpiaRun: @unchecked Sendable {
     }
 
     private func read(_ page: any WebPageDriving, _ ref: ChapterRef) async throws -> ChapterResult {
-        guard let url = ref.url else { return .failed(ref, message: "missing chapter URL") }
+        guard let address = ref.url else { return .failed(ref, message: "missing chapter URL") }
+        let url = ref.isPaid ? address : MpiaSite.mobileViewerURL(address)
         do {
             try await page.load(url, until: .domContentLoaded, timeout: timing.loadTimeout)
         } catch WebEngineError.timeout(_) {
             // A timeout can come after the viewer committed; go on only if this is the requested chapter.
             let landed = await page.currentURL()
-            if let landed, MpiaSite.novelID(landed) != MpiaSite.novelID(url) {
+            if landed?.host != url.host || landed?.path != url.path {
                 return .failed(ref, message: "page load timed out")
             }
         }
@@ -202,6 +203,7 @@ final class MpiaRun: @unchecked Sendable {
             if state.denied {
                 return .refused(ref, reason: "locked or not bought: this mpia chapter needs a purchase, rental, or sign-in")
             }
+            if !state.error.isEmpty { return .failed(ref, message: state.error) }
             if state.ready { ready = true; break }
             try await HTTPSourceSupport.sleep(seconds: timing.poll)
         }
@@ -213,15 +215,16 @@ final class MpiaRun: @unchecked Sendable {
         if extract.contentHtml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && extract.images.isEmpty {
             return .failed(ref, message: extract.error.isEmpty ? "no chapter content was extracted" : extract.error)
         }
-        return await buildResult(ref, extract)
+        let referer = url.host == "m." + MpiaSite.domain ? MpiaSite.mobileOrigin : MpiaSite.wwwOrigin
+        return await buildResult(ref, extract, referer: referer)
     }
 
-    private func buildResult(_ ref: ChapterRef, _ extract: MpiaExtract) async -> ChapterResult {
+    private func buildResult(_ ref: ChapterRef, _ extract: MpiaExtract, referer: String) async -> ChapterResult {
         let images: [ImageRef]
         if context.settings.images.saveImageURLsOnly {
             images = extract.images.compactMap { image in URL(string: image.url).map { ImageRef(url: $0, filename: image.name) } }
         } else {
-            images = await downloadImages(extract.images, referer: MpiaSite.wwwOrigin, workers: context.shared(for: .mpia).imageWorkers)
+            images = await downloadImages(extract.images, referer: referer, workers: context.shared(for: .mpia).imageWorkers)
         }
         var named = ref
         let shown = extract.chapterName

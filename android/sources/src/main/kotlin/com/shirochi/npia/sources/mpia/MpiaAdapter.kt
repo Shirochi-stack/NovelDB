@@ -23,6 +23,7 @@ import com.shirochi.npia.sources.hard.HardScripts
 import com.shirochi.npia.sources.hard.hard
 import com.shirochi.npia.sources.hard.hardJson
 import com.shirochi.npia.sources.hard.hardTask
+import com.shirochi.npia.sources.http.HttpSourceSupport
 import com.shirochi.npia.sources.http.ReaderBlocks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -178,13 +179,16 @@ class MpiaAdapter internal constructor(
         suspend fun close() = pool.closeAll()
 
         private suspend fun read(page: WebPageDriving, ref: ChapterRef): ChapterResult {
-            val url = ref.url ?: return ChapterResult.Failed(ref, "missing chapter URL")
+            val address = ref.url ?: return ChapterResult.Failed(ref, "missing chapter URL")
+            val url = if (ref.isPaid) address else MpiaSite.mobileViewerUrl(address)
             try {
                 page.load(url, WebLoadState.DOM_CONTENT_LOADED, timing.loadTimeoutSeconds)
             } catch (e: WebLoadTimeoutException) {
                 // A timeout can come after the viewer committed; go on only if this is the requested chapter.
                 val current = page.currentUrl().orEmpty()
-                if (MpiaSite.novelId(current) != MpiaSite.novelId(url)) return ChapterResult.Failed(ref, "page load timed out")
+                if (HttpSourceSupport.host(current) != HttpSourceSupport.host(url) ||
+                    HttpSourceSupport.path(current).trimEnd('/') != HttpSourceSupport.path(url).trimEnd('/')
+                ) return ChapterResult.Failed(ref, "page load timed out")
             }
 
             var ready = false
@@ -193,6 +197,7 @@ class MpiaAdapter internal constructor(
                 if (state.denied) {
                     return ChapterResult.Refused(ref, "locked or not bought: this mpia chapter needs a purchase, rental, or sign-in")
                 }
+                if (state.error.isNotEmpty()) return ChapterResult.Failed(ref, state.error)
                 if (state.ready) {
                     ready = true
                     break
@@ -207,14 +212,15 @@ class MpiaAdapter internal constructor(
             if (extract.contentHtml.isBlank() && extract.images.isEmpty()) {
                 return ChapterResult.Failed(ref, extract.error.ifEmpty { "no chapter content was extracted" })
             }
-            return buildResult(ref, extract, context)
+            val referer = if (url.startsWith(MpiaSite.MOBILE_ORIGIN + "/")) MpiaSite.MOBILE_ORIGIN else MpiaSite.WWW_ORIGIN
+            return buildResult(ref, extract, context, referer)
         }
 
-        private suspend fun buildResult(ref: ChapterRef, extract: MpiaExtract, context: SourceContext): ChapterResult {
+        private suspend fun buildResult(ref: ChapterRef, extract: MpiaExtract, context: SourceContext, referer: String): ChapterResult {
             val images = if (context.settings.images.saveImageUrlsOnly) {
                 extract.images.map { ImageRef(it.url, it.name) }
             } else {
-                downloadImages(extract.images, MpiaSite.WWW_ORIGIN, context.http, context.shared(SourceId.MPIA).imageWorkers)
+                downloadImages(extract.images, referer, context.http, context.shared(SourceId.MPIA).imageWorkers)
             }
             val shown = extract.chapterName.takeIf {
                 it.isNotBlank() && ReaderBlocks.normalizeTitle(it) != ReaderBlocks.normalizeTitle(ref.title)

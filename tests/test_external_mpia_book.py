@@ -85,6 +85,7 @@ def book_setup(monkeypatch):
     BOOK_URL + '/?from=library#chapters',
     f'https://\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/detail/{NOVEL_ID}',
     f'https://WWW.\u006d\u0075\u006e\u0070\u0069\u0061.COM/novel/viewer/{NOVEL_ID}/12345',
+    f'https://m.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/viewer/{NOVEL_ID}/12345',
     f'http://novel.\u006d\u0075\u006e\u0070\u0069\u0061.com/{NOVEL_ID}',
     f'https://novel.\u006d\u0075\u006e\u0070\u0069\u0061.com/{NOVEL_ID}/',
     f'https://novel.\u006d\u0075\u006e\u0070\u0069\u0061.com/{NOVEL_ID}/page/2',

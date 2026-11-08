@@ -294,6 +294,21 @@ def test_the_reader_downloader_gets_the_settings_engine_order(qtbot):
     assert scraper._book_url is None
 
 
+def test_mpia_catalog_reader_uses_the_built_in_scraper_first():
+    from noveldb.qt.catalog.generic import GenericCatalog
+
+    catalog = GenericCatalog.__new__(GenericCatalog)
+    catalog._downloader_books = {}
+    catalog.downloader = object()
+    catalog.engine_settings = lambda: None
+    replies = []
+    catalog._reader_answer = lambda fetch_id, result: replies.append((fetch_id, result))
+    catalog._downloader_read = lambda url: {"url": url, "chapters": [{"name": "Free chapter"}]}
+    url = "https://m.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/detail/1"
+    catalog._read(1, lambda *_: pytest.fail("generic reader opened the mpia book"), url)
+    assert replies == [(1, {"url": url, "chapters": [{"name": "Free chapter"}]})]
+
+
 def test_a_library_book_opens_where_the_library_left_it_and_its_place_goes_back(tmp_path, monkeypatch):
     from noveldb.qt.catalog import generic as generic_page
     from noveldb.qt.catalog.generic import GenericCatalog

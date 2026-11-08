@@ -17,6 +17,9 @@ class MpiaAdapterTest {
         assertTrue(adapter.matches("https://www.$host/novel/detail/12345"))
         assertTrue(adapter.matches("https://$host/novel/detail/12345/"))
         assertTrue(adapter.matches("https://www.$host/novel/viewer/12345/67890"))
+        val mobileViewer = "https://m.$host/novel/viewer/12345/67890"
+        assertTrue(adapter.matches(mobileViewer))
+        assertEquals(mobileViewer, MpiaSite.mobileViewerUrl(MpiaSite.viewerUrl("12345", "67890")))
         assertTrue(adapter.matches("https://novel.$host/12345"))
         assertTrue(adapter.matches("https://novel.$host/12345/page/2"))
     }

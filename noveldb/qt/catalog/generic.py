@@ -974,9 +974,19 @@ class GenericCatalog(QObject):
                     answer({"error": str(e)[:300], "blocked": True, "message": BLOCKED})
                 return
             from noveldb.core.engines.comix import knows as comix_reader
+            from external_scraper import ExternalScraper
 
             # Let the site-specific browser engines handle the reader before the quick generic parser.
             comix = comix_reader(url) and self._builtin_scrapers_enabled()
+            mpia = ExternalScraper.is_mpia(url) and self._builtin_scrapers_enabled()
+            if self.downloader is not None and mpia:
+                try:
+                    answer(self._downloader_read(url, *args[1:]))
+                except (ChapterNotOut, ChapterUnavailable) as e:
+                    answer({"error": str(e)})
+                except Exception as e:
+                    answer({"error": str(e)[:300], "blocked": True, "message": BLOCKED})
+                return
             if self.downloader is not None and len(args) == 1 and (comix or _haruneko_site(url)):
                 try:
                     answer(self._downloader_read(url))

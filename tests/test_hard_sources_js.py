@@ -90,6 +90,37 @@ def call(page, expression, *args):
     return page.evaluate(f'(args) => window.__npiaHard.{expression}(...args)', list(args))
 
 
+@pytest.mark.parametrize('status,reply,ready,denied', [
+    (200, {'code': 'M000_00000'}, True, False),
+    (401, {'code': 'LOGIN', 'message': 'Login required'}, False, True),
+    (503, {'code': 'BUSY'}, False, False),
+])
+def test_mpia_mobile_viewer_reads_only_the_free_chapter_article(context, status, reply, ready, denied):
+    origin = 'https://m.\u006d\u0075\u006e\u0070\u0069\u0061.com'
+    page = context.new_page()
+    api = '/api/v1/mobile/novel-detail/1/entries/2'
+    chapter = '<div class="content"><article><p>First</p><p>Second</p><img src="/art.png"></article></div>'
+    document = (
+        '<header>Book navigation</header><div class="content"></div>'
+        f'<script>fetch({json.dumps(api)}).then(async response => {{'
+        'await response.json(); if (response.ok) '
+        f'document.querySelector(".content").outerHTML = {json.dumps(chapter)}; }});</script>'
+    )
+    serve(page, origin, {'/novel/viewer/1/2': (document, 'text/html')})
+    page.route(origin + api, lambda route: route.fulfill(status=status, json=reply))
+    page.goto(origin + '/novel/viewer/1/2')
+    page.wait_for_function('() => { const s = window.__npiaHard.mpia.readerState(); return s.ready || s.denied || s.error; }')
+    state = call(page, 'mpia.readerState')
+    assert (state['ready'], state['denied']) == (ready, denied)
+    if ready:
+        result = call(page, 'mpia.extract', {'chapterIndex': 1})
+        assert result['contentText'] == 'First\nSecond'
+        assert 'Book navigation' not in result['contentHtml']
+        assert result['images'] == [{'url': origin + '/art.png', 'name': 'images/0001_01.png'}]
+    elif not denied:
+        assert 'HTTP 503 (BUSY)' in state['error']
+
+
 def decode(decoder_page, payload, **options):
     return decoder_page.evaluate(
         '([payload, options]) => window.__npiaHard.qdn.decoder.decode(payload, options)', [payload, options])

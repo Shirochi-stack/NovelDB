@@ -3282,6 +3282,10 @@
 
   const mpia = hard.mpia;
   const mpiaOrigin = () => `https://www.${SITE.mpiaDomain}`;
+  const mpiaMobileHost = () => location.hostname === 'm.' + SITE.mpiaDomain;
+  const mpiaMobileContent = () => document.querySelector('.content > article');
+  const mpiaLocked = (error) => !!error && (error.status === 401
+    || /로그인|구매|대여|결제|권한|성인.{0,3}인증|login|\bsign in\b|\bpurchase\b|\brent\b/i.test(error.message || ''));
   const mpiaViewerUrl = (novelId, chapterId) =>
     `${mpiaOrigin()}/novel/viewer/${encodeURIComponent(novelId)}/${encodeURIComponent(chapterId)}`;
 
@@ -3324,12 +3328,19 @@
   mpia.installReaderHook = function () {
     if (!mpiaOnHost()) return false;
     if (window.__ndMpiaReader) return true;
-    const state = window.__ndMpiaReader = { entry: null, entryId: '', contentOK: false, error: null };
+    const state = window.__ndMpiaReader = { entry: null, entryId: '', contentOK: false, error: null, mobileError: null };
     const path = (value) => {
       try { return new URL(value, location.href).pathname; } catch (e) { return ''; }
     };
     const infoPattern = /\/novel-detail\/\d+\/entries\/(\d+)\/info$/;
     const contentPattern = /\/novel-detail\/\d+\/entries\/(\d+)\/content$/;
+    const mobileEntry = (url) => mpiaMobileHost()
+      && path(url) === location.pathname.replace(/^\/novel\/viewer\/(\d+)\/(\d+)\/?$/,
+        '/api/v1/mobile/novel-detail/$1/entries/$2');
+    const recordMobileError = (status, data) => {
+      if (status === 200 && data && data.code === 'M000_00000') state.mobileError = null;
+      else state.mobileError = {status, code: data && data.code, message: data && data.message};
+    };
     const recordInfo = (url, data) => {
       const match = path(url).match(infoPattern);
       const entry = data && data.result && data.result.entry;
@@ -3353,12 +3364,13 @@
       if (match) {
         state.contentOK = response.ok && !json;
         if (!state.contentOK) {
-          state.error = { status: response.status };
-          if (json) response.clone().json().then((data) => {
-            state.error = { status: response.status, code: data && data.code, message: (data && data.message) || '' };
-          }).catch(() => {});
+          const data = json ? await response.clone().json().catch(() => null) : null;
+          state.error = { status: response.status, code: data && data.code, message: data && data.message };
           document.documentElement.setAttribute('data-nd-mpia-denied', '1');
         }
+      } else if (mobileEntry(url)) {
+        const data = json ? await response.clone().json().catch(() => null) : null;
+        recordMobileError(response.status, data);
       } else if (path(url).match(infoPattern) && json) {
         response.clone().json().then((data) => recordInfo(url, data)).catch(() => {});
       }
@@ -3373,12 +3385,14 @@
     };
     XMLHttpRequest.prototype.send = function () {
       const url = requestUrls.get(this);
-      if (path(url).match(infoPattern)) {
+      if (path(url).match(infoPattern) || mobileEntry(url)) {
         this.addEventListener('load', () => {
+          let data = null;
           try {
-            const data = this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
-            recordInfo(url, data);
+            data = this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
           } catch (e) { /* not the JSON we wanted */ }
+          if (mobileEntry(url)) recordMobileError(this.status, data);
+          else recordInfo(url, data);
         }, { once: true });
       }
       return nativeSend.apply(this, arguments);
@@ -3444,10 +3458,16 @@
   /** Viewer readiness, mirroring the desktop reader selector. */
   mpia.readerState = function () {
     const el = document.documentElement;
-    const denied = el.getAttribute('data-nd-mpia-denied') === '1';
+    const state = window.__ndMpiaReader;
+    const failure = mpiaMobileHost() ? state?.mobileError : state?.error;
+    const denied = mpiaLocked(failure);
+    const error = failure && !denied
+      ? `The mpia reader returned HTTP ${failure.status}${failure.code ? ' (' + failure.code + ')' : ''}: ${failure.message || 'chapter unavailable'}`
+      : '';
     const drawn = el.getAttribute('data-nd-mpia-ready') === '1';
-    const domContent = !!document.querySelector('#ENTRY-CONTENT .tcontent');
-    return { ready: drawn || domContent, denied, found: drawn || domContent };
+    const content = mpiaMobileHost() ? mpiaMobileContent() : document.querySelector('#ENTRY-CONTENT .tcontent');
+    const ready = drawn || !!(content && (content.textContent.trim() || content.querySelector('img')));
+    return { ready, denied, found: ready, error };
   };
 
   // Rebuild the chapter from the reader's own canvas output. Reuses the module the authorized reader
@@ -3457,8 +3477,7 @@
     const state = window.__ndMpiaReader;
     if (!state || !state.contentOK) {
       const error = state && state.error;
-      const locked = !!error && (error.status === 401 || error.status === 403
-        || /로그인|구매|대여|결제|권한|성인.{0,3}인증/.test((error && error.message) || ''));
+      const locked = mpiaLocked(error);
       return { locked, error: error ? 'Reader denied content' : 'Reader content is not ready',
         chapterName: '', contentText: '', contentHtml: '', images: [] };
     }
@@ -3573,15 +3592,16 @@
   const mpiaDomExtract = (chapterIndex) => {
     const tidy = (value) => (value || '').replace(/[\u00a0\t ]+/g, ' ').replace(/\n\s+/g, '\n').trim();
     const abs = (value) => { try { return new URL(value || '', location.href).href; } catch (e) { return value || ''; } };
-    const entry = document.querySelector('#ENTRY-CONTENT');
-    const content = document.querySelector('#ENTRY-CONTENT .tcontent');
+    const mobile = mpiaMobileHost();
+    const entry = mobile ? null : document.querySelector('#ENTRY-CONTENT');
+    const content = mobile ? mpiaMobileContent() : document.querySelector('#ENTRY-CONTENT .tcontent');
     const heading = tidy(
       (entry && entry.querySelector('.subinfo h3') && entry.querySelector('.subinfo h3').textContent)
       || (entry && entry.querySelector('h3') && entry.querySelector('h3').textContent)
       || (document.querySelector('h4') && document.querySelector('h4').textContent)
       || document.title.replace(/\s*-\s*.*$/, ''),
     );
-    if (!entry || !content) {
+    if (!content) {
       const body = tidy(document.body && document.body.textContent);
       return {
         locked: /(로그인|구매|대여|결제|성인인증|권한|이용권|보안 점검)/.test(body),
@@ -3590,7 +3610,12 @@
       };
     }
     const node = content.cloneNode(true);
-    node.querySelectorAll('.dummy, script, style, noscript, iframe, button').forEach((el) => el.remove());
+    node.querySelectorAll('.dummy, script, style, noscript, iframe, button, object, embed, form').forEach((el) => el.remove());
+    node.querySelectorAll('*').forEach((el) => {
+      for (const {name, value} of [...el.attributes]) {
+        if (/^on/i.test(name) || (/^(?:href|src)$/i.test(name) && /^\s*javascript:/i.test(value))) el.removeAttribute(name);
+      }
+    });
     const images = [];
     node.querySelectorAll('img').forEach((img) => {
       const src = abs(img.getAttribute('src') || '');
@@ -3605,7 +3630,7 @@
     const contentText = blocks.join('\n');
     return {
       locked: !contentText && !images.length,
-      chapterName: heading,
+      chapterName: mobile ? '' : heading,
       contentText,
       contentHtml: `<div class="mpia-content">${node.innerHTML.trim()}</div>`,
       images,
@@ -3615,7 +3640,7 @@
   /** Extracts the loaded chapter. The viewer draws on a canvas; a server-rendered page uses its DOM. */
   mpia.extract = async function (options) {
     const chapterIndex = (options && options.chapterIndex) || 0;
-    if (/^\/novel\/viewer\/\d+\/\d+/.test(location.pathname)) return await mpiaCanvasExtract(chapterIndex);
+    if (!mpiaMobileHost() && /^\/novel\/viewer\/\d+\/\d+/.test(location.pathname)) return await mpiaCanvasExtract(chapterIndex);
     return mpiaDomExtract(chapterIndex);
   };
 

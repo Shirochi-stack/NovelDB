@@ -102,10 +102,12 @@ struct MpiaReaderState {
     var ready = false
     var denied = false
     var found = false
+    var error = ""
 
     init(_ json: HardJSON) {
         ready = json.bool("ready")
         denied = json.bool("denied")
         found = json.bool("found")
+        error = json.string("error")
     }
 }
