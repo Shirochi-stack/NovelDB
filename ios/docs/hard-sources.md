@@ -282,7 +282,7 @@ The script and its resources are the Android bytes (they are marked `-text` in `
 
 | File | SHA-256 |
 |---|---|
-| `hard-sources.js` | `9c61ee6942c3328e84c38d8a5a642d2f5734dec49763fef836cfea829be908e5` |
+| `hard-sources.js` | `3e01ce1c7840d290f5c2a628dea3f9881d49467fc61f5434e5b7679a60df994e` |
 | `qdn/NotoSansCJKsc-Regular-hanzi.otf` | `81805f27acfad19ca7509a17e0b8d2fdf0bb944558612de120047b194f195eaa` |
 | `qdn/OFL.txt` | `acc077d31316a689a0b0512998c47331278e4ae61d134e1edeae5a7a95916961` |
 | `qdn/qdn_verified_maps.json` | `9e6ff0c465fa50b511eede08bf07272fa39d7a32d49ff836af3e315892b90793` |
