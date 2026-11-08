@@ -31,7 +31,7 @@ let package = Package(
         // Image recompression: ImageIO decode, JPEG/PNG/GIF encode, libwebp for WebP.
         .target(name: "NpiaImages", dependencies: ["NpiaCore", .product(name: "libwebp", package: "libwebp-Xcode")]),
         // EPUB, TXT, and PDF writers.
-        .target(name: "NpiaOutput", dependencies: ["NpiaCore", "ZIPFoundation"]),
+        .target(name: "NpiaOutput", dependencies: ["NpiaCore", "NpiaImages", "ZIPFoundation"]),
         // Share-link hosts (temp.sh, gofile, Google Drive, ...).
         .target(name: "NpiaUpload", dependencies: ["NpiaCore", "ZIPFoundation"]),
         // One adapter per source codename.

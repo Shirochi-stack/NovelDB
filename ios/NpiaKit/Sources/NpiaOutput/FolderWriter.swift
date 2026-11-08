@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import NpiaCore
+import NpiaImages
 import UniformTypeIdentifiers
 import ZIPFoundation
 
@@ -27,13 +28,12 @@ public struct FolderWriter: BookWriter {
         private let stage: URL
         private let previous: URL
         private let packed: URL
-        private let encode: (@Sendable (Data) throws -> ProcessedImage)?
+        private let processor: ImageProcessor?
 
-        public init(directory: URL, options: ImageSettings,
-                    encode: (@Sendable (Data) throws -> ProcessedImage)? = nil) throws {
+        public init(directory: URL, options: ImageSettings) throws {
             self.directory = directory
             self.options = options
-            self.encode = options.compressAfterStitch ? encode : nil
+            processor = options.compressAfterStitch ? ImageProcessor(settings: options) : nil
             let temporary = directory.appendingPathComponent(".noveldb-folder-" + UUID().uuidString, isDirectory: true)
             self.temporary = temporary
             stage = temporary.appendingPathComponent("book", isDirectory: true)
@@ -72,7 +72,7 @@ public struct FolderWriter: BookWriter {
             }
             func save(_ page: Page, position: Int) throws {
                 try Task.checkCancellation()
-                let encoded = try encode?(page.data)
+                let encoded = try processor?.process(page.data)
                 let ext = encoded.flatMap { $0.fileExtension == "bin" ? nil : $0.fileExtension } ?? page.ext
                 try (encoded?.data ?? page.data).write(to: target(String(format: "%03d", position), ext))
             }

@@ -216,9 +216,7 @@ public struct DownloadPipeline: Sendable {
 
         let processor = ImageProcessor(settings: settings.images)
         let prepared = !settings.images.saveImageURLsOnly && shared.formats.contains(where: { $0 == .folder || $0 == .zip })
-            ? try FolderWriter.Prepared(directory: outputDirectory, options: settings.images, encode: {
-                try processor.process($0)
-            }) : nil
+            ? try FolderWriter.Prepared(directory: outputDirectory, options: settings.images) : nil
         defer { prepared?.close() }
         let compressAfter = prepared != nil && settings.images.compressAfterStitch
         let otherImageOutputs = shared.formats.contains { $0 == .epub || $0 == .cbz || $0 == .pdf }
