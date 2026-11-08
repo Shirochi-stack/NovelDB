@@ -9,7 +9,7 @@ from noveldb.core.settings.model import SITE_ENGINES, AppSettings, EngineSetting
 
 BOOK = {"bookname": "Book", "chapters": [{"url": "https://site.test/c1", "name": "One"}]}
 EMPTY = {"bookname": "Book", "chapters": []}
-REST = ("lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "haruneko", "gallerydl", "generic")
+REST = ("lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "comix", "haruneko", "gallerydl", "generic")
 
 
 def test_engine_order_keeps_known_engines_and_appends_missing():
@@ -152,7 +152,7 @@ def test_the_rule_sets_and_the_generic_fallback_come_after_webtoepub():
     s = Recorder({"generic": BOOK}, native=False, knows=())
     s.dynamic_priority = False
     assert s.parse_book("https://site.test/book") is BOOK
-    assert s.calls == ["open", "novel_downloader", "webtoepub", *REST]
+    assert s.calls == ["open", "novel_downloader", "webtoepub", *(name for name in REST if name != "comix")]
 
     # The Python engines still run when the page did not load.
     s = Recorder({"lncrawl": BOOK}, native=False, page_ok=False, knows=())

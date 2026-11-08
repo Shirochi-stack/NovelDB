@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.net.URI
 
 /**
  * How the app speaks to one page-script engine's bundle (the desktop's `PageScript`): the flags it
@@ -75,10 +76,32 @@ internal class PageScript(
             resource = "generic/generic-lib.js",
         )
 
+        val COMIX = PageScript(
+            SiteEngine.COMIX, null, "__COMIX_",
+            "await window.__COMIX_parseBook(requested)",
+            "window.__COMIX_parseChapter",
+            resource = "comix/comix-reader.js",
+            setup = "window.__COMIX_transport = window.__npia_gm_xmlhttp_request;",
+        )
+
+        private val comixPath = Regex("^/title/[a-z0-9]+(?:-[^/]+)?(?:/\\d+(?:-[^/]+)?)?/?$", RegexOption.IGNORE_CASE)
+
+        fun comixBookPages(url: String): List<String> {
+            val address = runCatching { URI(url.trim()) }.getOrNull() ?: return emptyList()
+            val host = address.rawAuthority?.lowercase()?.removePrefix("www.")
+            if (address.scheme?.lowercase() !in listOf("http", "https") ||
+                host !in listOf("comix.to", "comix.ws") ||
+                !comixPath.matches(address.rawPath.orEmpty())) return emptyList()
+            val title = address.rawPath.trimEnd('/').split('/')[2]
+            val query = address.rawQuery?.let { "?$it" }.orEmpty()
+            val alternate = if (host == "comix.to") "comix.ws" else "comix.to"
+            return listOf(host, alternate).map { "https://$it/title/$title$query" }
+        }
+
         /** The API number a bundled script without a manifest reports. */
         const val BUNDLED_API = 1
 
-        fun of(engine: SiteEngine): PageScript? = listOf(LNREADER, HARUNEKO, GENERIC).firstOrNull { it.engine == engine }
+        fun of(engine: SiteEngine): PageScript? = listOf(LNREADER, HARUNEKO, COMIX, GENERIC).firstOrNull { it.engine == engine }
     }
 }
 
@@ -137,7 +160,8 @@ internal class PageBundleEngine private constructor(
                 }
             }
             val data = page.evaluateJson(
-                "const data = JSON.parse(${script.parseBook}); data.pageUrl = data.pageUrl || location.href; return data;",
+                "const requested = ${ReaderRuntime.jsLiteral(url)}; " +
+                    "const data = JSON.parse(${script.parseBook}); data.pageUrl = data.pageUrl || location.href; return data;",
             )
             val payload = ReaderBookPayload.decode(data)
             payload.error?.let { error ->

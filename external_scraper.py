@@ -68,6 +68,7 @@ if getattr(sys, 'frozen', False):
 from noveldb.core.engines import custom_engines
 from noveldb.core.engines.scraper_mixin import PAGE_SCRIPTS, PYTHON_ENGINES, SiteEnginesMixin, generic_first
 from noveldb.core.settings.model import (
+    ENGINE_COMIX,
     ENGINE_GENERIC,
     ENGINE_LABELS,
     ENGINE_NATIVE,
@@ -21494,6 +21495,21 @@ async (items) => {
                 data = parse(url)
             elif engine in PYTHON_ENGINES or custom_engines.is_custom(engine):
                 data = self._python_parse_book(engine, url)
+            elif engine == ENGINE_COMIX:
+                from noveldb.core.engines.comix import book_pages
+
+                addresses = book_pages(url)
+                if not addresses:
+                    continue
+                data = None
+                for address in addresses:
+                    if self._stop_requested:
+                        return None
+                    if self._open_book_page(address):
+                        data = self._script_parse_book(engine, url)
+                        if data and data.get("chapters"):
+                            break
+                page = None  # A following engine may need the original address.
             else:
                 if page is None:
                     try:
@@ -21539,7 +21555,7 @@ async (items) => {
         """
         from noveldb.core import engine_updates
         from noveldb.core.engines import fanficfare_engine, site_index
-        from noveldb.core.settings.model import ENGINE_MANGAPEAK, ENGINE_TAKO
+        from noveldb.core.settings.model import ENGINE_COMIX, ENGINE_MANGAPEAK, ENGINE_TAKO
 
         if engine == ENGINE_GENERIC:
             return False
@@ -21549,6 +21565,9 @@ async (items) => {
         if engine == ENGINE_TAKO:
             from noveldb.core.engines import tako
             return tako.knows(url)
+        if engine == ENGINE_COMIX:
+            from noveldb.core.engines import comix
+            return comix.knows(url)
         if custom_engines.is_custom(engine):
             return custom_engines.knows_site(engine, url)  # the sites its file names
         try:

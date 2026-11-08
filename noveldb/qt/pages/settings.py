@@ -620,6 +620,7 @@ ENGINE_HINTS = {
     "haruneko": "HaruNeko's websites for 800+ manga and webtoon sites.",
     "mangapeak": "Article Image Queue's MangaPeak reader.",
     "tako": "Tako's MangaDex and MangaHere readers.",
+    "comix": "Reads the Comix chapter list and reader pages in the browser.",
     "gallerydl": "gallery-dl's extractors for manga sites (mangatown, mangadex, mangafire and more).",
     "generic": "Reads any other site: its chapter list and text, without site rules.",
 }

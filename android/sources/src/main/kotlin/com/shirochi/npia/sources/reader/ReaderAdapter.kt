@@ -282,6 +282,7 @@ internal class ReaderBookSession(
             shared: SharedBookPage? = null,
         ): ReaderBookSession {
             require(engine.runsScripts) { "${engine.raw} is not a script engine" }
+            if (engine == SiteEngine.COMIX) return openComix(url, context)
             if (PythonEngines.isPython(engine)) {
                 // The Python engines fetch the book themselves: the book's own page is not needed.
                 val payload = PythonEngines.openBook(engine, url, context)
@@ -298,6 +299,25 @@ internal class ReaderBookSession(
             } finally {
                 if (shared == null) page.release()
             }
+        }
+
+        private suspend fun openComix(url: String, context: SourceContext): ReaderBookSession {
+            val candidates = PageScript.comixBookPages(url)
+            if (candidates.isEmpty()) throw EngineMissException("This address is outside the Comix reader.")
+            var failure: Exception? = null
+            for (address in candidates) {
+                val page = SharedBookPage(address, context)
+                try {
+                    return openPageScript(url, context, page, SiteEngine.COMIX)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failure = e
+                } finally {
+                    page.release()
+                }
+            }
+            throw failure ?: SourceException.Parse("Comix could not open the title.")
         }
 
         /** The novel-downloader rules: the script engine first, then the rules in a web view page. */

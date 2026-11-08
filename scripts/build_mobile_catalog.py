@@ -21,6 +21,11 @@ TARGETS = [
     ROOT / "android" / "app" / "src" / "main" / "assets" / "catalog",
     ROOT / "ios" / "NpiaKit" / "Sources" / "NpiaWebEngine" / "Resources" / "catalog",
 ]
+COMIX_SCRIPT = ROOT / "noveldb" / "core" / "engines" / "comix-reader.js"
+COMIX_TARGETS = [
+    ROOT / "android" / "sources" / "src" / "main" / "resources" / "com" / "shirochi" / "npia" / "sources" / "reader",
+    ROOT / "ios" / "NpiaKit" / "Sources" / "NpiaSources" / "Reader" / "Resources",
+]
 # Scripts in the order the page runs them: the link to the app, the app's download artwork, the
 # engine's helpers, the app side, the LNReader plugins (generic.js lists them when it starts), then
 # the page's own script, which says it is ready.
@@ -93,21 +98,22 @@ def main() -> int:
     args = parser.parse_args()
     files = expected()
     stale = []
-    for target in TARGETS:
-        for name, data in files.items():
-            path = target / name
-            if path.exists() and path.read_bytes() == data:
-                continue
-            stale.append(path)
-            if not args.check:
-                target.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(data)
+    outputs = {target / name: data for target in TARGETS for name, data in files.items()}
+    comix = COMIX_SCRIPT.read_bytes().replace(b"\r\n", b"\n")
+    outputs.update({target / "comix" / COMIX_SCRIPT.name: comix for target in COMIX_TARGETS})
+    for path, data in outputs.items():
+        if path.exists() and path.read_bytes() == data:
+            continue
+        stale.append(path)
+        if not args.check:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
     if args.check and stale:
         print("Out of date (run python scripts/build_mobile_catalog.py):")
         for path in stale:
             print(f"  {path.relative_to(ROOT)}")
         return 1
-    print(f"{'Checked' if args.check else 'Wrote'} {len(files)} files in {len(TARGETS)} folders"
+    print(f"{'Checked' if args.check else 'Wrote'} {len(outputs)} files"
           + (f"; {len(stale)} updated" if stale and not args.check else ""))
     return 0
 

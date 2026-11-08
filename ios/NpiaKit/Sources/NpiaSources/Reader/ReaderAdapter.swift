@@ -238,6 +238,7 @@ final class ReaderBookSession: @unchecked Sendable {
                 case .webtoepub: return try await openWebToEpub(url, context: context, page: shared)
                 case .lnreader: return try await openPageScript(url, script: .lnreader, context: context, page: shared)
                 case .haruneko: return try await openPageScript(url, script: .haruneko, context: context, page: shared)
+                case .comix: return try await openComix(url, context: context)
                 case .generic: return try await openPageScript(url, script: .generic, context: context, page: shared)
                 case .lncrawl, .fanficfare, .gallerydl, .mangapeak, .tako, .custom:
                     return try await openPython(url, engine: engine, context: context)
@@ -300,6 +301,23 @@ final class ReaderBookSession: @unchecked Sendable {
     }
 
     /// A page-script engine (the LNReader plugins, the generic fallback) in the book's page.
+    private static func openComix(_ url: URL, context: SourceContext) async throws -> ReaderBookSession {
+        let candidates = PageScript.comixBookPages(url)
+        guard !candidates.isEmpty else { throw EngineNoMatch(message: "This address is outside the Comix reader.") }
+        var failure: Error = SourceError.parse("Comix could not open the title.")
+        for address in candidates {
+            let page = EnginePage(url: address, context: context)
+            do {
+                return try await openPageScript(url, script: .comix, context: context, page: page)
+            } catch {
+                await page.finish()
+                if error is CancellationError { throw CancellationError() }
+                failure = error
+            }
+        }
+        throw failure
+    }
+
     private static func openPageScript(_ url: URL, script: PageScript, context: SourceContext, page shared: EnginePage) async throws -> ReaderBookSession {
         let (payload, session) = try await PageScriptSession.openBook(url, script: script, context: context, page: shared)
         guard !payload.chapters.isEmpty else {

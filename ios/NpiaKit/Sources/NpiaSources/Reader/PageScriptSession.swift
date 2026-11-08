@@ -52,6 +52,31 @@ struct PageScript: Sendable {
         parseBook: "await window.__GEN_parseBook(location.href)", parseChapter: "window.__GEN_parseChapter",
         resource: ("generic", "generic-lib")
     )
+
+    static let comix = PageScript(
+        siteEngine: .comix, engine: nil, prefix: "__COMIX_", transport: "__COMIX_transport",
+        parseBook: "await window.__COMIX_parseBook(requested)", parseChapter: "window.__COMIX_parseChapter",
+        resource: ("comix", "comix-reader")
+    )
+
+    static func comixBookPages(_ url: URL) -> [URL] {
+        guard var address = URLComponents(url: url, resolvingAgainstBaseURL: true),
+              let scheme = address.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let rawHost = address.host?.lowercased(), address.user == nil, address.password == nil, address.port == nil
+        else { return [] }
+        let host = rawHost.hasPrefix("www.") ? String(rawHost.dropFirst(4)) : rawHost
+        let path = address.percentEncodedPath
+        guard ["comix.to", "comix.ws"].contains(host),
+              path.range(of: #"^/title/[a-z0-9]+(?:-[^/]+)?(?:/\d+(?:-[^/]+)?)?/?$"#,
+                         options: [.regularExpression, .caseInsensitive]) != nil else { return [] }
+        address.scheme = "https"
+        address.percentEncodedPath = "/" + path.split(separator: "/").prefix(2).joined(separator: "/")
+        address.fragment = nil
+        return [host, host == "comix.to" ? "comix.ws" : "comix.to"].compactMap { name in
+            address.host = name
+            return address.url
+        }
+    }
 }
 
 /// A page-script engine (the LNReader plugins, the generic fallback) in the book's page. Its requests go through the
@@ -88,6 +113,7 @@ final class PageScriptSession: @unchecked Sendable {
             label = "built in"
         }
         let data = try await evaluate(page, script, """
+        const requested = \(ReaderWebFallback.jsonLiteral(url.absoluteString));
         const data = JSON.parse(\(script.parseBook));
         data.pageUrl = data.pageUrl || location.href;
         return data;

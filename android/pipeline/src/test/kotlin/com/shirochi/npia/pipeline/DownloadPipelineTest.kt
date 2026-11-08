@@ -48,7 +48,7 @@ class DownloadPipelineTest {
     @Test
     fun unknownUrlFailsFast() = runTest {
         // With the script engines off, no engine can try an unknown site: no page is loaded, nothing is fetched.
-        val settings = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "haruneko", "gallerydl", "custom", "generic")))
+        val settings = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "comix", "haruneko", "gallerydl", "custom", "generic")))
         val pipeline = DownloadPipeline(InMemorySecretStore(), File("build/tmp"), httpFactory = { error("no network for an unsupported site") })
         val error = runCatching { pipeline.run("https://example.com/none", settings) }.exceptionOrNull()
         assertEquals(SourceException.UnsupportedUrl::class, error!!::class)

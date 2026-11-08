@@ -15,6 +15,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
     case fanficfare
     case mangapeak
     case tako
+    case comix
     case haruneko
     case gallerydl
     case custom
@@ -32,6 +33,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .gallerydl: return "gallery-dl extractors"
         case .mangapeak: return "Article Image Queue readers"
         case .tako: return "Tako readers"
+        case .comix: return "Comix reader"
         case .custom: return "Custom engines"
         case .generic: return "Generic fallback"
         }
@@ -49,6 +51,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
         case .gallerydl: return "Manga sites such as fanfox and mangahere (Python, in the app)."
         case .mangapeak: return "Article Image Queue's MangaPeak reader (Python, in the app)."
         case .tako: return "Tako's MangaDex and MangaHere readers (Python, in the app)."
+        case .comix: return "Reads the Comix chapter list and reader pages in the web view."
         case .custom: return "Python engines imported in Settings."
         case .generic: return "Any other site: reads the chapter list and text without site rules."
         }
@@ -64,7 +67,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
                 seen.append(engine)
             }
         }
-        let additions: [SiteEngine] = [.mangapeak, .tako, .custom]
+        let additions: [SiteEngine] = [.mangapeak, .tako, .comix, .custom]
         for engine in additions where !(names ?? []).contains(engine.rawValue) {
             seen.removeAll { $0 == engine }
             let before: SiteEngine = engine == .custom ? .generic : .haruneko
@@ -179,7 +182,7 @@ public struct EngineSettings: Codable, Sendable, Equatable {
 
     public func autoUpdate(_ engine: SiteEngine) -> Bool {
         switch engine {
-        case .native, .generic, .mangapeak, .tako, .custom: return false
+        case .native, .generic, .mangapeak, .tako, .comix, .custom: return false
         case .novelDownloader: return novelDownloaderAutoUpdate
         case .webtoepub: return webtoepubAutoUpdate
         case .lnreader: return lnreaderAutoUpdate

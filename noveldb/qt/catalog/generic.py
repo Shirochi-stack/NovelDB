@@ -973,14 +973,17 @@ class GenericCatalog(QObject):
                     log.info("generic reader (downloader): %s", e)
                     answer({"error": str(e)[:300], "blocked": True, "message": BLOCKED})
                 return
-            # A HaruNeko site goes to the download engines (HaruNeko among them) at once: the quick
-            # engines' generic fallback "reads" its pages wrongly instead of failing (thunderscans).
-            if self.downloader is not None and len(args) == 1 and _haruneko_site(url):
+            from noveldb.core.engines.comix import knows as comix_reader
+
+            # Let the site-specific browser engines handle the reader before the quick generic parser.
+            settings = self.engine_settings()
+            comix = comix_reader(url) and (settings is None or "comix" in settings.enabled())
+            if self.downloader is not None and len(args) == 1 and (comix or _haruneko_site(url)):
                 try:
                     answer(self._downloader_read(url))
                     return
                 except Exception as e:
-                    log.info("generic reader (downloader, HaruNeko site): %s", e)
+                    log.info("generic reader (site-specific browser engine): %s", e)
             try:
                 kwargs = {"on_chapters": publish, "active": active} if on_chapters is not None else {}
                 answer(function(*args, **kwargs))
@@ -1189,6 +1192,10 @@ class GenericCatalog(QObject):
                 "imageFallback": bool(result.get("imageFallback"))}
 
     def _image(self, fetch_id: int, url: str, referer: str, *, reader: bool = False) -> None:
+        from noveldb.core.engines.comix import knows as comix_reader
+
+        if reader and comix_reader(referer):
+            referer = ""  # The Comix reader's CDN expects no Referer.
         headers = {"Accept": "image/*"}
         work = getattr(_reading, "work", None) if reader else None
         options = {"checkpoint": work.wait} if work else {}

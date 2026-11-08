@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from noveldb.core.settings.model import (ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC,
+from noveldb.core.settings.model import (ENGINE_COMIX, ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC,
                                         ENGINE_LNR, ENGINE_MANGAPEAK, ENGINE_TAKO)
 
 TRANSPORT_BINDING = "__noveldb_engine_transport"
@@ -93,10 +93,11 @@ class PageScript:
     prefix: str   # the bundle's window.* entry points: <prefix>_parseBook and so on
     flag: str     # set on the book dict, so chapters go back to the same engine
     label: str
-    bundle: str   # the engine_updates.Engine attribute name
+    bundle: Optional[str]   # the engine_updates.Engine attribute name, for updatable bundles
 
 
 PAGE_SCRIPTS = {
+    ENGINE_COMIX: PageScript(ENGINE_COMIX, "__COMIX", "_comix", "Comix reader", None),
     ENGINE_LNR: PageScript(ENGINE_LNR, "__LNR", "_lnreader", "LNReader", "LNREADER"),
     ENGINE_HN: PageScript(ENGINE_HN, "__HN", "_haruneko", "HaruNeko", "HARUNEKO"),
 }
@@ -600,9 +601,25 @@ class SiteEnginesMixin:
     def _script_inject(self, page, script: PageScript) -> bool:
         from noveldb.core import engine_updates
 
-        engine = getattr(engine_updates, script.bundle)
         self._install_bridge_bindings(page)
         self._install_engine_transport(page)
+        if script.engine == ENGINE_COMIX:
+            from noveldb.core.engines import comix
+
+            try:
+                page.evaluate(comix.script())
+                page.evaluate("""() => {
+                    window.__COMIX_transport = async request => {
+                        const result = await window.__noveldb_window_script(request);
+                        return result.pending ? window.__noveldb_async.wait(result.pending) : result;
+                    };
+                }""")
+            except Exception as e:
+                self.log(f"{script.label} failed to load: {e}")
+                return False
+            self.__dict__.setdefault("_script_labels", {})[script.engine] = "built in"
+            return True
+        engine = getattr(engine_updates, script.bundle)
         bundle = self._load_engine_bundle(
             page, engine,
             "() => ({ready: window.%s_READY === true && window.%s_API === %d,"

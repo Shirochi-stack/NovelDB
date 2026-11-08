@@ -71,6 +71,7 @@ public enum SiteEngineRouter {
         let steps = plan(order: enabled, nativeOwnsURL: SourceCatalog.nativeAdapterType(for: url) != nil,
                          dynamic: engines.dynamicPriority) { engine in
             if engine == .mangapeak || engine == .tako { return PythonEngines.listsBundled(engine, url: url) }
+            if engine == .comix { return !PageScript.comixBookPages(url).isEmpty }
             if engine == .custom { return CustomEngines.lists(url) }
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.lists(rules, url)

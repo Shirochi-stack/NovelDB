@@ -30,10 +30,11 @@ ENGINE_FFF = "fanficfare"
 ENGINE_HN = "haruneko"
 ENGINE_MANGAPEAK = "mangapeak"
 ENGINE_TAKO = "tako"
+ENGINE_COMIX = "comix"
 ENGINE_GDL = "gallerydl"
 ENGINE_GENERIC = "generic"
 # lightnovel-crawler before LNReader: its sources are the more reliable of the two.
-SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, ENGINE_LNC, ENGINE_LNR, ENGINE_FFF, ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_HN,
+SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, ENGINE_LNC, ENGINE_LNR, ENGINE_FFF, ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_COMIX, ENGINE_HN,
                 ENGINE_GDL, ENGINE_GENERIC)
 ENGINE_LABELS = {
     ENGINE_NATIVE: "Built-in scrapers",
@@ -45,6 +46,7 @@ ENGINE_LABELS = {
     ENGINE_HN: "HaruNeko websites",
     ENGINE_MANGAPEAK: "Article Image Queue readers",
     ENGINE_TAKO: "Tako readers",
+    ENGINE_COMIX: "Comix reader",
     ENGINE_GDL: "gallery-dl extractors",
     ENGINE_GENERIC: "Generic fallback",
 }
@@ -68,7 +70,7 @@ def engine_order(order, disabled=()) -> tuple[str, ...]:
     for name in list(order or ()) + list(SITE_ENGINES):
         if name in known and name not in seen:
             seen.append(name)
-    for engine in (ENGINE_MANGAPEAK, ENGINE_TAKO):
+    for engine in (ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_COMIX):
         if engine not in (order or ()):
             seen.remove(engine)
             seen.insert(seen.index(ENGINE_HN), engine)

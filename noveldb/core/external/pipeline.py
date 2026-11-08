@@ -2638,6 +2638,8 @@ img { display: block; max-width: 100%; max-height: 100%;
         for attempt in range(max_retries):
             try:
                 request_options = {'timeout': timeout or request_timeout(15)}
+                if (self._book_data or {}).get('_comix'):
+                    request_options['headers'] = {'Referer': None}
                 if request_cookies:
                     effective_cookies = dict(request_cookies)
                     cloudfront_names = {

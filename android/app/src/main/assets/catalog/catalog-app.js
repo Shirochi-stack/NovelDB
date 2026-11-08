@@ -2403,6 +2403,7 @@
         var ask = function (from) {
             return fetchUrl(url, {binary: true, referer: from, pool: IMAGE_SLOTS, timeout: 30000, headers: {Accept: 'image/*'}});
         };
+        if (/^https?:\/\/(?:www\.)?comix\.(?:to|ws)\/title\//i.test(referer || '')) referer = '';
         ask(referer).then(function (result) {
             var home = (/^https?:\/\/[^\/]+\//.exec(referer || '') || [])[0];
             if (result && (result.status === 401 || result.status === 403) && home && home !== referer) return ask(home);

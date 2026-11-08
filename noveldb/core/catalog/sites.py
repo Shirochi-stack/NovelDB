@@ -20,7 +20,8 @@ from urllib.parse import urlsplit
 
 from noveldb.core import engine_updates
 from noveldb.core.catalog.urls import is_noveldb_site
-from noveldb.core.settings.model import ENGINE_NATIVE, SITE_ENGINES
+from noveldb.core.engines import comix
+from noveldb.core.settings.model import ENGINE_COMIX, ENGINE_NATIVE, SITE_ENGINES
 
 KIND_NOVELDB = "noveldb"
 KIND_SUPPORTED = "supported"
@@ -98,6 +99,9 @@ def supported_site(url: str, enabled: Iterable[str] = SITE_ENGINES) -> bool:
         return False
     if _builtin_site(found[0]):
         return True
+    enabled = tuple(enabled)
+    if ENGINE_COMIX in enabled and comix.knows(url):
+        return True
     return any(bundle.knows(url) for bundle in _bundles(enabled))
 
 
@@ -112,6 +116,8 @@ def downloadable_page(url: str, enabled: Iterable[str] = SITE_ENGINES) -> bool:
     if _web_url(url) is None:
         return False
     enabled = tuple(enabled)
+    if ENGINE_COMIX in enabled and comix.knows(url):
+        return True
     if ENGINE_NATIVE in enabled:
         from noveldb.core.sources import detect_source
 
