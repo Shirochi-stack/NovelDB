@@ -12,6 +12,10 @@ import java.util.zip.ZipOutputStream
 
 /** Opening, sharing, and copying output files through `FileProvider` content URIs. */
 object FileActions {
+    fun readerFile(files: List<File>): File? =
+        files.firstOrNull { it.isFile && it.extension.equals("epub", ignoreCase = true) }
+            ?: files.firstOrNull { it.isFile && it.extension.equals("txt", ignoreCase = true) }
+
     fun mimeType(file: File): String = if (file.isDirectory) "application/zip" else when (file.extension.lowercase()) {
         "epub" -> "application/epub+zip"
         "pdf" -> "application/pdf"

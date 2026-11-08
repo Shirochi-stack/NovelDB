@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         self.download.openCart.connect(self.show_cart)
         self.catalog.openCart.connect(self.show_cart)
         self.library.openInCatalog.connect(self.open_in_catalog)
+        self.queue.readOutput.connect(self.read_queue_output)
         if hasattr(self.catalog, "read_local"):
             self.library.read_in_catalog = self.read_in_catalog
             self.catalog.localReaderClosed.connect(self._library_reader_closed)
@@ -211,10 +212,14 @@ class MainWindow(QMainWindow):
             self.catalog.open_book(book)
 
     def read_in_catalog(self, path, title: str, chapter: int) -> None:
-        """A Library EPUB in the Catalog's reader (the Catalog page comes to the front; closing it goes back)."""
+        """A local book in the Catalog's reader."""
         self._reading_from_library = True
         self.show_page(self.stack.indexOf(self.catalog))
         self.catalog.read_local(path, title, chapter)
+
+    def read_queue_output(self, path) -> None:
+        self.show_page(self.stack.indexOf(self.library))
+        self.library.read_output(path)
 
     def _library_reader_closed(self) -> None:
         if getattr(self, "_reading_from_library", False):

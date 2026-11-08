@@ -7,6 +7,7 @@ separate-TXT folder "Title/" are one book with four formats. EPUBs give the titl
 
 from __future__ import annotations
 
+import html
 import posixpath
 import re
 import threading
@@ -18,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 
 BOOK_FORMATS = (".epub", ".pdf", ".txt", ".html", ".htm", ".cbz", ".zip")
+READER_FORMATS = (".epub", ".txt")
 # A folder is a book (separate TXT, or a folder of pages) when it holds files of these kinds.
 FOLDER_FILES = (".txt", ".html", ".htm", ".jpg", ".jpeg", ".png", ".webp")
 _meta_cache: Dict[Tuple[str, int, float], dict] = {}
@@ -50,9 +52,23 @@ class LibraryBook:
         return sum(f.size for f in self.files)
 
     def preferred(self) -> Optional[LibraryFile]:
-        """The file Open opens: EPUB, then PDF, then the rest."""
+        """The system application's preferred output when the reader has no usable file."""
         order = ["EPUB", "PDF", "CBZ", "HTML", "TXT", "TXT folder", "Folder", "ZIP"]
         return min(self.files, key=lambda f: order.index(f.format) if f.format in order else 99, default=None)
+
+    def readable(self) -> Optional[LibraryFile]:
+        path = reader_file(f.path for f in self.files)
+        return next((f for f in self.files if f.path == path), None)
+
+
+def reader_file(paths) -> Optional[Path]:
+    """Choose the EPUB or, when the book has only text, its TXT file."""
+    candidates = {suffix: [] for suffix in READER_FORMATS}
+    for value in paths:
+        path = Path(value)
+        if path.suffix.lower() in candidates and path.is_file():
+            candidates[path.suffix.lower()].append(path)
+    return next((files[0] for files in candidates.values() if files), None)
 
 
 def _folder_size(path: Path) -> Tuple[int, float]:
@@ -284,6 +300,88 @@ def epub_chapter(path: Path, href: str) -> dict:
         html = re.sub(r'(<image\b[^>]*?\bhref=)"([^"]+)"', inline, html, flags=re.I)
     title = re.search(r"<title>(.*?)</title>", text, re.S | re.I)
     return {"name": (title.group(1).strip() if title else ""), "html": html}
+
+
+_TXT_RULE = re.compile(r"^([─━]{8,})[ \t]*\n([^\n]+)\n\1[ \t]*(?:\n|$)", re.M)
+_TXT_GAP = re.compile(r"\n(?:[ \t]*\n){2,}")
+_TXT_HEADING = re.compile(r"^([^\n]{1,180})\n[ \t]*\n([\s\S]+)$")
+_TXT_CONTENTS = re.compile(r"^(?:table of contents|contents|chapter list)\s*:?$", re.I)
+
+
+def _txt_listed_chapters(text: str) -> list:
+    """Resolve a leading contents list only when all its headings occur in the body."""
+    lines = text.split("\n")
+    trimmed = [line.strip() for line in lines]
+    marker = next((i for i, line in enumerate(trimmed[:20]) if _TXT_CONTENTS.fullmatch(line)), None)
+    if marker is None:
+        return []
+    start = marker + 1
+    while start < len(lines) and not trimmed[start]:
+        start += 1
+    stop = start
+    while stop < len(lines) and trimmed[stop]:
+        stop += 1
+    headings = trimmed[start:stop]
+    if not headings or stop == len(lines):
+        return []
+    positions = []
+    offset = stop + 1
+    for heading in headings:
+        try:
+            position = trimmed.index(heading, offset)
+        except ValueError:
+            return []
+        positions.append(position)
+        offset = position + 1
+    return [
+        {"name": heading, "text": "\n".join(lines[position + 1:end]).strip("\n")}
+        for heading, position, end in zip(headings, positions, positions[1:] + [len(lines)])
+    ]
+
+
+def txt_contents(path: Path) -> dict:
+    """Index the chapter separators written by the desktop and mobile TXT exporters."""
+    raw = path.read_bytes()
+    encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+    text = raw.decode(encoding, errors="replace").replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    title, author = _title_from_name(path.stem), ""
+    rules = list(_TXT_RULE.finditer(text))
+    if rules:
+        header = re.match(r"^([^\n]+)\nAuthor:[ \t]*([^\n]*)\n={8,}\s*$", text[:rules[0].start()])
+        if header:
+            title, author = (part.strip() for part in header.groups())
+        chapters = [
+            {"name": rule.group(2).strip(), "text": text[rule.end():stop].strip("\n")}
+            for rule, stop in zip(rules, [rule.start() for rule in rules[1:]] + [len(text)])
+        ]
+        if not header and text[:rules[0].start()].strip():
+            chapters.insert(0, {"name": "Introduction", "text": text[:rules[0].start()].rstrip("\n")})
+    elif listed := _txt_listed_chapters(text):
+        chapters = listed
+    else:
+        blocks = _TXT_GAP.split(text)
+        headings = [_TXT_HEADING.fullmatch(block) for block in blocks]
+        if len(blocks) > 1 and all(headings[1:]):
+            chapters = [
+                {"name": heading.group(1).strip(), "text": heading.group(2)}
+                if heading else {"name": "Introduction", "text": block}
+                for block, heading in zip(blocks, headings)
+            ]
+            # The mobile export may begin with just its title before the first chapter.
+            if not headings[0] and blocks[0].strip() == title:
+                chapters.pop(0)
+        else:
+            chapters = [{"name": title, "text": text}] if text.strip() else []
+    return {"title": title, "author": author, "chapters": chapters}
+
+
+def book_contents(path: Path) -> dict:
+    return txt_contents(path) if path.suffix.lower() == ".txt" else epub_contents(path)
+
+
+def txt_chapter(chapter: dict) -> dict:
+    body = html.escape(chapter["text"])
+    return {"name": chapter["name"], "html": f'<div style="white-space: pre-wrap">{body}</div>'}
 
 
 def _title_from_name(name: str) -> str:

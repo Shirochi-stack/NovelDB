@@ -85,14 +85,16 @@ class LiveReader:
 
     @staticmethod
     def _local(url: str):
-        """A Library EPUB (a file: address), or None."""
+        """A Library book (a file: address), or None."""
         if not url.startswith("file:"):
             return None
         from urllib.parse import unquote, urlsplit
         from pathlib import Path
 
         path = Path(unquote(urlsplit(url).path).lstrip("/") if __import__("os").name == "nt" else unquote(urlsplit(url).path))
-        return path if path.suffix.lower() == ".epub" and path.is_file() else None
+        from noveldb.core.library import READER_FORMATS
+
+        return path if path.suffix.lower() in READER_FORMATS and path.is_file() else None
 
     @staticmethod
     def _chapter_names(chapters, start=0):
@@ -113,10 +115,11 @@ class LiveReader:
         if local is not None:
             from noveldb.core import library
 
-            contents = library.epub_contents(local)
-            with self._lock:
-                self._books[url] = ("epub", contents)
-            return {"title": contents["title"], "author": contents["author"], "engine": "EPUB",
+            contents = library.book_contents(local)
+            if not contents["chapters"]:
+                raise RuntimeError("the book has no chapters")
+            self._remember(url, "local", contents)
+            return {"title": contents["title"], "author": contents["author"], "engine": local.suffix[1:].upper(),
                     "chapters": [{"name": c["name"], "section": ""} for c in contents["chapters"]]}
         errors = []
         for name in self._candidates(url):
@@ -168,13 +171,13 @@ class LiveReader:
                 known = self._books.get(url)
         name, data = known
         chapters = data["chapters"]
-        if name == "epub":
-            from noveldb.core import library
-
-            return library.epub_chapter(self._local(url), chapters[index]["href"])
         if not 0 <= index < len(chapters):
             raise IndexError("no such chapter")
         info = chapters[index]
+        if name == "local":
+            from noveldb.core import library
+
+            return library.txt_chapter(info) if "text" in info else library.epub_chapter(self._local(url), info["href"])
         engine = self._engine(name)
         if fetch is not None or (on_images is not None and hasattr(engine, "on_images")):
             engine = copy(engine)

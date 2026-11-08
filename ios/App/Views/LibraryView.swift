@@ -8,6 +8,16 @@ struct LibraryBook: Identifiable {
     let modified: Date
     var id: String { name.lowercased() }
     var epub: URL? { files.first { $0.pathExtension.lowercased() == "epub" } }
+    var readerFile: URL? { Self.readerFile(in: files) }
+
+    static func readerFile(in files: [URL]) -> URL? {
+        for ext in ["epub", "txt"] {
+            if let file = files.first(where: {
+                $0.pathExtension.lowercased() == ext && (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            }) { return file }
+        }
+        return nil
+    }
 
     /// "EPUB · TXT · 5.3 MB": the formats and size, for the shelf tile.
     var formats: String {
@@ -115,7 +125,7 @@ struct LibraryView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if selecting { toggle(book) } else if let epub = book.epub { reading = epub } else { open = book }
+                        if selecting { toggle(book) } else if let file = book.readerFile { reading = file } else { open = book }
                     }
                     .onLongPressGesture { toggle(book) }
                 }
@@ -150,8 +160,8 @@ struct LibraryView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        if let epub = book.epub {
-                            Button { open = nil; reading = epub } label: { Label("Read", systemImage: "book") }
+                        if let file = book.readerFile {
+                            Button { open = nil; reading = file } label: { Label("Open", systemImage: "book") }
                         }
                         // The book in the Catalog: its site's page (where it came from) and its title searched, to
                         // download what an unfinished or outdated copy is missing.
@@ -174,7 +184,7 @@ struct LibraryView: View {
             .presentationDetents([.medium, .large])
         }
         .fullScreenCover(isPresented: Binding(get: { reading != nil }, set: { if !$0 { reading = nil } })) {
-            if let epub = reading { LibraryReaderView(epub: epub) { reading = nil } }
+            if let file = reading { LibraryReaderView(file: file) { reading = nil } }
         }
         .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible) {
@@ -271,16 +281,16 @@ private struct ShelfCover: View {
 
 /// A Library book in the reader, full screen over the Library: a page of its own with the built-in
 /// Catalog page, so the book opens whatever the Catalog tab shows. Closing the reader closes it.
-private struct LibraryReaderView: View {
-    let epub: URL
+struct LibraryReaderView: View {
+    let file: URL
     let close: () -> Void
     @Environment(AppModel.self) private var model
     @StateObject private var state = CatalogState(site: URL(string: CatalogSite.genericAddress)!)
     @AppStorage(Accent.storageKey) private var accent = Accent.halgakosRose.rawValue
     @Environment(\.colorScheme) private var colorScheme
 
-    init(epub: URL, close: @escaping () -> Void) {
-        self.epub = epub
+    init(file: URL, close: @escaping () -> Void) {
+        self.file = file
         self.close = close
     }
 
@@ -293,7 +303,7 @@ private struct LibraryReaderView: View {
                 state.onReaderClosed = close
                 CatalogTransport.libraryFolder = model.outputDirectory
                 state.setTheme((Accent(rawValue: accent) ?? .halgakosRose).webTheme(dark: colorScheme == .dark))
-                state.readLocal(epub)
+                state.readLocal(file)
             }
             .onDisappear { state.onReaderClosed = nil }
     }

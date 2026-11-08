@@ -1,7 +1,7 @@
-"""The Library's book page and EPUB reader: everything inside the Library tab, from the file itself.
+"""The Library's book page and offline reader, from the file itself.
 
-The reader shows one chapter at a time from the EPUB (never the site), with its images read from the
-book; it has a chapter list, previous and next, text size, three themes, and remembers where each
+The reader shows one chapter at a time from an EPUB or TXT file. It has a chapter list, previous
+and next, text size, three themes, and remembers where each
 book was left (`library-reading.json` in the app's data folder). It needs no web view, so every
 build has it.
 """
@@ -90,7 +90,7 @@ class BookView(QWidget):
         self.cover.setFixedSize(self.COVER)
         self.cover.setAlignment(Qt.AlignCenter)
         opener = QPushButton("Open")
-        opener.setToolTip("Open it with the app your system uses for it")
+        opener.setToolTip("Open the preferred format")
         opener.clicked.connect(lambda: self.openRequested.emit(self.book))
         reveal = QPushButton("Show in folder")
         reveal.clicked.connect(lambda: self.revealRequested.emit(self.book))
@@ -196,12 +196,12 @@ class BookView(QWidget):
             self.cover.setPixmap(picture.scaled(self.cover.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self.chapters.clear()
         self.find.clear()
-        epub = next((f for f in book.files if f.format == "EPUB"), None)
-        self.read.setEnabled(epub is not None)
+        file = book.readable()
+        self.read.setEnabled(file is not None)
         self.contents = None
-        if epub is not None:
+        if file is not None:
             try:
-                self.contents = library.epub_contents(epub.path)
+                self.contents = library.book_contents(file.path)
             except Exception:
                 self.contents = None
         shown = 0
@@ -214,12 +214,12 @@ class BookView(QWidget):
             item.setData(Qt.UserRole, index)
             self.chapters.addItem(item)
         if self.contents is None:
-            self.chapters.addItem("No EPUB: this book opens with your system's app.")
+            self.chapters.addItem("No readable EPUB or TXT file.")
         formats = " · ".join(dict.fromkeys(f.format for f in book.files))
         count = f"{shown} chapter{'s' if shown != 1 else ''}" if self.contents is not None else ""
         self.meta.setText(" · ".join(filter(None, [book.author, formats, self._size(book.size), count])))
         self.count.setText(f"Chapters ({shown}) · double-click one to read from it" if shown else "Chapters")
-        self.synopsis.setText(_synopsis(library.description(book) or "") or "No synopsis in the EPUB.")
+        self.synopsis.setText(_synopsis(library.description(book) or "") or "No synopsis available.")
 
 
 # The EPUB's own pages before the first chapter.
@@ -254,7 +254,7 @@ class _Page(QTextBrowser):
         return super().loadResource(kind, url)
 
 
-class EpubReader(QWidget):
+class LocalBookReader(QWidget):
     """Reads a Library EPUB: one chapter at a time, with a chapter list and the place remembered."""
 
     back = Signal()
@@ -262,7 +262,7 @@ class EpubReader(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.book = None
-        self.epub: Optional[Path] = None
+        self.file: Optional[Path] = None
         self.chapters = []
         self.index = 0
         self.size = 15
@@ -341,9 +341,9 @@ class EpubReader(QWidget):
 
     def open_book(self, book, contents: dict, start: int = -1) -> None:
         self.book = book
-        self.epub = next(f.path for f in book.files if f.format == "EPUB")
+        self.file = book.readable().path
         self.chapters = contents.get("chapters", [])
-        self.page.epub = self.epub
+        self.page.epub = self.file if self.file.suffix.lower() == ".epub" else None
         self.toc.blockSignals(True)
         self.toc.clear()
         # Numbered as on the book page: the EPUB's cover and title pages before the first chapter carry no number.
@@ -358,7 +358,7 @@ class EpubReader(QWidget):
             item.setToolTip(name)
             self.toc.addItem(item)
         self.toc.blockSignals(False)
-        place = _places().get(str(self.epub), {})
+        place = _places().get(str(self.file), {})
         at = 0.0
         if start < 0:
             start, at = int(place.get("chapter", 0)), float(place.get("at", 0.0))
@@ -370,11 +370,14 @@ class EpubReader(QWidget):
         self.index = index
         chapter = self.chapters[index]
         try:
-            html, folder = library.chapter_source(self.epub, chapter["href"])
+            html, folder = library.chapter_source(self.file, chapter["href"]) if "href" in chapter else ("", "")
         except Exception as e:
             html, folder = f"<p>This chapter could not be read: {e}</p>", ""
         self.page.folder = folder
-        self.page.setHtml(html)
+        if "text" in chapter:
+            self.page.setPlainText(chapter["text"])
+        else:
+            self.page.setHtml(html)
         self.toc.blockSignals(True)
         self.toc.setCurrentRow(index)
         self.toc.blockSignals(False)
@@ -437,10 +440,10 @@ class EpubReader(QWidget):
         self._remember.start()
 
     def _save(self) -> None:
-        if self.epub is None:
+        if self.file is None:
             return
         bar = self.page.verticalScrollBar()
-        _save_place(str(self.epub), self.index, bar.value() / bar.maximum() if bar.maximum() else 0.0)
+        _save_place(str(self.file), self.index, bar.value() / bar.maximum() if bar.maximum() else 0.0)
 
     def _leave(self) -> None:
         self._save()

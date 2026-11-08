@@ -128,6 +128,7 @@ private fun QueueJobs(
 ) {
     val manager = model.manager
     val context = LocalContext.current
+    var reading by remember { mutableStateOf<File?>(null) }
     if (jobs.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No downloads yet. Add a URL to start.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -183,7 +184,11 @@ private fun QueueJobs(
                                     } else {
                                         if (job.state != JobState.FINISHED) TextButton(onClick = { manager.retry(job.id) }) { Text("Retry") }
                                         if (files.isNotEmpty()) {
-                                            TextButton(onClick = { if (!FileActions.open(context, files[0])) manager.message("No app can open ${files[0].name}") }) { Text("Open") }
+                                            TextButton(onClick = {
+                                                val book = FileActions.readerFile(files)
+                                                if (book != null) reading = book
+                                                else if (!FileActions.open(context, files[0])) manager.message("No app can open ${files[0].name}")
+                                            }) { Text("Open") }
                                             TextButton(onClick = { FileActions.share(context, files) }) { Text("Share") }
                                             if (canSelect) {
                                                 TextButton(onClick = {
@@ -237,6 +242,7 @@ private fun QueueJobs(
             }
         }
     }
+    reading?.let { file -> LibraryReader(file, model) { reading = null } }
 }
 
 @Composable
@@ -367,6 +373,7 @@ fun JobDetailScreen(model: AppViewModel, id: String) {
 fun FileRow(model: AppViewModel, file: File, jobId: String?) {
     val manager = model.manager
     val context = LocalContext.current
+    var reading by remember { mutableStateOf(false) }
     val uploads by manager.uploadStates.collectAsStateWithLifecycle()
     // The upload that carries this file: its own, or a ZIP it was packed into.
     val upload = uploads[file.absolutePath] ?: uploads.values.firstOrNull { file.absolutePath in it.paths }
@@ -390,7 +397,10 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
         // ZIP" and "Upload as ZIP" were cut off at the edge); a very narrow screen still scrolls.
         val small = MaterialTheme.typography.labelMedium
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            AssistChip(onClick = { if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}") }, label = { Text("Open", style = small) })
+            AssistChip(onClick = {
+                if (FileActions.readerFile(listOf(file)) != null) reading = true
+                else if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}")
+            }, label = { Text("Open", style = small) })
             AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share", style = small) })
             // A folder (separate TXT) is saved and uploaded as one ZIP.
             AssistChip(onClick = { saveCopy.launch(FileActions.copyName(file)) },
@@ -407,4 +417,5 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
             )
         }
     }
+    if (reading) LibraryReader(file, model) { reading = false }
 }

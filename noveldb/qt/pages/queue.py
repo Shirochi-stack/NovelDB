@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from noveldb.core import platform_services
+from noveldb.core import library, platform_services
 from noveldb.core.queue.model import ACTIVE, CANCELLED, DONE, FAILED, FINISHED, INTERRUPTED, QUEUED, RUNNING
 from noveldb.qt.context import AppContext
 from noveldb.qt.scale import bind_title
@@ -38,6 +38,7 @@ COLUMNS = ("Title", "Source", "State", "Progress", "Details")
 class QueuePage(QWidget):
     activeCountChanged = Signal(int)
     finishedBatch = Signal(int, int)  # done, failed
+    readOutput = Signal(object)
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -264,10 +265,15 @@ class QueuePage(QWidget):
         self.reload()
 
     def _open(self) -> None:
-        for job in self._selected_jobs()[:5]:
+        jobs = self._selected_jobs()[:5]
+        for job in jobs:
             outputs = self._existing_outputs(job)
             if outputs:
-                platform_services.open_path(outputs[0])
+                book = library.reader_file(outputs)
+                if book is not None and len(jobs) == 1:
+                    self.readOutput.emit(book)
+                else:
+                    platform_services.open_path(book or outputs[0])
 
     def _upload(self) -> None:
         upload_jobs(self.context, self._selected_jobs(), self)

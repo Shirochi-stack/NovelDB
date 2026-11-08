@@ -2509,7 +2509,7 @@
         if (!value || value.error) throw new Error((value && value.error) || 'no answer');
         return value;
     }
-    // -- a Library EPUB in the reader (file: addresses; the app hands over the file) ----------------
+    // -- Library files in the reader (the app hands over their bytes) ----------------
     /** The files of a ZIP (an EPUB is one): name -> {method, size, local}. */
     function zipEntries(bytes) {
         var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), end = -1;
@@ -2544,13 +2544,18 @@
     }
     function folderOf(path) { return path.indexOf('/') >= 0 ? path.replace(/\/[^\/]*$/, '') : ''; }
     function xmlDoc(text) { return new DOMParser().parseFromString(text, 'application/xml'); }
+    function bookFileBytes(url) {
+        return appAsk({op: 'file', url: url}).then(function (reply) {
+            if (!reply || reply.error || !reply.responseBase64) throw new Error((reply && reply.error) || 'the book could not be opened');
+            return bytesOf(reply.responseBase64);
+        });
+    }
     var epubs = new Map();
     /** The EPUB at a file: address: its spine (reading order), with names from its table of contents. */
     function epubOpen(url) {
         if (epubs.has(url)) return epubs.get(url);
-        var opened = appAsk({op: 'file', url: url}).then(function (reply) {
-            if (!reply || reply.error || !reply.responseBase64) throw new Error((reply && reply.error) || 'the book could not be opened');
-            var epub = {bytes: bytesOf(reply.responseBase64)};
+        var opened = bookFileBytes(url).then(function (bytes) {
+            var epub = {bytes: bytes};
             epub.entries = zipEntries(epub.bytes);
             return zipText(epub, 'META-INF/container.xml').then(function (container) {
                 var rootfile = xmlDoc(container).querySelector('rootfile');
@@ -2640,8 +2645,71 @@
         });
     }
 
+    function txtListedChapters(text) {
+        var lines = text.split('\n'), trimmed = lines.map(function (line) { return line.trim(); });
+        var marker = trimmed.slice(0, 20).findIndex(function (line) {
+            return /^(?:table of contents|contents|chapter list)\s*:?$/i.test(line);
+        });
+        if (marker < 0) return [];
+        var start = marker + 1;
+        while (start < lines.length && !trimmed[start]) start++;
+        var stop = start;
+        while (stop < lines.length && trimmed[stop]) stop++;
+        var headings = trimmed.slice(start, stop);
+        if (!headings.length || stop === lines.length) return [];
+        var positions = [], offset = stop + 1;
+        for (var heading of headings) {
+            var position = trimmed.indexOf(heading, offset);
+            if (position < 0) return [];
+            positions.push(position);
+            offset = position + 1;
+        }
+        return positions.map(function (position, i) {
+            return {name: headings[i], text: lines.slice(position + 1, positions[i + 1]).join('\n').replace(/^\n+|\n+$/g, '')};
+        });
+    }
+
+    /** Read the same chapter separators as the desktop TXT reader. */
+    function txtBook(url) {
+        return bookFileBytes(url).then(function (bytes) {
+            var encoding = bytes[0] === 255 && bytes[1] === 254 ? 'utf-16le'
+                : bytes[0] === 254 && bytes[1] === 255 ? 'utf-16be' : 'utf-8';
+            var text = new TextDecoder(encoding).decode(bytes).replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '');
+            var path = new URL(url).pathname;
+            var title = decodeURIComponent(path.split('/').pop()).replace(/\.txt$/i, '').replace(/[_\s]+/g, ' ').trim();
+            var author = '', chapters;
+            var rules = Array.from(text.matchAll(/^([─━]{8,})[ \t]*\n([^\n]+)\n\1[ \t]*(?:\n|$)/gm));
+            if (rules.length) {
+                var front = text.slice(0, rules[0].index);
+                var header = /^([^\n]+)\nAuthor:[ \t]*([^\n]*)\n={8,}\s*$/.exec(front);
+                if (header) { title = header[1].trim(); author = header[2].trim(); }
+                chapters = rules.map(function (rule, i) {
+                    var stop = rules[i + 1] ? rules[i + 1].index : text.length;
+                    return {name: rule[2].trim(), text: text.slice(rule.index + rule[0].length, stop).replace(/^\n+|\n+$/g, '')};
+                });
+                if (!header && front.trim()) chapters.unshift({name: 'Introduction', text: front.replace(/\n+$/, '')});
+            } else if (!(chapters = txtListedChapters(text)).length) {
+                var blocks = text.split(/\n(?:[ \t]*\n){2,}/);
+                var headings = blocks.map(function (block) { return /^([^\n]{1,180})\n[ \t]*\n([\s\S]+)$/.exec(block); });
+                if (blocks.length > 1 && headings.slice(1).every(Boolean)) {
+                    chapters = blocks.map(function (block, i) {
+                        var heading = headings[i];
+                        return heading ? {name: heading[1].trim(), text: heading[2]} : {name: 'Introduction', text: block};
+                    });
+                    if (!headings[0] && blocks[0].trim() === title) chapters.shift();
+                } else {
+                    chapters = text.trim() ? [{name: title, text: text}] : [];
+                }
+            }
+            if (!chapters.length) throw new Error('the book has no chapters');
+            books.set(url, {engine: 'txt', data: {bookname: title, author: author, chapters: chapters}});
+            return {title: title, author: author, engine: 'TXT',
+                    chapters: chapters.map(function (chapter) { return {name: chapter.name, section: ''}; })};
+        });
+    }
+
     function readBook(url, id) {
-        if (/^file:/i.test(url)) return epubBook(url);
+        if (/^file:/i.test(url)) return /\.txt$/i.test(new URL(url).pathname) ? txtBook(url) : epubBook(url);
         var engines = engineFor(url), errors = [];
         var published = 0;
         var session = id == null ? null : readerSession + '-' + id;
@@ -2722,6 +2790,13 @@
             var chapters = known.data.chapters;
             if (index < 0 || index >= chapters.length) throw new Error('no such chapter');
             var info = chapters[index];
+            if (known.engine === 'txt') {
+                var body = document.createElement('div');
+                body.style.whiteSpace = 'pre-wrap';
+                body.style.overflowWrap = 'anywhere';
+                body.textContent = info.text;
+                return {name: info.name, html: body.outerHTML, text: info.text};
+            }
             note('Scraping ' + (info.name || 'the chapter') + '…');
             var item = Object.assign({bookUrl: url}, info);
             if (item.url) {
@@ -2814,8 +2889,8 @@
             call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, searched: SITES.filter(function (s) { return s.searched !== false; }).length, downloadIcon: window.NovelDBDownloadIcon || ''});
         });
     }
-    // A web page, or a Library EPUB (the app hands over only EPUBs in its download folder).
-    function readable(url) { return /^https?:/.test(url || '') || /^file:.*\.epub$/i.test(url || ''); }
+    // A web page, or a readable file in the Library.
+    function readable(url) { return /^https?:/.test(url || '') || /^file:.*\.(?:epub|txt)$/i.test(url || ''); }
     function handle(message) {
         switch (message.type) {
         case 'genericReady': init(); break;
@@ -2861,11 +2936,11 @@
                 reading.book = message.id;
                 read(message.id, function () { return readBook(message.url, message.id); }, message.url);
             }
-            else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
+            else call('fetched', message.id, {error: 'only web pages and Library EPUB or TXT files can be read here'});
             break;
         case 'genericChapter':
             if (readable(message.url)) read(message.id, function () { return readChapter(message.url, message.index | 0, message.recovery === 'images'); }, message.url);
-            else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
+            else call('fetched', message.id, {error: 'only web pages and Library EPUB or TXT files can be read here'});
             break;
         default:
             // genericDownload, genericLogin, cartAdd, cartRemove, open: the app's own actions.

@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 from noveldb.core import library, paths, platform_services
 from noveldb.qt import icons
 from noveldb.qt.context import AppContext
-from noveldb.qt.pages.library_reader import BookView, EpubReader
+from noveldb.qt.pages.library_reader import BookView, LocalBookReader
 from noveldb.qt.scale import bind_title
 from noveldb.qt.widgets import hint
 
@@ -355,7 +355,7 @@ class LibraryPage(QWidget):
 
         # The Library's own views: the shelf, a book's page, and the reader (all from the files themselves).
         self.book_view = BookView()
-        self.reader = EpubReader()
+        self.reader = LocalBookReader()
         self.views = QStackedWidget()
         for view in (shelf, self.book_view, self.reader):
             self.views.addWidget(view)
@@ -580,7 +580,7 @@ class LibraryPage(QWidget):
             return
         book = item.data(Qt.UserRole)
         menu = QMenu(self)
-        if any(f.format == "EPUB" for f in book.files):
+        if book.readable() is not None:
             menu.addAction("Read in the app", lambda: self._read(book))
         for file in book.files:
             menu.addAction(f"Open {file.format}  ({_size_text(file.size)})",
@@ -601,11 +601,10 @@ class LibraryPage(QWidget):
         self.views.setCurrentWidget(self.book_view)
 
     def _read(self, book) -> None:
-        """The EPUB in the Library's reader (from the file: nothing is scraped again); a book without
-        one opens with the system app."""
+        """Read the book's preferred readable file."""
         if book is None:
             return
-        if not any(f.format == "EPUB" for f in book.files):
+        if book.readable() is None:
             self._open(book)
             return
         if self.book_view.book is not book:
@@ -615,22 +614,39 @@ class LibraryPage(QWidget):
     def _read_at(self, book, chapter: int) -> None:
         # The Catalog's reader where there is one (its layouts, Google Translate and the app's theme); the
         # Library's own plain reader in a build without the web view.
-        if self.read_in_catalog is not None:
-            epub = next(f.path for f in book.files if f.format == "EPUB")
-            self.read_in_catalog(epub, book.title, chapter)
+        file = book.readable()
+        if file is None:
+            return
+        if self.read_in_catalog is not None and library_folder(self.context).resolve() in file.path.resolve().parents:
+            self.read_in_catalog(file.path, book.title, chapter)
             return
         contents = self.book_view.contents if self.book_view.book is book else None
         if not contents or not contents.get("chapters"):
-            self._open(book)
+            QMessageBox.warning(self, "Open book", "This file has no readable chapters.")
             return
         self.reader.open_book(book, contents, chapter)
         self.views.setCurrentWidget(self.reader)
         self.reader.setFocus()
 
     def _open(self, book) -> None:
+        if book is not None and book.readable() is not None:
+            self._read(book)
+            return
         file = book.preferred() if book is not None else None
         if file is not None:
             platform_services.open_path(file.path)
+
+    def read_output(self, path: Path) -> None:
+        """Open a completed Queue output, including files in a job's custom save folder."""
+        path = Path(path)
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+        book = library.LibraryBook(path.stem, path.stem, files=[
+            library.LibraryFile(path, path.suffix[1:].upper(), stat.st_size, stat.st_mtime),
+        ])
+        self._read(book)
 
     def _reveal(self, book) -> None:
         if book is not None:

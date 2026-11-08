@@ -76,6 +76,7 @@ import java.util.zip.ZipFile
 data class LibraryBook(val name: String, val files: List<File>) {
     val modified: Long get() = files.maxOfOrNull { f -> if (f.isDirectory) f.walkTopDown().maxOf { it.lastModified() } else f.lastModified() } ?: 0L
     val epub: File? get() = files.firstOrNull { it.extension.equals("epub", ignoreCase = true) }
+    val readerFile: File? get() = FileActions.readerFile(files)
 }
 
 private val BOOK_EXTENSIONS = setOf("epub", "pdf", "txt", "html", "htm", "cbz", "zip")
@@ -223,7 +224,7 @@ fun LibraryScreen(model: AppViewModel) {
                 val picked = book.name.lowercase() in selected
                 Column(
                     Modifier.clip(RoundedCornerShape(8.dp)).combinedClickable(
-                        onClick = { if (selecting) toggle(book) else book.epub?.let { reading = it } ?: run { open = book } },
+                        onClick = { if (selecting) toggle(book) else book.readerFile?.let { reading = it } ?: run { open = book } },
                         onLongClick = { toggle(book) },
                     ),
                 ) {
@@ -287,7 +288,7 @@ fun LibraryScreen(model: AppViewModel) {
             }
         }
     }
-    reading?.let { epub -> LibraryReader(epub, model) { reading = null } }
+    reading?.let { file -> LibraryReader(file, model) { reading = null } }
     open?.let { book ->
         ModalBottomSheet(onDismissRequest = { open = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -303,8 +304,8 @@ fun LibraryScreen(model: AppViewModel) {
                 }
                 // On a narrow phone the buttons take two rows.
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    book.epub?.let { epub ->
-                        Button(onClick = { open = null; reading = epub }) { Text("Read") }
+                    book.readerFile?.let { file ->
+                        Button(onClick = { open = null; reading = file }) { Text("Open") }
                     }
                     // The book in the Catalog: its site's page (where it came from) and its title searched, to
                     // download what an unfinished or outdated copy is missing.
@@ -384,9 +385,9 @@ private fun Cover(book: LibraryBook) {
  * Catalog page, so the book opens whatever the Catalog tab shows. Closing the reader (or Back) closes it.
  */
 @Composable
-private fun LibraryReader(epub: File, model: AppViewModel, onClose: () -> Unit) {
+internal fun LibraryReader(file: File, model: AppViewModel, onClose: () -> Unit) {
     val context = LocalContext.current
-    val web = remember(epub) { CatalogWeb(context, model) }
+    val web = remember(file) { CatalogWeb(context, model) }
     DisposableEffect(web) {
         web.onReaderClosed = onClose
         onDispose { web.onReaderClosed = null; web.destroy() }
@@ -395,7 +396,7 @@ private fun LibraryReader(epub: File, model: AppViewModel, onClose: () -> Unit) 
     LaunchedEffect(colors) { web.setTheme(colors) }
     LaunchedEffect(web) {
         web.load(GENERIC_CATALOG_URL, force = true)
-        web.readLocal(epub)
+        web.readLocal(file)
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BackHandler { if (web.readerFullScreen) web.leaveFullScreen() else onClose() }

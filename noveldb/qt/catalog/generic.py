@@ -849,8 +849,8 @@ class GenericCatalog(QObject):
     library_folder: Optional[Callable[[], Path]] = None
 
     def _in_library(self, url: str) -> bool:
-        """A file: address of an EPUB in the Library folder (the page may ask for nothing else)."""
-        from urllib.parse import unquote, urlsplit
+        """A readable file inside the Library folder."""
+        from noveldb.core.library import READER_FORMATS
 
         if self.library_folder is None:
             return False
@@ -860,7 +860,7 @@ class GenericCatalog(QObject):
             target = path.resolve()
         except OSError:
             return False
-        return target.suffix.lower() == ".epub" and folder in target.parents
+        return target.suffix.lower() in READER_FORMATS and folder in target.parents and target.is_file()
 
     def open_book(self, book: dict) -> None:
         """Finds a Library book again ({title, url, author}): its site's page and a search for its title."""
@@ -868,7 +868,7 @@ class GenericCatalog(QObject):
                                 "author": str(book.get("author") or "")})
 
     def read_local(self, path: Path, title: str, chapter: int = -1) -> None:
-        """Opens a Library EPUB in the page's reader: at `chapter`, else where the Library last left it."""
+        """Opens a Library book in the page's reader at a chapter or its last reading position."""
         from noveldb.qt.pages.library_reader import _places
 
         at = 0.0
@@ -922,7 +922,7 @@ class GenericCatalog(QObject):
                 return
             url = args[0]
             if url.startswith("file:"):
-                answer(function(*args))  # a Library EPUB: no downloader
+                answer(function(*args))
                 return
             if retry_images:
                 try:

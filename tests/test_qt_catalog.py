@@ -309,6 +309,29 @@ def test_mpia_catalog_reader_uses_the_built_in_scraper_first():
     assert replies == [(1, {"url": url, "chapters": [{"name": "Free chapter"}]})]
 
 
+@pytest.mark.parametrize("extension", ["epub", "txt"])
+def test_queue_open_uses_the_reader_for_the_preferred_format(tmp_path, extension):
+    from types import SimpleNamespace
+
+    from noveldb.qt.pages.queue import QueuePage
+
+    txt = tmp_path / "Book.txt"
+    txt.touch()
+    files = [str(txt)]
+    expected = tmp_path / f"Book.{extension}"
+    if extension == "epub":
+        expected.touch()
+        files.append(str(expected))
+    opened = []
+    queue = SimpleNamespace(
+        _selected_jobs=lambda: [object()],
+        _existing_outputs=lambda _job: files,
+        readOutput=SimpleNamespace(emit=opened.append),
+    )
+    QueuePage._open(queue)
+    assert opened == [expected]
+
+
 def test_a_library_book_opens_where_the_library_left_it_and_its_place_goes_back(tmp_path, monkeypatch):
     from noveldb.qt.catalog import generic as generic_page
     from noveldb.qt.catalog.generic import GenericCatalog

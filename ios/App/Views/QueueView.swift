@@ -24,6 +24,7 @@ struct QueueView: View {
     /// Selection mode: a checkbox on every finished job, with Share and Upload at the bottom.
     @State private var selecting = false
     @State private var selected: Set<UUID> = []
+    @State private var reading: URL?
 
     var body: some View {
         @Bindable var model = model
@@ -50,6 +51,9 @@ struct QueueView: View {
             JobDetailView(jobID: id)
         }
         .toolbar { toolbarContent }
+        .fullScreenCover(isPresented: Binding(get: { reading != nil }, set: { if !$0 { reading = nil } })) {
+            if let file = reading { LibraryReaderView(file: file) { reading = nil } }
+        }
         .confirmationDialog("Stop \(model.activeJobCount) downloads?", isPresented: $confirmStopAll, titleVisibility: .visible) {
             Button("Stop all", role: .destructive) { model.cancelAll() }
         } message: {
@@ -144,6 +148,9 @@ struct QueueView: View {
                 }
                 let files = model.existingFiles(of: job)
                 if !files.isEmpty {
+                    if let file = LibraryBook.readerFile(in: files) {
+                        Button("Open", systemImage: "book") { reading = file }
+                    }
                     ShareLink(items: files) { Label("Share files", systemImage: "square.and.arrow.up") }
                     Button("Upload", systemImage: "icloud.and.arrow.up") { model.upload(jobs: [job.id]) }
                     Button("Show in Files", systemImage: "folder") { FilesApp.reveal(files[0]) }
@@ -242,10 +249,14 @@ struct JobDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let jobID: UUID
     @State private var confirmDelete = false
+    @State private var reading: URL?
 
     var body: some View {
         if let job = model.job(jobID) {
             content(job)
+                .fullScreenCover(isPresented: Binding(get: { reading != nil }, set: { if !$0 { reading = nil } })) {
+                    if let file = reading { LibraryReaderView(file: file) { reading = nil } }
+                }
         } else {
             ContentUnavailableView("Removed", systemImage: "trash")
         }
@@ -271,6 +282,9 @@ struct JobDetailView: View {
 
             if !files.isEmpty {
                 Section("Files") {
+                    if let file = LibraryBook.readerFile(in: files) {
+                        Button("Open", systemImage: "book") { reading = file }
+                    }
                     ForEach(files, id: \.self) { file in
                         FileRow(file: file, jobID: job.id)
                     }
