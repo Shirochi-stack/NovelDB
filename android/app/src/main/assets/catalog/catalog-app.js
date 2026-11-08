@@ -1177,7 +1177,7 @@
         var compact = (words.length > 4 ? words.slice(0, 2).concat(words.slice(-2)) : words).join(' ');
         return Array.from(new Set([text, compact].filter(Boolean)));
     }
-    var DIRECT_TITLE_SITES = ['mangak.io', 'mangadex.org'];
+    var DIRECT_TITLE_SITES = ['mangak.io', 'mangadex.org', 'comix.to'];
     function localized(values) {
         if (!values || typeof values !== 'object') return '';
         return values.en || Object.values(values).find(function (value) { return typeof value === 'string'; }) || '';
@@ -1210,6 +1210,31 @@
                     cover: cover ? 'https://uploads.mangadex.org/covers/' + row.id + '/' + encodeURIComponent(cover) + '.256.jpg' : ''};
         });
     }
+    // Runs in the site's page so its own search client handles the API.
+    async function comixSearchRows() {
+        if (!/^comix\.(to|ws)$/.test(location.hostname) || location.pathname !== '/browse') return [];
+        var until = Date.now() + 6500;
+        do {
+            var links = [...document.querySelectorAll('a.lrow__title-link[href]')];
+            if (links.length) return links.slice(0, 40).filter(function (link) {
+                return link.origin === location.origin && /^\/title\/[a-z0-9]+(?:-[^/]+)?\/?$/i.test(link.pathname);
+            }).map(function (link) {
+                return {url: link.href, title: link.textContent.trim(), alternateTitles: [],
+                        cover: link.closest('.lrow')?.querySelector('.lrow__poster img[src]')?.src || ''};
+            });
+            await new Promise(function (resolve) { setTimeout(resolve, 150); });
+        } while (Date.now() < until);
+        return [];
+    }
+    async function comixTitles(query, token) {
+        var path = '/browse?order%5Brelevance%5D=desc&keyword=' + encodeURIComponent(query);
+        for (var name of ['comix.to', 'comix.ws']) {
+            if (stopped(token)) break;
+            var response = await transport({op: 'window', url: 'https://' + name + path, script: '(' + comixSearchRows + ')()'});
+            if (Array.isArray(response?.value) && response.value.length) return response.value;
+        }
+        return [];
+    }
     async function directTitles(site, text, token) {
         var key = exactTitle(text), matches = new Map();
         for (var query of titleQueries(text)) {
@@ -1217,9 +1242,14 @@
             var url = site === 'mangak.io' ? 'https://mangak.io/search?q=' + encodeURIComponent(query)
                 : 'https://api.mangadex.org/manga?limit=24&includes%5B%5D=cover_art&includes%5B%5D=author&title=' + encodeURIComponent(query);
             try {
-                var result = await fetchUrl(url, {quick: true, timeout: 5000, priority: true, stop: token});
-                if (!result || result.status !== 200) break;
-                var rows = site === 'mangak.io' ? mangakTitles(result) : mangadexTitles(result);
+                var rows;
+                if (site === 'comix.to') {
+                    rows = await comixTitles(query, token);
+                } else {
+                    var result = await fetchUrl(url, {quick: true, timeout: 5000, priority: true, stop: token});
+                    if (!result || result.status !== 200) break;
+                    rows = site === 'mangak.io' ? mangakTitles(result) : mangadexTitles(result);
+                }
                 var scored = rows.filter(function (row) { return typeof row.title === 'string' && row.title.trim(); })
                     .map(function (row) {
                         row.alternateTitles = row.alternateTitles.filter(function (name) { return typeof name === 'string' && name.trim(); });
@@ -1236,7 +1266,7 @@
                         matches.set(item[0].url, item);
                     }
                 });
-                if (scored.some(function (item) { return item[1] >= 0.8; })) break;
+                if (scored.some(function (item) { return item[1] >= (site === 'comix.to' ? 0.75 : 0.8); })) break;
             } catch (e) { break; }
         }
         return Array.from(matches.values()).sort(function (a, b) { return b[2] - a[2] || b[1] - a[1]; })
@@ -2696,8 +2726,9 @@
             }
             var haruneko = known.engine === 'haruneko';
             var alternate = item.url && (haruneko || known.engine === 'engines');
+            var siteReader = known.engine === 'engines' && ['comix.to', 'comix.ws', 'mangak.io'].includes(host(item.url));
             var result;
-            if (alternate && !retryImages) {
+            if (alternate && !retryImages && !siteReader) {
                 var listed = JSON.parse(await window.__GEN_parseChapter(item, true));
                 if (!listed.error) result = listed;
             }
@@ -2712,8 +2743,9 @@
                     } catch (error) {
                         if (!alternate || retryImages || (reply && reply.locked)) throw error;
                         note('Chapter engine failed; trying Generic fallback for the same chapter…');
-                        result = parseJson(await window.__GEN_parseChapter(item));
-                        if (haruneko && !result.comic) throw error;
+                        try { result = parseJson(await window.__GEN_parseChapter(item)); }
+                        catch (fallbackError) { throw siteReader ? error : fallbackError; }
+                        if ((haruneko || siteReader) && !result.comic) throw error;
                     }
                 } finally {
                     if (watch && pages.watching === watch) pages.watching = null;
@@ -2756,12 +2788,15 @@
         call('readerImages', watch.id, {images: watch.images.slice(), total: watch.images.length});
     }
 
-    function read(id, work) {
+    function read(id, work, url) {
         reading.id = id;
         work().then(function (value) {
             call('fetched', id, value);
         }, function (error) {
-            call('fetched', id, {error: String((error && error.message) || error).slice(0, 300), blocked: true, message: BLOCKED});
+            var message = String((error && error.message) || error).slice(0, 300);
+            var siteReader = ['comix.to', 'comix.ws', 'mangak.io'].includes(host(url));
+            var blocked = !siteReader || /human verification|http 403|sign in|locked/i.test(message);
+            call('fetched', id, {error: message, blocked: blocked, message: siteReader ? message : BLOCKED});
         }).then(function () { if (reading.id === id) reading.id = null; });
     }
 
@@ -2821,12 +2856,12 @@
         case 'genericBook':
             if (readable(message.url)) {
                 reading.book = message.id;
-                read(message.id, function () { return readBook(message.url, message.id); });
+                read(message.id, function () { return readBook(message.url, message.id); }, message.url);
             }
             else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
             break;
         case 'genericChapter':
-            if (readable(message.url)) read(message.id, function () { return readChapter(message.url, message.index | 0, message.recovery === 'images'); });
+            if (readable(message.url)) read(message.id, function () { return readChapter(message.url, message.index | 0, message.recovery === 'images'); }, message.url);
             else call('fetched', message.id, {error: 'only web pages and Library EPUBs can be read here'});
             break;
         default:

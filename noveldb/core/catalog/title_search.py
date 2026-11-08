@@ -3,12 +3,14 @@
 import json
 import re
 import unicodedata
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
+from noveldb.core.engines.comix import knows as comix_knows
 from noveldb.core.engines.generic import clean_url, decode, soup_of
+from noveldb.core.engines.mangak import page_props
 
 
-DIRECT_SITES = ("mangak.io", "mangadex.org")
+DIRECT_SITES = ("mangak.io", "mangadex.org", "comix.to")
 _FILLER = set("a an the of to in on and is be i my ill im novel manga manhwa manhua webtoon".split())
 _UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.I)
 
@@ -49,8 +51,7 @@ def _localized(values):
 
 
 def _mangak_rows(result):
-    payload = soup_of(decode(result)).find("script", id="__NEXT_DATA__")
-    rows = json.loads(payload.string or "{}").get("props", {}).get("pageProps", {}).get("ssrItems", []) if payload else []
+    rows = page_props(decode(result)).get("ssrItems") or []
     for row in rows[:40]:
         if not isinstance(row, dict):
             continue
@@ -88,14 +89,37 @@ def _mangadex_rows(result):
                "cover": f"https://uploads.mangadex.org/covers/{ident}/{quote(cover, safe='')}.256.jpg" if cover else ""}
 
 
-def direct_titles(site, text, fetch, active):
+def _comix_rows(html, base):
+    soup = soup_of(html)
+    for link in soup.select("a.lrow__title-link[href]")[:40]:
+        url = clean_url(link["href"], base)
+        if not url or not comix_knows(url) or len(urlsplit(url).path.strip("/").split("/")) != 2:
+            continue
+        row = link.find_parent(class_="lrow")
+        cover = row.select_one(".lrow__poster img[src]") if row else None
+        yield {"url": url, "title": link.get_text(" ", strip=True), "alternateTitles": [],
+               "cover": clean_url(cover["src"], base) if cover else ""}
+
+
+def direct_titles(site, text, fetch, active, render=None):
     """Search the source without probing its home page or waiting for a general web search."""
     key = exact_title(text)
     matches = {}
     for query in title_queries(text):
         if not active():
             return []
-        if site == "mangak.io":
+        if site == "comix.to":
+            if not render:
+                return []
+            path = "/browse?" + urlencode({"keyword": query, "order[relevance]": "desc"})
+            for host in ("comix.to", "comix.ws"):
+                if not active():
+                    return []
+                url = f"https://{host}{path}"
+                rows = list(_comix_rows(render(url, timeout=14) or "", url))
+                if rows:
+                    break
+        elif site == "mangak.io":
             url = "https://mangak.io/search?" + urlencode({"q": query})
             parser = _mangak_rows
         elif site == "mangadex.org":
@@ -105,10 +129,12 @@ def direct_titles(site, text, fetch, active):
         else:
             return []
         try:
-            result = fetch(url, quick=True, timeout=5, binary=True)
-            if not result or result["status"] != 200:
-                break
-            for row in parser(result):
+            if site != "comix.to":
+                result = fetch(url, quick=True, timeout=5, binary=True)
+                if not result or result["status"] != 200:
+                    break
+                rows = parser(result)
+            for row in rows:
                 if not isinstance(row.get("title"), str) or not row["title"].strip():
                     continue
                 names = [name for name in row["alternateTitles"] if isinstance(name, str) and name.strip()]
@@ -122,6 +148,6 @@ def direct_titles(site, text, fetch, active):
                         matches[row["url"]] = matched
         except (TypeError, ValueError, AttributeError, KeyError):
             break
-        if any(score >= 0.8 for _, score, _ in matches.values()):
+        if any(score >= (0.75 if site == "comix.to" else 0.8) for _, score, _ in matches.values()):
             break
     return [card for _, _, card in sorted(matches.values(), key=lambda item: item[:2], reverse=True)[:12]]

@@ -120,7 +120,7 @@ def test_dynamic_priority_lists_both_bundled_engines_for_their_own_sites():
     from external_scraper import ExternalScraper
 
     order = EngineSettings(order=("haruneko", "generic")).enabled()
-    assert order[:5] == ("mangapeak", "tako", "comix", "haruneko", "generic")
+    assert order[:6] == ("mangapeak", "tako", "mangak", "comix", "haruneko", "generic")
     assert ExternalScraper._engine_knows_site("mangapeak", "https://" + mangapeak.SITE + "/manga/example/")
     assert ExternalScraper._engine_knows_site("tako", "https://newm.mangahere.cc/manga/example/")
     assert not ExternalScraper._engine_knows_site("tako", "https://unlisted.example/manga/example/")

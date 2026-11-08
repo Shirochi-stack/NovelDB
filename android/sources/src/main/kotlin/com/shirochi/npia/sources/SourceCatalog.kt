@@ -119,14 +119,14 @@ object SourceCatalog {
     fun lists(engine: SiteEngine, url: String): Boolean {
         if (engine == SiteEngine.CUSTOM) return CustomEngines.listsSite(url)
         if (engine == SiteEngine.COMIX) return PageScript.comixBookPages(url).isNotEmpty()
-        if (engine == SiteEngine.MANGAPEAK || engine == SiteEngine.TAKO) return PythonEngines.listsBundled(engine, url)
+        if (engine in PythonEngines.bundled) return PythonEngines.listsBundled(engine, url)
         val rule = RuleEngine.of(engine) ?: return false
         return RuleEngines.store.current(rule)?.knows(url) == true
     }
 
     /** The engine's current bundle lists the URL's page, not only its site (see `EngineBundle.listsPage`). */
     fun listsPage(engine: SiteEngine, url: String): Boolean {
-        if (engine == SiteEngine.COMIX) return lists(engine, url)
+        if (engine == SiteEngine.COMIX || engine == SiteEngine.MANGAK) return lists(engine, url)
         val rule = RuleEngine.of(engine) ?: return false
         return RuleEngines.store.current(rule)?.listsPage(url) == true
     }

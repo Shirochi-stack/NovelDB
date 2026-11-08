@@ -533,7 +533,7 @@ class GenericSearch:
         def from_title_site(host):
             started = time.monotonic()
             try:
-                hits = direct_titles(host, text, self.fetch, lambda: not stop.is_set())
+                hits = direct_titles(host, text, self.fetch, lambda: not stop.is_set(), self.render)
             except Exception:
                 summary["failed"] += 1
                 report(host, started, 0, "failed")
@@ -681,7 +681,8 @@ class GenericSearch:
             pool.shutdown(wait=False, cancel_futures=True)
             done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=bool(summary.get("late"))))
             return
-        title_sites = {host for host in DIRECT_SITES if mode == "name" and host in self._site_hosts and self.picked(host)}
+        title_sites = {host for host in DIRECT_SITES if mode == "name" and host in self._site_hosts and self.picked(host)
+                       and (host != "comix.to" or self.render is not None)}
         futures.extend(pool.submit(from_title_site, host) for host in sorted(title_sites))
         if self.noveldb is not None:
             ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most

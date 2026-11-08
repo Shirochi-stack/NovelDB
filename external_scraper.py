@@ -21555,7 +21555,7 @@ async (items) => {
         """
         from noveldb.core import engine_updates
         from noveldb.core.engines import fanficfare_engine, site_index
-        from noveldb.core.settings.model import ENGINE_COMIX, ENGINE_MANGAPEAK, ENGINE_TAKO
+        from noveldb.core.settings.model import ENGINE_MANGAK, ENGINE_MANGAPEAK, ENGINE_TAKO
 
         if engine == ENGINE_GENERIC:
             return False
@@ -21565,6 +21565,9 @@ async (items) => {
         if engine == ENGINE_TAKO:
             from noveldb.core.engines import tako
             return tako.knows(url)
+        if engine == ENGINE_MANGAK:
+            from noveldb.core.engines import mangak
+            return mangak.knows(url)
         if engine == ENGINE_COMIX:
             from noveldb.core.engines import comix
             return comix.knows(url)

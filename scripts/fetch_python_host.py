@@ -66,6 +66,7 @@ MODULES = {
     "gallerydl_engine.py": ROOT / "noveldb" / "core" / "engines" / "gallerydl_engine.py",
     "generic.py": ROOT / "noveldb" / "core" / "engines" / "generic.py",
     "mangapeak.py": ROOT / "noveldb" / "core" / "engines" / "mangapeak.py",
+    "mangak.py": ROOT / "noveldb" / "core" / "engines" / "mangak.py",
     "tako.py": ROOT / "noveldb" / "core" / "engines" / "tako.py",
 }
 BUNDLES = {"lncrawl": ROOT / "lncrawl", "fanficfare": ROOT / "fanficfare", "gallerydl": ROOT / "gallerydl"}

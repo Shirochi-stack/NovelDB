@@ -5,16 +5,16 @@ final class EngineSettingsTests: XCTestCase {
     func testOrderKeepsKnownEnginesAndAppendsMissingOnes() {
         XCTAssertEqual(
             SiteEngine.ordered(["webtoepub", "bogus", "native"]),
-            [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic]
+            [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic]
         )
         XCTAssertEqual(SiteEngine.ordered(nil), SiteEngine.allCases)
-        XCTAssertEqual(SiteEngine.ordered(["native", "native", "webtoepub"]), [.native, .webtoepub, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
-        XCTAssertEqual(SiteEngine.ordered(SiteEngine.allCases.map { $0.rawValue }, disabled: [.novelDownloader]), [.native, .webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(SiteEngine.ordered(["native", "native", "webtoepub"]), [.native, .webtoepub, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(SiteEngine.ordered(SiteEngine.allCases.map { $0.rawValue }, disabled: [.novelDownloader]), [.native, .webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
     }
 
     func testDefaultsAreAllEnginesOnAndUpdatesOn() {
         let engines = AppSettings().engines
-        XCTAssertEqual(engines.enabled(), [.native, .novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(engines.enabled(), [.native, .novelDownloader, .webtoepub, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
         XCTAssertEqual(engines.fullOrder(), SiteEngine.allCases)
         XCTAssertTrue(engines.novelDownloaderAutoUpdate)
         XCTAssertTrue(engines.webtoepubAutoUpdate)
@@ -24,17 +24,17 @@ final class EngineSettingsTests: XCTestCase {
     }
 
     func testRawValuesAreTheDesktopNames() {
-        XCTAssertEqual(SiteEngine.allCases.map { $0.rawValue }, ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "comix", "haruneko", "gallerydl", "custom", "generic"])
+        XCTAssertEqual(SiteEngine.allCases.map { $0.rawValue }, ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "mangak", "comix", "haruneko", "gallerydl", "custom", "generic"])
     }
 
     func testSwitchedOffEnginesKeepTheirPlaceInTheFullOrder() {
         var engines = EngineSettings(order: [.webtoepub, .native, .novelDownloader])
         XCTAssertTrue(engines.setEnabled(.native, false))
-        XCTAssertEqual(engines.enabled(), [.webtoepub, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
-        XCTAssertEqual(engines.fullOrder(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(engines.enabled(), [.webtoepub, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(engines.fullOrder(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
         XCTAssertFalse(engines.isEnabled(.native))
         XCTAssertTrue(engines.setEnabled(.native, true))
-        XCTAssertEqual(engines.enabled(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(engines.enabled(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
     }
 
     func testOneEngineAlwaysStaysOn() {
@@ -44,6 +44,7 @@ final class EngineSettingsTests: XCTestCase {
         XCTAssertTrue(engines.setEnabled(.lnreader, false))
         XCTAssertTrue(engines.setEnabled(.mangapeak, false))
         XCTAssertTrue(engines.setEnabled(.tako, false))
+        XCTAssertTrue(engines.setEnabled(.mangak, false))
         XCTAssertTrue(engines.setEnabled(.comix, false))
         XCTAssertTrue(engines.setEnabled(.custom, false))
         XCTAssertTrue(engines.setEnabled(.haruneko, false))
@@ -77,7 +78,7 @@ final class EngineSettingsTests: XCTestCase {
             order: [.webtoepub, .native, .novelDownloader], disabled: [.novelDownloader], novelDownloaderAutoUpdate: false
         ))
         let exported = DesktopConfig.exportConfig(settings)
-        XCTAssertEqual(exported["source_engine_order"] as? [String], ["webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "comix", "haruneko", "gallerydl", "custom", "generic"])
+        XCTAssertEqual(exported["source_engine_order"] as? [String], ["webtoepub", "native", "novel_downloader", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "mangak", "comix", "haruneko", "gallerydl", "custom", "generic"])
         XCTAssertEqual(exported["source_engines_off"] as? [String], ["novel_downloader"])
         XCTAssertEqual(exported["webtoepub_auto_update"] as? Bool, true)
         XCTAssertEqual(exported["novel_downloader_auto_update"] as? Bool, false)
@@ -90,7 +91,7 @@ final class EngineSettingsTests: XCTestCase {
             "source_engines_off": ["bogus", "native"],
             "novel_downloader_auto_update": true,
         ])
-        XCTAssertEqual(settings.engines.fullOrder(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(settings.engines.fullOrder(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
         XCTAssertEqual(settings.engines.disabled, [.native])
         XCTAssertTrue(settings.engines.novelDownloaderAutoUpdate)
         XCTAssertTrue(settings.engines.webtoepubAutoUpdate, "a missing key keeps the current choice")
@@ -108,7 +109,7 @@ final class EngineSettingsTests: XCTestCase {
     }
 
     func testDesktopImportNeverLeavesEveryEngineOff() {
-        let (settings, _) = DesktopConfig.importConfig(["source_engines_off": ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "comix", "haruneko", "gallerydl", "custom", "generic"]])
+        let (settings, _) = DesktopConfig.importConfig(["source_engines_off": ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "mangak", "comix", "haruneko", "gallerydl", "custom", "generic"]])
         XCTAssertEqual(settings.engines.enabled(), SiteEngine.allCases)
         XCTAssertEqual(settings.engines.disabled, [])
     }
@@ -116,7 +117,7 @@ final class EngineSettingsTests: XCTestCase {
     func testExportKeepsUnknownDesktopKeys() {
         let exported = DesktopConfig.exportConfig(AppSettings(), onto: ["gui_scale_factor": 1.5])
         XCTAssertEqual(exported["gui_scale_factor"] as? Double, 1.5)
-        XCTAssertEqual(exported["source_engine_order"] as? [String], ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "comix", "haruneko", "gallerydl", "custom", "generic"])
+        XCTAssertEqual(exported["source_engine_order"] as? [String], ["native", "novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "mangak", "comix", "haruneko", "gallerydl", "custom", "generic"])
         XCTAssertEqual(exported["source_engines_off"] as? [String], [])
     }
 
@@ -150,7 +151,7 @@ final class EngineSettingsTests: XCTestCase {
     func testHandEditedEngineSettingsStillLoad() throws {
         let stored = #"{"engines": {"order": ["webtoepub", "bogus"], "disabled": ["native", "bogus"]}}"#
         let settings = try SettingsCoding.decode(Data(stored.utf8))
-        XCTAssertEqual(settings.engines.fullOrder(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .comix, .haruneko, .gallerydl, .custom, .generic])
+        XCTAssertEqual(settings.engines.fullOrder(), [.webtoepub, .native, .novelDownloader, .lncrawl, .lnreader, .fanficfare, .mangapeak, .tako, .mangak, .comix, .haruneko, .gallerydl, .custom, .generic])
         XCTAssertEqual(settings.engines.disabled, [.native])
         XCTAssertTrue(settings.engines.novelDownloaderAutoUpdate, "a missing key means the default, on")
     }

@@ -29,6 +29,7 @@ actor PythonEngines {
         case .gallerydl: return "gallerydl"
         case .mangapeak: return "mangapeak"
         case .tako: return "tako"
+        case .mangak: return "mangak"
         case .custom: return "custom"
         default: return nil
         }
@@ -37,6 +38,11 @@ actor PythonEngines {
     /// This build has the Python engines' page (a build made without scripts/fetch_python_host.py has none).
     static var available: Bool { file("python-host.html") != nil }
 
+    static let bundled: Set<SiteEngine> = [.mangapeak, .tako, .mangak]
+    private static let mangaKListings: Set<String> = ["about", "advanced-search", "api", "browse", "contact", "dmca",
+        "genres", "home", "latest", "library", "login", "manga", "new", "popular", "privacy", "privacy-policy", "register",
+        "search", "sitemap", "terms", "terms-of-service", "trending"]
+
     static func listsBundled(_ engine: SiteEngine, url: URL) -> Bool {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               let hostname = url.host?.lowercased() else { return false }
@@ -44,6 +50,11 @@ actor PythonEngines {
         switch (engine, host) {
         case (.mangapeak, "\u{0072}\u{006f}\u{006c}\u{0069}\u{0061}\u{0073}\u{0063}\u{0061}\u{006e}.com"):
             return url.path.hasPrefix("/manga/") || url.path.hasPrefix("/read/")
+        case (.mangak, "mangak.io"):
+            let slug = url.path.split(separator: "/").first.map(String.init) ?? ""
+            return !mangaKListings.contains(slug) && url.path.range(
+                of: #"^/[a-z0-9][a-z0-9-]{0,220}(/chapter-[a-z0-9][a-z0-9.-]{0,220})?/?$"#,
+                options: .regularExpression) != nil
         case (.tako, "mangadex.org"): return url.path.hasPrefix("/title/") || url.path.hasPrefix("/chapter/")
         case (.tako, "mangahere.cc"), (.tako, "mangahere.com"), (.tako, "newm.mangahere.cc"):
             return url.path.hasPrefix("/manga/")
@@ -58,7 +69,7 @@ actor PythonEngines {
         }
         let listed: Bool
         switch engine {
-        case .mangapeak, .tako: listed = Self.listsBundled(engine, url: url)
+        case .mangapeak, .tako, .mangak: listed = Self.listsBundled(engine, url: url)
         case .custom: listed = CustomEngines.lists(url)
         default:
             listed = engine.ruleEngine.map { EngineSites.lists($0, url, store: store) } ?? false

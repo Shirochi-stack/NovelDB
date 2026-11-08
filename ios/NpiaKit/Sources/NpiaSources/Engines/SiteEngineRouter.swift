@@ -70,7 +70,7 @@ public enum SiteEngineRouter {
         let enabled = engines.enabled().filter { $0 != .custom || !CustomEngines.list().isEmpty }
         let steps = plan(order: enabled, nativeOwnsURL: SourceCatalog.nativeAdapterType(for: url) != nil,
                          dynamic: engines.dynamicPriority) { engine in
-            if engine == .mangapeak || engine == .tako { return PythonEngines.listsBundled(engine, url: url) }
+            if PythonEngines.bundled.contains(engine) { return PythonEngines.listsBundled(engine, url: url) }
             if engine == .comix { return !PageScript.comixBookPages(url).isEmpty }
             if engine == .custom { return CustomEngines.lists(url) }
             guard let rules = engine.ruleEngine else { return false }

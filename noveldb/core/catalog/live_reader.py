@@ -42,6 +42,9 @@ class LiveReader:
                 elif name == "mangapeak":
                     from noveldb.core.engines.mangapeak import MangaPeakEngine
                     self._engines[name] = MangaPeakEngine(fetch=self.fetch, log=self.log)
+                elif name == "mangak":
+                    from noveldb.core.engines.mangak import MangaKEngine
+                    self._engines[name] = MangaKEngine(fetch=self.fetch)
                 elif name == "tako":
                     from noveldb.core.engines.tako import TakoEngine
                     self._engines[name] = TakoEngine(fetch=self.fetch, log=self.log)
@@ -64,7 +67,9 @@ class LiveReader:
                 names.append("fanficfare")
         except Exception:
             pass
-        from noveldb.core.engines import mangapeak, tako
+        from noveldb.core.engines import mangak, mangapeak, tako
+        if mangak.knows(url):
+            names.append("mangak")
         if mangapeak.knows(url):
             names.append("mangapeak")
         if tako.knows(url):

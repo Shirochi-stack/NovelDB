@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from noveldb.core.settings.model import (ENGINE_COMIX, ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC,
-                                        ENGINE_LNR, ENGINE_MANGAPEAK, ENGINE_TAKO)
+                                        ENGINE_LNR, ENGINE_MANGAK, ENGINE_MANGAPEAK, ENGINE_TAKO)
 
 TRANSPORT_BINDING = "__noveldb_engine_transport"
 WINDOW_BINDING = "__noveldb_window_script"
@@ -101,9 +101,9 @@ PAGE_SCRIPTS = {
     ENGINE_LNR: PageScript(ENGINE_LNR, "__LNR", "_lnreader", "LNReader", "LNREADER"),
     ENGINE_HN: PageScript(ENGINE_HN, "__HN", "_haruneko", "HaruNeko", "HARUNEKO"),
 }
-PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_GENERIC)
+PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_MANGAK, ENGINE_GENERIC)
 PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GDL: "_gallerydl",
-                ENGINE_MANGAPEAK: "_mangapeak", ENGINE_TAKO: "_tako", ENGINE_GENERIC: "_generic"}
+                ENGINE_MANGAPEAK: "_mangapeak", ENGINE_TAKO: "_tako", ENGINE_MANGAK: "_mangak", ENGINE_GENERIC: "_generic"}
 
 
 def _image_kind(data_base64: str) -> str:
@@ -773,6 +773,9 @@ class SiteEnginesMixin:
             elif engine == ENGINE_MANGAPEAK:
                 from noveldb.core.engines.mangapeak import MangaPeakEngine
                 engines[engine] = MangaPeakEngine(fetch=self.engine_fetch, log=self.log)
+            elif engine == ENGINE_MANGAK:
+                from noveldb.core.engines.mangak import MangaKEngine
+                engines[engine] = MangaKEngine(fetch=self.engine_fetch)
             elif engine == ENGINE_TAKO:
                 from noveldb.core.engines.tako import TakoEngine
                 engines[engine] = TakoEngine(fetch=self.engine_fetch, log=self.log)

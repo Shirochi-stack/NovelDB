@@ -3788,7 +3788,7 @@
         },
         progress: function (id, item) {
             if (id !== searchId || !item) return;
-            if (item.total) { progress.expected += item.total; showProgress(); return; }
+            if (item.total != null) { progress.expected += item.total; showProgress(); return; }
             // NovelDB's count of matching books, before its cards arrive (scrolling reads the rest).
             if (item.noveldbTotal != null) { progress.noveldb = (progress.noveldb || 0) + item.noveldbTotal; showProgress(); return; }
             siteAnswered(item);

@@ -656,7 +656,7 @@ class GenericCatalog(QObject):
         """A search's engine with the query's options: the page's sort (NovelDB's lists in that order where the
         index keeps one) and the settings' searches (NovelDB's index; the deep search of its sites)."""
         engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search,
-                               noveldb=self.noveldb if item.get("noveldb", True) else None)
+                               noveldb=self.noveldb if item.get("noveldb", True) else None, render=self._render)
         engine.sort = str(item.get("sort") or "")
         engine.deep = item.get("deep", True) is not False
         engine.only = set(item.get("only") or [])
@@ -816,7 +816,7 @@ class GenericCatalog(QObject):
             "responseBase64": base64.b64encode(result.get("content") or b"").decode("ascii"),
         })
 
-    def _render(self, url: str, *_args, scroll: bool = False, **_kwargs) -> str:
+    def _render(self, url: str, *_args, scroll: bool = False, timeout: float = 45.0, **_kwargs) -> str:
         """A page's HTML after its scripts ran (the engines' `render`), from a hidden Catalog tab;
         `scroll`: scrolled to its end first (lists that load as you scroll)."""
         if scroll:
@@ -824,7 +824,7 @@ class GenericCatalog(QObject):
         work = getattr(_reading, "work", None)
         if work is not None and not work.wait():
             return ""
-        result = self.browser.fetch(url, timeout=45.0, scroll=scroll)
+        result = self.browser.fetch(url, timeout=timeout, scroll=scroll)
         return (result or {}).get("text") or ""
 
     def _chapter(self, url: str, index: int) -> dict:

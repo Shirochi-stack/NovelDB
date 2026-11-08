@@ -157,7 +157,7 @@
         const run = window.__COMIX_transport;
         if (typeof run !== "function") throw new Error("The Comix browser transport is unavailable.");
         const script = `(${readPages})(${JSON.stringify(route[2])},${JSON.stringify(route[1])},${JSON.stringify(hosts)},${accessError},12000)`;
-        let failure = "";
+        const failures = [];
         const other = hosts.find(host => host !== url.host.replace(/^www\./, ""));
         for (const address of [url.href, "https://" + other + url.pathname + url.search]) {
             const reply = await run({op: "window", url: address, script});
@@ -166,9 +166,9 @@
                 return {chapterName: item.name || "", contentText: "", comic: true, imageCount: images.length,
                     contentHtml: images.map(url => `<p><img src="${escaped(url)}" alt=""/></p>`).join("")};
             }
-            failure = reply?.value?.error || reply?.error || "Comix returned no images.";
+            failures.push(reply?.value?.error || reply?.error || "Comix returned no images.");
         }
-        throw new Error(failure);
+        throw new Error(failures.find(message => /human verification|HTTP (403|429)/.test(message)) || failures.join("; "));
     }
 
     const json = async work => {

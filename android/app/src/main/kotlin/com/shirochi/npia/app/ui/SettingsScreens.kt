@@ -261,6 +261,7 @@ private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.GALLERYDL -> "gallery-dl's extractors: manga sites such as fanfox and mangahere (Python, in the app)."
     SiteEngine.MANGAPEAK -> "Article Image Queue's MangaPeak reader (Python, in the app)."
     SiteEngine.TAKO -> "Tako's MangaDex and MangaHere readers (Python, in the app)."
+    SiteEngine.MANGAK -> "Reads MangaK title feeds and chapter images (Python, in the app)."
     SiteEngine.COMIX -> "Reads the Comix chapter list and reader pages in the web view."
     SiteEngine.CUSTOM -> "Your own engines: Python files added below (the desktop's format; Python, in the app)."
     SiteEngine.GENERIC -> "Any other site: reads the chapter list and text without site rules."

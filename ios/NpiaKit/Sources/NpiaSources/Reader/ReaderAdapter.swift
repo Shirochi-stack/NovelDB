@@ -240,7 +240,7 @@ final class ReaderBookSession: @unchecked Sendable {
                 case .haruneko: return try await openPageScript(url, script: .haruneko, context: context, page: shared)
                 case .comix: return try await openComix(url, context: context)
                 case .generic: return try await openPageScript(url, script: .generic, context: context, page: shared)
-                case .lncrawl, .fanficfare, .gallerydl, .mangapeak, .tako, .custom:
+                case .lncrawl, .fanficfare, .gallerydl, .mangapeak, .tako, .mangak, .custom:
                     return try await openPython(url, engine: engine, context: context)
                 case .native: continue
                 }

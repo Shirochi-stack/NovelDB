@@ -72,11 +72,18 @@ internal object PythonEngines {
         SiteEngine.GALLERYDL -> "gallerydl"
         SiteEngine.MANGAPEAK -> "mangapeak"
         SiteEngine.TAKO -> "tako"
+        SiteEngine.MANGAK -> "mangak"
         SiteEngine.CUSTOM -> "custom"
         else -> null
     }
 
     fun isPython(engine: SiteEngine): Boolean = name(engine) != null
+
+    internal val bundled = setOf(SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK)
+    private val mangaKPath = Regex("^/[a-z0-9][a-z0-9-]{0,220}(/chapter-[a-z0-9][a-z0-9.-]{0,220})?/?$")
+    private val mangaKListings = setOf("about", "advanced-search", "api", "browse", "contact", "dmca", "genres", "home",
+        "latest", "library", "login", "manga", "new", "popular", "privacy", "privacy-policy", "register", "search",
+        "sitemap", "terms", "terms-of-service", "trending")
 
     internal fun listsBundled(engine: SiteEngine, url: String): Boolean {
         val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
@@ -86,6 +93,8 @@ internal object PythonEngines {
         return when (engine) {
             SiteEngine.MANGAPEAK -> host == "\u0072\u006f\u006c\u0069\u0061\u0073\u0063\u0061\u006e.com" &&
                 (path.startsWith("/manga/") || path.startsWith("/read/"))
+            SiteEngine.MANGAK -> host == "mangak.io" && mangaKPath.matches(path) &&
+                path.trimStart('/').substringBefore('/') !in mangaKListings
             SiteEngine.TAKO -> when (host) {
                 "mangadex.org" -> path.startsWith("/title/") || path.startsWith("/chapter/")
                 "mangahere.cc", "mangahere.com", "newm.mangahere.cc" -> path.startsWith("/manga/")
@@ -106,7 +115,7 @@ internal object PythonEngines {
             val added = CustomEngines.list()
             if (added.isEmpty()) throw EngineMissException("No custom engines are added.")
             added.joinToString(", ") { it.label }
-        } else if (engine == SiteEngine.MANGAPEAK || engine == SiteEngine.TAKO) {
+        } else if (engine in bundled) {
             if (!listsBundled(engine, url)) throw EngineMissException(engine.label + " have no source for this site.")
             "built in"
         } else {

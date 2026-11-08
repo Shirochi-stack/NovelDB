@@ -48,6 +48,7 @@ public enum SourceCatalog {
         if adapters.contains(where: { $0.id != .reader && $0.ownsSite(host) }) { return true }
         return engines.enabled().contains { engine in
             if engine == .comix { return !PageScript.comixBookPages(url).isEmpty }
+            if engine == .mangak { return PythonEngines.listsBundled(engine, url: url) }
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.lists(rules, url, store: store)
         }
@@ -66,6 +67,7 @@ public enum SourceCatalog {
         if order.contains(.native), nativeAdapterType(for: url) != nil { return true }
         return order.contains { engine in
             if engine == .comix { return !PageScript.comixBookPages(url).isEmpty }
+            if engine == .mangak { return PythonEngines.listsBundled(engine, url: url) }
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.listsPage(rules, url, store: store)
         }

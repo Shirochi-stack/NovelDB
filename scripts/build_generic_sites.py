@@ -57,6 +57,8 @@ PLATFORMS = {"google.com", "reddit.com", "github.io", "wordpress.com", "blogspot
 EXTRA_SITES = [
     {"site": "bookkor.com", "host": "010.bookkor.com",
      "hosts": ["%03d.bookkor.com" % n for n in range(10, 0, -1)], "comic": False},
+    {"site": "comix.to", "host": "comix.to", "hosts": ["comix.to", "comix.ws"],
+     "engines": ["comix"], "comic": True},
 ]
 
 
@@ -72,6 +74,7 @@ def _host(url: str) -> str:
 def engine_hosts() -> dict:
     """{host: {engine: [details]}} for every site an engine lists."""
     found: dict = defaultdict(lambda: defaultdict(list))
+    found["mangak.io"]["mangak"].append("mangak.io")
     for code, hosts in catalog_sites.BUILTIN_SITES.items():
         for host in hosts:
             found[host.removeprefix("www.")]["native"].append(code)
@@ -165,7 +168,8 @@ def build(hosts: dict, ranks: dict, count: int) -> list:
             "lnreader": lnr,
             "lncrawl": lnc[:1],
             "search": "lnreader" if lnr else ("lncrawl" if lnc else "web"),
-            "comic": bool(engines.get("haruneko")) and not (lnr or engines.get("lncrawl") or engines.get("webtoepub")),
+            "comic": bool(engines.get("mangak") or engines.get("haruneko"))
+                     and not (lnr or engines.get("lncrawl") or engines.get("webtoepub")),
             "searched": not count or place < count,
         })
     return out
