@@ -21,12 +21,13 @@ actor BuiltInReader {
                 page: Int? = nil, context: SourceContext) async -> String {
         guard let url = URL(string: address) else { return Self.json(["error": "not an address", "skip": true]) }
         let type = SourceCatalog.nativeAdapterType(for: url)
+        let builtInComic = type?.id == .comix || type?.id == .mangak
         let genericFirst = SiteEngineRouter.genericFirst(url)
         let steps = engines ? SiteEngineRouter.plan(for: url, engines: context.settings.engines).filter {
             if genericFirst { return $0 == .tako && PythonEngines.listsBundled($0, url: url) }
             return $0 != .native && $0 != .generic
         } : []
-        if engines ? steps.isEmpty : type == nil {
+        if engines ? steps.isEmpty : type == nil || (builtInComic && !context.settings.engines.isEnabled(.native)) {
             return Self.json(["error": engines ? "no site engine lists this site" : "no built-in scraper for this site", "skip": true])
         }
         do {
@@ -43,7 +44,7 @@ actor BuiltInReader {
                     "bookname": book.title, "author": book.author ?? "", "engine": steps.first?.title ?? type?.id.rawValue ?? "",
                     "chapters": book.chapters.map { chapter in
                         var item = ["name": chapter.title]
-                        if !steps.isEmpty, let address = chapter.url { item["url"] = address.absoluteString }
+                        if !steps.isEmpty || builtInComic, let address = chapter.url { item["url"] = address.absoluteString }
                         return item
                     },
                 ])
@@ -58,10 +59,12 @@ actor BuiltInReader {
                     let shown = image.data.map { "data:\(Self.mime(image.filename));base64,\($0.base64EncodedString())" } ?? image.url.absoluteString
                     html = html.replacingOccurrences(of: image.filename, with: shown)
                 }
-                let comic = !steps.isEmpty && !content.images.isEmpty &&
+                let comic = (!steps.isEmpty || builtInComic) && !content.images.isEmpty &&
                     html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
                         .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                return Self.json(["chapterName": ref.title, "contentHtml": html, "comic": comic])
+                var reply: [String: Any] = ["chapterName": ref.title, "contentHtml": html, "comic": comic]
+                if builtInComic, let url = ref.url { reply["imageReferer"] = url.absoluteString }
+                return Self.json(reply)
             case .refused(_, let reason):
                 return Self.json(["error": "This chapter is locked: \(reason)", "locked": true])
             case .failed(_, let message):

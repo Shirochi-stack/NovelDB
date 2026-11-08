@@ -28,7 +28,7 @@ import java.net.URI
  * script shipped in the app's resources (`resource`) that tries any site: the generic fallback.
  */
 internal class PageScript(
-    val engine: SiteEngine,
+    val title: String,
     val rule: RuleEngine?,
     /** `window.<prefix>READY`, `<prefix>API` and `<prefix>LOAD_ERROR`, e.g. `__LNR_`. */
     val prefix: String,
@@ -41,11 +41,9 @@ internal class PageScript(
     /** Runs in the page before the bundle: hooks the bundle's own names up to the app's transport. */
     val setup: String = "",
 ) {
-    val title: String get() = rule?.title ?: engine.label
-
     companion object {
         val LNREADER = PageScript(
-            SiteEngine.LNREADER, RuleEngine.LNREADER, "__LNR_",
+            RuleEngine.LNREADER.title, RuleEngine.LNREADER, "__LNR_",
             "await window.__LNR_parseBook(location.href)",
             "window.__LNR_parseChapter",
         )
@@ -56,7 +54,7 @@ internal class PageScript(
          * app's transport (`WebToEpubTransport`), the second tagged `op: "window"`.
          */
         val HARUNEKO = PageScript(
-            SiteEngine.HARUNEKO, RuleEngine.HARUNEKO, "__HN_",
+            RuleEngine.HARUNEKO.title, RuleEngine.HARUNEKO, "__HN_",
             "await window.__HN_parseBook(location.href)",
             "window.__HN_parseChapter",
             setup = """
@@ -70,14 +68,14 @@ internal class PageScript(
 
         /** `scripts/generic/generic-lib.js`, a port of the desktop's generic engine. */
         val GENERIC = PageScript(
-            SiteEngine.GENERIC, null, "__GEN_",
+            SiteEngine.GENERIC.label, null, "__GEN_",
             "await window.__GEN_parseBook(location.href)",
             "window.__GEN_parseChapter",
             resource = "generic/generic-lib.js",
         )
 
         val COMIX = PageScript(
-            SiteEngine.COMIX, null, "__COMIX_",
+            "Comix reader", null, "__COMIX_",
             "await window.__COMIX_parseBook(requested)",
             "window.__COMIX_parseChapter",
             resource = "comix/comix-reader.js",
@@ -101,7 +99,12 @@ internal class PageScript(
         /** The API number a bundled script without a manifest reports. */
         const val BUNDLED_API = 1
 
-        fun of(engine: SiteEngine): PageScript? = listOf(LNREADER, HARUNEKO, COMIX, GENERIC).firstOrNull { it.engine == engine }
+        fun of(engine: SiteEngine): PageScript? = when (engine) {
+            SiteEngine.LNREADER -> LNREADER
+            SiteEngine.HARUNEKO -> HARUNEKO
+            SiteEngine.GENERIC -> GENERIC
+            else -> null
+        }
     }
 }
 

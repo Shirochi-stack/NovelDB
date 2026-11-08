@@ -29,7 +29,6 @@ actor PythonEngines {
         case .gallerydl: return "gallerydl"
         case .mangapeak: return "mangapeak"
         case .tako: return "tako"
-        case .mangak: return "mangak"
         case .custom: return "custom"
         default: return nil
         }
@@ -38,10 +37,27 @@ actor PythonEngines {
     /// This build has the Python engines' page (a build made without scripts/fetch_python_host.py has none).
     static var available: Bool { file("python-host.html") != nil }
 
-    static let bundled: Set<SiteEngine> = [.mangapeak, .tako, .mangak]
+    static let bundled: Set<SiteEngine> = [.mangapeak, .tako]
+    static let mangaK = Module(name: "mangak", title: "MangaK reader")
+
+    struct Module: Sendable {
+        let name: String
+        let title: String
+    }
     private static let mangaKListings: Set<String> = ["about", "advanced-search", "api", "browse", "contact", "dmca",
         "genres", "home", "latest", "library", "login", "manga", "new", "popular", "privacy", "privacy-policy", "register",
         "search", "sitemap", "terms", "terms-of-service", "trending"]
+
+    static func mangaKMatches(_ url: URL) -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let host = url.host?.lowercased(), ["mangak.io", "www.mangak.io"].contains(host),
+              url.user == nil, url.password == nil, url.port == nil else { return false }
+        let path = URLComponents(url: url, resolvingAgainstBaseURL: true)?.percentEncodedPath ?? ""
+        let slug = path.split(separator: "/").first.map(String.init) ?? ""
+        return !mangaKListings.contains(slug) && path.range(
+            of: #"^/[a-z0-9][a-z0-9-]{0,220}(/chapter-[a-z0-9][a-z0-9.-]{0,220})?/?$"#,
+            options: .regularExpression) != nil
+    }
 
     static func listsBundled(_ engine: SiteEngine, url: URL) -> Bool {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
@@ -50,11 +66,6 @@ actor PythonEngines {
         switch (engine, host) {
         case (.mangapeak, "\u{0072}\u{006f}\u{006c}\u{0069}\u{0061}\u{0073}\u{0063}\u{0061}\u{006e}.com"):
             return url.path.hasPrefix("/manga/") || url.path.hasPrefix("/read/")
-        case (.mangak, "mangak.io"):
-            let slug = url.path.split(separator: "/").first.map(String.init) ?? ""
-            return !mangaKListings.contains(slug) && url.path.range(
-                of: #"^/[a-z0-9][a-z0-9-]{0,220}(/chapter-[a-z0-9][a-z0-9.-]{0,220})?/?$"#,
-                options: .regularExpression) != nil
         case (.tako, "mangadex.org"): return url.path.hasPrefix("/title/") || url.path.hasPrefix("/chapter/")
         case (.tako, "mangahere.cc"), (.tako, "mangahere.com"), (.tako, "newm.mangahere.cc"):
             return url.path.hasPrefix("/manga/")
@@ -63,13 +74,10 @@ actor PythonEngines {
     }
 
     /// The book at `url` read by `engine`; a site the engine doesn't list is refused before anything starts.
-    func openBook(_ engine: SiteEngine, url: URL, context: SourceContext, store: EngineStore = .shared) async throws -> ReaderBookPayload {
-        guard let name = Self.name(engine) else {
-            throw EngineNoMatch(message: "The \(engine.title) are missing from this build.")
-        }
+    func openBook(_ engine: SiteEngine, module: Module, url: URL, context: SourceContext, store: EngineStore = .shared) async throws -> ReaderBookPayload {
         let listed: Bool
         switch engine {
-        case .mangapeak, .tako, .mangak: listed = Self.listsBundled(engine, url: url)
+        case .mangapeak, .tako: listed = Self.listsBundled(engine, url: url)
         case .custom: listed = CustomEngines.lists(url)
         default:
             listed = engine.ruleEngine.map { EngineSites.lists($0, url, store: store) } ?? false
@@ -77,25 +85,28 @@ actor PythonEngines {
         guard listed else {
             throw EngineNoMatch(message: "The \(engine.title) have no source for this site.")
         }
-        let data = try await call(context, "parseBook", name, url.absoluteString)
+        return try await openBook(module, url: url, context: context)
+    }
+
+    func openBook(_ module: Module, url: URL, context: SourceContext) async throws -> ReaderBookPayload {
+        let data = try await call(context, "parseBook", module.name, url.absoluteString)
         if let failure = try? JSONDecoder().decode(Failure.self, from: data), let message = failure.error {
-            if failure.noParser == true { throw EngineNoMatch(message: "\(engine.title): \(message)") }
-            throw SourceError.parse("\(engine.title): \(message)")
+            if failure.noParser == true { throw EngineNoMatch(message: "\(module.title): \(message)") }
+            throw SourceError.parse("\(module.title): \(message)")
         }
         let payload = try ReaderBookPayload.decode(String(decoding: data, as: UTF8.self))
-        context.logger.log(.info, "[Reader] \(engine.title), \(payload.chapters.count) chapters")
+        context.logger.log(.info, "[Reader] \(module.title), \(payload.chapters.count) chapters")
         return payload
     }
 
     /// One chapter's text and image blocks.
-    func chapter(_ engine: SiteEngine, info: ReaderBookSession.ChapterInfo, bookURL: URL, context: SourceContext) async throws -> [RuleBlock] {
-        guard let name = Self.name(engine) else { throw SourceError.parse("\(engine.title) are not a Python engine.") }
+    func chapter(_ module: Module, info: ReaderBookSession.ChapterInfo, bookURL: URL, context: SourceContext) async throws -> [RuleBlock] {
         let item = String(decoding: try JSONSerialization.data(withJSONObject: [
             "url": info.url, "name": info.name, "bookUrl": bookURL.absoluteString,
         ]), as: UTF8.self)
-        let data = try await call(context, "parseChapter", name, item)
+        let data = try await call(context, "parseChapter", module.name, item)
         let result = try JSONDecoder().decode(ReaderWebChapter.self, from: data)
-        if let error = result.error { throw SourceError.parse("\(engine.title): \(error)") }
+        if let error = result.error { throw SourceError.parse("\(module.title): \(error)") }
         let base = URL(string: info.url, relativeTo: bookURL)?.absoluteURL ?? bookURL
         return try result.blocks(base: base)
     }

@@ -57,8 +57,6 @@ PLATFORMS = {"google.com", "reddit.com", "github.io", "wordpress.com", "blogspot
 EXTRA_SITES = [
     {"site": "bookkor.com", "host": "010.bookkor.com",
      "hosts": ["%03d.bookkor.com" % n for n in range(10, 0, -1)], "comic": False},
-    {"site": "comix.to", "host": "comix.to", "hosts": ["comix.to", "comix.ws"],
-     "engines": ["comix"], "comic": True},
 ]
 
 
@@ -74,7 +72,6 @@ def _host(url: str) -> str:
 def engine_hosts() -> dict:
     """{host: {engine: [details]}} for every site an engine lists."""
     found: dict = defaultdict(lambda: defaultdict(list))
-    found["mangak.io"]["mangak"].append("mangak.io")
     for code, hosts in catalog_sites.BUILTIN_SITES.items():
         for host in hosts:
             found[host.removeprefix("www.")]["native"].append(code)
@@ -135,7 +132,7 @@ def tranco_ranks(source: str) -> dict:
 def build(hosts: dict, ranks: dict, count: int) -> list:
     by_site: dict = defaultdict(lambda: {"hosts": set(), "engines": defaultdict(list)})
     for host, engines in hosts.items():
-        site = site_of(host)
+        site = "comix.to" if host == "comix.ws" else site_of(host)
         if ADULT.search(host) or NOT_CATALOGS.search(host) or site in PLATFORMS:
             continue
         entry = by_site[site]
@@ -158,7 +155,7 @@ def build(hosts: dict, ranks: dict, count: int) -> list:
         engines = entry["engines"]
         lnr = sorted(set(engines.get("lnreader", [])))
         lnc = [c for c in engines.get("lncrawl", []) if c["search"]]
-        hosts_sorted = sorted(entry["hosts"], key=lambda h: (h.count("."), len(h)))
+        hosts_sorted = sorted(entry["hosts"], key=lambda h: (h.count("."), len(h), h))
         out.append({
             "site": site,
             "rank": rank,
@@ -168,7 +165,7 @@ def build(hosts: dict, ranks: dict, count: int) -> list:
             "lnreader": lnr,
             "lncrawl": lnc[:1],
             "search": "lnreader" if lnr else ("lncrawl" if lnc else "web"),
-            "comic": bool(engines.get("mangak") or engines.get("haruneko"))
+            "comic": bool({"comix", "mangak"}.intersection(engines.get("native", [])) or engines.get("haruneko"))
                      and not (lnr or engines.get("lncrawl") or engines.get("webtoepub")),
             "searched": not count or place < count,
         })

@@ -463,7 +463,7 @@ class GenericCatalog(QObject):
         cache = paths.cache_dir() / "generic-search-sites.json"
         self.site_search = SiteSearch(self.fetch, cache_file=cache)
         self.site_search.render = self.browser.fetch
-        self.reader = LiveReader(self.fetch, render=self._render)
+        self.reader = LiveReader(self.fetch, render=self._render, native_enabled=self._builtin_scrapers_enabled)
         # NovelDB's own 1.1 million books, read from its search index a few pieces at a time.
         self.noveldb = NovelDBIndex(default_fetch, cache_dir=paths.cache_dir())
         self._learned_file = paths.cache_dir() / "generic-id-templates.json"
@@ -976,8 +976,7 @@ class GenericCatalog(QObject):
             from noveldb.core.engines.comix import knows as comix_reader
 
             # Let the site-specific browser engines handle the reader before the quick generic parser.
-            settings = self.engine_settings()
-            comix = comix_reader(url) and (settings is None or "comix" in settings.enabled())
+            comix = comix_reader(url) and self._builtin_scrapers_enabled()
             if self.downloader is not None and len(args) == 1 and (comix or _haruneko_site(url)):
                 try:
                     answer(self._downloader_read(url))
@@ -1065,6 +1064,12 @@ class GenericCatalog(QObject):
         if scraper is not None:
             scraper._stop_requested = True
             log.info("generic reader: stopping the downloader's chapter (the reader closed)")
+
+    def _builtin_scrapers_enabled(self) -> bool:
+        from noveldb.core.settings.model import ENGINE_NATIVE
+
+        settings = self.engine_settings()
+        return settings is None or ENGINE_NATIVE in settings.enabled()
 
     def _apply_engine_settings(self, scraper) -> None:
         settings = self.engine_settings()

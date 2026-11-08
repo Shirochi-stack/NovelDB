@@ -22,7 +22,7 @@ import com.shirochi.npia.sources.qdn.QdnAdapter
 import com.shirochi.npia.sources.rbooks.RbooksAdapter
 import com.shirochi.npia.sources.reader.CustomEngines
 import com.shirochi.npia.sources.reader.PythonEngines
-import com.shirochi.npia.sources.reader.PageScript
+import com.shirochi.npia.sources.reader.BuiltInComicAdapter
 import com.shirochi.npia.sources.reader.ReaderAdapter
 import com.shirochi.npia.sources.reader.SiteEngineChain
 import com.shirochi.npia.sources.sfc.SfcAdapter
@@ -49,6 +49,8 @@ object SourceCatalog {
         YedujiAdapter(),
         MaruAdapter(),
         KoboAdapter(),
+        BuiltInComicAdapter(SourceId.COMIX),
+        BuiltInComicAdapter(SourceId.MANGAK),
         ReaderAdapter(),
     )
 
@@ -79,7 +81,7 @@ object SourceCatalog {
                 engine == SiteEngine.CUSTOM && !CustomEngines.any() -> false  // none added
                 native == null && !engines.dynamicPriority -> isWebUrl(url)
                 native == null -> isWebUrl(url) && (engine == SiteEngine.GENERIC || lists(engine, url))
-                else -> lists(engine, url)
+                else -> (engine == SiteEngine.GENERIC && native is BuiltInComicAdapter) || lists(engine, url)
             }
         }
         if (steps.isEmpty()) return null
@@ -118,7 +120,6 @@ object SourceCatalog {
     /** The engine's current bundle lists the URL's site. */
     fun lists(engine: SiteEngine, url: String): Boolean {
         if (engine == SiteEngine.CUSTOM) return CustomEngines.listsSite(url)
-        if (engine == SiteEngine.COMIX) return PageScript.comixBookPages(url).isNotEmpty()
         if (engine in PythonEngines.bundled) return PythonEngines.listsBundled(engine, url)
         val rule = RuleEngine.of(engine) ?: return false
         return RuleEngines.store.current(rule)?.knows(url) == true
@@ -126,7 +127,6 @@ object SourceCatalog {
 
     /** The engine's current bundle lists the URL's page, not only its site (see `EngineBundle.listsPage`). */
     fun listsPage(engine: SiteEngine, url: String): Boolean {
-        if (engine == SiteEngine.COMIX || engine == SiteEngine.MANGAK) return lists(engine, url)
         val rule = RuleEngine.of(engine) ?: return false
         return RuleEngines.store.current(rule)?.listsPage(url) == true
     }

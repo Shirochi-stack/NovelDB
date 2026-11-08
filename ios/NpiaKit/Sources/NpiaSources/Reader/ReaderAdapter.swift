@@ -155,32 +155,49 @@ final class ReaderRules: @unchecked Sendable {
 actor ReaderSessions {
     static let shared = ReaderSessions()
 
-    private var sessions: [String: ReaderBookSession] = [:]
+    private struct Key: Hashable {
+        let source: SourceID
+        let url: URL
+    }
+
+    private var sessions: [Key: ReaderBookSession] = [:]
     private var recent: [ReaderBookSession] = []
-    private var opening: [String: Task<ReaderBookSession, Error>] = [:]
+    private var opening: [Key: Task<ReaderBookSession, Error>] = [:]
     private let limit = 2
 
     /// - Parameters:
     ///   - engines: the JavaScript engines to try in order; nil for the enabled ones in the user's order.
     ///   - page: the shared book page when the caller (the router) runs engines one by one.
     func open(_ url: URL, context: SourceContext, engines: [SiteEngine]? = nil, page: EnginePage? = nil) async throws -> ReaderBookSession {
-        let key = url.absoluteString
-        let task = Task { try await ReaderBookSession.open(url, context: context, engines: engines, page: page) }
+        try await openSession(Key(source: .reader, url: url)) {
+            try await ReaderBookSession.open(url, context: context, engines: engines, page: page)
+        }
+    }
+
+    func openBuiltIn(_ url: URL, context: SourceContext, source: SourceID) async throws -> ReaderBookSession {
+        try await openSession(Key(source: source, url: url)) {
+            try await ReaderBookSession.openBuiltIn(url, context: context, source: source)
+        }
+    }
+
+    private func openSession(_ key: Key, load: @escaping @Sendable () async throws -> ReaderBookSession) async throws -> ReaderBookSession {
+        let task = Task { try await load() }
         opening[key] = task
         defer { if opening[key] == task { opening[key] = nil } }
         let session = try await task.value
-        store(session, keys: [key, session.book.url.absoluteString])
+        store(session, keys: [key, Key(source: key.source, url: session.book.url)])
         return session
     }
 
     func session(for book: BookInfo, context: SourceContext) async throws -> ReaderBookSession {
-        let key = book.url.absoluteString
+        let key = Key(source: book.source, url: book.url)
         if let session = sessions[key] { return session }
         if let task = opening[key] { return try await task.value }
-        return try await open(book.url, context: context)
+        if book.source == .reader { return try await open(book.url, context: context) }
+        return try await openBuiltIn(book.url, context: context, source: book.source)
     }
 
-    private func store(_ session: ReaderBookSession, keys: [String]) {
+    private func store(_ session: ReaderBookSession, keys: [Key]) {
         for key in Set(keys) {
             if let old = sessions[key], old !== session { retire(old) }
             sessions[key] = session
@@ -205,7 +222,7 @@ final class ReaderBookSession: @unchecked Sendable {
         case webtoepub(WebToEpubSession)
         case page(PageScriptSession)
         /// lightnovel-crawler, FanFicFare or gallery-dl in the Python engines' page (`PythonEngines`).
-        case python(SiteEngine, SourceContext)
+        case python(PythonEngines.Module, SourceContext)
     }
 
     struct ChapterInfo {
@@ -238,9 +255,8 @@ final class ReaderBookSession: @unchecked Sendable {
                 case .webtoepub: return try await openWebToEpub(url, context: context, page: shared)
                 case .lnreader: return try await openPageScript(url, script: .lnreader, context: context, page: shared)
                 case .haruneko: return try await openPageScript(url, script: .haruneko, context: context, page: shared)
-                case .comix: return try await openComix(url, context: context)
                 case .generic: return try await openPageScript(url, script: .generic, context: context, page: shared)
-                case .lncrawl, .fanficfare, .gallerydl, .mangapeak, .tako, .mangak, .custom:
+                case .lncrawl, .fanficfare, .gallerydl, .mangapeak, .tako, .custom:
                     return try await openPython(url, engine: engine, context: context)
                 case .native: continue
                 }
@@ -293,11 +309,31 @@ final class ReaderBookSession: @unchecked Sendable {
 
     /// A Python engine: it fetches the book itself, so the book's own page is not needed.
     private static func openPython(_ url: URL, engine: SiteEngine, context: SourceContext) async throws -> ReaderBookSession {
-        let payload = try await PythonEngines.shared.openBook(engine, url: url, context: context)
-        guard !payload.chapters.isEmpty else {
-            throw SourceError.parse("The \(engine.title) found no chapters on \(url.absoluteString).")
+        guard let name = PythonEngines.name(engine) else { throw EngineNoMatch(message: "The Python engine is unavailable.") }
+        let module = PythonEngines.Module(name: name, title: engine.title)
+        let payload = try await PythonEngines.shared.openBook(engine, module: module, url: url, context: context)
+        return try pythonSession(payload, url: url, module: module, context: context, source: .reader)
+    }
+
+    static func openBuiltIn(_ url: URL, context: SourceContext, source: SourceID) async throws -> ReaderBookSession {
+        switch source {
+        case .comix:
+            return try await openComix(url, context: context)
+        case .mangak:
+            let module = PythonEngines.mangaK
+            let payload = try await PythonEngines.shared.openBook(module, url: url, context: context)
+            return try pythonSession(payload, url: url, module: module, context: context, source: source)
+        default:
+            throw SourceError.unsupportedURL(url)
         }
-        return try make(payload, requested: url, engine: .python(engine, context))
+    }
+
+    private static func pythonSession(_ payload: ReaderBookPayload, url: URL, module: PythonEngines.Module,
+                                      context: SourceContext, source: SourceID) throws -> ReaderBookSession {
+        guard !payload.chapters.isEmpty else {
+            throw SourceError.parse("\(module.title) found no chapters on \(url.absoluteString).")
+        }
+        return try make(payload, requested: url, engine: .python(module, context), source: source)
     }
 
     /// A page-script engine (the LNReader plugins, the generic fallback) in the book's page.
@@ -308,7 +344,7 @@ final class ReaderBookSession: @unchecked Sendable {
         for address in candidates {
             let page = EnginePage(url: address, context: context)
             do {
-                return try await openPageScript(url, script: .comix, context: context, page: page)
+                return try await openPageScript(url, script: .comix, context: context, page: page, source: .comix)
             } catch {
                 await page.finish()
                 if error is CancellationError { throw CancellationError() }
@@ -318,13 +354,14 @@ final class ReaderBookSession: @unchecked Sendable {
         throw failure
     }
 
-    private static func openPageScript(_ url: URL, script: PageScript, context: SourceContext, page shared: EnginePage) async throws -> ReaderBookSession {
+    private static func openPageScript(_ url: URL, script: PageScript, context: SourceContext, page shared: EnginePage,
+                                       source: SourceID = .reader) async throws -> ReaderBookSession {
         let (payload, session) = try await PageScriptSession.openBook(url, script: script, context: context, page: shared)
         guard !payload.chapters.isEmpty else {
             throw SourceError.parse("The \(script.title) found no chapters on \(url.absoluteString).")
         }
         await shared.handOff()
-        return try make(payload, requested: url, engine: .page(session))
+        return try make(payload, requested: url, engine: .page(session), source: source)
     }
 
     /// The WebToEpub parsers in the book's page.
@@ -345,7 +382,7 @@ final class ReaderBookSession: @unchecked Sendable {
         return sourceError(error)
     }
 
-    static func make(_ payload: ReaderBookPayload, requested: URL, engine: Engine) throws -> ReaderBookSession {
+    static func make(_ payload: ReaderBookPayload, requested: URL, engine: Engine, source: SourceID = .reader) throws -> ReaderBookSession {
         let pageURL = payload.pageUrl.flatMap { URL(string: $0) } ?? requested
         let bookURL = payload.bookUrl.flatMap { URL(string: $0, relativeTo: pageURL)?.absoluteURL } ?? requested
         var refs: [ChapterRef] = []
@@ -367,7 +404,7 @@ final class ReaderBookSession: @unchecked Sendable {
             infos[id] = ChapterInfo(url: raw, name: name, isVIP: chapter.isVIP ?? false, isPaid: chapter.isPaid)
         }
         let book = BookInfo(
-            source: .reader,
+            source: source,
             id: bookURL.absoluteString,
             url: bookURL,
             title: payload.bookname?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? bookURL.absoluteString,

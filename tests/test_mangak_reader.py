@@ -9,6 +9,7 @@ TITLE = "https://mangak.io/example-title"
 def test_mangak_reads_the_full_feed_and_only_the_requested_chapter_images():
     from external_scraper import ExternalScraper
     from noveldb.core.catalog.sites import downloadable_page
+    from noveldb.core.sources import detect_source
 
     def chapter(number):
         return {"url": f"/example-title/chapter-{number}", "slug": f"chapter-{number}",
@@ -35,8 +36,9 @@ def test_mangak_reads_the_full_feed_and_only_the_requested_chapter_images():
             raise AssertionError(url)
         return {"status": 200, "content": body.encode()}
 
-    assert ExternalScraper._engine_knows_site("mangak", TITLE)
-    assert downloadable_page(TITLE, ["mangak"])
+    assert detect_source(TITLE) == "mangak"
+    assert ExternalScraper._native_book_parser(ExternalScraper(), TITLE) is not None
+    assert downloadable_page(TITLE, ["native"])
     assert not MangaKEngine.knows("https://mangak.io/search")
     engine = MangaKEngine(fetch)
     book = engine.parse_book(TITLE + "/chapter-1")

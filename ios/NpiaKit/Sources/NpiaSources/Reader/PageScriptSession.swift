@@ -9,7 +9,7 @@ import NpiaCore
 /// An engine with a rule `engine` is a downloaded, updatable bundle that lists its sites; one without
 /// is a script shipped in `Reader/Resources` (`resource`) that tries any site: the generic fallback.
 struct PageScript: Sendable {
-    let siteEngine: SiteEngine
+    let title: String
     let engine: RuleEngine?
     let prefix: String
     /// The `window` function the bundle calls for requests (answered from Swift).
@@ -23,13 +23,11 @@ struct PageScript: Sendable {
     /// Runs in the page before the bundle: hooks the bundle's own names up to the transport.
     var setup: String = ""
 
-    var title: String { engine?.title ?? siteEngine.title }
-
     /// The API number a bundled script without a manifest reports.
     static let bundledAPI = 1
 
     static let lnreader = PageScript(
-        siteEngine: .lnreader, engine: .lnreader, prefix: "__LNR_", transport: "__LNR_transport",
+        title: RuleEngine.lnreader.title, engine: .lnreader, prefix: "__LNR_", transport: "__LNR_transport",
         parseBook: "await window.__LNR_parseBook(location.href)", parseChapter: "window.__LNR_parseChapter"
     )
 
@@ -37,7 +35,7 @@ struct PageScript: Sendable {
     /// `loadScript` as the transport) and `__noveldb_window_script` to run a script in a page of
     /// another address, which goes to the same transport tagged `op: "window"`.
     static let haruneko = PageScript(
-        siteEngine: .haruneko, engine: .haruneko, prefix: "__HN_", transport: "__noveldb_engine_transport",
+        title: RuleEngine.haruneko.title, engine: .haruneko, prefix: "__HN_", transport: "__noveldb_engine_transport",
         parseBook: "await window.__HN_parseBook(location.href)", parseChapter: "window.__HN_parseChapter",
         setup: """
         if (typeof window.__noveldb_window_script !== "function" && typeof window.__noveldb_engine_transport === "function") {
@@ -48,13 +46,13 @@ struct PageScript: Sendable {
 
     /// `scripts/generic/generic-lib.js`, a port of the desktop's generic engine.
     static let generic = PageScript(
-        siteEngine: .generic, engine: nil, prefix: "__GEN_", transport: "__GEN_transport",
+        title: SiteEngine.generic.title, engine: nil, prefix: "__GEN_", transport: "__GEN_transport",
         parseBook: "await window.__GEN_parseBook(location.href)", parseChapter: "window.__GEN_parseChapter",
         resource: ("generic", "generic-lib")
     )
 
     static let comix = PageScript(
-        siteEngine: .comix, engine: nil, prefix: "__COMIX_", transport: "__COMIX_transport",
+        title: "Comix reader", engine: nil, prefix: "__COMIX_", transport: "__COMIX_transport",
         parseBook: "await window.__COMIX_parseBook(requested)", parseChapter: "window.__COMIX_parseChapter",
         resource: ("comix", "comix-reader")
     )

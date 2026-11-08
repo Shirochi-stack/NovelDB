@@ -72,18 +72,26 @@ internal object PythonEngines {
         SiteEngine.GALLERYDL -> "gallerydl"
         SiteEngine.MANGAPEAK -> "mangapeak"
         SiteEngine.TAKO -> "tako"
-        SiteEngine.MANGAK -> "mangak"
         SiteEngine.CUSTOM -> "custom"
         else -> null
     }
 
-    fun isPython(engine: SiteEngine): Boolean = name(engine) != null
+    internal val bundled = setOf(SiteEngine.MANGAPEAK, SiteEngine.TAKO)
+    val mangaK = Module("mangak", "MangaK reader")
 
-    internal val bundled = setOf(SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK)
+    data class Module(val name: String, val label: String)
     private val mangaKPath = Regex("^/[a-z0-9][a-z0-9-]{0,220}(/chapter-[a-z0-9][a-z0-9.-]{0,220})?/?$")
     private val mangaKListings = setOf("about", "advanced-search", "api", "browse", "contact", "dmca", "genres", "home",
         "latest", "library", "login", "manga", "new", "popular", "privacy", "privacy-policy", "register", "search",
         "sitemap", "terms", "terms-of-service", "trending")
+
+    fun mangaKMatches(url: String): Boolean {
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+        val path = uri.rawPath.orEmpty()
+        return uri.scheme?.lowercase() in listOf("http", "https") &&
+            uri.rawAuthority?.lowercase()?.removePrefix("www.") == "mangak.io" &&
+            mangaKPath.matches(path) && path.trimStart('/').substringBefore('/') !in mangaKListings
+    }
 
     internal fun listsBundled(engine: SiteEngine, url: String): Boolean {
         val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
@@ -93,8 +101,6 @@ internal object PythonEngines {
         return when (engine) {
             SiteEngine.MANGAPEAK -> host == "\u0072\u006f\u006c\u0069\u0061\u0073\u0063\u0061\u006e.com" &&
                 (path.startsWith("/manga/") || path.startsWith("/read/"))
-            SiteEngine.MANGAK -> host == "mangak.io" && mangaKPath.matches(path) &&
-                path.trimStart('/').substringBefore('/') !in mangaKListings
             SiteEngine.TAKO -> when (host) {
                 "mangadex.org" -> path.startsWith("/title/") || path.startsWith("/chapter/")
                 "mangahere.cc", "mangahere.com", "newm.mangahere.cc" -> path.startsWith("/manga/")
@@ -108,8 +114,7 @@ internal object PythonEngines {
     val available: Boolean by lazy { PythonEngines::class.java.getResource(RESOURCES + "python-host.html") != null }
 
     /** The book at `url` read by `engine`; a site the engine doesn't list is refused before anything starts. */
-    suspend fun openBook(engine: SiteEngine, url: String, context: SourceContext): ReaderBookPayload {
-        val name = name(engine) ?: throw EngineMissException("${engine.label} are not a Python engine.")
+    suspend fun openBook(engine: SiteEngine, module: Module, url: String, context: SourceContext): ReaderBookPayload {
         val version = if (engine == SiteEngine.CUSTOM) {
             // The user's engines: each one decides in the page whether it reads the link.
             val added = CustomEngines.list()
@@ -125,26 +130,29 @@ internal object PythonEngines {
             if (!bundle.knows(url)) throw EngineMissException("The ${engine.label} have no source for this site.")
             bundle.label
         }
-        val payload = ReaderBookPayload.decode(call(context, "parseBook", name, url))
+        return openBook(module, url, context, version)
+    }
+
+    suspend fun openBook(module: Module, url: String, context: SourceContext, version: String = "built in"): ReaderBookPayload {
+        val payload = ReaderBookPayload.decode(call(context, "parseBook", module.name, url))
         payload.error?.let { error ->
-            if (payload.noParser == true) throw EngineMissException("${engine.label}: $error")
-            throw SourceException.Parse("${engine.label}: $error")
+            if (payload.noParser == true) throw EngineMissException("${module.label}: $error")
+            throw SourceException.Parse("${module.label}: $error")
         }
-        context.logger.log(LogLevel.INFO, "[Reader] ${engine.label} ($version), ${payload.chapters.size} chapters")
+        context.logger.log(LogLevel.INFO, "[Reader] ${module.label} ($version), ${payload.chapters.size} chapters")
         return payload
     }
 
     /** One chapter's text and image blocks. */
-    suspend fun chapter(engine: SiteEngine, info: ReaderBookSession.ChapterInfo, bookUrl: String, context: SourceContext): List<RuleBlock> {
-        val name = name(engine) ?: throw SourceException.Parse("${engine.label} are not a Python engine.")
+    suspend fun chapter(module: Module, info: ReaderBookSession.ChapterInfo, bookUrl: String, context: SourceContext): List<RuleBlock> {
         val item = buildJsonObject {
             put("url", info.url)
             put("name", info.name)
             put("bookUrl", bookUrl)
         }.toString()
-        val result = Json.parseToJsonElement(call(context, "parseChapter", name, item)) as? JsonObject
-            ?: throw SourceException.Parse("Unexpected chapter data from the ${engine.label}.")
-        result.string("error")?.let { throw SourceException.Parse("${engine.label}: $it") }
+        val result = Json.parseToJsonElement(call(context, "parseChapter", module.name, item)) as? JsonObject
+            ?: throw SourceException.Parse("Unexpected chapter data from the ${module.label}.")
+        result.string("error")?.let { throw SourceException.Parse("${module.label}: $it") }
         return WebChapterBlocks.blocks(result, info.url, bookUrl)
     }
 

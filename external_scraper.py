@@ -68,7 +68,6 @@ if getattr(sys, 'frozen', False):
 from noveldb.core.engines import custom_engines
 from noveldb.core.engines.scraper_mixin import PAGE_SCRIPTS, PYTHON_ENGINES, SiteEnginesMixin, generic_first
 from noveldb.core.settings.model import (
-    ENGINE_COMIX,
     ENGINE_GENERIC,
     ENGINE_LABELS,
     ENGINE_NATIVE,
@@ -21460,13 +21459,14 @@ async (items) => {
         native = self._native_book_parser(url)
         if ENGINE_NATIVE not in order:
             native = None
+        native_comic = native is not None and (self.is_comix(url) or self.is_mangak(url))
         # A built-in scraper owns this site: the rule engines only follow it
         # when they list the site, so a clear failure (DRM, sign-in) is not
         # followed by two browser attempts that cannot work.
         order = [
             e for e in order
             if (native is not None if e == ENGINE_NATIVE
-                else native is None or self._engine_knows_site(e, url))
+                else native is None or (native_comic and e == ENGINE_GENERIC) or self._engine_knows_site(e, url))
         ]
         if native is None and self.dynamic_priority:
             # Dynamic priority: skip the engines that don't list this site; the generic fallback stays.
@@ -21493,23 +21493,10 @@ async (items) => {
                 if message:
                     self.log(message)
                 data = parse(url)
+                if native_comic:
+                    page = None
             elif engine in PYTHON_ENGINES or custom_engines.is_custom(engine):
                 data = self._python_parse_book(engine, url)
-            elif engine == ENGINE_COMIX:
-                from noveldb.core.engines.comix import book_pages
-
-                addresses = book_pages(url)
-                if not addresses:
-                    continue
-                data = None
-                for address in addresses:
-                    if self._stop_requested:
-                        return None
-                    if self._open_book_page(address):
-                        data = self._script_parse_book(engine, url)
-                        if data and data.get("chapters"):
-                            break
-                page = None  # A following engine may need the original address.
             else:
                 if page is None:
                     try:
@@ -21555,7 +21542,7 @@ async (items) => {
         """
         from noveldb.core import engine_updates
         from noveldb.core.engines import fanficfare_engine, site_index
-        from noveldb.core.settings.model import ENGINE_MANGAK, ENGINE_MANGAPEAK, ENGINE_TAKO
+        from noveldb.core.settings.model import ENGINE_MANGAPEAK, ENGINE_TAKO
 
         if engine == ENGINE_GENERIC:
             return False
@@ -21565,12 +21552,6 @@ async (items) => {
         if engine == ENGINE_TAKO:
             from noveldb.core.engines import tako
             return tako.knows(url)
-        if engine == ENGINE_MANGAK:
-            from noveldb.core.engines import mangak
-            return mangak.knows(url)
-        if engine == ENGINE_COMIX:
-            from noveldb.core.engines import comix
-            return comix.knows(url)
         if custom_engines.is_custom(engine):
             return custom_engines.knows_site(engine, url)  # the sites its file names
         try:
@@ -21632,8 +21613,44 @@ async (items) => {
             self.log(f"Using novel-downloader rules {bundle.label}.")
         return True
 
+    @staticmethod
+    def is_comix(url):
+        from noveldb.core.engines.comix import knows
+
+        return knows(url)
+
+    @staticmethod
+    def is_mangak(url):
+        from noveldb.core.engines.mangak import knows
+
+        return knows(url)
+
+    def _comix_parse_book(self, url):
+        from noveldb.core.engines.comix import book_pages
+
+        for address in book_pages(url):
+            if self._stop_requested:
+                break
+            try:
+                opened = self._open_book_page(address)
+            except BrowserUnavailableError as error:
+                self.log(f"Comix: {error}")
+                break
+            if opened:
+                data = self._script_parse_book("comix", url)
+                if data and data.get("chapters"):
+                    return data
+        return None
+
+    def _mangak_parse_book(self, url):
+        return self._python_parse_book("mangak", url)
+
     def _native_book_parser(self, url):
         """(log line, parse function) of the built-in scraper for ``url``, or None."""
+        if self.is_comix(url):
+            return ("[Comix] Using the built-in scraper.", self._comix_parse_book)
+        if self.is_mangak(url):
+            return ("[MangaK] Using the built-in scraper.", self._mangak_parse_book)
         if self.is_sfc(url):
             return (
                 '[SFC] Detected novel URL, using the native app API scraper.',

@@ -155,11 +155,13 @@ internal object ReaderRules {
  * or web view page for its chapters.
  */
 internal object ReaderSessions {
+    private data class Key(val source: SourceId, val url: String)
+
     private const val LIMIT = 2
     private val mutex = Mutex()
-    private val sessions = HashMap<String, ReaderBookSession>()
+    private val sessions = HashMap<Key, ReaderBookSession>()
     private val recent = ArrayList<ReaderBookSession>()
-    private val opening = HashMap<String, CompletableDeferred<ReaderBookSession>>()
+    private val opening = HashMap<Key, CompletableDeferred<ReaderBookSession>>()
 
     /** The engine that read each book, so a session that was retired can be reopened the same way. */
     private val engines = HashMap<String, SiteEngine>()
@@ -170,15 +172,26 @@ internal object ReaderSessions {
         context: SourceContext,
         engine: SiteEngine = SiteEngine.NOVEL_DOWNLOADER,
         page: SharedBookPage? = null,
+    ): ReaderBookSession = openSession(Key(SourceId.READER, url), engine) {
+        ReaderBookSession.open(url, context, engine, page)
+    }
+
+    suspend fun openBuiltIn(url: String, context: SourceContext, source: SourceId): ReaderBookSession =
+        openSession(Key(source, url)) { ReaderBookSession.openBuiltIn(url, context, source) }
+
+    private suspend fun openSession(
+        key: Key, engine: SiteEngine? = null, load: suspend () -> ReaderBookSession,
     ): ReaderBookSession {
         val pending = CompletableDeferred<ReaderBookSession>()
-        mutex.withLock { opening[url] = pending }
+        mutex.withLock { opening[key] = pending }
         try {
-            val session = ReaderBookSession.open(url, context, engine, page)
+            val session = load()
             mutex.withLock {
-                engines[url] = engine
-                engines[session.book.url] = engine
-                store(session, setOf(url, session.book.url))
+                if (engine != null) {
+                    engines[key.url] = engine
+                    engines[session.book.url] = engine
+                }
+                store(session, setOf(key, Key(key.source, session.book.url)))
             }
             pending.complete(session)
             return session
@@ -186,20 +199,22 @@ internal object ReaderSessions {
             pending.completeExceptionally(e)
             throw e
         } finally {
-            mutex.withLock { if (opening[url] === pending) opening.remove(url) }
+            mutex.withLock { if (opening[key] === pending) opening.remove(key) }
         }
     }
 
     suspend fun session(book: BookInfo, context: SourceContext): ReaderBookSession {
+        val key = Key(book.source, book.url)
         val (waiting, engine) = mutex.withLock {
-            sessions[book.url]?.let { return it }
-            opening[book.url] to (engines[book.url] ?: SiteEngine.NOVEL_DOWNLOADER)
+            sessions[key]?.let { return it }
+            opening[key] to (engines[book.url] ?: SiteEngine.NOVEL_DOWNLOADER)
         }
-        return waiting?.await() ?: open(book.url, context, engine)
+        return waiting?.await() ?: if (book.source == SourceId.READER) open(book.url, context, engine)
+            else openBuiltIn(book.url, context, book.source)
     }
 
     /** Lock held. */
-    private fun store(session: ReaderBookSession, keys: Set<String>) {
+    private fun store(session: ReaderBookSession, keys: Set<Key>) {
         for (key in keys) {
             sessions[key]?.takeIf { it !== session }?.let(::retire)
             sessions[key] = session
@@ -229,7 +244,7 @@ internal class ReaderBookSession(
         class WebToEpub(val web: WebToEpubEngine) : Engine()
         class Page(val web: PageBundleEngine) : Engine()
         /** lightnovel-crawler, FanFicFare or gallery-dl in the Python engines' page (`PythonEngines`). */
-        class Python(val engine: SiteEngine, val context: SourceContext) : Engine()
+        class Python(val module: PythonEngines.Module, val context: SourceContext) : Engine()
     }
 
     data class ChapterInfo(val url: String, val name: String, val isVIP: Boolean, val isPaid: Boolean?)
@@ -245,7 +260,7 @@ internal class ReaderBookSession(
                 is Engine.Web -> engine.web.chapter(info)
                 is Engine.WebToEpub -> engine.web.chapter(info)
                 is Engine.Page -> engine.web.chapter(info)
-                is Engine.Python -> PythonEngines.chapter(engine.engine, info, book.url, engine.context)
+                is Engine.Python -> PythonEngines.chapter(engine.module, info, book.url, engine.context)
             }
         } catch (e: CancellationException) {
             throw e
@@ -282,23 +297,39 @@ internal class ReaderBookSession(
             shared: SharedBookPage? = null,
         ): ReaderBookSession {
             require(engine.runsScripts) { "${engine.raw} is not a script engine" }
-            if (engine == SiteEngine.COMIX) return openComix(url, context)
-            if (PythonEngines.isPython(engine)) {
+            PythonEngines.name(engine)?.let { name ->
                 // The Python engines fetch the book themselves: the book's own page is not needed.
-                val payload = PythonEngines.openBook(engine, url, context)
-                if (payload.chapters.isEmpty()) throw SourceException.Parse("The ${engine.label} found no chapters on $url.")
-                return make(payload, url, Engine.Python(engine, context))
+                val module = PythonEngines.Module(name, engine.label)
+                val payload = PythonEngines.openBook(engine, module, url, context)
+                return pythonSession(payload, url, module, context, SourceId.READER)
             }
             val page = shared ?: SharedBookPage(url, context)
             try {
                 return when (engine) {
                     SiteEngine.WEBTOEPUB -> openWebToEpub(url, context, page)
                     SiteEngine.NOVEL_DOWNLOADER -> openNovelDownloader(url, context, page)
-                    else -> openPageScript(url, context, page, engine)
+                    else -> openPageScript(url, context, page, PageScript.of(engine)
+                        ?: throw EngineMissException("${engine.label} are not in this build."))
                 }
             } finally {
                 if (shared == null) page.release()
             }
+        }
+
+        suspend fun openBuiltIn(url: String, context: SourceContext, source: SourceId): ReaderBookSession = when (source) {
+            SourceId.COMIX -> openComix(url, context)
+            SourceId.MANGAK -> {
+                val module = PythonEngines.mangaK
+                pythonSession(PythonEngines.openBook(module, url, context), url, module, context, source)
+            }
+            else -> throw SourceException.UnsupportedUrl(url)
+        }
+
+        private fun pythonSession(
+            payload: ReaderBookPayload, url: String, module: PythonEngines.Module, context: SourceContext, source: SourceId,
+        ): ReaderBookSession {
+            if (payload.chapters.isEmpty()) throw SourceException.Parse("${module.label} found no chapters on $url.")
+            return make(payload, url, Engine.Python(module, context), source)
         }
 
         private suspend fun openComix(url: String, context: SourceContext): ReaderBookSession {
@@ -308,7 +339,7 @@ internal class ReaderBookSession(
             for (address in candidates) {
                 val page = SharedBookPage(address, context)
                 try {
-                    return openPageScript(url, context, page, SiteEngine.COMIX)
+                    return openPageScript(url, context, page, PageScript.COMIX, SourceId.COMIX)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -367,15 +398,16 @@ internal class ReaderBookSession(
         }
 
         /** A page-script engine (the LNReader plugins, the generic fallback): its bundle in the book's web view page. */
-        private suspend fun openPageScript(url: String, context: SourceContext, shared: SharedBookPage, engine: SiteEngine): ReaderBookSession {
-            val script = PageScript.of(engine) ?: throw EngineMissException("${engine.label} are not in this build.")
+        private suspend fun openPageScript(
+            url: String, context: SourceContext, shared: SharedBookPage, script: PageScript, source: SourceId = SourceId.READER,
+        ): ReaderBookSession {
             val (payload, web) = PageBundleEngine.openBook(shared.page(), url, script, context)
             if (payload.chapters.isEmpty()) throw SourceException.Parse("The ${script.title} found no chapters on $url.")
             shared.adopt()
-            return make(payload, url, Engine.Page(web))
+            return make(payload, url, Engine.Page(web), source)
         }
 
-        fun make(payload: ReaderBookPayload, requested: String, engine: Engine): ReaderBookSession {
+        fun make(payload: ReaderBookPayload, requested: String, engine: Engine, source: SourceId = SourceId.READER): ReaderBookSession {
             val pageUrl = payload.pageUrl?.takeIf { it.isNotEmpty() } ?: requested
             val bookUrl = payload.bookUrl?.takeIf { it.isNotEmpty() }?.let { resolveUrl(pageUrl, it) } ?: requested
             val refs = ArrayList<ChapterRef>()
@@ -397,7 +429,7 @@ internal class ReaderBookSession(
                 infos[id] = ChapterInfo(raw, name, chapter.isVIP ?: false, chapter.isPaid)
             }
             val book = BookInfo(
-                source = SourceId.READER,
+                source = source,
                 id = bookUrl,
                 url = bookUrl,
                 title = payload.bookname?.trim()?.ifEmpty { null } ?: bookUrl,

@@ -13,13 +13,15 @@ CHAPTER = TITLE + "/9-chapter-1"
 def test_comix_routes_and_mirror_preserve_the_title_and_query():
     from external_scraper import ExternalScraper
     from noveldb.core.catalog.sites import downloadable_page
+    from noveldb.core.sources import detect_source
 
     assert comix.book_pages(CHAPTER + "?group_id=7#page") == (
         TITLE + "?group_id=7", MIRROR + "?group_id=7",
     )
     assert comix.book_pages(MIRROR) == (MIRROR, TITLE)
-    assert ExternalScraper._engine_knows_site("comix", CHAPTER)
-    assert downloadable_page(CHAPTER, ["comix"])
+    assert detect_source(CHAPTER) == "comix"
+    assert ExternalScraper._native_book_parser(ExternalScraper(), CHAPTER) is not None
+    assert downloadable_page(CHAPTER, ["native"])
     assert not downloadable_page(CHAPTER, ["generic"])
     assert not comix.knows("https://comix.to.example/title/example")
     assert not comix.knows("https://comix.to/browse")
@@ -29,7 +31,7 @@ def test_desktop_engine_tries_mirror_when_the_connection_closes(monkeypatch):
     from external_scraper import ExternalScraper
 
     scraper = ExternalScraper(logger=None)
-    scraper.engine_order = ["comix", "generic"]
+    scraper.engine_order = ["native", "generic"]
     visits = []
     monkeypatch.setattr(scraper, "_open_book_page", lambda url: visits.append(url) or url == MIRROR)
     monkeypatch.setattr(scraper, "_script_parse_book", lambda engine, url: {"chapters": [url], "engine": engine})

@@ -137,11 +137,11 @@ def test_android_catalog_finds_comix_and_uses_its_engine_for_chapter_one():
                         return {value: [{url: 'https://comix.to/title/n0225-example', title: "Move Aside, I'll Be the Magical Girl!",
                                         alternateTitles: [], cover: ''}]};
                     }
-                    if (request.op === 'book' && request.engines && url.hostname === 'comix.to') {
+                    if (request.op === 'book' && !request.engines && url.hostname === 'comix.to') {
                         return {bookname: "Move Aside, I'll Be the Magical Girl!", engine: 'Comix reader',
                                 chapters: [{name: 'Ch. 1', url: url.href + '/123-chapter-1'}]};
                     }
-                    if (request.op === 'chapter' && request.engines && url.hostname === 'comix.to') {
+                    if (request.op === 'chapter' && !request.engines && url.hostname === 'comix.to') {
                         return {chapterName: 'Ch. 1', contentHtml: '<p><img src="https://cdn.test/p1.webp"/></p>', comic: true};
                     }
                     if (request.op === 'book') return {skip: true};
@@ -159,7 +159,7 @@ def test_android_catalog_finds_comix_and_uses_its_engine_for_chapter_one():
             page.evaluate("() => { window.__GEN_parseChapter = () => { throw new Error('the generic parser was called first'); }; }")
             page.locator("#grid .card").first.click()
             page.locator("[data-act=read]").click()
-            page.wait_for_function("requests.some(r => r.op === 'chapter' && r.engines && r.index === 0)")
+            page.wait_for_function("requests.some(r => r.op === 'chapter' && !r.engines && r.index === 0)")
 
 
 @pytest.mark.parametrize("platform,query", zip(("android", "ios"), QUERIES))

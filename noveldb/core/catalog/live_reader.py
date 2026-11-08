@@ -19,10 +19,11 @@ KEEP_BOOKS = 6
 
 class LiveReader:
     def __init__(self, fetch: Callable, render: Optional[Callable] = None,
-                 log: Callable[[str], None] = lambda _m: None):
+                 log: Callable[[str], None] = lambda _m: None, *, native_enabled=lambda: True):
         self.fetch = fetch
         self.render = render
         self.log = log
+        self.native_enabled = native_enabled
         self._books: "OrderedDict[str, tuple]" = OrderedDict()
         self._engines: dict = {}
         self._lock = threading.Lock()
@@ -68,7 +69,7 @@ class LiveReader:
         except Exception:
             pass
         from noveldb.core.engines import mangak, mangapeak, tako
-        if mangak.knows(url):
+        if mangak.knows(url) and self.native_enabled():
             names.append("mangak")
         if mangapeak.knows(url):
             names.append("mangapeak")

@@ -2501,6 +2501,9 @@
         engines.push('generic');
         return engines;
     }
+    function builtInComic(url) {
+        return ['comix.to', 'comix.ws', 'mangak.io'].includes(host(url));
+    }
     function parseJson(text) {
         var value = typeof text === 'string' ? JSON.parse(text) : text;
         if (!value || value.error) throw new Error((value && value.error) || 'no answer');
@@ -2702,7 +2705,7 @@
             }).catch(function (error) {
                 if (name) errors.push(name + ': ' + ((error && error.message) || error));
                 // A site the app's scraper owns but could not open (a sign-in, a lock): its message stands.
-                if (name === 'app' || published) return Promise.reject(error);
+                if ((name === 'app' && !builtInComic(url)) || published) return Promise.reject(error);
                 return next();
             });
         }
@@ -2725,8 +2728,8 @@
                 try { item.url = new URL(item.url, url).href; } catch (error) { item.url = ''; }
             }
             var haruneko = known.engine === 'haruneko';
-            var alternate = item.url && (haruneko || known.engine === 'engines');
-            var siteReader = known.engine === 'engines' && ['comix.to', 'comix.ws', 'mangak.io'].includes(host(item.url));
+            var siteReader = known.engine === 'app' && builtInComic(item.url);
+            var alternate = item.url && (haruneko || known.engine === 'engines' || siteReader);
             var result;
             if (alternate && !retryImages && !siteReader) {
                 var listed = JSON.parse(await window.__GEN_parseChapter(item, true));
@@ -2794,7 +2797,7 @@
             call('fetched', id, value);
         }, function (error) {
             var message = String((error && error.message) || error).slice(0, 300);
-            var siteReader = ['comix.to', 'comix.ws', 'mangak.io'].includes(host(url));
+            var siteReader = builtInComic(url);
             var blocked = !siteReader || /human verification|http 403|sign in|locked/i.test(message);
             call('fetched', id, {error: message, blocked: blocked, message: siteReader ? message : BLOCKED});
         }).then(function () { if (reading.id === id) reading.id = null; });

@@ -20,8 +20,6 @@ enum class SiteEngine(val raw: String, val label: String) {
     FANFICFARE("fanficfare", "FanFicFare adapters"),
     MANGAPEAK("mangapeak", "Article Image Queue readers"),
     TAKO("tako", "Tako readers"),
-    MANGAK("mangak", "MangaK reader"),
-    COMIX("comix", "Comix reader"),
     HARUNEKO("haruneko", "HaruNeko websites"),
     GALLERYDL("gallerydl", "gallery-dl extractors"),
     CUSTOM("custom", "Custom engines"),
@@ -43,7 +41,7 @@ enum class SiteEngine(val raw: String, val label: String) {
             val off = disabled?.toSet().orEmpty()
             val given = (order ?: emptyList()).mapNotNull(::fromRaw)
             val all = (given + entries).distinct().toMutableList()
-            for (engine in listOf(MANGAPEAK, TAKO, MANGAK, COMIX)) {
+            for (engine in listOf(MANGAPEAK, TAKO)) {
                 if (engine !in given) {
                     all.remove(engine)
                     all.add(all.indexOf(HARUNEKO), engine)
@@ -94,7 +92,7 @@ data class EngineSettings(
         SiteEngine.LNCRAWL -> lncrawlAutoUpdate
         SiteEngine.FANFICFARE -> fanficfareAutoUpdate
         SiteEngine.GALLERYDL -> gallerydlAutoUpdate
-        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK, SiteEngine.COMIX, SiteEngine.GENERIC -> false
+        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.GENERIC -> false
     }
 
     fun withAutoUpdate(engine: SiteEngine, on: Boolean): EngineSettings = when (engine) {
@@ -105,7 +103,7 @@ data class EngineSettings(
         SiteEngine.LNCRAWL -> copy(lncrawlAutoUpdate = on)
         SiteEngine.FANFICFARE -> copy(fanficfareAutoUpdate = on)
         SiteEngine.GALLERYDL -> copy(gallerydlAutoUpdate = on)
-        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK, SiteEngine.COMIX, SiteEngine.GENERIC -> this
+        SiteEngine.NATIVE, SiteEngine.CUSTOM, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.GENERIC -> this
     }
 
     /** Switches `engine` on or off. The last engine that is on cannot be switched off. */

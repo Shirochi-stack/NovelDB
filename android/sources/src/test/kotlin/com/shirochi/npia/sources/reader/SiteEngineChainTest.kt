@@ -397,33 +397,38 @@ class SiteEngineChainTest {
     fun withTheBuiltInScrapersOffEveryScriptEngineIsTried() {
         val noNative = EngineSettings(disabled = listOf("native"), dynamicPriority = false)
         // Even a site no engine lists is tried: there is no scraper to fall back to.
-        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK, SiteEngine.COMIX, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(builtInOnly, noNative))
+        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(builtInOnly, noNative))
         assertEquals(SourceId.READER, SourceCatalog.resolve(both, noNative)!!.id)
     }
 
     @Test
     fun aSiteWithNoBuiltInScraperTriesEveryEnabledScriptEngine() {
         val novelfull = "https://novelfull.com/the-legendary-mechanic.html"
-        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK, SiteEngine.COMIX, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull))
+        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull))
         val order = EngineSettings(order = listOf("webtoepub", "native", "novel_downloader"), dynamicPriority = false)
-        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK, SiteEngine.COMIX, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull, order))
+        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull, order))
         // Sites no bundle lists are still tried: WebToEpub also recognises some pages, and the generic fallback tries any.
-        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK, SiteEngine.COMIX, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps("https://unlisted.example/book/1"))
-        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.MANGAK, SiteEngine.COMIX, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull, EngineSettings(disabled = listOf("native", "novel_downloader"), dynamicPriority = false)))
+        assertEquals(listOf(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps("https://unlisted.example/book/1"))
+        assertEquals(listOf(SiteEngine.WEBTOEPUB, SiteEngine.LNCRAWL, SiteEngine.LNREADER, SiteEngine.FANFICFARE, SiteEngine.MANGAPEAK, SiteEngine.TAKO, SiteEngine.HARUNEKO, SiteEngine.GALLERYDL, SiteEngine.GENERIC), steps(novelfull, EngineSettings(disabled = listOf("native", "novel_downloader"), dynamicPriority = false)))
     }
 
     @Test
     fun dynamicPriorityListsTheBundledComicEnginesForTheirSites() {
-        val settings = EngineSettings(order = listOf("haruneko", "generic"))
+        val settings = EngineSettings(order = listOf("native", "haruneko", "generic"))
         val rolia = "https://\u0072\u006f\u006c\u0069\u0061\u0073\u0063\u0061\u006e.com/manga/example/"
         assertEquals(SiteEngine.MANGAPEAK, steps(rolia, settings)?.firstOrNull())
         assertEquals(listOf(SiteEngine.GENERIC), steps("https://unlisted.example/book/1", settings))
         val dex = "https://mangadex.org/title/19033d6c-ff8b-4c91-9642-8d1f30f7e399"
         assertEquals(SiteEngine.TAKO, steps(dex, settings)?.firstOrNull())
         val comix = "https://comix.to/title/example-example/123-chapter-1"
-        assertEquals(SiteEngine.COMIX, steps(comix, settings)?.firstOrNull())
         assertEquals(listOf("https://comix.to/title/example-example", "https://comix.ws/title/example-example"), PageScript.comixBookPages(comix))
-        assertTrue(SourceCatalog.downloadablePage(comix, settings))
+        val mangak = "https://mangak.io/example-title"
+        val withoutBuiltIn = settings.copy(disabled = listOf("native"))
+        for (url in listOf(comix, mangak)) {
+            assertEquals(SiteEngine.NATIVE, steps(url, settings)?.firstOrNull())
+            assertFalse(SiteEngine.NATIVE in steps(url, withoutBuiltIn).orEmpty())
+            assertTrue(SourceCatalog.downloadablePage(url, settings))
+        }
     }
 
     @Test
@@ -439,7 +444,7 @@ class SiteEngineChainTest {
     @Test
     fun nothingIsResolvedWhenNoEngineCanTryTheUrl() {
         assertNull(SourceCatalog.resolve("ftp://site.test/book"))
-        assertNull(SourceCatalog.resolve("https://unlisted.example/book", EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "mangak", "comix", "haruneko", "gallerydl", "generic"))))
+        assertNull(SourceCatalog.resolve("https://unlisted.example/book", EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "haruneko", "gallerydl", "generic"))))
         assertNotNull(SourceCatalog.resolve(both, EngineSettings(disabled = listOf("novel_downloader", "webtoepub"))))
     }
 
@@ -453,7 +458,7 @@ class SiteEngineChainTest {
 
     @Test
     fun theReaderAdapterNeedsAScriptEngine() = runTest {
-        val noScripts = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "mangak", "comix", "haruneko", "gallerydl", "generic")))
+        val noScripts = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub", "lncrawl", "lnreader", "fanficfare", "mangapeak", "tako", "haruneko", "gallerydl", "generic")))
         val withNone = SourceContext(NoHttp, CountingWeb(), InMemorySecretStore(), noScripts)
         // Every script engine off is allowed while the built-in scrapers stay on, but the reader has nothing to run.
         try {

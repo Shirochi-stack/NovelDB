@@ -20,8 +20,7 @@ from urllib.parse import urlsplit
 
 from noveldb.core import engine_updates
 from noveldb.core.catalog.urls import is_noveldb_site
-from noveldb.core.engines import comix, mangak
-from noveldb.core.settings.model import ENGINE_COMIX, ENGINE_MANGAK, ENGINE_NATIVE, SITE_ENGINES
+from noveldb.core.settings.model import ENGINE_NATIVE, SITE_ENGINES
 
 KIND_NOVELDB = "noveldb"
 KIND_SUPPORTED = "supported"
@@ -31,6 +30,8 @@ KIND_OTHER = "other"
 # codename. A host also covers its subdomains. Hosts of the scrapers' own predicates in
 # `external_scraper.py`; `sources.detect_source` decides whether a page of them is one the scraper takes.
 BUILTIN_SITES = {
+    "comix": ("comix.to", "comix.ws"),
+    "mangak": ("mangak.io",),
     "npia": ("\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com",),
     "global_npia": ("global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com",),
     "kpage": ("page.\u006b\u0061\u006b\u0061\u006f.com",),
@@ -100,8 +101,6 @@ def supported_site(url: str, enabled: Iterable[str] = SITE_ENGINES) -> bool:
     if _builtin_site(found[0]):
         return True
     enabled = tuple(enabled)
-    if (ENGINE_COMIX in enabled and comix.knows(url)) or (ENGINE_MANGAK in enabled and mangak.knows(url)):
-        return True
     return any(bundle.knows(url) for bundle in _bundles(enabled))
 
 
@@ -116,8 +115,6 @@ def downloadable_page(url: str, enabled: Iterable[str] = SITE_ENGINES) -> bool:
     if _web_url(url) is None:
         return False
     enabled = tuple(enabled)
-    if (ENGINE_COMIX in enabled and comix.knows(url)) or (ENGINE_MANGAK in enabled and mangak.knows(url)):
-        return True
     if ENGINE_NATIVE in enabled:
         from noveldb.core.sources import detect_source
 
