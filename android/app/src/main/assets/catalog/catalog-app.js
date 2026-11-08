@@ -1115,8 +1115,9 @@
 
     // -- the web search ----------------------------------------------------------------------------
 
-    function webSearch(text, token) {
+    function webSearch(text, token, onHits) {
         var ddg = fetchUrl('https://html.duckduckgo.com/html/', {method: 'POST', stop: token, data: 'q=' + encodeURIComponent(text),
+                                                               quick: true,
                                                                headers: {'Content-Type': 'application/x-www-form-urlencoded'}})
             .then(function (result) {
                 if (!result || result.status !== 200) return [];
@@ -1133,7 +1134,7 @@
                 }
                 return out;
             });
-        var bing = fetchUrl('https://www.bing.com/search?format=rss&count=50&q=' + encodeURIComponent(text), {stop: token})
+        var bing = fetchUrl('https://www.bing.com/search?format=rss&count=50&q=' + encodeURIComponent(text), {stop: token, quick: true})
             .then(function (result) {
                 if (!result || result.status !== 200) return [];
                 var out = [], item, pattern = /<item>([\s\S]*?)<\/item>/g, xml = result.text();
@@ -1145,20 +1146,23 @@
                 }
                 return out;
             });
-        return Promise.all([ddg.catch(function () { return []; }), bing.catch(function () { return []; })])
-            .then(function (both) { return both[0].concat(both[1]); });
+        return Promise.all([ddg, bing].map(function (request) {
+            return request.catch(function () { return []; }).then(onHits);
+        }));
     }
 
     /** How much of `query` is in `title` (0 to 1), word by word: apostrophes dropped ("I'll" is "ill"), a word
      *  matching one that starts like it ("magic", "magical"), the small words not counting. For the web search's
      *  loose pass: a title remembered a little wrong. (generic_search.similar_title, the desktop's.) */
-    var TITLE_FILLER = {a: 1, an: 1, the: 1, of: 1, to: 1, 'in': 1, on: 1, and: 1, is: 1, be: 1, i: 1, my: 1,
-                        novel: 1, manga: 1, manhwa: 1, webtoon: 1};
+    var TITLE_FILLER = new Set('a an the of to in on and is be i my ill im novel manga manhwa manhua webtoon'.split(' '));
     function titleWords(text) {
-        return String(text || '').toLowerCase().replace(/['’`]/g, '').split(/[^\p{L}\p{N}_]+/u).filter(Boolean);
+        var words = String(text || '').normalize('NFKC').toLowerCase().replace(/['’`]/g, '').match(/[\p{L}\p{N}]+/gu) || [];
+        return Array.from(new Set(words.filter(function (word) { return !TITLE_FILLER.has(word); })));
     }
     function similarTitle(query, title) {
-        var wanted = titleWords(query).filter(function (word) { return !TITLE_FILLER[word]; }), have = titleWords(title);
+        var key = exactTitle(query);
+        if (key && key === exactTitle(title)) return 1;
+        var wanted = titleWords(query), have = titleWords(title);
         if (!wanted.length || !have.length) return 0;
         var found = wanted.filter(function (word) {
             return have.some(function (other) {
@@ -1166,6 +1170,77 @@
             });
         });
         return found.length / wanted.length;
+    }
+    function titleQueries(text) {
+        text = text.trim().slice(0, 240);
+        var words = titleWords(text);
+        var compact = (words.length > 4 ? words.slice(0, 2).concat(words.slice(-2)) : words).join(' ');
+        return Array.from(new Set([text, compact].filter(Boolean)));
+    }
+    var DIRECT_TITLE_SITES = ['mangak.io', 'mangadex.org'];
+    function localized(values) {
+        if (!values || typeof values !== 'object') return '';
+        return values.en || Object.values(values).find(function (value) { return typeof value === 'string'; }) || '';
+    }
+    function mangakTitles(result) {
+        var data = G().parse(result.text()).querySelector('script#__NEXT_DATA__');
+        var rows = data ? JSON.parse(data.textContent).props.pageProps.ssrItems : [];
+        return (rows || []).slice(0, 40).filter(function (row) {
+            return row && typeof row.slug === 'string' && /^[a-z0-9][a-z0-9-]{0,220}$/.test(row.slug);
+        }).map(function (row) {
+            var stats = row.stats || {};
+            return {url: 'https://mangak.io/' + row.slug, title: row.name, description: row.summary,
+                    alternateTitles: (row.altNames || []).map(function (alias) { return alias && alias.name; }),
+                    cover: G().cleanUrl(row.cover || '', 'https://mangak.io/'), status: row.status,
+                    chapters: stats.chaptersCount, views: stats.views, likes: stats.bookmarksCount};
+        });
+    }
+    function mangadexTitles(result) {
+        var data = JSON.parse(result.text());
+        if (data.result !== 'ok') return [];
+        return (data.data || []).slice(0, 40).filter(function (row) {
+            return row && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(row.id || '');
+        }).map(function (row) {
+            var attrs = row.attributes || {}, links = {};
+            (row.relationships || []).forEach(function (item) { if (item) links[item.type] = item.attributes || {}; });
+            var cover = (links.cover_art || {}).fileName;
+            return {url: 'https://mangadex.org/title/' + row.id, title: localized(attrs.title),
+                    description: localized(attrs.description), status: attrs.status, author: (links.author || {}).name,
+                    alternateTitles: (attrs.altTitles || []).flatMap(function (names) { return Object.values(names || {}); }),
+                    cover: cover ? 'https://uploads.mangadex.org/covers/' + row.id + '/' + encodeURIComponent(cover) + '.256.jpg' : ''};
+        });
+    }
+    async function directTitles(site, text, token) {
+        var key = exactTitle(text), matches = new Map();
+        for (var query of titleQueries(text)) {
+            if (stopped(token)) break;
+            var url = site === 'mangak.io' ? 'https://mangak.io/search?q=' + encodeURIComponent(query)
+                : 'https://api.mangadex.org/manga?limit=24&includes%5B%5D=cover_art&includes%5B%5D=author&title=' + encodeURIComponent(query);
+            try {
+                var result = await fetchUrl(url, {quick: true, timeout: 5000, priority: true, stop: token});
+                if (!result || result.status !== 200) break;
+                var rows = site === 'mangak.io' ? mangakTitles(result) : mangadexTitles(result);
+                var scored = rows.filter(function (row) { return typeof row.title === 'string' && row.title.trim(); })
+                    .map(function (row) {
+                        row.alternateTitles = row.alternateTitles.filter(function (name) { return typeof name === 'string' && name.trim(); });
+                        var names = [row.title].concat(row.alternateTitles);
+                        var score = Math.max.apply(null, names.map(function (name) {
+                            return similarTitle(text, name);
+                        }));
+                        row.alternateTitles = row.alternateTitles.slice(0, 30);
+                        return [row, score, names.some(function (name) { return exactTitle(name) === key; })];
+                    }).filter(function (item) { return item[1] >= 0.6; });
+                scored.forEach(function (item) {
+                    var prior = matches.get(item[0].url);
+                    if (!prior || item[2] > prior[2] || (item[2] === prior[2] && item[1] > prior[1])) {
+                        matches.set(item[0].url, item);
+                    }
+                });
+                if (scored.some(function (item) { return item[1] >= 0.8; })) break;
+            } catch (e) { break; }
+        }
+        return Array.from(matches.values()).sort(function (a, b) { return b[2] - a[2] || b[1] - a[1]; })
+            .slice(0, 12).map(function (item) { return item[0]; });
     }
 
     // -- searches ----------------------------------------------------------------------------------
@@ -1867,7 +1942,9 @@
                 return true;
             });
             if (fresh.length) call('add', fresh.map(function (c) { return Object.assign({}, c, {via: mode}); }), id);
-            if (exactKey && !exactFound && fresh.some(function (c) { return exactTitle(c.title) === exactKey || exactTitle(c.originalTitle) === exactKey; })) {
+            if (exactKey && !exactFound && fresh.some(function (c) {
+                return [c.title, c.originalTitle].concat(c.alternateTitles || []).some(function (name) { return exactTitle(name) === exactKey; });
+            })) {
                 exactFound = true;
                 exactSeen();
             }
@@ -1890,8 +1967,10 @@
         }
         // The busiest sites ("searched"); the rest come up through the web search. The quickest sites
         // (remembered from earlier searches) are asked first; one that failed or was slow rests a day.
+        var titleSites = mode === 'name' ? DIRECT_TITLE_SITES.filter(function (name) { return siteHosts[name] && picked(name); }) : [];
         var searchedSites = SITES.filter(function (site) {
-            return site.searched !== false && !(site.lnreader || []).length && picked(site.host) && (only.length || !resting(site.host));
+            return titleSites.indexOf(site.host) < 0 && site.searched !== false && !(site.lnreader || []).length && picked(site.host)
+                && (only.length || !resting(site.host));
         }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
         var sources = [];
         // The sites in stages (STAGE_FIRST, then STAGE_MORE as the list is scrolled): the quickest first, and
@@ -1925,38 +2004,48 @@
                 ndbAnswered();
             }, function () { summary.failed++; report('NovelDB', started, 0, 'failed'); ndbAnswered(); });
         });
-        if (!only.length) sources.push(function () {
-            var started = Date.now();
-            var words_ = mode === 'tag' ? '"' + text + '" (novel OR manga OR webtoon)' : '"' + text + '" (novel OR manga OR webtoon OR manhwa)';
-            return webSearch(words_, token).then(function (hits) {
-                webFirst(hits.map(function (hit) { return hit.url; }));
-                var cards = hits.filter(function (hit) {
-                    return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (siteFor(hit.url) || knownSite(hit.url));
-                }).map(function (hit) { return card(hit.url, hit.title, hit.snippet, 'web'); });
-                summary.web += cards.length;
-                var fresh = offer(cards);
-                fresh.forEach(function (c) { c.ms = Date.now() - started; });
-                report('web search', started, fresh.length);
-                enrich(fresh);
+        titleSites.forEach(function (name) {
+            sources.push(function () {
+                var started = Date.now();
+                return directTitles(name, text, token).then(function (hits) {
+                    var cards = hits.map(function (hit) {
+                        var item = card(hit.url, hit.title, hit.description || '', 'site', hit.cover);
+                        return Object.assign(item, {comic: true, verified: true, ms: Date.now() - started,
+                            alternateTitles: hit.alternateTitles, status: hit.status, author: hit.author || '',
+                            chapters: hit.chapters, views: hit.views, likes: hit.likes});
+                    });
+                    var fresh = offer(cards);
+                    summary.site += fresh.length;
+                    report(name, started, fresh.length);
+                });
             });
         });
-        // A title remembered a little wrong ("Move aside ill become a magical girl" for "...Be the Magical Girl!"):
-        // the words unquoted, for the engines to correct, and only hits whose title carries most of them.
-        if (!only.length && mode === 'name') sources.push(function () {
-            var started = Date.now();
-            return webSearch(text + ' novel OR manga OR manhwa', token).then(function (hits) {
-                hits = hits.filter(function (hit) { return similarTitle(text, hit.title) >= 0.6; });
-                webFirst(hits.map(function (hit) { return hit.url; }));
-                var cards = hits.filter(function (hit) {
-                    return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (siteFor(hit.url) || knownSite(hit.url));
-                }).map(function (hit) { return card(hit.url, hit.title, hit.snippet, 'web'); });
-                summary.web += cards.length;
-                var fresh = offer(cards);
-                fresh.forEach(function (c) { c.ms = Date.now() - started; });
-                report('web search (close titles)', started, fresh.length);
-                enrich(fresh);
+        function addWebSearch(query, loose) {
+            sources.push(function () {
+                var started = Date.now(), found = 0;
+                return webSearch(query, token, function (hits) {
+                    hits = hits.filter(function (hit) {
+                        return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (siteFor(hit.url) || knownSite(hit.url));
+                    });
+                    webFirst(hits.map(function (hit) { return hit.url; }));
+                    var cards = hits.filter(function (hit) {
+                        return !loose || similarTitle(text, cleanTitle(hit.title, hit.url)) >= 0.6;
+                    }).map(function (hit) {
+                        return Object.assign(card(hit.url, hit.title, hit.snippet, 'web'), {ms: Date.now() - started});
+                    });
+                    var fresh = offer(cards);
+                    found += fresh.length;
+                    enrich(fresh);
+                }).then(function () { summary.web += found; report('web search', started, found); });
             });
-        });
+        }
+        if (!only.length) {
+            addWebSearch('"' + text + '" (novel OR manga OR webtoon' + (mode === 'tag' ? ')' : ' OR manhwa)'), mode === 'name');
+            if (mode === 'name') {
+                var queries = titleQueries(text);
+                if (queries.length) addWebSearch(queries[queries.length - 1], true);
+            }
+        }
         // An author's books: NovelDB and its own sites know them by author; the other sites' searches are by title.
         // An age rating (R19, R15) is NovelDB's own tag: the index's rated books, the site's own rule (sites asked
         // for it, or for what NovelDB lists beside it, "어른" or "Adult", give books of every rating); of the

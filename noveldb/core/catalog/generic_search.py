@@ -6,8 +6,8 @@ scripts/build_generic_sites.py). Every source streams its cards to the page as t
   (`site_search.SiteSearch`): this covers every site in the list.
 - lightnovel-crawler's crawlers that search (here) and LNReader's plugins (in the Catalog page itself,
   see noveldb/qt/catalog/generic/generic.js), for the sites they know.
-- A web search (DuckDuckGo's HTML results, then Bing's RSS results) kept to sites an engine knows; an
-  engine that refuses or answers with something else just adds nothing.
+- Direct comic title searches, including the alternate titles supplied by each catalog.
+- A web search (DuckDuckGo's HTML results and Bing's RSS results) kept to sites an engine knows.
 - A card without a cover gets its book page read (`generic.extract_metadata`); the page asks for the
   rest (author, description, tags) when a card is opened.
 
@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
 from urllib.parse import parse_qs, quote_plus, unquote, urlsplit
 
+from noveldb.core.catalog.title_search import DIRECT_SITES, direct_titles, exact_title, similar_title, title_queries
 from noveldb.core.engines.generic import CHAPTER_WORDS, decode, extract_metadata, site_of
 
 SITES_FILE = Path(__file__).with_name("generic_sites.json")
@@ -86,11 +87,6 @@ _staged: Dict[tuple, list] = {}
 EXACT_GRACE = 3.0  # seconds a title search goes on after a book of exactly that title came in
 
 
-def exact_title(title) -> str:
-    """A title as an exact match compares it: letters and digits only, in one case and form."""
-    import unicodedata
-
-    return "".join(ch for ch in unicodedata.normalize("NFKC", str(title or "")).casefold() if ch.isalnum())
 _staged_lock = threading.Lock()
 
 
@@ -242,7 +238,7 @@ def _clean_title(title: str, url: str) -> str:
 # -- web search ------------------------------------------------------------------------------------
 
 def bing_results(query: str, fetch: Callable) -> List[dict]:
-    result = fetch(f"https://www.bing.com/search?format=rss&count=50&q={quote_plus(query)}")
+    result = fetch(f"https://www.bing.com/search?format=rss&count=50&q={quote_plus(query)}", quick=True)
     if not result or result["status"] != 200:
         return []
     out = []
@@ -259,7 +255,7 @@ def bing_results(query: str, fetch: Callable) -> List[dict]:
 
 def duckduckgo_results(query: str, fetch: Callable) -> List[dict]:
     result = fetch("https://html.duckduckgo.com/html/", method="POST", data=f"q={quote_plus(query)}",
-                   headers={"Content-Type": "application/x-www-form-urlencoded"})
+                   headers={"Content-Type": "application/x-www-form-urlencoded"}, quick=True)
     if not result or result["status"] != 200:
         return []
     page = decode(result)
@@ -279,37 +275,15 @@ def duckduckgo_results(query: str, fetch: Callable) -> List[dict]:
     return out
 
 
-def web_search(query: str, fetch: Callable) -> List[dict]:
-    """Both engines' results for one query (an engine that refuses or fails just adds nothing)."""
-    results = []
-    for engine in (duckduckgo_results, bing_results):
-        try:
-            results.extend(engine(query, fetch))
-        except Exception:
-            pass
-    return results
-
-
-_FILLER = {"a", "an", "the", "of", "to", "in", "on", "and", "is", "be", "i", "my", "novel", "manga", "manhwa", "webtoon"}
-
-
-def _title_words(text: str) -> List[str]:
-    """A title's words for a loose comparison: lower case, apostrophes dropped ("I'll" is "ill"), no punctuation."""
-    text = re.sub(r"['’`]", "", (text or "").lower())
-    return [word for word in re.split(r"[^\w]+", text) if word]
-
-
-def similar_title(query: str, title: str) -> float:
-    """How much of `query` is in `title` (0 to 1), word by word, a word matching one that starts like it ("magic"
-    and "magical"); the small words do not count. For the web search's loose pass: a misremembered title."""
-    wanted = [word for word in _title_words(query) if word not in _FILLER]
-    have = _title_words(title)
-    if not wanted or not have:
-        return 0.0
-    def found(word: str) -> bool:
-        return any(other == word or (min(len(other), len(word)) >= 4 and (other.startswith(word[:4]) and word.startswith(other[:4])))
-                   for other in have)
-    return sum(found(word) for word in wanted) / len(wanted)
+def web_search(query: str, fetch: Callable) -> Iterable[dict]:
+    """Yield hits from each provider as soon as it answers."""
+    with ThreadPoolExecutor(2, thread_name_prefix="catalog-web-search") as pool:
+        requests = [pool.submit(engine, query, fetch) for engine in (duckduckgo_results, bing_results)]
+        for request in as_completed(requests):
+            try:
+                yield from request.result()
+            except Exception:
+                pass
 
 
 def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
@@ -499,7 +473,9 @@ class GenericSearch:
             if fresh:
                 emit(fresh)
             if exact_key and not exact_found.is_set() and any(
-                    exact_key in (exact_title(card.get("title")), exact_title(card.get("originalTitle"))) for card in fresh):
+                    any(exact_key == exact_title(name) for name in
+                        [card.get("title"), card.get("originalTitle"), *card.get("alternateTitles", [])])
+                    for card in fresh):
                 exact_found.set()
                 threading.Timer(EXACT_GRACE, exact_done.set).start()
             return fresh
@@ -534,24 +510,45 @@ class GenericSearch:
             if stop.is_set():
                 return
             started = time.monotonic()
-            cards = []
-            hits = web_search(query, self.fetch)
-            if loose:  # the unquoted pass: only titles that carry most of the words typed
-                hits = [hit for hit in hits if similar_title(text, _clean_title(hit["title"], hit["url"])) >= 0.6]
-            web_first([hit["url"] for hit in hits])
-            for hit in hits:
+            found = 0
+            for hit in web_search(query, self.fetch):
+                if stop.is_set():
+                    break
                 url = hit["url"]
                 if not url.startswith(("http://", "https://")) or not looks_like_book(url, hit["title"]):
                     continue
                 if self.site_for(url) is None and not (open_search and self.known_site(url)):
                     continue
-                cards.append(self.card(url, hit["title"], hit["snippet"], "web"))
-            summary["web"] += len(cards)
-            fresh = offer(cards)
-            for card in fresh:
+                web_first([url])
+                if loose and similar_title(text, _clean_title(hit["title"], url)) < 0.6:
+                    continue
+                card = self.card(url, hit["title"], hit["snippet"], "web")
                 card["ms"] = int((time.monotonic() - started) * 1000)
-            report("web search", started, len(fresh))
-            enrich(fresh)
+                fresh = offer([card])
+                found += len(fresh)
+                enrich(fresh)
+            summary["web"] += found
+            report("web search", started, found)
+
+        def from_title_site(host):
+            started = time.monotonic()
+            try:
+                hits = direct_titles(host, text, self.fetch, lambda: not stop.is_set())
+            except Exception:
+                summary["failed"] += 1
+                report(host, started, 0, "failed")
+                return
+            ms = int((time.monotonic() - started) * 1000)
+            cards = []
+            for hit in hits:
+                description = hit.get("description")
+                card = self.card(hit["url"], hit["title"], description if isinstance(description, str) else "", "site", hit["cover"])
+                card.update({key: value for key, value in hit.items()
+                             if key not in ("title", "description") and value is not None})
+                cards.append(dict(card, ms=ms, comic=True, verified=True))
+            fresh = offer(cards)
+            summary["site"] = summary.get("site", 0) + len(fresh)
+            report(host, started, len(fresh))
 
         def from_lncrawl(entry: dict):
             if stop.is_set():
@@ -684,11 +681,14 @@ class GenericSearch:
             pool.shutdown(wait=False, cancel_futures=True)
             done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=bool(summary.get("late"))))
             return
+        title_sites = {host for host in DIRECT_SITES if mode == "name" and host in self._site_hosts and self.picked(host)}
+        futures.extend(pool.submit(from_title_site, host) for host in sorted(title_sites))
         if self.noveldb is not None:
             ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most
         with lock:
             queue[:] = [site for site in self.sites
-                        if not (self.skip_lnreader and site.get("lnreader")) and self.picked(site["host"])]
+                        if site["host"] not in title_sites and not (self.skip_lnreader and site.get("lnreader"))
+                        and self.picked(site["host"])]
         staging = not self.only and mode != "author"
         stage = min(STAGE_FIRST, len(queue)) if staging else len(queue)
         started = [0]
@@ -717,11 +717,14 @@ class GenericSearch:
         if not self.only:  # the web search finds books on every site
             open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
                           else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
-            futures.append(pool.submit(from_web, open_words, True))
+            futures.append(pool.submit(from_web, open_words, True, mode == "name"))
             if mode == "name":
                 # A title remembered a little wrong ("Move aside I'll become a magical girl" for "...Be the Magical
                 # Girl!"): the words unquoted, for the engines to correct, and hits kept by how close their title is.
-                futures.append(pool.submit(from_web, f"{text} novel OR manga OR manhwa", True, True))
+                queries = title_queries(text)
+                if queries:
+                    loose = queries[-1]
+                    futures.append(pool.submit(from_web, loose, True, True))
         if mode == "name":
             for entry in self._lncrawl_entries():
                 if self.picked(entry["_site"]["host"]):

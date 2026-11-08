@@ -507,7 +507,7 @@ class GenericCatalog(QObject):
         store.loadAllCookies()
 
     def fetch(self, url: str, method: str = "GET", data=None, headers=None, binary: bool = False,
-              referer: str = "", quick: bool = False, checkpoint=None) -> Optional[dict]:
+              referer: str = "", quick: bool = False, checkpoint=None, timeout: float = 15.0) -> Optional[dict]:
         """Plain HTTP with the user's logins for the site; a page that refuses it is read in a hidden
         Catalog tab instead (not for `quick` guesses)."""
         self._note(f"Fetching {_short(url)}…")
@@ -523,7 +523,7 @@ class GenericCatalog(QObject):
         if work is not None:
             checkpoint = work.wait
         options = {"checkpoint": checkpoint} if checkpoint is not None else {}
-        result = default_fetch(url, method=method, data=data, headers=headers, binary=binary, referer=referer, quick=quick,
+        result = default_fetch(url, method=method, data=data, headers=headers, binary=binary, referer=referer, quick=quick, timeout=timeout,
                                **options)
         if method == "GET" and not binary and not quick and _refused(result):
             if checkpoint is not None and not checkpoint():
