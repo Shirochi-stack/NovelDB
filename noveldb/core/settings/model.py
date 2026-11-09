@@ -333,6 +333,7 @@ class UploadSettings:
     """Cloud uploads, same hosts and order semantics as the mobile apps."""
 
     auto_upload: bool = False
+    google_drive_folder_id: str = ""
     hosts: tuple[str, ...] = ("tempsh", "gofile")
     copy_link: bool = True
     # Two or more files go up as a few ZIPs of at most `zip_max_mb`, one link each.
@@ -355,6 +356,7 @@ class Secrets:
     pixeldrain_key: str = ""
     gofile_token: str = ""
     catbox_userhash: str = ""
+    google_drive_refresh_token: str = ""
 
 
 @dataclass(frozen=True)

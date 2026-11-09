@@ -689,47 +689,13 @@ fun UploadSettingsScreen(model: AppViewModel) {
 
         if (upload.hosts.any { UploaderCatalog.uploader(it)?.id == "gdrive" }) {
             SectionHeader("Google Drive")
-            val account = model.manager.googleDrive
-            val context = LocalContext.current
             val signedIn by model.manager.googleDrive.signedIn.collectAsStateWithLifecycle()
             val signInError by model.manager.googleDrive.signInError.collectAsStateWithLifecycle()
-            val connecting by account.connecting.collectAsStateWithLifecycle()
-            val credentials by account.credentials.collectAsStateWithLifecycle()
-            var clientId by remember(account) { mutableStateOf(account.credentials.value.clientId) }
-            var clientSecret by remember(account) { mutableStateOf(account.credentials.value.clientSecret) }
-            var refreshToken by remember(account) { mutableStateOf(account.credentials.value.refreshToken) }
-            LaunchedEffect(credentials) {
-                clientId = credentials.clientId
-                clientSecret = credentials.clientSecret
-                refreshToken = credentials.refreshToken
-            }
-            Text(if (signedIn) "Connected to Google Drive" else "Enter your own Google OAuth credentials", modifier = Modifier.padding(horizontal = 16.dp))
-            OutlinedTextField(
-                value = clientId, onValueChange = { clientId = it }, label = { Text("OAuth client ID") },
-                singleLine = true, enabled = !connecting && !signedIn,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            OutlinedTextField(
-                value = clientSecret, onValueChange = { clientSecret = it }, label = { Text("Client secret (if required)") },
-                singleLine = true, enabled = !connecting && !signedIn, visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            OutlinedTextField(
-                value = refreshToken, onValueChange = { refreshToken = it }, label = { Text("Refresh token") },
-                singleLine = true, enabled = !connecting && !signedIn, visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            Footnote("Use a refresh token authorized for your OAuth client with the drive.file scope. Sign in validates and securely saves the connection.")
-            TextButton(onClick = { FileActions.openUrl(context, "https://developers.google.com/oauthplayground/") }) {
-                Text("Get a refresh token with Google OAuth Playground")
-            }
+            val context = LocalContext.current
+            Text(if (signedIn) "Signed in to Google Drive" else "Sign in to use Google Drive", modifier = Modifier.padding(horizontal = 16.dp))
             Row(Modifier.padding(horizontal = 8.dp)) {
-                TextButton(enabled = !connecting && !signedIn && clientId.isNotBlank() && refreshToken.isNotBlank(), onClick = {
-                    model.manager.connectGoogleDrive(com.shirochi.npia.app.GoogleDriveCredentials(clientId, clientSecret, refreshToken))
-                }) {
-                    Text(if (connecting) "Connecting..." else "Sign in to Google")
+                TextButton(onClick = { context.startActivity(android.content.Intent(context, com.shirochi.npia.app.GoogleDriveSignInActivity::class.java)) }) {
+                    Text("Sign in to Google")
                 }
                 if (signedIn) TextButton(onClick = { model.manager.googleDrive.disconnect() }) { Text("Disconnect") }
             }

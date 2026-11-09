@@ -172,6 +172,23 @@ jobs:
         with:
           path: build/ms-playwright
           key: pw-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('requirements-full.txt') }}
+      - name: Configure Google Drive sign-in
+        shell: bash
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.NOVELDB_GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.NOVELDB_GOOGLE_DRIVE_CLIENT_SECRET }}
+          RELEASE_BUILD: ${{ inputs.attach }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+          client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+          if os.environ.get("RELEASE_BUILD") == "true" and not (client_id and client_secret):
+              raise SystemExit("Google Drive publisher credentials are missing from repository build secrets")
+          Path("noveldb/core/upload/google_drive_client.py").write_text(
+              f"CLIENT_ID = {client_id!r}\nCLIENT_SECRET = {client_secret!r}\n", encoding="utf-8")
+          PY
       - name: Build, verify and smoke-test
         shell: bash
         env:

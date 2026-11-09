@@ -5,6 +5,7 @@
 #   requirements-bot.txt        the Discord bot
 #   requirements-build.txt      PyInstaller, requirements-dev.txt for tests
 requests>=2.31.0
+google-auth-oauthlib>=1.5.0,<2
 beautifulsoup4>=4.12.0
 websocket-client>=1.7.0
 psutil>=5.9.0

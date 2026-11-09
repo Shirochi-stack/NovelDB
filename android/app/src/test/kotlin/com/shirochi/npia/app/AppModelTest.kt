@@ -206,7 +206,7 @@ class AppModelTest {
     @Test
     fun desktopImportMovesCredentialsAndKeepsUnknownKeys() {
         val secrets = InMemorySecretStore()
-        val desktop = """{"ext_threads": 3, "image_format": "JPEG", "email": "reader@example.com", "wd": "secret", "custom_unknown": 5}"""
+        val desktop = """{"ext_threads": 3, "image_format": "JPEG", "email": "reader@example.com", "wd": "secret", "upload_gdrive_refresh_token": "desktop-grant", "custom_unknown": 5}"""
         val imported = ConfigTransfer.import(desktop, AppSettings(), secrets) as ConfigTransfer.Imported.Desktop
         assertEquals(3, imported.settings.shared.threads)
         assertEquals(ImageFormat.JPEG, imported.settings.images.format)
@@ -214,11 +214,13 @@ class AppModelTest {
         assertEquals("reader@example.com", secrets.get(SecretKey.NPIA_EMAIL))
         assertFalse("email" in imported.base)
         assertFalse("wd" in imported.base)
+        assertFalse("upload_gdrive_refresh_token" in imported.base)
 
         val exported = Json.parseToJsonElement(ConfigTransfer.exportDesktop(imported.settings, imported.base)).jsonObject
         assertEquals(5, exported.getValue("custom_unknown").jsonPrimitive.int)
         assertEquals(3, exported.getValue("ext_threads").jsonPrimitive.int)
         assertFalse("email" in exported || "wd" in exported || "loginkey" in exported)
+        assertFalse("upload_gdrive_refresh_token" in exported)
         assertEquals(exported.keys.sorted(), exported.keys.toList())
     }
 

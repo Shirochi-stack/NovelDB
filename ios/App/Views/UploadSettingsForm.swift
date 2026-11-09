@@ -57,6 +57,21 @@ struct UploadSettingsForm: View {
 
             if model.settings.upload.hosts.contains("gdrive") {
                 Section {
+                    Text(model.googleDriveSignedIn ? "Signed in to Google Drive" : "Sign in to use Google Drive")
+                    Button("Sign in to Google") {
+                        Task { await model.signInGoogleDrive() }
+                    }
+                    .disabled(model.googleDriveWorking)
+                    if model.googleDriveSignedIn {
+                        Button("Disconnect") {
+                            Task { await model.disconnectGoogleDrive() }
+                        }
+                        .disabled(model.googleDriveWorking)
+                    }
+                    if model.googleDriveWorking { ProgressView() }
+                    if let error = model.googleDriveError {
+                        Text(error).foregroundStyle(.red)
+                    }
                     TextField("Folder ID (optional)", text: Binding(
                         get: { model.settings.upload.googleDriveFolderID ?? "" },
                         set: { model.settings.upload.googleDriveFolderID = $0.isEmpty ? nil : $0 }
@@ -66,7 +81,7 @@ struct UploadSettingsForm: View {
                 } header: {
                     Text("Google Drive")
                 } footer: {
-                    Text("Drive needs an account; sign-in is handled by the uploader.")
+                    Text("Uploads use the Google account authorized above. Files are shared with anyone who has the link.")
                 }
             }
         }

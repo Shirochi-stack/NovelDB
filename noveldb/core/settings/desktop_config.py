@@ -384,9 +384,11 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
 
     up = base.upload
     hosts = _strings(c.get("upload_hosts"))
+    drive_folder = _str(c.get("upload_gdrive_folder_id"))
     upload = replace(
         up,
         auto_upload=_first_bool(c, "upload_auto", up.auto_upload),
+        google_drive_folder_id=drive_folder if drive_folder is not None else up.google_drive_folder_id,
         hosts=tuple(h for h in hosts if h) if hosts else up.hosts,
         copy_link=_first_bool(c, "upload_copy_link", up.copy_link),
         zip_bundle=_first_bool(c, "upload_zip_bundle", up.zip_bundle),
@@ -395,6 +397,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
     )
 
     sec = base.secrets
+    drive_refresh_token = _str(c.get("upload_gdrive_refresh_token"))
     secrets = Secrets(
         email=_str(c.get("email")) if _str(c.get("email")) is not None else sec.email,
         password=_str(c.get("wd")) if _str(c.get("wd")) is not None else sec.password,
@@ -405,6 +408,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         pixeldrain_key=_str(c.get("upload_pixeldrain_key")) or sec.pixeldrain_key,
         gofile_token=_str(c.get("upload_gofile_token")) or sec.gofile_token,
         catbox_userhash=_str(c.get("upload_catbox_userhash")) or sec.catbox_userhash,
+        google_drive_refresh_token=drive_refresh_token if drive_refresh_token is not None else sec.google_drive_refresh_token,
     )
     last = LastInput(
         novel_id=_str(c.get("novel_id")) if _str(c.get("novel_id")) is not None else base.last_input.novel_id,
@@ -606,6 +610,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["upload_hosts"] = list(s.upload.hosts)
     c["upload_copy_link"] = s.upload.copy_link
     c["upload_zip_bundle"] = s.upload.zip_bundle
+    c["upload_gdrive_folder_id"] = s.upload.google_drive_folder_id
     c["upload_zip_max_mb"] = s.upload.zip_max_mb
     c["share_agreement_accepted"] = s.upload.agreement_accepted
 
@@ -621,13 +626,15 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
             if value or key in c:
                 c[key] = value
         for key, attr in (("upload_pixeldrain_key", "pixeldrain_key"), ("upload_gofile_token", "gofile_token"),
-                          ("upload_catbox_userhash", "catbox_userhash")):
+                          ("upload_catbox_userhash", "catbox_userhash"),
+                          ("upload_gdrive_refresh_token", "google_drive_refresh_token")):
             value = getattr(s.secrets, attr)
             if value or key in c:
                 c[key] = value
     else:
         for key in ("email", "wd", "loginkey", "sfc_cookie", "sfc_user", "sfc_pass",
-                    "upload_pixeldrain_key", "upload_gofile_token", "upload_catbox_userhash"):
+                    "upload_pixeldrain_key", "upload_gofile_token", "upload_catbox_userhash",
+                    "upload_gdrive_refresh_token"):
             c.pop(key, None)
 
     c["source_overrides"] = {source: _encode_override(o) for source, o in sorted(s.overrides.items()) if not o.is_empty}

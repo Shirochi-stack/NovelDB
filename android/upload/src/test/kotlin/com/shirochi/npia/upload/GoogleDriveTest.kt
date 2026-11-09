@@ -43,20 +43,6 @@ class GoogleDriveTest : UploadTestBase() {
 
     private val config = GoogleOAuthConfig.of("1234-abcd.apps.googleusercontent.com")!!
 
-    @Test
-    fun userClientSecretIsSentOnlyWhenProvided() {
-        val configured = GoogleOAuthConfig.of(config.clientId, " user-secret ")!!
-        val request = GoogleDriveAuth.refreshRequest(configured, "user-refresh")
-        val buffer = okio.Buffer()
-        request.body!!.writeTo(buffer)
-        assertTrue(buffer.readUtf8().contains("client_secret=user-secret"))
-        val publicRequest = GoogleDriveAuth.refreshRequest(config, "user-refresh")
-        val publicBuffer = okio.Buffer()
-        publicRequest.body!!.writeTo(publicBuffer)
-        assertFalse(publicBuffer.readUtf8().contains("client_secret"))
-        assertFalse(configured.toString().contains("user-secret"))
-    }
-
     private class StubBrowser(val respond: (String) -> String) : OAuthBrowser {
         override suspend fun authenticate(url: String, callbackScheme: String): String = respond(url)
     }

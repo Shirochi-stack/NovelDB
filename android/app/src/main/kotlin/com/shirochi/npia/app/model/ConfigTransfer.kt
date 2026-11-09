@@ -15,7 +15,7 @@ import kotlinx.serialization.json.jsonObject
  */
 object ConfigTransfer {
     /** Keys that hold credentials in the desktop file. */
-    val credentialKeys = setOf("email", "wd", "loginkey")
+    val credentialKeys = setOf("email", "wd", "loginkey", "upload_gdrive_refresh_token")
 
     private val pretty = Json { prettyPrint = true }
 

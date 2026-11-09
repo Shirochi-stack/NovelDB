@@ -15,6 +15,8 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import requests
 
+from noveldb.core.upload.google_drive import GoogleDriveUploader
+
 from noveldb.core.net_timeouts import request_pair
 from noveldb.core.upload.transfer import (
     NotSignedIn,
@@ -62,6 +64,8 @@ class UploadContext:
     session: Optional[requests.Session] = None
     stopped: Callable[[], bool] = lambda: False
     timeout: tuple = (30, 300)  # (connect, read) minimums; the Network setting can raise them
+    google_access_token: Optional[Callable[[bool], str]] = None
+    google_drive_folder_id: str = ""
 
     def http_timeout(self) -> tuple:
         return request_pair(*self.timeout)
@@ -266,9 +270,9 @@ class SendNowUploader(Uploader):
 
 ALL = (
     TempShUploader(), GofileUploader(), CatboxUploader(), PixeldrainUploader(),
-    TmpfilesUploader(), KrakenFilesUploader(), SendNowUploader(),
+    TmpfilesUploader(), KrakenFilesUploader(), SendNowUploader(), GoogleDriveUploader(),
 )
-ALIASES = {"sendcm": "sendnow"}
+ALIASES = {"sendcm": "sendnow", "google_drive": "gdrive"}
 
 
 def uploader(host_id: str) -> Optional[Uploader]:

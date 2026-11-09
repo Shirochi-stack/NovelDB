@@ -81,10 +81,17 @@ and the Uploads screen show them as a bar and a status line.
 The first time Upload is tapped the app asks the user to confirm they may share the file, and
 remembers the answer (`shareAgreementAccepted`). Automatic uploads stay off until it is accepted.
 
-## Google Drive setup
+## Google Drive setup for the app publisher
 
 The app uses OAuth 2.0 with PKCE through `ASWebAuthenticationSession`, so there is no Google
 SDK and no client secret. Scope is `drive.file`: the app only sees files it created.
+
+Users open Settings > Upload, add Google Drive, and tap Sign in to Google. The system presents
+Google's account and permission screens. Connection status, sign-in failures, and Disconnect
+appear in the same section. The Cloud configuration below belongs to the app publisher.
+
+The distributed app uses the iOS client in publisher project `noveldb-514213`, bundled through
+`NpiaGoogleDriveClientID` in `ios/project.yml`.
 
 1. In Google Cloud Console create (or pick) a project and enable the **Google Drive API**.
 2. Configure the **OAuth consent screen** (External, add yourself as a test user while the

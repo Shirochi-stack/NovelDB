@@ -47,6 +47,8 @@ class RunnerJobEvents(QtJobEvents):
 class AppContext(QObject):
     settingsChanged = Signal()
     signedInChanged = Signal(bool)
+    googleDriveChanged = Signal()
+    _googleDriveFinished = Signal(str, str)
     cartChanged = Signal()
     toolRequested = Signal(str)  # e.g. "tag_search", handled by the main window
     engineUpdateChecked = Signal(object)  # an engine_updates.UpdateResult
@@ -57,6 +59,12 @@ class AppContext(QObject):
         self.store = store or ConfigStore()
         self.store.ensure_exists()
         self.settings: AppSettings = self.store.load()
+        from noveldb.core.upload.google_drive import GoogleDriveAuth
+
+        self.google_drive = GoogleDriveAuth(lambda: self.settings.secrets.google_drive_refresh_token)
+        self.google_drive_busy = False
+        self.google_drive_error = ""
+        self._googleDriveFinished.connect(self._finish_google_drive)
         net_timeouts.configure_from(self.settings)
         self.hub = QtEventHub()
         self.prompts = QtPrompts()
@@ -209,7 +217,40 @@ class AppContext(QObject):
     def upload_context(self, stopped=lambda: False) -> UploadContext:
         s = self.settings.secrets
         return UploadContext(pixeldrain_key=s.pixeldrain_key, gofile_token=s.gofile_token,
-                             catbox_userhash=s.catbox_userhash, stopped=stopped)
+                             catbox_userhash=s.catbox_userhash, stopped=stopped,
+                             google_drive_folder_id=self.settings.upload.google_drive_folder_id,
+                             google_access_token=self.google_drive.access_token if self.google_drive.signed_in else None)
+
+    def sign_in_google_drive(self) -> None:
+        if self.google_drive_busy:
+            return
+        self.google_drive_busy, self.google_drive_error = True, ""
+        self.googleDriveChanged.emit()
+
+        def work():
+            try:
+                refresh = self.google_drive.sign_in()
+                self._googleDriveFinished.emit(refresh, "")
+            except Exception as exc:
+                self._googleDriveFinished.emit("", str(exc) or "Google sign-in did not complete.")
+
+        threading.Thread(target=work, name="google-drive-sign-in", daemon=True).start()
+
+    def _finish_google_drive(self, refresh: str, error: str) -> None:
+        self.google_drive_busy, self.google_drive_error = False, error
+        if refresh:
+            self.update_settings(lambda s: replace(s, secrets=replace(s.secrets, google_drive_refresh_token=refresh)))
+            self.save_now()
+            self.hub.message.emit("Signed in to Google Drive.")
+        self.googleDriveChanged.emit()
+
+    def disconnect_google_drive(self) -> None:
+        if self.google_drive_busy:
+            return
+        self.update_settings(lambda s: replace(s, secrets=replace(s.secrets, google_drive_refresh_token="")))
+        self.save_now()
+        self.google_drive_error = ""
+        self.googleDriveChanged.emit()
 
     def shutdown(self) -> None:
         self.runner.cancel_all()

@@ -84,6 +84,48 @@ final class AppModel {
     private(set) var sessionVersion = 0
     /// An sfc app sign-in is running.
     private(set) var sfcWorking = false
+    private(set) var googleDriveWorking = false
+    private(set) var googleDriveError: String?
+
+    var googleDriveSignedIn: Bool {
+        _ = sessionVersion
+        return !(secrets.string(for: .googleDriveRefreshToken) ?? "").isEmpty
+    }
+
+    func signInGoogleDrive() async {
+        guard !googleDriveWorking else { return }
+        googleDriveWorking = true
+        googleDriveError = nil
+        defer { googleDriveWorking = false; sessionVersion += 1 }
+        guard let config = GoogleOAuthConfig.fromBundle() else {
+            googleDriveError = "Google Drive sign-in setup for this app is incomplete. The app publisher must register this build with Google."
+            return
+        }
+        let auth = GoogleDriveAuth(config: config, secrets: secrets)
+        let browser = WebAuthenticationBrowser(anchor: {
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows).first(where: \.isKeyWindow)
+        })
+        do {
+            try await auth.signIn(using: browser)
+        } catch is CancellationError {
+            googleDriveError = "Google sign-in cancelled."
+        } catch {
+            googleDriveError = error.localizedDescription
+        }
+    }
+
+    func disconnectGoogleDrive() async {
+        guard !googleDriveWorking else { return }
+        googleDriveWorking = true
+        defer { googleDriveWorking = false; sessionVersion += 1 }
+        if let config = GoogleOAuthConfig.fromBundle() {
+            await GoogleDriveAuth(config: config, secrets: secrets).signOut()
+        } else {
+            secrets.set(nil, for: .googleDriveRefreshToken)
+        }
+        googleDriveError = nil
+    }
 
     private let store = SettingsStore.appDefault()
     private let jobStore = JSONFileStore<[JobItem]>(name: "jobs.json")
@@ -798,7 +840,8 @@ final class AppModel {
 
     /// Settings as a desktop `config.json`, layered on the last imported file. No credentials.
     func exportDesktopConfig() throws -> Data {
-        let base = (desktopBaseStore.load() ?? [:]).mapValues(\.any)
+        let base = (desktopBaseStore.load() ?? [:])
+            .filter { !DesktopConfig.credentialKeys.contains($0.key) }.mapValues(\.any)
         let exported = DesktopConfig.exportConfig(settings, onto: base)
         return try JSONSerialization.data(withJSONObject: exported, options: [.prettyPrinted, .sortedKeys])
     }
@@ -806,7 +849,7 @@ final class AppModel {
 
 extension DesktopConfig {
     /// Keys that hold credentials in the desktop file; never stored or exported by the app.
-    static let credentialKeys = ["email", "wd", "loginkey"]
+    static let credentialKeys = ["email", "wd", "loginkey", "upload_gdrive_refresh_token"]
 }
 
 /// JSON value that survives a Codable round trip, for keeping unknown desktop keys.

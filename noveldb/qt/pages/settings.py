@@ -1007,6 +1007,27 @@ def upload_form(context: AppContext) -> Form:
     f.text("pixeldrain", "secrets.pixeldrain_key", "API key", secret=True)
     f.text("gofile", "secrets.gofile_token", "Account token (optional)", secret=True)
     f.text("catbox", "secrets.catbox_userhash", "User hash (optional)", secret=True)
+    f.add_section("Google Drive")
+    drive_status = f.add_hint("")
+    drive_sign_in = QPushButton("Sign in to Google")
+    drive_disconnect = QPushButton("Disconnect")
+    drive_sign_in.clicked.connect(context.sign_in_google_drive)
+    drive_disconnect.clicked.connect(context.disconnect_google_drive)
+    f.add(flow(drive_sign_in, drive_disconnect))
+    f.text("Folder ID (optional)", "upload.google_drive_folder_id", "Leave empty to use My Drive")
+    f.add_hint("Google opens in your system browser. Uploads use the account you authorize and are shared with anyone who has the link.")
+
+    def show_drive():
+        busy = context.google_drive_busy
+        signed_in = context.google_drive.signed_in
+        drive_sign_in.setEnabled(not busy)
+        drive_sign_in.setText("Waiting for Google..." if busy else "Sign in to Google")
+        drive_disconnect.setEnabled(signed_in and not busy)
+        drive_status.setText(context.google_drive_error or (
+            "Signed in to Google Drive" if signed_in else "Sign in to use Google Drive"))
+
+    context.googleDriveChanged.connect(show_drive)
+    f._refreshers.append(lambda s: show_drive())
     agreed = f.add_hint("")
     f._refreshers.append(lambda s: agreed.setText(
         "You agreed to the sharing terms." if s.upload.agreement_accepted

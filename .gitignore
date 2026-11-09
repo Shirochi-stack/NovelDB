@@ -31,6 +31,7 @@ tmp_sfc_apk/
 /artifacts/
 
 _build_info.py
+/noveldb/core/upload/google_drive_client.py
 /dist-desktop/
 # Desktop app runtime data in a portable (source) install: the repo's data/ folder doubles as
 # the app's data folder, so keep the user's cart, queue, uploads and browser profile out of git.
