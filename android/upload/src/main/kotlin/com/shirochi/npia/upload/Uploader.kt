@@ -72,6 +72,7 @@ data class UploadContext(
      * `<fileId>.<extension>`. Set from the job; the display name is kept in results.
      */
     val fileId: String? = null,
+    val googleAccessToken: (suspend (Boolean) -> String)? = null,
 ) {
     companion object {
         /** Idle timeouts only, so multi-GB uploads on slow links are not cut off. */
@@ -193,7 +194,7 @@ object UploaderCatalog {
                     try {
                         val result = upload(
                             planned.item.file, settings, context, history,
-                            progress = listener::onProgress, onHost = listener::onHost, bookId = planned.item.stem,
+                            progress = listener::onProgress, onHost = listener::onHost, bookId = planned.item.stem, onHostFailed = listener::onHostFailed,
                         )
                         UploadOutcome(planned, name, result, null)
                     } catch (e: CancellationException) {
@@ -213,7 +214,7 @@ object UploaderCatalog {
                         val entries = ZipBundling.write(planned.items, zip)
                         val result = upload(
                             zip, settings, context, history = null,
-                            progress = listener::onProgress, onHost = listener::onHost,
+                            progress = listener::onProgress, onHost = listener::onHost, onHostFailed = listener::onHostFailed,
                         ).copy(contents = entries)
                         history?.add(result)
                         UploadOutcome(planned, planned.name, result, null)
@@ -246,6 +247,7 @@ object UploaderCatalog {
         progress: ((UploadProgress) -> Unit)? = null,
         onHost: ((String) -> Unit)? = null,
         bookId: String? = null,
+        onHostFailed: ((String, String) -> Unit)? = null,
     ): UploadResult {
         val ctx = context.copy(settings = settings, fileId = bookId ?: context.fileId)
         var payload = file
@@ -257,14 +259,21 @@ object UploaderCatalog {
         try {
             var last: Exception = UploadException.NotConfigured("No upload host")
             for (id in settings.hosts) {
-                val uploader = uploader(id) ?: continue
+                val uploader = uploader(id)
+                if (uploader == null) {
+                    last = UploadException.NotConfigured("Upload host $id")
+                    onHost?.invoke(id)
+                    onHostFailed?.invoke(id, last.message.orEmpty())
+                    continue
+                }
+                onHost?.invoke(uploader.displayName)
                 if (!uploader.isReady(ctx)) {
                     last = UploadException.NotSignedIn(uploader.displayName)
+                    onHostFailed?.invoke(uploader.displayName, last.message.orEmpty())
                     continue
                 }
                 try {
                     uploader.check(payload)
-                    onHost?.invoke(uploader.displayName)
                     val result = uploader.upload(payload, ctx, progress)
                     history?.add(result)
                     return result
@@ -272,6 +281,7 @@ object UploaderCatalog {
                     throw e
                 } catch (e: Exception) {
                     last = e
+                    onHostFailed?.invoke(uploader.displayName, e.message ?: e.toString())
                 }
             }
             throw last
@@ -297,6 +307,7 @@ data class UploadOutcome(
 
 /** Progress of `UploaderCatalog.uploadAll`, for the screens and notifications. */
 interface UploadListener {
+    fun onHostFailed(name: String, reason: String) {}
     /** `upload` is about to start; `position` counts from 1 among `total` uploads. */
     fun onStart(position: Int, total: Int, upload: PlannedUpload, name: String) {}
 

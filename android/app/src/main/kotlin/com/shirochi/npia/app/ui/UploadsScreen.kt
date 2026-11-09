@@ -151,6 +151,7 @@ fun UploadRow(model: AppViewModel, upload: UploadResult, onRemove: (() -> Unit)?
 fun UploadStatus(model: AppViewModel, state: UploadState, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     Column(modifier.fillMaxWidth()) {
+        state.attempts.forEach { reason -> Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         when (state.phase) {
             UploadState.Phase.RUNNING -> {
                 if (state.totalBytes > 0) {

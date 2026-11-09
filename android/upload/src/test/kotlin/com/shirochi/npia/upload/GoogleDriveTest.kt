@@ -22,6 +22,25 @@ import java.net.URLDecoder
 import java.util.concurrent.atomic.AtomicBoolean
 
 class GoogleDriveTest : UploadTestBase() {
+    @Test
+    fun nativeAuthorizationUploadsWithoutALegacyOAuthClient() = runBlocking {
+        val session = "https://www.googleapis.com/native-session".toHttpUrl()
+        handler = { request ->
+            when {
+                request.url.encodedPath == "/upload/drive/v3/files" -> json("", headers = mapOf("Location" to session.toString()))
+                request.url == session -> json("""{"id":"native-file"}""")
+                request.url.encodedPath == "/drive/v3/files/native-file/permissions" -> json("""{"id":"shared"}""")
+                else -> unexpected("Unexpected native authorization request")
+            }
+        }
+        val ctx = context().copy(googleOAuth = null, googleAccessToken = { "native-access" })
+        val uploader = GoogleDriveUploader()
+        assertTrue(uploader.isReady(ctx))
+        assertEquals("gdrive", uploader.upload(makeFile(), ctx).hostId)
+        assertTrue(seen.all { it.header("Authorization") == "Bearer native-access" })
+        assertTrue(seen.none { it.url.host == "oauth2.googleapis.com" })
+    }
+
     private val config = GoogleOAuthConfig.of("1234-abcd.apps.googleusercontent.com")!!
 
     private class StubBrowser(val respond: (String) -> String) : OAuthBrowser {

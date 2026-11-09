@@ -145,7 +145,8 @@ def _with_text(result: dict) -> dict:
 # list them, but their pages come up missing there). It goes first for them, as on the phones
 # (SourceCatalog.genericFirst, SiteEngineRouter.genericFirst).
 # rawkuma.net: its book page lists every chapter and its chapter pages every picture.
-GENERIC_FIRST = ("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com", "rawkuma.net")
+GENERIC_FIRST = ("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com", "rawkuma.net",
+                 "\u0062\u006f\u006f\u006b\u006b\u006f\u0072.com")
 ASURA_COMICS = ("asurascans.com", "asuracomic.net")
 
 

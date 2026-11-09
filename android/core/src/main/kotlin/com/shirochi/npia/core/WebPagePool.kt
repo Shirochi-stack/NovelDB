@@ -56,10 +56,21 @@ class WebPagePool(
         val page = try {
             engine.newPage(profile)
         } catch (e: Throwable) {
-            mutex.withLock { created-- }
+            withContext(NonCancellable) {
+                mutex.withLock { created--; waiters.removeFirstOrNull()?.completeExceptionally(e) }
+            }
             throw e
         }
-        prepare?.invoke(page)
+        try {
+            prepare?.invoke(page)
+        } catch (e: Throwable) {
+            withContext(NonCancellable) {
+                try { page.close() } finally {
+                    mutex.withLock { created--; waiters.removeFirstOrNull()?.completeExceptionally(e) }
+                }
+            }
+            throw e
+        }
         return page
     }
 
@@ -77,14 +88,14 @@ class WebPagePool(
     }
 
     /** Closes idle pages and fails waiting tasks; pages still leased close on release. */
-    suspend fun closeAll() {
+    suspend fun closeAll() = withContext(NonCancellable) {
         val pages = mutex.withLock {
             closed = true
             waiters.forEach { it.cancel() }
             waiters.clear()
             idle.toList().also { idle.clear() }
         }
-        withContext(NonCancellable) { pages.forEach { it.close() } }
+        pages.forEach { it.close() }
     }
 
     /** Leases a page for `body` and returns it to the pool afterwards. */

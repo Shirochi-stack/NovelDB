@@ -213,6 +213,7 @@ class JaraAdapter : SourceAdapter {
         val results = mutableListOf<ChapterResult>()
         for (ref in refs) {
             coroutineContext.ensureActive()
+            context.onChapterStarted(ref)
             try {
                 results += context.keep(parseChapter(ref, book, context))
             } catch (e: CancellationException) {

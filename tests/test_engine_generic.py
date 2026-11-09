@@ -265,3 +265,14 @@ def test_a_scrambled_chapter_is_read_again_in_a_real_browser_and_the_site_rememb
     assert "붉은 지붕" in first["contentText"] and "붉은 지붕" in second["contentText"]
     assert rendered == [("https://novels.example/b/1-ep-1", True), ("https://novels.example/b/1-ep-2", True)]
     assert fetched == ["https://novels.example/b/1-ep-1"]  # the second chapter skips the scrambled request
+
+
+def test_scrambled_chapters_fail_when_the_browser_cannot_recover_the_text():
+    import pytest
+
+    noise = "각" * 300
+    html = f"<html><body><article><p>{noise}</p></article></body></html>"
+    for rendered in (None, html):
+        engine = GenericEngine(fetch=lambda u, **_o: page(html, u), render=lambda *a, **k: rendered)
+        with pytest.raises(ValueError, match="scrambled chapter text"):
+            engine.parse_chapter({"url": "https://novels.example/b/1-ep-1", "name": "1화"}, {})

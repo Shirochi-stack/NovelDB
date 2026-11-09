@@ -176,7 +176,11 @@ public struct DownloadPipeline: Sendable {
         let adapter = opened.adapter
         let book = opened.book
         let source = type(of: adapter).id
-        let shared = settings.effective(for: source)
+        // Keep the Add screen's range when another engine reads this source's book.
+        let requested = settings.effective(for: SourceCatalog.adapterType(for: url)?.id ?? source)
+        var shared = settings.effective(for: source)
+        shared.rangeFrom = requested.rangeFrom
+        shared.rangeTo = requested.rangeTo
         logger.log(.info, "\(book.title): \(book.chapters.count) chapters")
         logger.log(.info, "Source \(source.rawValue) read through \(opened.engine.title); formats \(shared.formats.map { $0.rawValue }.joined(separator: ", "))")
         logger.log(.debug, "Settings: \(shared.threads) threads, \(shared.intervalMin)-\(shared.intervalMax) s between requests, range \(shared.rangeFrom.map(String.init) ?? "start")-\(shared.rangeTo.map(String.init) ?? "end"), skip paid \(shared.skipPaid)")

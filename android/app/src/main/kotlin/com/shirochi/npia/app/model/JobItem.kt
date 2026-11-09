@@ -45,6 +45,7 @@ data class JobItem(
     val log: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val finishedAt: Long? = null,
+    val stopRequested: Boolean = false,
 ) {
     val displayTitle: String get() = title ?: url
 
@@ -83,6 +84,7 @@ data class JobItem(
     fun resetForRetry(): JobItem = copy(
         state = JobState.QUEUED, status = "Queued", fraction = 0.0, error = null,
         skipped = emptyList(), log = emptyList(), finishedAt = null,
+        stopRequested = false,
     )
 
     companion object {

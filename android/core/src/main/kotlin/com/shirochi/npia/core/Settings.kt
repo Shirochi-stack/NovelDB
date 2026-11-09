@@ -62,6 +62,7 @@ data class SharedSettings(
     val skipPaid: Boolean = false,
     val imageWorkers: Int = 6,
     val generateOnStop: Boolean = false,
+    val chapterTiming: Boolean = false,
     val namingMode: NamingMode = NamingMode.TITLE,
     val appendRange: Boolean = false,
 ) {

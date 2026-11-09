@@ -25,7 +25,7 @@ data class RunSummary(
     /** Share links of the files uploaded from the notification (older versions; see `UploadReport`). */
     val links: List<String> = emptyList(),
 ) {
-    val hasFiles: Boolean get() = succeeded > 0 && fileNames.isNotEmpty()
+    val hasFiles: Boolean get() = fileNames.isNotEmpty()
 
     val notificationTitle: String
         get() = when {
@@ -50,12 +50,13 @@ data class RunSummary(
          */
         fun of(jobs: List<JobItem>): RunSummary? {
             val done = jobs.filter { it.state == JobState.FINISHED }
+            val saved = jobs.filter { it.state == JobState.FINISHED || it.state == JobState.CANCELLED }
             val failed = jobs.count { it.state == JobState.FAILED }
             val cancelled = jobs.count { it.state == JobState.CANCELLED }
             if (done.isEmpty() && (failed == 0 || cancelled > 0)) return null
             return RunSummary(
-                fileNames = done.flatMap { it.fileNames }.distinct(),
-                fileIds = done.flatMap { job -> job.fileNames.map { it to UploadNaming.forJob(job) } }.toMap(),
+                fileNames = saved.flatMap { it.fileNames }.distinct(),
+                fileIds = saved.flatMap { job -> job.fileNames.map { it to UploadNaming.forJob(job) } }.toMap(),
                 jobIds = jobs.map { it.id }.distinct(),
                 title = done.singleOrNull()?.displayTitle,
                 succeeded = done.size,

@@ -69,7 +69,14 @@ class MpiaLiveTest {
         val settings = AppSettings(shared = SharedSettings(threads = 3, intervalMin = 1.0, intervalMax = 2.0))
         val logger = JobLogging { level, message -> Log.i("MpiaLive", "[$level] $message") }
         val http = OkHttpFetcher(cookieJar = web.cookieJar(), maxRetries = 1)
-        val context = SourceContext(http, web, InMemorySecretStore(), settings, logger)
+        val context = SourceContext(http, web, InMemorySecretStore(), settings, logger, onChapter = { result ->
+            val outcome = when (result) {
+                is ChapterResult.Content -> "downloaded"
+                is ChapterResult.Refused -> "refused: ${result.reason}"
+                is ChapterResult.Failed -> "failed: ${result.message}"
+            }
+            Log.i("MpiaLive", "Completed chapter ${result.ref.index}: $outcome")
+        })
         val adapter = MpiaAdapter()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

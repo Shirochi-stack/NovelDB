@@ -335,7 +335,8 @@ def test_a_requests_cookie_header_goes_into_the_browser():
 
 def test_the_generic_engine_goes_first_on_the_sites_it_reads_best():
     """fanfox, mangahere and webtoons: gallery-dl and HaruNeko list them, but their pages come up missing there."""
-    for url in ("https://fanfox.net/manga/one_piece/", "https://www.webtoons.com/en/fantasy/tower-of-god/list?title_no=95"):
+    for url in ("https://fanfox.net/manga/one_piece/", "https://www.webtoons.com/en/fantasy/tower-of-god/list?title_no=95",
+                "https://011.\u0062\u006f\u006f\u006b\u006b\u006f\u0072.com/a-book"):
         s = Recorder({"gallerydl": BOOK, "haruneko": BOOK, "generic": BOOK}, native=False, knows=("haruneko", "gallerydl"))
         assert s.parse_book(url) is BOOK
         assert set(s.calls) == {"generic"}  # (the address and the ones above it, each by the generic engine)

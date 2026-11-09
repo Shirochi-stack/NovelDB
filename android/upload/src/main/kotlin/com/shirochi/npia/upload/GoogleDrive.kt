@@ -39,20 +39,24 @@ class GoogleDriveUploader(
     override val requiresAccount = true
 
     override fun isReady(context: UploadContext): Boolean =
-        context.googleOAuth != null && !context.secrets.get(SecretKey.GOOGLE_DRIVE_REFRESH_TOKEN).isNullOrEmpty()
+        context.googleAccessToken != null || (context.googleOAuth != null && !context.secrets.get(SecretKey.GOOGLE_DRIVE_REFRESH_TOKEN).isNullOrEmpty())
 
     override suspend fun upload(file: File, context: UploadContext, progress: ((UploadProgress) -> Unit)?): UploadResult {
-        val config = context.googleOAuth ?: throw UploadException.NotConfigured("Google Drive client ID")
         // A 308 from Drive means "resume incomplete", never a redirect to follow.
         val client = context.client.newBuilder().followRedirects(false).build()
-        val auth = GoogleDriveAuth(config, context.secrets, client, context.now)
+        val auth: suspend (Boolean) -> String = context.googleAccessToken ?: run {
+            val config = context.googleOAuth ?: throw UploadException.NotConfigured("Google Drive client ID")
+            val legacy = GoogleDriveAuth(config, context.secrets, client, context.now)
+            val provider: suspend (Boolean) -> String = { force -> legacy.accessToken(force) }
+            provider
+        }
         val size = file.length()
         val folderId = context.settings.googleDriveFolderId
 
-        var token = auth.accessToken()
+        var token = auth(false)
         var started = client.send(startRequest(file, size, folderId, token))
         if (started.status == 401) {
-            token = auth.accessToken(forceRefresh = true)
+            token = auth(true)
             started = client.send(startRequest(file, size, folderId, token))
         }
         started.requireSuccess(displayName)
@@ -62,7 +66,7 @@ class GoogleDriveUploader(
         val metadata = sendChunks(file, size, session, client, auth, progress)
         val fileId = metadata.string("id") ?: throw UploadException.Rejected(displayName, "no file id")
 
-        token = auth.accessToken()
+        token = auth(false)
         client.send(permissionRequest(fileId, token)).requireSuccess(displayName)
 
         val link = metadata.string("webViewLink")?.toHttpUrlOrNull()?.toString()
@@ -79,7 +83,7 @@ class GoogleDriveUploader(
         size: Long,
         session: HttpUrl,
         client: OkHttpClient,
-        auth: GoogleDriveAuth,
+        auth: suspend (Boolean) -> String,
         progress: ((UploadProgress) -> Unit)?,
     ): JsonObject {
         RandomAccessFile(file, "r").use { reader ->
@@ -92,7 +96,7 @@ class GoogleDriveUploader(
                 reader.readFully(chunk)
 
                 val reply = try {
-                    val token = auth.accessToken()
+                    val token = auth(false)
                     client.send(chunkRequest(session, offset, chunk, size, token, progress))
                 } catch (_: IOException) {
                     null
@@ -109,7 +113,7 @@ class GoogleDriveUploader(
                             failures = 0
                             continue
                         }
-                        401 -> auth.accessToken(forceRefresh = true)
+                        401 -> auth(true)
                         404, 410 -> throw UploadException.Rejected(displayName, "upload session expired")
                         in 500..599 -> Unit
                         else -> throw UploadException.BadResponse(displayName, reply.status, reply.snippet)
@@ -120,7 +124,7 @@ class GoogleDriveUploader(
                 if (failures > maxChunkRetries) throw UploadException.Rejected(displayName, "too many interrupted chunks")
                 delay(retryDelayMillis(failures))
                 val status = try {
-                    client.send(statusRequest(session, size, auth.accessToken()))
+                    client.send(statusRequest(session, size, auth(false)))
                 } catch (_: IOException) {
                     continue
                 }

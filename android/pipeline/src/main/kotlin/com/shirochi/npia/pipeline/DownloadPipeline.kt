@@ -6,6 +6,8 @@ import com.shirochi.npia.core.ChapterContent
 import com.shirochi.npia.core.ChapterRef
 import com.shirochi.npia.core.ChapterResult
 import com.shirochi.npia.core.HttpFetching
+import com.shirochi.npia.core.HttpRequest
+import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.ImageProcessing
 import com.shirochi.npia.core.JobLogging
 import com.shirochi.npia.core.LogLevel
@@ -21,6 +23,7 @@ import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.bareHost
 import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.UnavailableWebEngine
+import com.shirochi.npia.core.UploadSettings
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.sniffImageExtension
 import com.shirochi.npia.net.OkHttpFetcher
@@ -40,6 +43,7 @@ import com.shirochi.npia.upload.UploadStem
 import com.shirochi.npia.upload.UploaderCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -47,6 +51,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 
@@ -69,6 +74,7 @@ data class JobOutcome(
     val uploads: List<UploadResult>,
     /** Chapters that were refused or failed, with the reason. */
     val skipped: List<Pair<ChapterRef, String>>,
+    val stopped: Boolean = false,
 )
 
 /**
@@ -84,6 +90,9 @@ class DownloadPipeline(
     private val httpFactory: (SharedSettings) -> HttpFetching = { OkHttpFetcher(it) },
     /** The pause before the first retry pass over failed chapters; later passes wait longer. */
     private val retryPauseMillis: Long = 5_000,
+    private val currentUploadSettings: (() -> UploadSettings)? = null,
+    private val uploadContextFactory: (UploadSettings) -> UploadContext = { UploadContext(secrets, it) },
+    private val generateOnStop: (() -> Boolean)? = null,
 ) {
     suspend fun run(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit = {}): JobOutcome {
         // Image bytes wait in files until the book is written (see ImageStore).
@@ -98,6 +107,7 @@ class DownloadPipeline(
     private suspend fun download(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit, store: ImageStore): JobOutcome {
         val started = System.nanoTime()
         val adapter = SourceCatalog.require(url, settings.engines)
+        val requested = settings.effective(SourceCatalog.adapterFor(url)?.id ?: adapter.id)
         val http = httpFactory(settings.effective(adapter.id))
         val context = SourceContext(http, web, secrets, settings, logger)
         val first = settings.effective(adapter.id)
@@ -119,9 +129,9 @@ class DownloadPipeline(
         }
         logger.log(LogLevel.INFO, "${book.title}: ${book.chapters.size} chapters")
 
-        // With several site engines the one that read the book decides the settings that apply.
+        // Keep the Add screen's range when another engine reads this source's book.
         val owner = adapter.owner(book)
-        val shared = settings.effective(owner.id)
+        val shared = settings.effective(owner.id).copy(rangeFrom = requested.rangeFrom, rangeTo = requested.rangeTo)
         if (owner.id != adapter.id) logger.log(LogLevel.INFO, "Book read by the ${owner.id.raw} engine")
         var selected = select(book.chapters, shared)
         if (owner.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
@@ -131,9 +141,32 @@ class DownloadPipeline(
             "Downloading ${selected.size} of ${book.chapters.size} chapters" + (if (range.isNotEmpty()) " ($range)" else ""),
         )
         onPhase(JobPhase.FetchingChapters(0, selected.size))
-        val chapterRun = chapterContext(context, selected.size, onPhase, store)
-        val results = adapter.parseChapters(selected, book, chapterRun).toMutableList()
-        retryFailed(adapter, book, chapterRun, results, shared.maxRetries)
+        val completed = ConcurrentHashMap<String, ChapterResult>()
+        val chapterRun = chapterContext(context, selected.size, onPhase, store) { result -> completed[result.ref.id] = result }
+        try {
+            val results = adapter.parseChapters(selected, book, chapterRun).toMutableList()
+            retryFailed(adapter, book, chapterRun, results, shared.maxRetries)
+            return finishDownload(book, results, owner.id, shared, settings, http, url, store, started, onPhase)
+        } catch (cancelled: CancellationException) {
+            if (!(generateOnStop?.invoke() ?: shared.generateOnStop) || completed.values.none { it is ChapterResult.Content }) throw cancelled
+            val results = selected.mapNotNull { completed[it.id] }
+            logger.log(LogLevel.INFO, "Stopped: generating files from ${results.count { it is ChapterResult.Content }} downloaded chapters")
+            // Use collected text and image bytes. A stop never starts another network request or upload.
+            val offline = object : HttpFetching {
+                override suspend fun send(request: HttpRequest) = HttpResponse(request.url, 404, emptyMap(), byteArrayOf())
+            }
+            return withContext(NonCancellable) {
+                finishDownload(book, results, owner.id, shared, settings.copy(upload = settings.upload.copy(autoUpload = false)),
+                    offline, url, store, started, onPhase, stopped = true)
+            }
+        }
+    }
+
+    private suspend fun finishDownload(
+        book: BookInfo, results: List<ChapterResult>, source: SourceId, shared: SharedSettings, settings: AppSettings,
+        http: HttpFetching, url: String, store: ImageStore, started: Long, onPhase: (JobPhase) -> Unit,
+        stopped: Boolean = false,
+    ): JobOutcome {
 
         val chapters = mutableListOf<ChapterContent>()
         val skipped = mutableListOf<Pair<ChapterRef, String>>()
@@ -144,7 +177,7 @@ class DownloadPipeline(
                 is ChapterResult.Failed -> skipped += result.ref to result.message
             }
         }
-        onPhase(JobPhase.FetchingChapters(chapters.size, selected.size))
+        onPhase(JobPhase.FetchingChapters(results.size, results.size))
         logger.log(
             if (skipped.isEmpty()) LogLevel.INFO else LogLevel.WARNING,
             "Chapters: ${chapters.size} downloaded" + (if (skipped.isNotEmpty()) ", ${skipped.size} skipped or failed" else ""),
@@ -155,7 +188,7 @@ class DownloadPipeline(
             FolderWriter.Prepared(outputDirectory, settings.images, images)
         } else null
         return chapterExport.use { prepared ->
-            writeOutputs(book, chapters, skipped, owner.id, shared, settings, http, url, store, started, onPhase, prepared)
+            writeOutputs(book, chapters, skipped, source, shared, settings, http, url, store, started, onPhase, prepared, stopped)
         }
     }
 
@@ -164,6 +197,7 @@ class DownloadPipeline(
         source: SourceId, shared: SharedSettings, settings: AppSettings, http: HttpFetching,
         url: String, store: ImageStore, started: Long, onPhase: (JobPhase) -> Unit,
         prepared: FolderWriter.Prepared?,
+        stopped: Boolean,
     ): JobOutcome {
         val compressAfter = prepared != null && settings.images.compressAfterStitch
         val otherImageOutputs = shared.formats.any { it == OutputFormat.EPUB || it == OutputFormat.CBZ || it == OutputFormat.PDF }
@@ -209,7 +243,7 @@ class DownloadPipeline(
         }
 
         val bundle = BookBundle(book, chapters, imageOutput.images, cover, settings)
-        val baseName = Writers.baseName(book, shared)
+        val baseName = Writers.baseName(book, shared) + if (stopped) "_partial" else ""
         val files = shared.formats.mapNotNull { format ->
             onPhase(JobPhase.Writing(format))
             logger.log(LogLevel.INFO, "Writing ${format.raw.uppercase()}")
@@ -235,42 +269,52 @@ class DownloadPipeline(
         }
 
         val uploads = mutableListOf<UploadResult>()
-        if (settings.upload.autoUpload && files.isNotEmpty()) {
+        var wasStopped = stopped
+        val upload = if (stopped) settings.upload else currentUploadSettings?.invoke() ?: settings.upload
+        if (upload.autoUpload && files.isNotEmpty()) {
             // Folder outputs (separate TXT) are zipped by the catalog; several files may share a ZIP.
             // The stem names files whose titles hosts would reduce to nothing (npia_123456.epub).
             val stem = UploadStem.of(source.raw, UploadStem.bookId(url, book.id))
-            val upload = settings.upload
-            val uploadContext = UploadContext(secrets, upload)
+            val uploadContext = uploadContextFactory(upload)
             val plan = UploaderCatalog.plan(files.map { UploadItem(it, stem) }, upload, uploadContext)
-            val outcomes = UploaderCatalog.uploadAll(plan, upload, uploadContext, listener = object : UploadListener {
-                override fun onStart(position: Int, total: Int, upload: PlannedUpload, name: String) {
-                    onPhase(JobPhase.Uploading(name))
-                    logger.log(LogLevel.INFO, "Uploading $name ($position of $total)")
-                }
-
-                override fun onPreparing(index: Int, total: Int) {
-                    logger.log(LogLevel.INFO, "Preparing ZIP $index of $total")
-                }
-
-                override fun onHost(name: String) {
-                    logger.log(LogLevel.INFO, "Trying $name")
-                }
-
-                override fun onFinished(position: Int, outcome: UploadOutcome) {
-                    val result = outcome.result
-                    if (result != null) {
-                        logger.log(LogLevel.INFO, "Uploaded ${result.label}: ${result.link}")
-                    } else {
-                        logger.log(LogLevel.WARNING, "Upload failed for ${outcome.name}: ${outcome.error}")
+            try {
+                UploaderCatalog.uploadAll(plan, upload, uploadContext, listener = object : UploadListener {
+                    override fun onStart(position: Int, total: Int, upload: PlannedUpload, name: String) {
+                        onPhase(JobPhase.Uploading(name))
+                        logger.log(LogLevel.INFO, "Uploading $name ($position of $total)")
                     }
-                }
-            })
-            outcomes.mapNotNullTo(uploads) { it.result }
+
+                    override fun onPreparing(index: Int, total: Int) {
+                        logger.log(LogLevel.INFO, "Preparing ZIP $index of $total")
+                    }
+
+                    override fun onHost(name: String) {
+                        logger.log(LogLevel.INFO, "Trying $name")
+                    }
+
+                    override fun onHostFailed(name: String, reason: String) {
+                        logger.log(LogLevel.WARNING, "$name: $reason")
+                    }
+
+                    override fun onFinished(position: Int, outcome: UploadOutcome) {
+                        val result = outcome.result
+                        if (result != null) {
+                            uploads += result
+                            logger.log(LogLevel.INFO, "Uploaded ${result.label}: ${result.link}")
+                        } else {
+                            logger.log(LogLevel.WARNING, "Upload failed for ${outcome.name}: ${outcome.error}")
+                        }
+                    }
+                })
+            } catch (cancelled: CancellationException) {
+                wasStopped = true
+                logger.log(LogLevel.INFO, "Upload stopped; generated files kept")
+            }
         }
 
         onPhase(JobPhase.Finished)
         logger.log(LogLevel.INFO, "Finished in ${durationText((System.nanoTime() - started) / 1_000_000)}")
-        return JobOutcome(book, files, uploads, skipped)
+        return JobOutcome(book, files, uploads, skipped, wasStopped)
     }
 
     /**
@@ -349,10 +393,16 @@ class DownloadPipeline(
         total: Int,
         onPhase: (JobPhase) -> Unit,
         store: ImageStore,
+        onResult: (ChapterResult) -> Unit,
     ): SourceContext {
         val done = AtomicInteger()
-        return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger, keep = store::keep, onChapter = { result ->
-            val label = "Chapter ${result.ref.index}: ${result.ref.title}"
+        val starts = ConcurrentHashMap<String, Long>()
+        return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger,
+            onChapterStarted = { ref -> if (base.settings.shared.chapterTiming) starts[ref.id] = System.nanoTime() },
+            keep = store::keep, onChapter = { result ->
+            onResult(result)
+            val elapsed = starts.remove(result.ref.id)?.let { " (${durationText((System.nanoTime() - it) / 1_000_000)})" }.orEmpty()
+            val label = "Chapter ${result.ref.index}: ${result.ref.title}$elapsed"
             when (result) {
                 is ChapterResult.Content -> logger.log(LogLevel.INFO, label)
                 is ChapterResult.Refused -> logger.log(LogLevel.WARNING, "$label skipped: ${result.reason}")

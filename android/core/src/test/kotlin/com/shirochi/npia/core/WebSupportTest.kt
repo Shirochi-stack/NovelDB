@@ -121,6 +121,29 @@ class NetworkCaptureTest {
 
 class WebPagePoolTest {
     @Test
+    fun preparationFailureReleasesTheSlotAndWaitingChapter() = runTest {
+        val preparing = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val failPreparation = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val engine = CountingEngine()
+        val pool = WebPagePool(engine, WebProfile.EXTERNAL, size = 1) {
+            preparing.complete(Unit)
+            failPreparation.await()
+            throw WebEngineException("Preparation failed")
+        }
+        val first = async { runCatching { pool.acquire() } }
+        preparing.await()
+        val waiting = async { runCatching { pool.acquire() } }
+        kotlinx.coroutines.yield()
+        failPreparation.complete(Unit)
+        kotlinx.coroutines.withTimeout(1_000) {
+            assertTrue(first.await().isFailure)
+            assertTrue(waiting.await().isFailure)
+        }
+        assertEquals(0, pool.pageCount())
+        assertTrue(engine.pages.all { it.closed })
+    }
+
+    @Test
     fun poolHonoursSizeAndReusesPages() = runTest {
         val engine = CountingEngine()
         val prepared = AtomicInteger()

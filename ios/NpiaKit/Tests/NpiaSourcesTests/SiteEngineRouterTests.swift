@@ -5,6 +5,16 @@ import NpiaCore
 final class SiteEngineRouterTests: XCTestCase {
     private let all: [SiteEngine] = [.native, .novelDownloader, .webtoepub]
 
+    func testAppReaderUsesTheGenericEngineFirst() {
+        let url = URL(string: "https://011.\u{0062}\u{006f}\u{006f}\u{006b}\u{006b}\u{006f}\u{0072}.com/a-book")!
+        var engines = EngineSettings()
+        engines.dynamicPriority = false
+        XCTAssertTrue(SiteEngineRouter.genericFirst(url))
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: engines).first, .generic)
+        engines.disabled = [.generic]
+        XCTAssertFalse(SiteEngineRouter.plan(for: url, engines: engines).contains(.generic))
+    }
+
     // MARK: - Which engines run
 
     func testANativeOwnerOnlyFollowsEnginesThatListTheSite() {

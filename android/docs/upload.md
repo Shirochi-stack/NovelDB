@@ -56,32 +56,27 @@ public host.
 - History: `UploadHistoryStore(File(filesDir, "upload-history.json"))`, assigned to
   `UploadHistoryStore.shared`. `entries` is a `StateFlow` (newest first); `active()`, `remove()`,
   `pruneExpired()`, `clear()`. `UploadResult.isExpired()`.
-- Google sign-in: `GoogleDriveAuth(GoogleOAuthConfig.configured()!!, secrets).signIn(browser)`,
-  `.signOut()`, `.isSignedIn`. `configured()` returns null until a client ID is filled in, so hide
-  or disable Drive when it is null.
-- `OAuthBrowser` is the one piece `:app` implements: open the URL in a Custom Tab, catch the
-  redirect to `callbackScheme` (an activity with an intent filter for that scheme), and return the
-  full redirect URI. Throw `CancellationException` when the user backs out.
+- Android Google sign-in uses the Google Play services Authorization API through
+  `GoogleDriveSignInActivity`. Upload settings show Sign in to Google and the local connection
+  state. `GoogleDriveAccount` supplies access tokens through `UploadContext.googleAccessToken`.
+  Tokens stay in memory and Play services owns the grant.
+- `GoogleDriveAuth` remains available for clients with an existing OAuth refresh-token grant.
+  Android uses native authorization instead of the legacy browser callback flow.
 
 ## Google Drive setup
 
-OAuth 2.0 with PKCE, no Google SDK and no client secret. Scope is `drive.file`: the app only
-sees files it created. Only the refresh token is stored (`SecretKey.GOOGLE_DRIVE_REFRESH_TOKEN`).
+The native Android flow requests `drive.file`, so it can upload files it creates. Completed
+uploads are shared with anyone who has the resulting link.
 
-1. In Google Cloud Console create (or pick) a project and enable the **Google Drive API**.
-2. Configure the **OAuth consent screen** (External; add yourself as a test user while the app
-   is in testing; `drive.file` is non-sensitive, so no verification is needed).
-3. **Credentials → Create credentials → OAuth client ID → Android.** Package name
-   `com.shirochi.npiamobile` (or the `applicationId` you build with) and the SHA-1 of the signing key
-   (`keytool -list -v -keystore ~/.android/debug.keystore` for debug builds). Under the client's
-   **Advanced settings**, enable **Custom URI scheme**.
-4. Paste the client ID (`1234-abc.apps.googleusercontent.com`) into
-   `GoogleOAuthConfig.BUNDLED_CLIENT_ID` in
-   `android/upload/src/main/kotlin/com/shirochi/npia/upload/GoogleDriveAuth.kt`, or set
-   `GoogleOAuthConfig.clientIdOverride` at app startup (for example from a `BuildConfig` field).
-5. The redirect URI is the reversed id, `com.googleusercontent.apps.1234-abc:/oauth2redirect`.
-   The app manifest needs an intent filter for the scheme `com.googleusercontent.apps.1234-abc`
-   on the activity that completes `OAuthBrowser.authenticate`.
+1. Enable the Google Drive API in the publisher's Google Cloud project and configure its
+   consent screen. Add test accounts while the project is in testing.
+2. Register an Android OAuth client for `com.shirochi.npiamobile` and the SHA-1 certificate
+   fingerprint of the installed build. Register debug and release certificates separately.
+3. Open Settings > Upload, add Google Drive, and tap Sign in to Google. Google Play services
+   shows the account and permission UI. The native API identifies the client from its package
+   and certificate. The APK does not need a client secret or browser callback scheme.
+4. The optional Folder ID chooses the parent folder. Disconnect clears the app's local
+   connection and cached access token.
 
-Set `UploadSettings.googleDriveFolderId` to upload into a folder; each upload is shared as
-"anyone with the link" (reader).
+Google no longer supports custom URI-scheme OAuth callbacks for Android. See the supported
+flow at https://developers.google.com/identity/authorization/android.

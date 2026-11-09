@@ -6,6 +6,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -180,7 +184,7 @@ private fun QueueJobs(
                             if (!selection.active) {
                                 Row(Modifier.padding(start = 8.dp).horizontalScroll(rememberScrollState())) {
                                     if (job.state.isActive) {
-                                        TextButton(onClick = { manager.cancel(job.id) }) { Text("Cancel") }
+                                        TextButton(enabled = !job.stopRequested, onClick = { manager.cancel(job.id) }) { Text(if (job.stopRequested) "Stopping…" else "Cancel") }
                                     } else {
                                         if (job.state != JobState.FINISHED) TextButton(onClick = { manager.retry(job.id) }) { Text("Retry") }
                                         if (files.isNotEmpty()) {
@@ -308,7 +312,7 @@ fun JobDetailScreen(model: AppViewModel, id: String) {
             }
             Row(Modifier.padding(start = 8.dp)) {
                 if (job.state.isActive) {
-                    TextButton(onClick = { manager.cancel(job.id) }) { Text("Cancel") }
+                    TextButton(enabled = !job.stopRequested, onClick = { manager.cancel(job.id) }) { Text(if (job.stopRequested) "Stopping…" else "Cancel") }
                 } else {
                     TextButton(onClick = { manager.retry(job.id) }) { Text("Retry") }
                     TextButton(onClick = { confirmRemove = true }) { Text("Remove") }
@@ -321,7 +325,7 @@ fun JobDetailScreen(model: AppViewModel, id: String) {
             item {
                 Row(Modifier.padding(start = 8.dp)) {
                     if (files.size > 1) TextButton(onClick = { FileActions.share(context, files) }) { Text("Share all") }
-                    if (job.state == JobState.FINISHED && files.any { it.exists() }) {
+                    if ((job.state == JobState.FINISHED || job.state == JobState.CANCELLED) && files.any { it.exists() }) {
                         TextButton(onClick = {
                             model.requestUpload { if (!manager.uploadJobs(listOf(job.id))) manager.message("Nothing left to upload.") }
                         }) { Text(if (files.size > 1) "Upload all" else "Upload") }
@@ -383,38 +387,46 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
             manager.message(if (FileActions.copyTo(context, file, target)) "Saved $name" else "Could not save $name")
         }
     }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(FileActions.displayName(file), Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val size = if (file.isDirectory) file.walkTopDown().filter { it.isFile }.sumOf { it.length() } else file.length()
-            if (file.exists()) Text(Formatter.formatShortFileSize(context, size), style = MaterialTheme.typography.bodySmall)
-        }
-        if (!file.exists()) {
-            Text("Missing", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            return@Column
-        }
-        // Slightly smaller labels and gaps, so all four fit on one line on a phone (a folder's "Save as
-        // ZIP" and "Upload as ZIP" were cut off at the edge); a very narrow screen still scrolls.
-        val small = MaterialTheme.typography.labelMedium
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            AssistChip(onClick = {
-                if (FileActions.readerFile(listOf(file)) != null) reading = true
-                else if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}")
-            }, label = { Text("Open", style = small) })
-            AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share", style = small) })
-            // A folder (separate TXT) is saved and uploaded as one ZIP.
-            AssistChip(onClick = { saveCopy.launch(FileActions.copyName(file)) },
-                label = { Text(if (file.isDirectory) "Save as ZIP" else "Save copy", style = small) })
-            if (upload?.phase != UploadState.Phase.RUNNING) {
-                AssistChip(onClick = { model.requestUpload { manager.upload(file, jobId) } },
-                    label = { Text(if (file.isDirectory) "Upload as ZIP" else "Upload", style = small) })
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("SAVED FILE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(FileActions.displayName(file), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val size = if (file.isDirectory) file.walkTopDown().filter { it.isFile }.sumOf { it.length() } else file.length()
+                if (file.exists()) Text(Formatter.formatShortFileSize(context, size), style = MaterialTheme.typography.bodySmall)
             }
-        }
-        upload?.let { state ->
-            UploadStatus(
-                model, state,
-                onRetry = { model.requestUpload { if (state.paths.size > 1) manager.retryUpload(state) else manager.upload(file, jobId, state.bookId) } },
-            )
+            if (!file.exists()) {
+                Text("Missing", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                return@Column
+            }
+            // Slightly smaller labels and gaps, so all four fit on one line on a phone (a folder's "Save as
+            // ZIP" and "Upload as ZIP" were cut off at the edge); a very narrow screen still scrolls.
+            val small = MaterialTheme.typography.labelMedium
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                AssistChip(onClick = {
+                    if (FileActions.readerFile(listOf(file)) != null) reading = true
+                    else if (!FileActions.open(context, file)) manager.message("No app can open ${file.name}")
+                }, label = { Text("Open", style = small) })
+                AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share", style = small) })
+                // A folder (separate TXT) is saved and uploaded as one ZIP.
+                AssistChip(onClick = { saveCopy.launch(FileActions.copyName(file)) },
+                    label = { Text(if (file.isDirectory) "Save as ZIP" else "Save copy", style = small) })
+                if (upload?.phase != UploadState.Phase.RUNNING) {
+                    AssistChip(onClick = { model.requestUpload { manager.upload(file, jobId) } },
+                        label = { Text(if (file.isDirectory) "Upload as ZIP" else "Upload", style = small) })
+                }
+            }
+            upload?.let { state ->
+                UploadStatus(
+                    model, state,
+                    onRetry = { model.requestUpload { if (state.paths.size > 1) manager.retryUpload(state) else manager.upload(file, jobId, state.bookId) } },
+                )
+            }
         }
     }
     if (reading) LibraryReader(file, model) { reading = false }

@@ -59,6 +59,7 @@ import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploaderCatalog
 import com.shirochi.npia.webengine.AndroidWebEngine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -86,6 +87,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * in the foreground while any job is active.
  */
 class DownloadManager(private val app: Application) {
+    val googleDrive by lazy { GoogleDriveAccount(app) }
     val secrets: SecretStore by lazy {
         // Keystore failures (rare, on some devices after restore) must not crash the app.
         runCatching { EncryptedSecretStore(app) }.getOrElse { InMemorySecretStore() }
@@ -303,6 +305,8 @@ class DownloadManager(private val app: Application) {
     fun cancel(id: String) {
         val task = running[id]
         if (task != null) {
+            if (job(id)?.stopRequested == true) return
+            update(id) { it.copy(stopRequested = true, status = if (_settings.value.shared.generateOnStop) "Stopping and generating files…" else "Stopping…") }
             task.cancel()
         } else if (job(id)?.state == JobState.QUEUED) {
             update(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled") }
@@ -367,11 +371,14 @@ class DownloadManager(private val app: Application) {
             logger = logger,
             // Shares cookies with the web engine, so web-view logins apply to HTTP requests.
             httpFactory = { OkHttpFetcher(it, web.cookieJar(), logger) },
+            currentUploadSettings = { uploadSettings() },
+            uploadContextFactory = ::uploadContext,
+            generateOnStop = { _settings.value.shared.generateOnStop },
         )
         running[id] = scope.launch {
             try {
                 val outcome = pipeline.run(job.url, job.settings) { phase -> update(id) { it.applying(phase) } }
-                finish(id, outcome)
+                withContext(NonCancellable) { finish(id, outcome) }
             } catch (e: CancellationException) {
                 update(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled") }
                 jobLog(id, LogLevel.INFO, "Cancelled")
@@ -411,9 +418,10 @@ class DownloadManager(private val app: Application) {
                 },
                 uploads = outcome.uploads,
                 skipped = outcome.skipped.map { (ref, reason) -> "${ref.index}. ${ref.title}: $reason" },
-                state = JobState.FINISHED,
+                state = if (outcome.stopped) JobState.CANCELLED else JobState.FINISHED,
             ).applying(com.shirochi.npia.pipeline.JobPhase.Finished).let {
-                if (outcome.skipped.isEmpty()) it else it.copy(status = "Done, ${outcome.skipped.size} chapters skipped")
+                if (outcome.stopped) it.copy(status = "Stopped; partial files saved")
+                else if (outcome.skipped.isEmpty()) it else it.copy(status = "Done, ${outcome.skipped.size} chapters skipped")
             }
         }
         outcome.uploads.forEach { recordUpload(it) }
@@ -606,7 +614,8 @@ class DownloadManager(private val app: Application) {
         return if (UploaderCatalog.testHost != null) settings.copy(hosts = listOf(LocalTestUploader.ID)) else settings
     }
 
-    private fun uploadContext(settings: UploadSettings) = UploadContext(secrets, settings, temporaryDirectory = app.cacheDir)
+    private fun uploadContext(settings: UploadSettings) = UploadContext(secrets, settings, temporaryDirectory = app.cacheDir,
+        googleAccessToken = if (googleDrive.signedIn.value) googleDrive::accessToken else null)
 
     /**
      * Debug builds only: points uploads at a server on the developer's machine (`base` empty goes
@@ -678,12 +687,16 @@ class DownloadManager(private val app: Application) {
                 }
             },
             onHost = { name -> setUpload(key) { it.copy(host = name, sentBytes = 0, totalBytes = 0) } },
+            onHostFailed = { name, reason ->
+                setUpload(key) { it.copy(attempts = it.attempts + "$name: $reason") }
+                _uploadStates.value[key]?.jobId?.let { jobLog(it, LogLevel.WARNING, "$name: $reason") }
+            },
         )
     }
 
-    /** The upload items for the finished jobs `ids`: every output file still on disk, named by the job's stem. */
+    /** Saved outputs for jobs `ids`, including partial files, named by each job's stem. */
     fun uploadItemsForJobs(ids: Collection<String>): List<UploadItem> =
-        _jobs.value.filter { it.id in ids && it.state == JobState.FINISHED }.flatMap { job ->
+        _jobs.value.filter { it.id in ids && (it.state == JobState.FINISHED || it.state == JobState.CANCELLED) }.flatMap { job ->
             val stem = UploadNaming.forJob(job)
             job.files(outputDirectory).filter { it.exists() }.map { UploadItem(it, stem) }
         }
@@ -785,6 +798,11 @@ class DownloadManager(private val app: Application) {
         override fun onHost(name: String) {
             setUpload(key) { it.copy(host = name, sentBytes = 0, totalBytes = 0, preparing = null) }
             _uploadBatch.update { it?.copy(preparing = null) }
+        }
+
+        override fun onHostFailed(name: String, reason: String) {
+            setUpload(key) { it.copy(attempts = it.attempts + "$name: $reason") }
+            queueLog.append(LogLevel.WARNING, "$name: $reason", job = "Upload")
         }
 
         override fun onProgress(progress: UploadProgress) {

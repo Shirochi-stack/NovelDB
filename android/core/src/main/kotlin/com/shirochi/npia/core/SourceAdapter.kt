@@ -18,6 +18,7 @@ class SourceContext(
     val secrets: SecretStore,
     val settings: AppSettings,
     val logger: JobLogging = NullLogger,
+    val onChapterStarted: (ChapterRef) -> Unit = {},
     /**
      * Takes each finished chapter before it is kept for the book, from any thread: the pipeline moves
      * image bytes a source already holds to disk, so a long book of picture chapters fits in memory.
@@ -136,6 +137,7 @@ suspend fun SourceAdapter.parseConcurrently(
                     }
                     if (wait > 0) delay(wait)
                 }
+                context.onChapterStarted(ref)
                 val result = context.keep(readWithRetries(ref, context, read))
                 context.onChapter(result)
                 if (!spaced && ref !== last && result !is ChapterResult.Refused) shared.pauseBetweenChapters()

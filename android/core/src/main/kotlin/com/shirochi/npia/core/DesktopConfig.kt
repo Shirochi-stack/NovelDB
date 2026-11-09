@@ -43,6 +43,7 @@ object DesktopConfig {
             skipPaid = c.bool("ext_skip_paid") ?: b.skipPaid,
             imageWorkers = c.int("ext_image_workers") ?: b.imageWorkers,
             generateOnStop = c.bool("ext_generate_on_stop") ?: b.generateOnStop,
+            chapterTiming = c.bool("ext_chapter_timing") ?: b.chapterTiming,
             maxRetries = c.int("max_retries") ?: b.maxRetries,
             requestTimeoutSeconds = c.int("request_timeout")?.coerceIn(10, 600) ?: b.requestTimeoutSeconds,
             pageLoadTimeoutSeconds = c.int("page_load_timeout")?.coerceIn(10, 600) ?: b.pageLoadTimeoutSeconds,
@@ -196,6 +197,7 @@ object DesktopConfig {
         put("ext_skip_paid", shared.skipPaid)
         put("ext_image_workers", shared.imageWorkers)
         put("ext_generate_on_stop", shared.generateOnStop)
+        put("ext_chapter_timing", shared.chapterTiming)
         put("max_retries", shared.maxRetries)
         put("request_timeout", shared.requestTimeoutSeconds)
         put("page_load_timeout", shared.pageLoadTimeoutSeconds)

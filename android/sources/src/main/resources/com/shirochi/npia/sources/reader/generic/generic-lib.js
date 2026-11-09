@@ -110,6 +110,17 @@ function base64ToBytes(text) {
     return bytes;
 }
 
+/** The page as a browser shows it, including the site's scripts and session cookies. */
+async function renderedPage(url) {
+    let carrier = transport();
+    if (carrier == null) return null;
+    let shown = await carrier({ op: "window", url: url, script: "document.documentElement.outerHTML", delay: 1200 });
+    if (shown && shown.pending && window.__noveldb_async) {
+        shown = await window.__noveldb_async.wait(shown.pending);
+    }
+    return shown && typeof shown.value === "string" && shown.value ? { html: shown.value, url: url } : null;
+}
+
 /** {html, url} of a page: the browser for the page's own site, the app's transport otherwise (or when refused). */
 async function load(url, referer, extra) {
     let bytes = null;
@@ -154,10 +165,8 @@ async function load(url, referer, extra) {
     let html = decode(bytes, headers);
     if ((REFUSED.includes(status) || (status < 400 && CHALLENGE.test(html.slice(0, 3000)))) && carrier != null) {
         // A bot check or a refusal: the page as a browser shows it, from a hidden page of the app.
-        let shown = await carrier({ op: "window", url: url, script: "document.documentElement.outerHTML", delay: 1200 });
-        if (shown && typeof shown.value === "string" && shown.value) {
-            return { html: shown.value, url: url };
-        }
+        let shown = await renderedPage(url);
+        if (shown) return shown;
     }
     if (status >= 400) {
         throw new Error("could not load " + url + " (" + status + ")");
@@ -2303,6 +2312,20 @@ function appDataChapter(doc) {
     return built;
 }
 
+/** The desktop's scrambled_hangul check. Short text needs more evidence to classify. */
+function scrambledHangul(text) {
+    let syllables = 0;
+    let finals = 0;
+    for (let character of text) {
+        let code = character.charCodeAt(0) - 0xAC00;
+        if (code >= 0 && code < 11172) {
+            syllables++;
+            if (code % 28) finals++;
+        }
+    }
+    return syllables >= 200 && finals / syllables > 0.8;
+}
+
 function listedComicPages(doc, base) {
     if (chapterPages(doc, base).length) return [];
     const list = /(?:^|[-_])(?:reader|chapter|manga|comic|webtoon)[-_](?:pages|images)(?:$|[-_])/i;
@@ -2354,8 +2377,16 @@ async function chapter(item, listedOnly) {
     if (manga != null) {
         return { chapterName: name, contentHtml: manga, contentText: "", imageCount: 0, images: [], comic: true, imageReferer: read.url };
     }
-    let firstDoc = parse(read.doc.documentElement.outerHTML);
     let [content, text] = extractContent(appDataChapter(read.doc) || read.doc, read.url, name);
+    if (scrambledHangul(text)) {
+        let shown = await renderedPage(url);
+        if (shown) {
+            read = { doc: parse(shown.html), url: shown.url };
+            [content, text] = extractContent(appDataChapter(read.doc) || read.doc, read.url, name);
+        }
+        if (scrambledHangul(text)) throw new Error("the site returned scrambled chapter text");
+    }
+    let firstDoc = parse(read.doc.documentElement.outerHTML);
     // A chapter split over several pages ("下一页", "Next page"): join them.
     let final = read.url;
     let seen = new Set([final]);

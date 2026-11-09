@@ -81,11 +81,14 @@ class UploaderCatalogTest : UploadTestBase() {
         }
         val settings = UploadSettings(hosts = listOf("tempsh", "gofile"))
         val hosts = mutableListOf<String>()
+        val failedHosts = mutableListOf<String>()
         val progress = mutableListOf<UploadProgress>()
 
-        UploaderCatalog.upload(file, settings, context(settings = settings), history = null, progress = { progress += it }, onHost = { hosts += it })
+        UploaderCatalog.upload(file, settings, context(settings = settings), history = null, progress = { progress += it },
+            onHost = { hosts += it }, onHostFailed = { name, reason -> failedHosts += name; assertTrue(reason.isNotBlank()) })
 
         assertEquals(listOf("tempsh", "gofile").map { UploaderCatalog.uploader(it)!!.displayName }, hosts)
+        assertEquals(listOf(UploaderCatalog.uploader("tempsh")!!.displayName), failedHosts)
         assertTrue(progress.isNotEmpty())
         assertTrue(progress.all { it.sentBytes <= it.totalBytes })
         assertEquals(progress.last().totalBytes, progress.last().sentBytes)

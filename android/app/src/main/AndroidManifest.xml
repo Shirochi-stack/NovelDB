@@ -36,6 +36,7 @@
         </activity>
 
         <!-- Invisible: the Share button of the summary notification opens the share sheet through it. -->
+        <activity android:name=".GoogleDriveSignInActivity" android:exported="false" android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity
             android:name=".ShareActivity"
             android:exported="false"

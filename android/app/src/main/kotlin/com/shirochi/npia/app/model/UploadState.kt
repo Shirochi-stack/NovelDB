@@ -24,6 +24,7 @@ data class UploadState(
     val totalBytes: Long = 0,
     val link: String? = null,
     val error: String? = null,
+    val attempts: List<String> = emptyList(),
 ) {
     enum class Phase { RUNNING, DONE, FAILED }
 

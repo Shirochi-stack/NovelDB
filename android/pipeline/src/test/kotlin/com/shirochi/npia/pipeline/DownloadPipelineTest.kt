@@ -16,6 +16,8 @@ import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.Uploader
 import com.shirochi.npia.upload.UploaderCatalog
 import com.shirochi.npia.core.SharedSettings
+import com.shirochi.npia.core.SharedOverrides
+import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.WebEngineProviding
@@ -24,6 +26,8 @@ import com.shirochi.npia.core.WebPageDriving
 import com.shirochi.npia.output.Writers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -120,6 +124,44 @@ class DownloadPipelineTest {
             "chapter-2" to """{"chapterName":"Chapter 2","contentHtml":"<p>Two.</p>","contentText":"Two.","imageCount":0,"images":[]}""",
         ),
     )
+
+    @Test
+    fun scriptEngineKeepsTheRangeChosenForTheUrlSource() = runTest {
+        val url = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/123"
+        for (selected in 1..2) {
+            val output = Files.createTempDirectory("fallback-range").toFile()
+            val requests = mutableListOf<String>()
+            val lines = mutableListOf<String>()
+            val phases = mutableListOf<JobPhase.FetchingChapters>()
+            val fixture = mechanicPage()
+            val page = W2ePage(fixture.book.replace(mechanicUrl, url), fixture.chapters) {
+                if (it.contains("__W2E_parseChapter")) requests += it
+            }
+            val settings = AppSettings(
+                shared = SharedSettings(rangeFrom = 3 - selected, rangeTo = 3 - selected, appendRange = true,
+                    intervalMin = 0.0, intervalMax = 0.0, formats = listOf(OutputFormat.TXT)),
+                overrides = mapOf(SourceId.NPIA.raw to SharedOverrides(rangeFrom = selected, rangeTo = selected)),
+                engines = EngineSettings(order = listOf("webtoepub"), disabled = listOf("native"), dynamicPriority = false),
+            )
+            try {
+                val outcome = DownloadPipeline(InMemorySecretStore(), output, web = WebOf(page),
+                    httpFactory = { Images(emptyMap()) }, logger = JobLogging { _, message -> lines += message })
+                    .run(url, settings) { if (it is JobPhase.FetchingChapters) phases += it }
+
+                assertEquals(SourceId.READER, outcome.book.source)
+                assertEquals(1, requests.size)
+                assertTrue(requests.single().contains("chapter-$selected"))
+                assertEquals(listOf("Chapter $selected: Chapter $selected"), lines.filter { it.startsWith("Chapter ") })
+                assertTrue(phases.toString(), phases.all { it.total == 1 && it.done in 0..1 })
+                val text = outcome.files.single().readText()
+                assertTrue(outcome.files.single().name.endsWith(" ($selected-$selected).txt"))
+                assertTrue(text.contains(if (selected == 1) "One." else "Two."))
+                assertFalse(text.contains(if (selected == 1) "Two." else "One."))
+            } finally {
+                output.deleteRecursively()
+            }
+        }
+    }
 
     @Test
     fun stitchesWhileTheNextChapterDownloadsAndSharesTheStitchesWithZip() = runBlocking {
@@ -258,6 +300,97 @@ class DownloadPipelineTest {
         }
     }
 
+    @Test
+    fun generateOnStopSavesOnlyCompletedChapters() = runBlocking {
+        for (generate in listOf(false, true)) {
+            val output = Files.createTempDirectory("generate-on-stop").toFile()
+            val firstDone = CompletableDeferred<Unit>()
+            val neverFinish = CompletableDeferred<Unit>()
+            val fixture = mechanicPage()
+            val page = W2ePage(fixture.book, fixture.chapters) { script ->
+                if (script.contains("chapter-2")) neverFinish.await()
+            }
+            val saved = CompletableDeferred<JobOutcome>()
+            val settings = AppSettings(shared = SharedSettings(threads = 2, intervalMin = 0.0, intervalMax = 0.0,
+                formats = listOf(OutputFormat.TXT, OutputFormat.EPUB), generateOnStop = generate))
+            try {
+                val job = launch {
+                    val outcome = DownloadPipeline(InMemorySecretStore(), output, web = WebOf(page), httpFactory = { Images(emptyMap()) })
+                        .run(mechanicUrl, settings) { if (it == JobPhase.FetchingChapters(1, 2)) firstDone.complete(Unit) }
+                    saved.complete(outcome)
+                }
+                withTimeout(10_000) { firstDone.await() }
+                withTimeout(10_000) { job.cancelAndJoin() }
+                assertEquals(generate, saved.isCompleted)
+                if (generate) {
+                    val outcome = saved.await()
+                    assertTrue(outcome.stopped)
+                    val text = outcome.files.single { it.extension == "txt" }.readText()
+                    assertTrue(text.contains("One."))
+                    assertFalse(text.contains("Two."))
+                    val epub = outcome.files.single { it.extension == "epub" }
+                    ZipFile(epub).use { zip ->
+                        val html = zip.entries().toList().filter { it.name.endsWith(".xhtml") }
+                            .joinToString { zip.getInputStream(it).bufferedReader().use { reader -> reader.readText() } }
+                        assertTrue(html.contains("One."))
+                        assertFalse(html.contains("Two."))
+                    }
+                    assertTrue(outcome.uploads.isEmpty())
+                } else assertTrue(output.listFiles().orEmpty().isEmpty())
+            } finally { output.deleteRecursively() }
+        }
+    }
+
+    @Test
+    fun chapterTimingIsOptionalAndIncludesTheTotalDuration() = runTest {
+        val lines = mutableListOf<String>()
+        val output = Files.createTempDirectory("chapter-timing").toFile()
+        try {
+            val settings = AppSettings(shared = SharedSettings(chapterTiming = true, intervalMin = 0.0, intervalMax = 0.0,
+                formats = listOf(OutputFormat.TXT)))
+            DownloadPipeline(InMemorySecretStore(), output, web = WebOf(mechanicPage()),
+                httpFactory = { Images(emptyMap()) }, logger = JobLogging { _, message -> lines += message })
+                .run(mechanicUrl, settings)
+            val chapters = lines.filter { it.startsWith("Chapter ") }
+            assertEquals(2, chapters.size)
+            assertTrue(lines.toString(), chapters.all { Regex(".*\\(\\d+\\.\\d s\\)$").matches(it) })
+            assertTrue(lines.any { it.startsWith("Finished in ") })
+        } finally { output.deleteRecursively() }
+    }
+
+    @Test
+    fun cancellingAnUploadKeepsFilesAlreadyGenerated() = runBlocking {
+        val output = Files.createTempDirectory("cancel-upload").toFile()
+        val uploading = CompletableDeferred<Unit>()
+        val saved = CompletableDeferred<JobOutcome>()
+        UploaderCatalog.testHost = object : Uploader {
+            override val id = "localtest"
+            override val displayName = "Held upload"
+            override val maxBytes: Long? = null
+            override val retentionSeconds: Long? = null
+            override val requiresAccount = false
+            override suspend fun upload(file: File, context: UploadContext, progress: ((UploadProgress) -> Unit)?): UploadResult {
+                uploading.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        try {
+            val settings = AppSettings(shared = SharedSettings(formats = listOf(OutputFormat.TXT), intervalMin = 0.0, intervalMax = 0.0),
+                upload = UploadSettings(autoUpload = true, hosts = listOf("localtest")))
+            val job = launch {
+                saved.complete(DownloadPipeline(InMemorySecretStore(), output, web = WebOf(mechanicPage()),
+                    httpFactory = { Images(emptyMap()) }).run(mechanicUrl, settings))
+            }
+            withTimeout(10_000) { uploading.await() }
+            withTimeout(10_000) { job.cancelAndJoin() }
+            val result = saved.await()
+            assertTrue(result.stopped)
+            val file = result.files.single()
+            assertFalse(file.name.contains("_partial"))
+            assertTrue(file.readText().contains("Two."))
+        } finally { UploaderCatalog.testHost = null; output.deleteRecursively() }
+    }
+
     /** A host that records what it was asked to upload. */
     private class RecordingHost : Uploader {
         override val id = "localtest"
@@ -308,6 +441,13 @@ class DownloadPipelineTest {
             assertEquals(2, host.uploads.size)
             val stems = host.uploads.map { it.second }
             assertTrue(stems.toString(), stems.all { it != null && Regex("[a-z_]+_[A-Za-z0-9_-]+").matches(it) })
+
+            // Settings changed after queueing supply the current host order when files are ready.
+            host.uploads.clear()
+            DownloadPipeline(InMemorySecretStore(), output, web = WebOf(mechanicPage()),
+                httpFactory = { Images(emptyMap()) }, currentUploadSettings = { base.upload })
+                .run(mechanicUrl, base.copy(upload = base.upload.copy(hosts = listOf("outdated-host"))))
+            assertEquals(1, host.uploads.size)
         } finally {
             UploaderCatalog.testHost = null
             output.deleteRecursively()

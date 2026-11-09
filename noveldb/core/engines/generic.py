@@ -1940,6 +1940,8 @@ class GenericEngine:
                 if read:
                     content, text, html = read
                     self._scrambling.add(host)
+            if scrambled_hangul(text):
+                raise ValueError("the site returned scrambled chapter text")
         # A chapter split over several pages ("下一页", "Next page"): join them.
         seen = {final}
         soup = soup_of(html)

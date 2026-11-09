@@ -55,9 +55,9 @@ data class QueueSelection(val active: Boolean = false, val ids: Set<String> = em
     fun pruned(selectable: Collection<String>): QueueSelection = copy(ids = ids.filter { it in selectable }.toSet())
 
     companion object {
-        /** Finished jobs that still have at least one output file, in the order the queue shows them. */
+        /** Jobs with saved output files, including partial files generated on stop, in queue order. */
         fun selectable(jobs: List<JobItem>, outputDirectory: File): List<JobItem> =
-            jobs.filter { it.state == JobState.FINISHED && it.files(outputDirectory).any { file -> file.exists() } }
+            jobs.filter { (it.state == JobState.FINISHED || it.state == JobState.CANCELLED) && it.files(outputDirectory).any { file -> file.exists() } }
 
         /** The existing files of the selected jobs, in queue order. */
         fun files(jobs: List<JobItem>, selection: QueueSelection, outputDirectory: File): List<File> =
