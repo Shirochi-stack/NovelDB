@@ -242,6 +242,10 @@ class ExternalPipelineMixin:
                 return {}, path
             with open(path, 'r', encoding='utf-8') as cache_file:
                 payload = json.load(cache_file)
+            if ((self._book_data or {}).get('_lncrawl')
+                    and payload.get('textEncodingVersion', 1) < 2):
+                self._log("Refreshing the chapter cache after the text decoding fix.")
+                return {}, path
             entries = payload.get('chapters', {})
             if not isinstance(entries, dict):
                 raise ValueError('invalid chapter cache')
@@ -293,6 +297,7 @@ class ExternalPipelineMixin:
             return
         payload = {
             'version': 1,
+            'textEncodingVersion': 2,
             'bookUrl': (self._book_data or {}).get('bookUrl', ''),
             'chapters': entries,
         }

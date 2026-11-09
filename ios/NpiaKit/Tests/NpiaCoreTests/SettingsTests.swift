@@ -33,7 +33,9 @@ final class SettingsTests: XCTestCase {
 
     func testChapterTimingIsOptionalAndPortable() throws {
         let old = try SettingsCoding.decode(Data(#"{"shared": {"threads": 2}}"#.utf8))
-        XCTAssertFalse(old.shared.chapterTiming)
+        XCTAssertTrue(old.shared.chapterTiming)
+        let (disabled, _) = DesktopConfig.importConfig(["ext_chapter_timing": false])
+        XCTAssertFalse(disabled.shared.chapterTiming)
         let (settings, _) = DesktopConfig.importConfig(["ext_chapter_timing": true])
         XCTAssertTrue(settings.shared.chapterTiming)
         XCTAssertEqual(DesktopConfig.exportConfig(settings)["ext_chapter_timing"] as? Bool, true)

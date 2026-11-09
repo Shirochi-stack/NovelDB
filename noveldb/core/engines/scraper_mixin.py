@@ -572,7 +572,9 @@ class SiteEnginesMixin:
         if work is not None and not work.wait():
             return None
         details = {"url": url, "method": method, "headers": dict(headers or {}),
-                   "responseType": "arraybuffer" if binary else "", "timeout": 30000}
+                   # Keep original bytes until the engine reads the page's charset. requests.text
+                   # assumes Latin-1 for text/html without a charset and corrupts UTF-8 NBSP.
+                   "responseType": "arraybuffer", "timeout": 30000}
         extra = age_cookies(url)
         if extra:
             # An age check's answer goes with the request (it joins the request's own cookies).
@@ -595,7 +597,9 @@ class SiteEnginesMixin:
             import base64
 
             out["content"] = base64.b64decode(result["responseBase64"])
-            out["text"] = out["content"].decode("utf-8", "replace") if not binary else ""
+            from noveldb.core.engines.generic import decode
+
+            out["text"] = decode(out) if not binary else ""
         else:
             out["text"] = result.get("responseText") or ""
             out["content"] = out["text"].encode("utf-8")

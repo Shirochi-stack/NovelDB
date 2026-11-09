@@ -57,11 +57,9 @@ def fetch(url, method="GET", data=None, headers=None, binary=False, referer="", 
     header_text = str(reply.get("responseHeaders") or "").replace("\r\n", "\n")
     text = ""
     if not binary:
-        found = re.search(r"charset=([\w-]+)", header_text, re.I)
-        try:
-            text = content.decode(found.group(1) if found else "utf-8", "replace")
-        except LookupError:
-            text = content.decode("utf-8", "replace")
+        from noveldb.core.engines.generic import decode
+
+        text = decode({"content": content, "headers": header_text})
     return {"status": int(reply.get("status") or 0), "url": reply.get("finalUrl") or url, "content": content,
             "text": text, "headers": header_text}
 

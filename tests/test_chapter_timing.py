@@ -15,7 +15,8 @@ from noveldb.core.settings.legacy_vars import npia_values, external_values
 
 
 def test_timing_is_optional_and_portable():
-    assert not import_config({}).shared.chapter_timing
+    assert import_config({}).shared.chapter_timing
+    assert not import_config({"ext_chapter_timing": False}).shared.chapter_timing
     settings = import_config({"ext_chapter_timing": True})
     assert settings.shared.chapter_timing
     assert export_config(settings)["ext_chapter_timing"] is True

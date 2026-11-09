@@ -38,7 +38,7 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     public var skipPaid = false
     public var imageWorkers = 6
     public var generateOnStop = false
-    public var chapterTiming = false
+    public var chapterTiming = true
     public var namingMode: NamingMode = .title
     public var appendRange = false
 

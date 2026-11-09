@@ -127,7 +127,7 @@ class SharedSettings:
     skip_paid: bool = False
     image_workers: int = 8
     generate_on_stop: bool = False
-    chapter_timing: bool = False
+    chapter_timing: bool = True
     naming_mode: str = "title"
     append_range: bool = False
 

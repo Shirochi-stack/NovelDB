@@ -16,6 +16,15 @@ from noveldb.core.settings.model import NPIA  # noqa: E402
 
 @pytest.fixture
 def context(tmp_path, monkeypatch, qapp):
+    # Windows' offscreen plugin has no automatic system-font discovery. Use the same native
+    # fonts as the app, so layout checks measure text and emoji rather than missing-glyph boxes.
+    from pathlib import Path
+    from PySide6.QtGui import QFont, QFontDatabase
+    if os.name == "nt" and not QFontDatabase.families():
+        folder = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
+        QFontDatabase.addApplicationFont(str(folder / "segoeui.ttf"))
+        QFontDatabase.addApplicationFont(str(folder / "seguiemj.ttf"))
+        qapp.setFont(QFont("Segoe UI", 11))
     monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
     from noveldb.qt.context import AppContext
 
@@ -161,7 +170,8 @@ def test_download_sits_on_the_first_button_row_before_the_cart(window, qtbot):
     order = [row.layout().itemAt(i).widget() for i in range(row.layout().count())]
     assert order.index(page.download) + 1 == order.index(page.cart_button)
     qtbot.waitUntil(lambda: page.download.isVisible(), timeout=3000)
-    assert page.download.y() == order[0].y()  # not wrapped below Paste, even in a narrow column
+    # Artwork makes Download taller on some platforms; the row centres it beside Paste.
+    assert page.download.geometry().center().y() == order[0].geometry().center().y()
 
 
 def test_wrapped_button_rows_are_evenly_spaced_and_centred(window, qtbot):

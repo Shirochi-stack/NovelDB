@@ -22,6 +22,16 @@ class SettingsTest {
     }
 
     @Test
+    fun chapterTimingDefaultsToOnAndKeepsAnExplicitOffChoice() {
+        assertTrue(SharedSettings().chapterTiming)
+        assertTrue(SettingsCoding.decode("""{"shared": {"threads": 2}}""").shared.chapterTiming)
+        val (disabled, _) = DesktopConfig.import("""{"ext_chapter_timing": false}""")
+        assertFalse(disabled.shared.chapterTiming)
+        val (restored, _) = DesktopConfig.import(DesktopConfig.export(disabled))
+        assertFalse(restored.shared.chapterTiming)
+    }
+
+    @Test
     fun zipBundlingDefaultsToOnWithOneGigabyte() {
         val defaults = UploadSettings()
         assertTrue(defaults.zipBundle)
