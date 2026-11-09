@@ -34,7 +34,7 @@ jobs:
         run: python scripts/data_branch.py checkout
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests beautifulsoup4 'opencv-python-headless>=4.8,<5'
 
       - name: Run SFC scraper
         run: python scripts/scrape_sfc.py --delay 0.15
@@ -51,6 +51,9 @@ jobs:
       - name: Build SFC top file
         run: python scripts/build_sfc_top.py
 
+      - name: Discover matching author covers
+        run: python scripts/discover_sfc_covers.py
+
       - name: Publish data
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,4 +61,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/sfc_novels.json'))))")
-          python scripts/publish_metadata.py --message "🔄 Update SFC data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))" --paths docs/data/sfc_novels.json docs/data/sfc_descriptions.txt.gz 'docs/data/sfc_descriptions_shard_*.json.gz' docs/data/sfc_descriptions_shard_manifest.json 'docs/data/sfc_chunk_*.json.gz' docs/data/sfc_chunk_manifest.json docs/data/sfc_top.json.gz
+          python scripts/publish_metadata.py --message "🔄 Update SFC data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))" --paths docs/data/sfc_novels.json docs/data/sfc_descriptions.txt.gz 'docs/data/sfc_descriptions_shard_*.json.gz' docs/data/sfc_descriptions_shard_manifest.json 'docs/data/sfc_chunk_*.json.gz' docs/data/sfc_chunk_manifest.json docs/data/sfc_top.json.gz docs/data/sfc_author_covers.json.gz metadata/state/sfc_author_covers.json.gz

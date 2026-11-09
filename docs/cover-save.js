@@ -27,6 +27,11 @@
         if(!['https:','http:'].includes(url.protocol) || url.username || url.password) throw new Error('Original image is unavailable.');
         return url.href;
     }
+    async function preferredOriginalUrl(card,signal) {
+        const value = originalUrl(card);
+        if (card.querySelector('.card-cover')?.dataset.originalSrc) return value;
+        return window.NovelCovers.preferredUrl(value,signal);
+    }
     async function readOriginal(url,signal) {
         let failure;
         for(const referrerPolicy of ['no-referrer','strict-origin-when-cross-origin']) {
@@ -111,7 +116,15 @@
         if(button) {button.disabled=true;button.setAttribute('aria-busy','true');}
         message('Preparing image download…');
         try {
-            const result=await downloadImage(url,controller.signal), [extension,type]=result.format;
+            const standard = url;
+            url = await preferredOriginalUrl(card,controller.signal);
+            let result;
+            try {result = await downloadImage(url,controller.signal);}
+            catch(error) {
+                if(url === standard || controller.signal.aborted) throw error;
+                result = await downloadImage(standard,controller.signal);
+            }
+            const [extension,type]=result.format;
             const blob=new Blob([result.blob],{type}), href=URL.createObjectURL(blob), link=document.createElement('a');
             const name=`${card.dataset.source || 'cover'}-${card.dataset.novelId || 'image'}`.replace(/[^a-zA-Z0-9_-]/g,'_');
             link.href=href;link.download=`${name}.${extension}`;link.hidden=true;
@@ -254,18 +267,31 @@
         image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
         imageStatus.textContent='Loading original image…';
         let attempt=0, imageTimer;
+        const imageAttempts=[];
         const finishImage=text=>{clearTimeout(imageTimer);imageStatus.textContent=text;};
+        const nextImage=()=>{
+            const next=imageAttempts[attempt++];
+            if(next) {image.referrerPolicy=next[1];image.src=next[0];}
+            else {image.hidden=true;finishImage('The original image could not load.');}
+        };
         image.onload=()=>finishImage(`Original image · ${image.naturalWidth} × ${image.naturalHeight}`);
         image.onerror=()=>{
             if(signal.aborted) return;
-            if(!attempt++) {image.referrerPolicy='strict-origin-when-cross-origin';image.src=originalUrl(card);}
-            else {image.hidden=true;finishImage('The original image could not load.');}
+            nextImage();
         };
         signal.addEventListener('abort',()=>{clearTimeout(imageTimer);image.onload=image.onerror=null;image.removeAttribute('src');},{once:true});
-        try {
-            image.referrerPolicy='no-referrer';image.src=originalUrl(card);
-            imageTimer=setTimeout(()=>{image.removeAttribute('src');image.hidden=true;finishImage('The original image did not load in time. Reopen Details to retry.');},20000);
-        } catch(error) {image.hidden=true;detailDownload.disabled=true;finishImage(error.message);}
+        (async()=>{
+            try {
+                const standard=originalUrl(card), preferred=await preferredOriginalUrl(card,signal);
+                if(signal.aborted || sequence!==viewSequence) return;
+                imageAttempts.push([preferred,'no-referrer'],[preferred,'strict-origin-when-cross-origin']);
+                if(preferred!==standard) imageAttempts.push([standard,'no-referrer'],[standard,'strict-origin-when-cross-origin']);
+                imageTimer=setTimeout(()=>{image.removeAttribute('src');image.hidden=true;finishImage('The original image did not load in time. Reopen Details to retry.');},20000);
+                nextImage();
+            } catch(error) {
+                if(!signal.aborted && sequence===viewSequence) {image.hidden=true;detailDownload.disabled=true;finishImage(error.message);}
+            }
+        })();
         if(!dialog.open) dialog.showModal();
         close.focus({preventScroll:true});
         try {

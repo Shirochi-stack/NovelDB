@@ -25,6 +25,39 @@
     const clampQuality=value=>Number.isFinite(Number(value)) ? Math.min(100,Math.max(20,Math.round(Number(value)))) : 72;
     quality=clampQuality(quality);resolution=clampQuality(resolution);
     try {localStorage.setItem('noveldb.imageResolution',String(resolution));} catch (_) {}
+    let authorCovers = null, authorCoversRequest = null, authorCoversRetry = 0;
+    async function preferredUrl(value, signal) {
+        let standard;
+        try {standard = new URL(value);} catch (_) {return value;}
+        const hosts = ['rs.\u0073\u0066\u0061\u0063\u0067.com', 'rss.\u0073\u0066\u0061\u0063\u0067.com'];
+        if (!hosts.includes(standard.hostname) || !/^\/web\/novel\/images\/NovelCover\/(Big|Small)\//.test(standard.pathname)) return value;
+        if (!authorCovers && performance.now() >= authorCoversRetry) {
+            if (!authorCoversRequest) {
+                authorCoversRequest = (async () => {
+                    const controller = new AbortController(), timer = setTimeout(()=>controller.abort(),4000);
+                    try {
+                        const response = await fetch(new URL('data/sfc_author_covers.json.gz',document.baseURI),
+                            {cache:'no-cache',credentials:'omit',signal:controller.signal});
+                        if (!response.ok) throw new Error('Author cover lookup unavailable');
+                        const stream = new Blob([await response.arrayBuffer()]).stream().pipeThrough(new DecompressionStream('gzip'));
+                        const data = JSON.parse(await new Response(stream).text());
+                        if (data.schema !== 1 || !data.covers || typeof data.covers !== 'object') throw new Error('Invalid author cover lookup');
+                        authorCovers = data.covers;
+                    } catch (_) {authorCoversRetry = performance.now() + 30000;}
+                    finally {clearTimeout(timer);authorCoversRequest = null;}
+                })();
+            }
+            await authorCoversRequest;
+        }
+        if (signal?.aborted) throw new DOMException('Cover cancelled','AbortError');
+        const match = authorCovers?.[standard.pathname.replace('/NovelCover/Small/','/NovelCover/Big/')];
+        try {
+            const url = new URL(match.url);
+            if (url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443')
+                && hosts.includes(url.hostname) && url.pathname.startsWith('/web/novel/images/UploadPic/')) return url.href;
+        } catch (_) {}
+        return value;
+    }
     function sourceUrls(value, source) {
         const original = value || '';
         try {
@@ -243,7 +276,11 @@
     }
     async function load(job,controller) {
         const {img,ready,missing,fallback} = job;
-        const attempts = [[img.dataset.src,'no-referrer'],[img.dataset.src,'strict-origin-when-cross-origin']];
+        let preferred;
+        try {preferred = await preferredUrl(img.dataset.src,controller.signal);}
+        catch (_) {return;}
+        const attempts = [[preferred,'no-referrer'],[preferred,'strict-origin-when-cross-origin']];
+        if (preferred !== img.dataset.src) attempts.push([img.dataset.src,'no-referrer'],[img.dataset.src,'strict-origin-when-cross-origin']);
         if (fallback && fallback !== img.dataset.src) attempts.push([fallback,'no-referrer']);
         for (const [url,policy] of attempts) {
             if (controller.signal.aborted || !img.isConnected) return;
@@ -267,6 +304,7 @@
     }
     window.NovelCovers = {
         sourceUrls,
+        preferredUrl,
         get lowResolutionEnabled() { return lowResolution; },
         get resolution() {return resolution;},
         setResolution(value) {
