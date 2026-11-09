@@ -10,6 +10,7 @@ const urls = context.window.NovelCovers.sourceUrls;
 test('cover upgrades preserve resource keys, other parameters, and a working fallback',()=>{
     const host='cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com';
     const cases=[
+        ['npia','https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/cover/id_123_ori.wimg?v=2','https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/cover/id_123_ori.file?v=2'],
         ['mpia',`https://${host}/v2/files/tcover/2026/1020/21/id`,`https://${host}/v2/files/tcover/2026/1020/21/id.origin.`],
         ['nweb','https://novel-phinf.pstatic.net/image.png?type=f280_224_2&v=2','https://novel-phinf.pstatic.net/image.png?v=2'],
         ['nseries','https://comicthumb-phinf.pstatic.net/image.jpg?type=m79','https://comicthumb-phinf.pstatic.net/image.jpg'],
@@ -26,6 +27,10 @@ test('cover upgrades preserve resource keys, other parameters, and a working fal
 
 test('unrelated hosts, sources, placeholders and invalid URLs are left alone',()=>{
     for(const [source,value] of [
+        ['npia','https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/cover/id_123_ori.file'],
+        ['npia','https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/img/layout/readycover4.png'],
+        ['npia','https://covers.test/imagebox/cover/id_123_ori.wimg'],
+        ['mpia','https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/cover/id_123_ori.wimg'],
         ['mpia','https://covers.test/v2/files/tcover/id'],
         ['mpia','https://cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com/v2/attachment/covers/default.jpg'],
         ['npia','https://novel-phinf.pstatic.net/image.png?type=m79'],

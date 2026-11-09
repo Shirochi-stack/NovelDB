@@ -30,7 +30,12 @@
         try {
             const url = new URL(original);
             if (!['https:','http:'].includes(url.protocol) || url.username || url.password) return {src:original,fallback:''};
-            if (source === 'mpia' && url.hostname === 'cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com'
+            if (source === 'npia' && url.hostname === 'images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
+                && url.pathname.startsWith('/imagebox/cover/') && url.pathname.endsWith('_ori.wimg')) {
+                // The catalog's WebP is a resized CDN thumbnail. The file
+                // resource preserves the uploaded cover's dimensions and bytes.
+                url.pathname = url.pathname.slice(0,-5) + '.file';
+            } else if (source === 'mpia' && url.hostname === 'cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com'
                 && /^\/v2\/files\/(?:tcover|cover)\//.test(url.pathname)) {
                 // The detail API's originCoverUrl uses this suffix, including
                 // its trailing dot. Keep the catalog thumbnail as a fallback.

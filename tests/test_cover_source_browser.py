@@ -10,18 +10,20 @@ import pytest
 from PIL import Image
 from playwright.async_api import async_playwright
 
-from test_cover_save_browser import image_bytes
+from test_cover_save_browser import image_bytes, open_settings, close_settings
 from test_metadata_frontend_browser import FixtureSite, row, wait_loaded
 
 
 @pytest.mark.parametrize('source,stored', [
+    ('npia', 'https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/cover/id_123_ori.wimg'),
     ('mpia', 'https://cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com/v2/files/tcover/2026/1020/21/id'),
     ('nweb', 'https://novel-phinf.pstatic.net/image.png?type=f280_224_2'),
     ('nseries', 'https://comicthumb-phinf.pstatic.net/image.png?type=m79'),
     ('kpage', 'https://dn-img-page.\u006b\u0061\u006b\u0061\u006f.com/download/resource?kid=a+b/c&filename=th3'),
 ])
 @pytest.mark.parametrize('original_missing', [False, True])
-def test_source_originals_and_fallback_survive_compression_refresh_and_download(source, stored, original_missing):
+@pytest.mark.parametrize('mobile', [False, True])
+def test_source_originals_and_fallback_survive_compression_refresh_and_download(source, stored, original_missing, mobile):
     async def scenario():
         original = image_bytes('PNG')
         output = io.BytesIO()
@@ -47,7 +49,8 @@ def test_source_originals_and_fallback_survive_compression_refresh_and_download(
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page(accept_downloads=True)
+            page = await browser.new_page(accept_downloads=True,
+                viewport={'width':390,'height':844} if mobile else {'width':1440,'height':1000}, is_mobile=mobile)
             await page.route('**/*', route)
             await page.goto(f'https://metadata.test/#src={source}')
             await wait_loaded(page)
@@ -59,8 +62,14 @@ def test_source_originals_and_fallback_survive_compression_refresh_and_download(
                 assert stored in requests
             expected = stored if original_missing else await cover.get_attribute('data-src')
             assert await cover.get_attribute('data-original-src') == expected
-            await page.evaluate('NovelCovers.setLowResolution(false)')
+            await open_settings(page)
+            await page.locator('#lowResCovers').uncheck()
+            await close_settings(page)
             width = 79 if original_missing else 800
+            await page.wait_for_function('(width)=>document.querySelector("img.card-cover.loaded")?.naturalWidth===width', arg=width)
+            await page.reload()
+            await wait_loaded(page)
+            assert not await page.locator('#lowResCovers').is_checked()
             await page.wait_for_function('(width)=>document.querySelector("img.card-cover.loaded")?.naturalWidth===width', arg=width)
             await page.locator('.cover-details').first.click()
             await page.wait_for_function('(width)=>document.querySelector(".novel-details-image img")?.naturalWidth===width', arg=width)
