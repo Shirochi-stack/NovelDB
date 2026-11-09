@@ -151,7 +151,7 @@ class DownloadPipelineTest {
                 assertEquals(SourceId.READER, outcome.book.source)
                 assertEquals(1, requests.size)
                 assertTrue(requests.single().contains("chapter-$selected"))
-                assertEquals(listOf("Chapter $selected: Chapter $selected"), lines.filter { it.startsWith("Chapter ") })
+                assertEquals(listOf("Chapter $selected: Chapter $selected"), lines.filter { it.startsWith("Chapter ") }.map { it.substringBefore(" (") })
                 assertTrue(phases.toString(), phases.all { it.total == 1 && it.done in 0..1 })
                 val text = outcome.files.single().readText()
                 assertTrue(outcome.files.single().name.endsWith(" ($selected-$selected).txt"))
@@ -285,15 +285,15 @@ class DownloadPipelineTest {
             try {
                 withTimeout(10_000) { laterFinished.await() }
                 assertFalse(job.isCompleted)
-                assertTrue("The completed chapter should be visible immediately: $lines", lines.contains("Chapter 2: Chapter 2"))
-                assertFalse(lines.contains("Chapter 1: Chapter 1"))
+                assertTrue("The completed chapter should be visible immediately: $lines", lines.any { it.startsWith("Chapter 2: Chapter 2 (") })
+                assertFalse(lines.any { it.startsWith("Chapter 1: Chapter 1 (") })
             } finally {
                 releaseFirst.complete(Unit)
             }
             val text = job.await().files.single().readText()
             assertTrue(text.contains("One.") && text.contains("Two."))
             assertTrue("Exported chapters stay in reading order", text.indexOf("One.") < text.indexOf("Two."))
-            assertEquals(listOf("Chapter 2: Chapter 2", "Chapter 1: Chapter 1"), lines.filter { it.startsWith("Chapter ") })
+            assertEquals(listOf("Chapter 2: Chapter 2", "Chapter 1: Chapter 1"), lines.filter { it.startsWith("Chapter ") }.map { it.substringBefore(" (") })
         } finally {
             releaseFirst.complete(Unit)
             output.deleteRecursively()
@@ -343,19 +343,21 @@ class DownloadPipelineTest {
 
     @Test
     fun chapterTimingIsOptionalAndIncludesTheTotalDuration() = runTest {
-        val lines = mutableListOf<String>()
-        val output = Files.createTempDirectory("chapter-timing").toFile()
-        try {
-            val settings = AppSettings(shared = SharedSettings(chapterTiming = true, intervalMin = 0.0, intervalMax = 0.0,
-                formats = listOf(OutputFormat.TXT)))
-            DownloadPipeline(InMemorySecretStore(), output, web = WebOf(mechanicPage()),
-                httpFactory = { Images(emptyMap()) }, logger = JobLogging { _, message -> lines += message })
-                .run(mechanicUrl, settings)
-            val chapters = lines.filter { it.startsWith("Chapter ") }
-            assertEquals(2, chapters.size)
-            assertTrue(lines.toString(), chapters.all { Regex(".*\\(\\d+\\.\\d s\\)$").matches(it) })
-            assertTrue(lines.any { it.startsWith("Finished in ") })
-        } finally { output.deleteRecursively() }
+        for (enabled in listOf(false, true)) {
+            val lines = mutableListOf<String>()
+            val output = Files.createTempDirectory("chapter-timing").toFile()
+            try {
+                val settings = AppSettings(shared = SharedSettings(chapterTiming = enabled, intervalMin = 0.0, intervalMax = 0.0,
+                    formats = listOf(OutputFormat.TXT)))
+                DownloadPipeline(InMemorySecretStore(), output, web = WebOf(mechanicPage()),
+                    httpFactory = { Images(emptyMap()) }, logger = JobLogging { _, message -> lines += message })
+                    .run(mechanicUrl, settings)
+                val chapters = lines.filter { it.startsWith("Chapter ") }
+                assertEquals(2, chapters.size)
+                assertTrue(lines.toString(), chapters.all { Regex(".*\\(\\d+\\.\\d s\\)$").matches(it) == enabled })
+                assertTrue(lines.any { it.startsWith("Finished in ") })
+            } finally { output.deleteRecursively() }
+        }
     }
 
     @Test
