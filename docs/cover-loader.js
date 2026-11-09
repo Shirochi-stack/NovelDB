@@ -35,6 +35,15 @@
                 // The catalog's WebP is a resized CDN thumbnail. The file
                 // resource preserves the uploaded cover's dimensions and bytes.
                 url.pathname = url.pathname.slice(0,-5) + '.file';
+            } else if (source === 'sfc' && url.hostname === 'rss.\u0073\u0066\u0061\u0063\u0067.com'
+                && url.pathname.startsWith('/web/novel/images/NovelCover/Small/')) {
+                url.pathname = url.pathname.replace('/NovelCover/Small/', '/NovelCover/Big/');
+            } else if (source === 'rbooks' && url.hostname === 'img.\u0072\u0069\u0064\u0069cdn.net'
+                && /^\/cover\/[0-9]+(?:\/(?:small|large|xlarge|xxlarge))?\/?$/.test(url.pathname)) {
+                // Keep the cover's episode ID, which can differ from the work
+                // ID. The high-density resource supplies the public full-size cover.
+                url.pathname = '/cover/' + url.pathname.split('/')[2] + '/xxlarge';
+                url.searchParams.set('dpi', 'xxhdpi');
             } else if (source === 'mpia' && url.hostname === 'cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com'
                 && /^\/v2\/files\/(?:tcover|cover)\//.test(url.pathname)) {
                 // The detail API's originCoverUrl uses this suffix, including

@@ -16,6 +16,8 @@ from test_metadata_frontend_browser import FixtureSite, row, wait_loaded
 
 @pytest.mark.parametrize('source,stored', [
     ('npia', 'https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/cover/id_123_ori.wimg'),
+    ('sfc', 'https://rss.\u0073\u0066\u0061\u0063\u0067.com/web/novel/images/NovelCover/Small/2026/10/id.jpg'),
+    ('rbooks', 'https://img.\u0072\u0069\u0064\u0069cdn.net/cover/123/large'),
     ('mpia', 'https://cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com/v2/files/tcover/2026/1020/21/id'),
     ('nweb', 'https://novel-phinf.pstatic.net/image.png?type=f280_224_2'),
     ('nseries', 'https://comicthumb-phinf.pstatic.net/image.png?type=m79'),
@@ -82,5 +84,53 @@ def test_source_originals_and_fallback_survive_compression_refresh_and_download(
             await page.evaluate('NovelCovers.setLowResolution(true)')
             await page.wait_for_function('document.querySelector("img.card-cover.loaded")?.src.startsWith("blob:")')
             assert await cover.get_attribute('data-original-src') == expected
+            await browser.close()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('source,stored', [
+    ('sfc', 'https://rss.\u0073\u0066\u0061\u0063\u0067.com/web/novel/images/NovelCover/Big/2026/10/id.jpg'),
+    ('jara', 'https://cf-image.\u006a\u006f\u0061\u0072\u0061.com/literature_file/id_thumb.png'),
+])
+@pytest.mark.parametrize('mobile', [False, True])
+@pytest.mark.parametrize('readable', [False, True])
+def test_native_covers_keep_full_resolution_when_compression_is_disabled(source, stored, mobile, readable):
+    async def scenario():
+        original = image_bytes('PNG')
+        site = FixtureSite(covers=True)
+        async def route(r):
+            url = urlsplit(r.request.url)
+            if url.hostname == urlsplit(stored).hostname:
+                assert r.request.url == stored
+                await r.fulfill(body=original, content_type='image/png',
+                    headers={'access-control-allow-origin':'*' if readable else 'https://different.test'})
+            elif url.path.endswith(f'/data/{source}_chunk_0.json.gz'):
+                novel = row(source); novel[3] = stored
+                await r.fulfill(body=gzip.compress(json.dumps({'novels':[novel]}).encode()), content_type='application/gzip')
+            else:
+                await site.route(r)
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page(
+                viewport={'width':390,'height':844} if mobile else {'width':1440,'height':1000}, is_mobile=mobile)
+            await page.route('**/*', route)
+            await page.goto(f'https://metadata.test/#src={source}')
+            await wait_loaded(page)
+            await page.locator('.card-cover.loaded').first.wait_for()
+            assert await page.locator('.card-cover.loaded').first.evaluate('img=>(img.naturalWidth || img.width)<=320')
+            await open_settings(page)
+            await page.locator('#lowResCovers').uncheck()
+            await close_settings(page)
+            for reload in (False, True):
+                if reload:
+                    await page.reload()
+                    await wait_loaded(page)
+                assert not await page.locator('#lowResCovers').is_checked()
+                await page.wait_for_function('document.querySelector("img.card-cover.loaded")?.naturalWidth===800')
+                cover = page.locator('img.card-cover.loaded').first
+                assert await cover.get_attribute('src') == stored
+                assert await cover.get_attribute('data-original-src') == stored
+                assert await page.locator('canvas.card-cover, img.card-cover[src^="blob:"]').count() == 0
             await browser.close()
     asyncio.run(scenario())
