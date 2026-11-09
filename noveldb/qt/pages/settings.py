@@ -972,6 +972,20 @@ def text_form(context: AppContext) -> Form:
 
 def upload_form(context: AppContext) -> Form:
     f = Form(context, "Upload and share")
+    automatic = QCheckBox("Upload finished files")
+
+    def automatic_upload(on):
+        from noveldb.qt.uploads import ensure_agreement
+
+        if on and not ensure_agreement(context, f):
+            on = False
+        f.change("upload.auto_upload", on)
+        f.refresh()
+
+    automatic.toggled.connect(automatic_upload)
+    f._bind(automatic, lambda s: automatic.setChecked(s.upload.auto_upload and s.upload.agreement_accepted))
+    f.add(automatic)
+    f.add_hint("Automatically upload each download's finished files using the hosts and ZIP settings below.")
     f.add_hint("Hosts are tried in this order until one accepts the file.")
     chips = {}
 

@@ -33,7 +33,7 @@ def context(tmp_path, monkeypatch, qapp):
         out.write_bytes(b"book " + job.input.encode() * 100)
         return {"ok": True, "title": TITLES.get(job.input, job.input), "outputs": [str(out)]}
 
-    ctx.runner._executor = fake_executor
+    ctx._download = fake_executor
     ctx.update_settings(lambda s: replace(
         s, output=replace(s.output, ask_each_time=False, output_dir=str(tmp_path / "out")),
         upload=replace(s.upload, hosts=("fake",), agreement_accepted=True, copy_link=False)))
@@ -322,6 +322,148 @@ def test_settings_show_and_change_the_zip_options(context, qtbot):
     assert context.settings.upload.zip_bundle is True and spin.isEnabled()
     spin.setValue(10)  # below the smallest ZIP: the box holds at 50
     assert spin.value() == 50 and context.settings.upload.zip_max_mb == 50
+
+
+@pytest.mark.parametrize("accepted", [True, False])
+def test_auto_upload_toggle_requests_the_existing_agreement(context, qtbot, monkeypatch, accepted):
+    from PySide6.QtWidgets import QCheckBox, QDialog
+    from noveldb.qt.pages.settings import upload_form
+    from noveldb.qt.uploads import AgreementDialog
+
+    context.update_settings(lambda s: replace(s, upload=replace(s.upload, agreement_accepted=False)))
+    monkeypatch.setattr(AgreementDialog, "exec", lambda self: QDialog.Accepted if accepted else QDialog.Rejected)
+    form = upload_form(context)
+    qtbot.addWidget(form)
+    automatic = next(box for box in form.findChildren(QCheckBox) if box.text() == "Upload finished files")
+    assert not automatic.isChecked()
+    automatic.setChecked(True)
+    assert automatic.isChecked() == context.settings.upload.auto_upload == accepted
+    assert context.settings.upload.agreement_accepted == accepted
+    context.save_now()
+    assert context.store.load().upload.auto_upload == accepted
+
+
+def test_auto_upload_bundles_each_download_and_copies_its_links(context, host, qtbot, tmp_path, qapp):
+    from PySide6.QtGui import QGuiApplication
+
+    original = context._download
+
+    def download(job, token):
+        result = original(job, token)
+        text = tmp_path / "book.txt"
+        text.write_text("finished text", encoding="utf-8")
+        result["outputs"].append(str(text))
+        context._events_for(job).progress(5, 5, "Chapters 5/5")
+        return result
+
+    context._download = download
+    context.update_settings(lambda s: replace(s, upload=replace(s.upload, auto_upload=True, copy_link=True)))
+    job = context.runner.submit([Job("101", source="npia", engine="browser")])[0]
+    assert context.runner.wait_idle(5)
+    assert job.state == DONE and "uploaded" in job.status
+    assert (job.value, job.total) == (5, 5)
+    assert len(host.sent) == 1 and host.sent[0].entry_names == ["첫 번째 책.epub", "book.txt"]
+    history = context.uploads.load()
+    assert len(history) == 1 and history[0].entries == 2
+    qtbot.waitUntil(lambda: history[0].link in QGuiApplication.clipboard().text())
+
+
+@pytest.mark.parametrize("reason", ["disabled", "agreement", "failed", "cancelled", "no_outputs"])
+def test_auto_upload_only_runs_for_successful_enabled_downloads(context, host, reason):
+    original = context._download
+
+    def download(job, token):
+        result = original(job, token)
+        if reason == "failed":
+            result.update(ok=False, error="download failed")
+        if reason == "cancelled":
+            result["cancelled"] = True
+        if reason == "no_outputs":
+            result["outputs"] = []
+        return result
+
+    context._download = download
+    context.update_settings(lambda s: replace(s, upload=replace(
+        s.upload, auto_upload=reason != "disabled", agreement_accepted=reason != "agreement")))
+    context.runner.submit([Job("101", source="npia", engine="browser")])
+    assert context.runner.wait_idle(5)
+    assert host.sent == [] and context.uploads.load() == []
+
+
+def test_auto_upload_failure_keeps_downloads_successful_and_continues_the_queue(context, host):
+    host.reject = lambda name: True
+    context.update_settings(lambda s: replace(s, upload=replace(s.upload, auto_upload=True)))
+    jobs = context.runner.submit([Job(i, source="npia", engine="browser") for i in ("101", "103")])
+    assert context.runner.wait_idle(5)
+    assert all(job.state == DONE and not job.error for job in jobs)
+    assert all("upload failed" in job.status and job.warnings for job in jobs)
+    assert all(os.path.isfile(path) for job in jobs for path in job.outputs)
+    assert context.uploads.load() == []
+
+
+def test_auto_upload_happens_once_per_run_and_again_when_retried(context, host, queue):
+    context.update_settings(lambda s: replace(s, upload=replace(s.upload, auto_upload=True)))
+    job = context.runner.submit([Job("101", source="npia", engine="browser")])[0]
+    assert context.runner.wait_idle(5)
+    for _ in range(3):
+        context.hub.jobChanged.emit(job.id)
+        queue.reload()
+    assert len(host.sent) == 1
+    context.runner.retry(job.id)
+    assert context.runner.wait_idle(5)
+    assert len(host.sent) == 2 and len(context.uploads.load()) == 2
+
+
+@pytest.mark.parametrize("enabled_at_finish", [True, False])
+def test_auto_upload_reads_settings_when_the_download_finishes(context, host, monkeypatch, qtbot, enabled_at_finish):
+    import threading
+    from noveldb.core.upload import catalog
+
+    started, finish = threading.Event(), threading.Event()
+    original = context._download
+    preferred = FakeHost(id="preferred")
+    monkeypatch.setattr(catalog, "uploader", lambda key: {"fake": host, "preferred": preferred}.get(key))
+
+    def download(job, token):
+        started.set()
+        assert finish.wait(5)
+        return original(job, token)
+
+    context._download = download
+    context.update_settings(lambda s: replace(s, upload=replace(s.upload, auto_upload=not enabled_at_finish)))
+    context.runner.submit([Job("101", source="npia", engine="browser")])
+    try:
+        qtbot.waitUntil(started.is_set)
+        context.update_settings(lambda s: replace(s, upload=replace(
+            s.upload, auto_upload=enabled_at_finish, hosts=("preferred", "fake"))))
+    finally:
+        finish.set()
+    assert context.runner.wait_idle(5)
+    assert len(preferred.sent) == int(enabled_at_finish) and host.sent == []
+
+
+def test_cancel_during_auto_upload_preserves_finished_files(context, host, monkeypatch, qtbot):
+    import threading
+    from noveldb.core.queue.model import CANCELLED
+    from noveldb.core.upload.transfer import UploadCancelled
+
+    uploading, release = threading.Event(), threading.Event()
+
+    def upload(path, upload_context, progress=None, name=None):
+        uploading.set()
+        assert release.wait(5)
+        assert upload_context.stopped()
+        raise UploadCancelled("Upload cancelled")
+
+    monkeypatch.setattr(host, "upload", upload)
+    context.update_settings(lambda s: replace(s, upload=replace(s.upload, auto_upload=True)))
+    job = context.runner.submit([Job("101", source="npia", engine="browser")])[0]
+    qtbot.waitUntil(uploading.is_set)
+    context.runner.cancel(job.id)
+    release.set()
+    assert context.runner.wait_idle(5)
+    assert job.state == CANCELLED and all(os.path.isfile(path) for path in job.outputs)
+    assert context.uploads.load() == []
 
 
 def test_settings_follow_changes_made_elsewhere(context, qtbot):

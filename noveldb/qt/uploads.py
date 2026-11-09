@@ -99,7 +99,7 @@ class UploadTask(QObject):
 
         try:
             upload_items(
-                self.items, settings.hosts, self.context.upload_context(stopped=self._stop.is_set),
+                self.items, settings.hosts, self.context.upload_context(stopped=self._stop.is_set, upload_settings=settings),
                 bundle=settings.zip_bundle, max_mb=settings.zip_max_mb, history=self.context.uploads,
                 on_prepare=self.prepare.emit, on_host=on_host,
                 progress=lambda index, count, sent, total: self.progress.emit(index, count, self._host, sent, total),

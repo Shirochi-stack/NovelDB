@@ -7,17 +7,19 @@ from dataclasses import replace
 from typing import Callable
 
 from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtGui import QGuiApplication
 
 from noveldb.core import net_timeouts, paths
 from noveldb.core.catalog.cart import LinkCart
 from noveldb.core.external.browser_worker import BrowserWorker
 from noveldb.core.jobs import JobDispatcher
+from noveldb.core.events import CancelToken
 from noveldb.core.queue.model import Job
 from noveldb.core.queue.runner import QueueRunner
 from noveldb.core.settings.model import AppSettings
 from noveldb.core.settings.store import ConfigStore
 from noveldb.core.sources import detect_source, engine_for, split_inputs
-from noveldb.core.upload import UploadContext, UploadHistory
+from noveldb.core.upload import UploadContext, UploadHistory, links_text, upload_items
 from noveldb.qt.bridge import QtEventHub, QtJobEvents, QtPrompts
 
 
@@ -49,6 +51,7 @@ class AppContext(QObject):
     signedInChanged = Signal(bool)
     googleDriveChanged = Signal()
     _googleDriveFinished = Signal(str, str)
+    _uploadLinksReady = Signal(str)
     cartChanged = Signal()
     toolRequested = Signal(str)  # e.g. "tag_search", handled by the main window
     engineUpdateChecked = Signal(object)  # an engine_updates.UpdateResult
@@ -65,6 +68,7 @@ class AppContext(QObject):
         self.google_drive_busy = False
         self.google_drive_error = ""
         self._googleDriveFinished.connect(self._finish_google_drive)
+        self._uploadLinksReady.connect(self._copy_upload_links)
         net_timeouts.configure_from(self.settings)
         self.hub = QtEventHub()
         self.prompts = QtPrompts()
@@ -87,8 +91,9 @@ class AppContext(QObject):
         data = paths.data_dir()
         self.uploads = UploadHistory(str(data / "upload-history.json"))
         self.cart = LinkCart(str(data / "link-cart.json"), on_change=self.cartChanged.emit)
+        self._download = JobDispatcher(lambda: self.settings, self.auth, self.browser, self._events_for, self.prompts)
         self.runner = QueueRunner(
-            JobDispatcher(lambda: self.settings, self.auth, self.browser, self._events_for, self.prompts),
+            self._execute_job,
             persist_path=data / "queue.json",
             max_concurrent=self.settings.queue.max_concurrent_jobs,
             on_change=lambda job: self.hub.jobChanged.emit(job.id),
@@ -214,11 +219,73 @@ class AppContext(QObject):
                             output_dir=output_dir))
         return self.runner.submit(jobs)
 
-    def upload_context(self, stopped=lambda: False) -> UploadContext:
+    def _execute_job(self, job: Job, token: CancelToken) -> dict:
+        result = self._download(job, token) or {}
+        upload = self.settings.upload
+        if not upload.auto_upload or not result.get("ok", True) or result.get("cancelled") or token.cancelled:
+            return result
+        if not upload.agreement_accepted:
+            self.hub.log(job.id, "Automatic upload skipped. Enable Upload finished files in Settings to accept the sharing agreement.")
+            return result
+
+        from noveldb.qt.uploads import items_for_jobs
+
+        finished = replace(job, outputs=list(result.get("outputs") or []), title=result.get("title") or job.title)
+        items = items_for_jobs([finished])
+        if not items:
+            return result
+        events = self._events_for(job)
+        host = ""
+
+        def status(text):
+            if text != job.status:
+                events.status(text)
+
+        def on_host(index, count, name):
+            nonlocal host
+            host = name
+            events.log(f"Uploading {index + 1} of {count} to {name}")
+            status(f"Uploading {index + 1} of {count} to {name}")
+
+        def progress(index, count, sent, total):
+            if total > 0:
+                status(f"Uploading {index + 1} of {count} to {host} ({sent * 100 // total}%)")
+
+        def outcome(item):
+            if item.link:
+                events.log(f"Uploaded {item.label}: {item.link}")
+            else:
+                events.log(f"Automatic upload failed for {item.label}: {item.error}")
+
+        try:
+            outcomes = upload_items(
+                items, upload.hosts, self.upload_context(stopped=lambda: token.cancelled, upload_settings=upload),
+                bundle=upload.zip_bundle, max_mb=upload.zip_max_mb, history=self.uploads,
+                on_prepare=lambda index, count, name, done, total: status(f"Preparing {name} for upload"),
+                on_host=on_host, progress=progress, on_outcome=outcome,
+            )
+            errors = [item.error for item in outcomes if item.error]
+            links = links_text(outcomes)
+            if links and self.settings.upload.copy_link:
+                self._uploadLinksReady.emit(links)
+            result["status"] = "Downloaded; automatic upload failed" if errors else "Done; uploaded"
+        except Exception as exc:
+            errors = [str(exc) or type(exc).__name__]
+            events.log(f"Automatic upload failed: {errors[0]}")
+            result["status"] = "Downloaded; automatic upload failed"
+        result["warnings"] = list(result.get("warnings") or []) + [f"Automatic upload: {error}" for error in errors]
+        return result
+
+    def _copy_upload_links(self, text: str) -> None:
+        QGuiApplication.clipboard().setText(text)
+        self.hub.message.emit("Upload links copied to the clipboard.")
+
+    def upload_context(self, stopped=lambda: False, upload_settings=None) -> UploadContext:
         s = self.settings.secrets
+        upload = upload_settings or self.settings.upload
         return UploadContext(pixeldrain_key=s.pixeldrain_key, gofile_token=s.gofile_token,
                              catbox_userhash=s.catbox_userhash, stopped=stopped,
-                             google_drive_folder_id=self.settings.upload.google_drive_folder_id,
+                             google_drive_folder_id=upload.google_drive_folder_id,
                              google_access_token=self.google_drive.access_token if self.google_drive.signed_in else None)
 
     def sign_in_google_drive(self) -> None:
