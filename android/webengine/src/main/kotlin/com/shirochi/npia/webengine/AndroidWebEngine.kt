@@ -17,6 +17,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.UserAgentMetadata
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.shirochi.npia.core.DEFAULT_TIMEOUT_SECONDS
@@ -280,6 +282,19 @@ internal class AndroidWebPage(
 
     override suspend fun emulateDesktop(userAgent: String?, width: Int, height: Int) = withContext(Dispatchers.Main) {
         if (userAgent != null) webView.settings.userAgentString = userAgent
+        // A Windows User-Agent alone still sends Android client hints, so a site can serve its mobile reader.
+        if (userAgent?.contains("Windows NT") == true && WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+            val metadata = UserAgentMetadata.Builder(WebSettingsCompat.getUserAgentMetadata(webView.settings))
+                .setPlatform("Windows")
+                .setPlatformVersion("10.0.0")
+                .setArchitecture("x86")
+                .setBitness(64)
+                .setModel("")
+                .setMobile(false)
+                .setWow64(false)
+                .build()
+            WebSettingsCompat.setUserAgentMetadata(webView.settings, metadata)
+        }
         // The layout viewport is the view's size in CSS pixels: scale the view by the screen density.
         val density = webView.resources.displayMetrics.density
         val pixelWidth = (width * density).toInt().coerceAtLeast(1)

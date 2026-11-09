@@ -186,10 +186,8 @@ public struct DownloadPipeline: Sendable {
             selected = book.notices + selected
         }
         onPhase(.fetchingChapters(done: 0, total: selected.count))
-        let chapterLog = OrderedChapterLog(selected, logger: logger)
-        let chapterRun = chapterContext(context, total: selected.count, log: chapterLog, onPhase: onPhase)
+        let chapterRun = chapterContext(context, total: selected.count, onPhase: onPhase)
         var results = try await adapter.parseChapters(selected, book: book, context: chapterRun)
-        chapterLog.flush()
         // Failed chapters (not refused ones) get more passes, each after a longer pause.
         let passes = min(max(shared.maxRetries, 0), Self.maxRetryPasses)
         if passes > 0 {
@@ -322,14 +320,19 @@ public struct DownloadPipeline: Sendable {
         return JobOutcome(book: book, files: files, uploads: uploads, skipped: skipped)
     }
 
-    /// A context whose `onChapter` advances the progress bar as each chapter lands; `log` writes them in reading order.
-    private func chapterContext(_ base: SourceContext, total: Int, log: OrderedChapterLog,
+    /// Logs each chapter result and advances progress immediately, including results from retries.
+    private func chapterContext(_ base: SourceContext, total: Int,
                                 onPhase: @escaping @Sendable (JobPhase) -> Void) -> SourceContext {
         var context = base
         let counter = ChapterCounter()
         context.onChapter = { result in
+            let label = "Chapter " + String(result.ref.index) + ": " + result.ref.title
+            switch result {
+            case .content: logger.log(.info, label)
+            case .refused(_, let reason): logger.log(.warning, label + " skipped: " + reason)
+            case .failed(_, let message): logger.log(.warning, label + " failed: " + message)
+            }
             let done = min(counter.next(), total)
-            log.add(result)
             onPhase(.fetchingChapters(done: done, total: total))
         }
         return context
@@ -408,48 +411,6 @@ enum BrowserProfileName {
 }
 
 /// Thread-safe chapter counter for progress callbacks that arrive from concurrent tasks.
-/// Logs chapters in reading order: one that finishes early waits for those before it. `flush` logs any
-/// still waiting (a chapter an adapter never reported); later results (retries) are logged as they come.
-final class OrderedChapterLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private let logger: any JobLogging
-    private var place: [ChapterRef: Int] = [:]
-    private var waiting: [Int: ChapterResult] = [:]
-    private var next = 0
-    private var flushed = false
-
-    init(_ selected: [ChapterRef], logger: any JobLogging) {
-        self.logger = logger
-        for (offset, ref) in selected.enumerated() where place[ref] == nil { place[ref] = offset }
-    }
-
-    func add(_ result: ChapterResult) {
-        lock.lock(); defer { lock.unlock() }
-        guard !flushed, let at = place[result.ref], at >= next else { write(result); return }
-        waiting[at] = result
-        while let ready = waiting.removeValue(forKey: next) {
-            write(ready)
-            next += 1
-        }
-    }
-
-    func flush() {
-        lock.lock(); defer { lock.unlock() }
-        for key in waiting.keys.sorted() { if let result = waiting[key] { write(result) } }
-        waiting.removeAll()
-        flushed = true
-    }
-
-    private func write(_ result: ChapterResult) {
-        let label = "Chapter " + String(result.ref.index) + ": " + result.ref.title
-        switch result {
-        case .content: logger.log(.info, label)
-        case .refused(_, let reason): logger.log(.warning, label + " skipped: " + reason)
-        case .failed(_, let message): logger.log(.warning, label + " failed: " + message)
-        }
-    }
-}
-
 final class ChapterCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0

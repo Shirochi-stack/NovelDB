@@ -131,9 +131,8 @@ class DownloadPipeline(
             "Downloading ${selected.size} of ${book.chapters.size} chapters" + (if (range.isNotEmpty()) " ($range)" else ""),
         )
         onPhase(JobPhase.FetchingChapters(0, selected.size))
-        val (chapterRun, flushLog) = chapterContext(context, selected, onPhase, store)
+        val chapterRun = chapterContext(context, selected.size, onPhase, store)
         val results = adapter.parseChapters(selected, book, chapterRun).toMutableList()
-        flushLog()
         retryFailed(adapter, book, chapterRun, results, shared.maxRetries)
 
         val chapters = mutableListOf<ChapterContent>()
@@ -344,59 +343,24 @@ class DownloadPipeline(
         return output
     }
 
-    /**
-     * A context whose `onChapter` advances the progress bar as each chapter lands and logs the
-     * chapters in reading order: one that finishes early waits for those before it. The function
-     * returned logs any still waiting (a chapter an adapter never reported); later results (retries)
-     * are logged as they come.
-     */
+    /** Logs each chapter result and advances progress immediately, including results from retries. */
     private fun chapterContext(
         base: SourceContext,
-        selected: List<ChapterRef>,
+        total: Int,
         onPhase: (JobPhase) -> Unit,
         store: ImageStore,
-    ): Pair<SourceContext, () -> Unit> {
-        val total = selected.size
+    ): SourceContext {
         val done = AtomicInteger()
-        val place = HashMap<ChapterRef, Int>()
-        selected.forEachIndexed { i, ref -> place.putIfAbsent(ref, i) }
-        val waiting = java.util.TreeMap<Int, ChapterResult>()
-        var next = 0
-        var flushed = false
-        fun write(result: ChapterResult) {
+        return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger, keep = store::keep, onChapter = { result ->
             val label = "Chapter ${result.ref.index}: ${result.ref.title}"
             when (result) {
                 is ChapterResult.Content -> logger.log(LogLevel.INFO, label)
                 is ChapterResult.Refused -> logger.log(LogLevel.WARNING, "$label skipped: ${result.reason}")
                 is ChapterResult.Failed -> logger.log(LogLevel.WARNING, "$label failed: ${result.message}")
             }
-        }
-        val lock = Any()
-        val context = SourceContext(base.http, base.web, base.secrets, base.settings, base.logger, keep = store::keep, onChapter = { result ->
             val count = done.incrementAndGet().coerceAtMost(total)
-            synchronized(lock) {
-                val at = place[result.ref]
-                if (flushed || at == null || at < next) {
-                    write(result)
-                } else {
-                    waiting[at] = result
-                    while (waiting.isNotEmpty() && waiting.firstKey() <= next) {
-                        val (key, ready) = waiting.pollFirstEntry().let { it.key to it.value }
-                        write(ready)
-                        next = maxOf(next, key + 1)
-                    }
-                }
-            }
             onPhase(JobPhase.FetchingChapters(count, total))
         })
-        val flush = {
-            synchronized(lock) {
-                waiting.values.forEach(::write)
-                waiting.clear()
-                flushed = true
-            }
-        }
-        return context to flush
     }
 
     /**

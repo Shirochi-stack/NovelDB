@@ -218,6 +218,46 @@ class DownloadPipelineTest {
         }
     }
 
+    @Test
+    fun completedChapterIsLoggedWhileAnEarlierChapterIsStillDownloading() = runBlocking {
+        val output = Files.createTempDirectory("live-chapter-log").toFile()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val laterFinished = CompletableDeferred<Unit>()
+        val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val fixture = mechanicPage()
+        val page = W2ePage(fixture.book, fixture.chapters) { script ->
+            if (script.contains("chapter-1")) releaseFirst.await()
+        }
+        val settings = AppSettings(shared = SharedSettings(
+            threads = 2, intervalMin = 0.0, intervalMax = 0.0, formats = listOf(OutputFormat.TXT),
+        ))
+        try {
+            val job = async {
+                DownloadPipeline(
+                    InMemorySecretStore(), output, web = WebOf(page), httpFactory = { Images(emptyMap()) },
+                    logger = JobLogging { _, message -> lines += message },
+                ).run(mechanicUrl, settings) { phase ->
+                    if (phase == JobPhase.FetchingChapters(1, 2)) laterFinished.complete(Unit)
+                }
+            }
+            try {
+                withTimeout(10_000) { laterFinished.await() }
+                assertFalse(job.isCompleted)
+                assertTrue("The completed chapter should be visible immediately: $lines", lines.contains("Chapter 2: Chapter 2"))
+                assertFalse(lines.contains("Chapter 1: Chapter 1"))
+            } finally {
+                releaseFirst.complete(Unit)
+            }
+            val text = job.await().files.single().readText()
+            assertTrue(text.contains("One.") && text.contains("Two."))
+            assertTrue("Exported chapters stay in reading order", text.indexOf("One.") < text.indexOf("Two."))
+            assertEquals(listOf("Chapter 2: Chapter 2", "Chapter 1: Chapter 1"), lines.filter { it.startsWith("Chapter ") })
+        } finally {
+            releaseFirst.complete(Unit)
+            output.deleteRecursively()
+        }
+    }
+
     /** A host that records what it was asked to upload. */
     private class RecordingHost : Uploader {
         override val id = "localtest"
@@ -286,7 +326,11 @@ class DownloadPipelineTest {
     }
 
     /** A page that answers WebToEpub's bridge: the bundle is ready, then the book, then each chapter by URL. */
-    private class W2ePage(val book: String, val chapters: Map<String, String> = emptyMap()) : WebPageDriving {
+    private class W2ePage(
+        val book: String,
+        val chapters: Map<String, String> = emptyMap(),
+        val beforeChapter: suspend (String) -> Unit = {},
+    ) : WebPageDriving {
         val loads = mutableListOf<String>()
         var closed = false
 
@@ -300,7 +344,10 @@ class DownloadPipelineTest {
             // The generic fallback, which finds no chapter list on these pages.
             functionBody.contains("window.__GEN_READY") -> """{"ready":true,"error":null}"""
             functionBody.contains("__GEN_parseBook") -> """{"error":"The generic engine found no chapter list on this page.","noParser":true}"""
-            else -> chapters.entries.firstOrNull { functionBody.contains(it.key) }?.value ?: """{"error":"no such chapter"}"""
+            else -> {
+                beforeChapter(functionBody)
+                chapters.entries.firstOrNull { functionBody.contains(it.key) }?.value ?: """{"error":"no such chapter"}"""
+            }
         }
 
         override suspend fun addInitScript(source: String) {}
