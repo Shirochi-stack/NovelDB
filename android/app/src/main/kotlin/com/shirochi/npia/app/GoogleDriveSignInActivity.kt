@@ -3,6 +3,7 @@ package com.shirochi.npia.app
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
@@ -10,6 +11,8 @@ import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.ClearTokenRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.shirochi.npia.upload.UploadException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +25,8 @@ class GoogleDriveAccount(private val context: Context) {
     private val preferences = context.getSharedPreferences("google-drive", Context.MODE_PRIVATE)
     private val state = MutableStateFlow(preferences.getBoolean("authorized", false))
     val signedIn = state.asStateFlow()
+    private val error = MutableStateFlow<String?>(null)
+    val signInError = error.asStateFlow()
     private var cached: Pair<String, Long>? = null
     private var generation = 0L
 
@@ -29,14 +34,20 @@ class GoogleDriveAccount(private val context: Context) {
         val token = result.accessToken ?: throw UploadException.NotSignedIn("Google Drive")
         synchronized(this) { generation++; cached = token to System.currentTimeMillis() + 45 * 60_000 }
         preferences.edit().putBoolean("authorized", true).apply()
+        error.value = null
         state.value = true
     }
 
     fun disconnect() {
         synchronized(this) { generation++; cached = null }
         preferences.edit().remove("authorized").apply()
+        error.value = null
         state.value = false
     }
+
+    fun signInFailed(message: String) { error.value = message }
+
+    fun clearSignInError() { error.value = null }
 
     suspend fun accessToken(force: Boolean): String {
         if (!state.value) throw UploadException.NotSignedIn("Google Drive")
@@ -72,28 +83,48 @@ class GoogleDriveAccount(private val context: Context) {
     }
 }
 
+/** Google carries success and failure details in the intent, including non-OK activity results. */
+internal fun googleDriveAuthorizationResult(context: Context, response: ActivityResult): AuthorizationResult {
+    @Suppress("DEPRECATION")
+    val launchError = response.data?.getSerializableExtra(ActivityResultContracts.StartIntentSenderForResult.EXTRA_SEND_INTENT_EXCEPTION) as? Exception
+    if (launchError != null) throw launchError
+    return Identity.getAuthorizationClient(context).getAuthorizationResultFromIntent(response.data)
+}
+
+internal fun googleDriveSignInFailure(error: Exception): String {
+    val api = error as? ApiException
+    val detail = api?.status?.statusMessage?.takeIf { it.isNotBlank() }
+        ?: api?.let { CommonStatusCodes.getStatusCodeString(it.statusCode) }
+        ?: error.localizedMessage?.takeIf { it.isNotBlank() }
+        ?: error.javaClass.simpleName
+    return when (api?.statusCode) {
+        CommonStatusCodes.DEVELOPER_ERROR ->
+            "Google Drive authorization needs publisher setup (Google error ${api.statusCode}). " +
+                "Register this app's package and signing certificate in Google Cloud. $detail"
+        else -> "Google Drive authorization did not complete" +
+            (api?.let { " (Google error ${it.statusCode})" } ?: "") + ". $detail"
+    }
+}
+
 /** Uses the native consent screen so browser-embedded Google sign-in restrictions do not apply. */
 class GoogleDriveSignInActivity : ComponentActivity() {
     private val manager get() = (application as NpiaApplication).downloads
     private val authorization = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { response ->
-        if (response.resultCode != RESULT_OK) {
-            manager.message("Google sign-in cancelled")
-            finish()
-            return@registerForActivityResult
-        }
         try {
-            val result = Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(response.data)
-            complete(result)
+            complete(googleDriveAuthorizationResult(this, response))
         } catch (error: Exception) { fail(error) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) return
+        manager.googleDrive.clearSignInError()
         Identity.getAuthorizationClient(this).authorize(GoogleDriveAccount.request())
             .addOnSuccessListener { result ->
-                if (result.hasResolution()) authorization.launch(IntentSenderRequest.Builder(result.pendingIntent!!.intentSender).build())
-                else complete(result)
+                try {
+                    if (result.hasResolution()) authorization.launch(IntentSenderRequest.Builder(result.pendingIntent!!.intentSender).build())
+                    else complete(result)
+                } catch (error: Exception) { fail(error) }
             }.addOnFailureListener(::fail)
     }
 
@@ -106,9 +137,8 @@ class GoogleDriveSignInActivity : ComponentActivity() {
     }
 
     private fun fail(error: Exception) {
-        val message = if ((error as? com.google.android.gms.common.api.ApiException)?.statusCode == 10)
-            "Google Drive sign-in is unavailable for this build. Please choose another host."
-        else "Google Drive sign-in did not finish: ${error.localizedMessage ?: error.javaClass.simpleName}"
+        val message = googleDriveSignInFailure(error)
+        manager.googleDrive.signInFailed(message)
         manager.message(message)
         finish()
     }

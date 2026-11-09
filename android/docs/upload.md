@@ -80,3 +80,15 @@ uploads are shared with anyone who has the resulting link.
 
 Google no longer supports custom URI-scheme OAuth callbacks for Android. See the supported
 flow at https://developers.google.com/identity/authorization/android.
+
+### Authorization failures
+
+The app reads Google's status from the returned intent even when the activity result is cancelled.
+The Upload settings retain the error code and description until another sign-in attempt starts.
+Error 10 identifies developer configuration. Check the Android OAuth package and signing certificate
+in the publisher's Google Cloud project. Error 16 can carry a more specific authorization failure,
+so retain its description when reporting the problem.
+
+For the ND114 release APK, the package is `com.shirochi.npiamobile` and the signing certificate SHA-1
+is `6D:B7:60:78:05:BC:C2:F5:44:50:B3:92:5C:0D:59:F6:90:2B:5C:82`. A locally built debug APK has its
+own signing certificate and needs a separately registered Android OAuth client.

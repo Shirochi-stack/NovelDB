@@ -690,6 +690,7 @@ fun UploadSettingsScreen(model: AppViewModel) {
         if (upload.hosts.any { UploaderCatalog.uploader(it)?.id == "gdrive" }) {
             SectionHeader("Google Drive")
             val signedIn by model.manager.googleDrive.signedIn.collectAsStateWithLifecycle()
+            val signInError by model.manager.googleDrive.signInError.collectAsStateWithLifecycle()
             val context = LocalContext.current
             Text(if (signedIn) "Signed in to Google Drive" else "Sign in to use Google Drive", modifier = Modifier.padding(horizontal = 16.dp))
             Row(Modifier.padding(horizontal = 8.dp)) {
@@ -698,6 +699,8 @@ fun UploadSettingsScreen(model: AppViewModel) {
                 }
                 if (signedIn) TextButton(onClick = { model.manager.googleDrive.disconnect() }) { Text("Disconnect") }
             }
+            signInError?.let { Text(it, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
             OutlinedTextField(
                 value = upload.googleDriveFolderId.orEmpty(),
                 onValueChange = { v -> set { it.copy(googleDriveFolderId = v.trim().ifEmpty { null }) } },
