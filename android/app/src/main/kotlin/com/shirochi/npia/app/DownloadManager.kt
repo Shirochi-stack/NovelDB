@@ -87,7 +87,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * in the foreground while any job is active.
  */
 class DownloadManager(private val app: Application) {
-    val googleDrive by lazy { GoogleDriveAccount(app) }
+    val googleDrive by lazy { GoogleDriveAccount(secrets) }
     val secrets: SecretStore by lazy {
         // Keystore failures (rare, on some devices after restore) must not crash the app.
         runCatching { EncryptedSecretStore(app) }.getOrElse { InMemorySecretStore() }
@@ -155,6 +155,19 @@ class DownloadManager(private val app: Application) {
 
     fun message(text: String) {
         _messages.tryEmit(text)
+    }
+
+    fun connectGoogleDrive(credentials: GoogleDriveCredentials) {
+        scope.launch {
+            try {
+                googleDrive.connect(credentials)
+                message("Connected to Google Drive")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                message(googleDrive.signInError.value ?: "Google Drive connection failed")
+            }
+        }
     }
 
     // Settings
@@ -614,7 +627,7 @@ class DownloadManager(private val app: Application) {
         return if (UploaderCatalog.testHost != null) settings.copy(hosts = listOf(LocalTestUploader.ID)) else settings
     }
 
-    private fun uploadContext(settings: UploadSettings) = UploadContext(secrets, settings, temporaryDirectory = app.cacheDir,
+    private fun uploadContext(settings: UploadSettings) = UploadContext(secrets, settings, googleOAuth = null, temporaryDirectory = app.cacheDir,
         googleAccessToken = if (googleDrive.signedIn.value) googleDrive::accessToken else null)
 
     /**

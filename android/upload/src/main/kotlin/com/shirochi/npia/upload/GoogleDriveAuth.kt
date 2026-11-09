@@ -18,19 +18,18 @@ import java.security.SecureRandom
 import java.util.Base64
 
 /**
- * The app's Google OAuth client. Register a client in Google Cloud Console (see
- * `android/docs/upload.md`) and put its id in [BUNDLED_CLIENT_ID], or set [clientIdOverride] at
- * startup (for example from `BuildConfig`). Drive stays hidden while neither is filled in.
+ * Google OAuth client credentials. Android's UI supplies the user's configuration explicitly.
+ * [BUNDLED_CLIENT_ID] and [clientIdOverride] remain available to existing library callers.
  */
-class GoogleOAuthConfig private constructor(val clientId: String) {
+class GoogleOAuthConfig private constructor(val clientId: String, val clientSecret: String?) {
     /** Google redirects to the reversed client id, e.g. `com.googleusercontent.apps.123-abc`. */
     val callbackScheme: String get() = "com.googleusercontent.apps." + clientId.removeSuffix(CLIENT_SUFFIX)
 
     val redirectUri: String get() = "$callbackScheme:/oauth2redirect"
 
-    override fun equals(other: Any?): Boolean = other is GoogleOAuthConfig && other.clientId == clientId
+    override fun equals(other: Any?): Boolean = other is GoogleOAuthConfig && other.clientId == clientId && other.clientSecret == clientSecret
 
-    override fun hashCode(): Int = clientId.hashCode()
+    override fun hashCode(): Int = 31 * clientId.hashCode() + (clientSecret?.hashCode() ?: 0)
 
     override fun toString(): String = "GoogleOAuthConfig($clientId)"
 
@@ -49,10 +48,10 @@ class GoogleOAuthConfig private constructor(val clientId: String) {
         val REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke".toHttpUrl()
 
         /** null for an empty or placeholder id. */
-        fun of(clientId: String?): GoogleOAuthConfig? {
+        fun of(clientId: String?, clientSecret: String? = null): GoogleOAuthConfig? {
             val id = clientId.orEmpty().trim()
             if (!id.endsWith(CLIENT_SUFFIX) || id.length <= CLIENT_SUFFIX.length || id.contains("\$(") || id.contains("\${")) return null
-            return GoogleOAuthConfig(id)
+            return GoogleOAuthConfig(id, clientSecret?.trim()?.takeIf { it.isNotEmpty() })
         }
 
         fun configured(): GoogleOAuthConfig? = of(clientIdOverride ?: BUNDLED_CLIENT_ID)
@@ -91,7 +90,7 @@ internal data class GoogleTokens(
 )
 
 /**
- * Google sign-in with PKCE (no Google SDK, no client secret). Only the refresh token is stored, in
+ * Google token refresh and the legacy browser PKCE flow. The refresh token is stored in
  * `SecretStore` under `SecretKey.GOOGLE_DRIVE_REFRESH_TOKEN`; access tokens stay in memory.
  */
 class GoogleDriveAuth(
@@ -154,11 +153,12 @@ class GoogleDriveAuth(
         return try {
             json.decodeFromString(GoogleTokens.serializer(), reply.body.toString(Charsets.UTF_8))
         } catch (e: Exception) {
-            throw UploadException.Rejected(HOST, "unreadable token reply: ${reply.snippet}")
+            throw UploadException.Rejected(HOST, "unreadable token reply")
         }
     }
 
     private fun store(tokens: GoogleTokens) {
+        if (tokens.accessToken.isBlank()) throw UploadException.Rejected(HOST, "no access token was returned")
         synchronized(lock) {
             val lifetime = ((tokens.expiresIn ?: 3_600.0) - 60).toLong() * 1000
             cached = tokens.accessToken to now() + lifetime
@@ -218,8 +218,9 @@ class GoogleDriveAuth(
         internal fun exchangeRequest(config: GoogleOAuthConfig, code: String, pkce: Pkce): Request =
             formRequest(
                 GoogleOAuthConfig.TOKEN_ENDPOINT,
-                listOf(
+                listOfNotNull(
                     "client_id" to config.clientId,
+                    config.clientSecret?.let { "client_secret" to it },
                     "code" to code,
                     "code_verifier" to pkce.verifier,
                     "grant_type" to "authorization_code",
@@ -230,8 +231,9 @@ class GoogleDriveAuth(
         internal fun refreshRequest(config: GoogleOAuthConfig, refreshToken: String): Request =
             formRequest(
                 GoogleOAuthConfig.TOKEN_ENDPOINT,
-                listOf(
+                listOfNotNull(
                     "client_id" to config.clientId,
+                    config.clientSecret?.let { "client_secret" to it },
                     "grant_type" to "refresh_token",
                     "refresh_token" to refreshToken,
                 ),

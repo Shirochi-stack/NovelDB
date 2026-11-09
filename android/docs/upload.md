@@ -56,39 +56,40 @@ public host.
 - History: `UploadHistoryStore(File(filesDir, "upload-history.json"))`, assigned to
   `UploadHistoryStore.shared`. `entries` is a `StateFlow` (newest first); `active()`, `remove()`,
   `pruneExpired()`, `clear()`. `UploadResult.isExpired()`.
-- Android Google sign-in uses the Google Play services Authorization API through
-  `GoogleDriveSignInActivity`. Upload settings show Sign in to Google and the local connection
-  state. `GoogleDriveAccount` supplies access tokens through `UploadContext.googleAccessToken`.
-  Tokens stay in memory and Play services owns the grant.
-- `GoogleDriveAuth` remains available for clients with an existing OAuth refresh-token grant.
-  Android uses native authorization instead of the legacy browser callback flow.
+- Android Google Drive connections use `GoogleDriveAccount` with credentials supplied by the user.
+  Upload settings contain the OAuth client ID, optional client secret, and refresh token. The
+  Sign in to Google button validates the grant before saving it in `EncryptedSecretStore`.
+  `UploadContext.googleAccessToken` supplies the account's cached or refreshed access token.
+- `GoogleDriveAuth` remains available for other clients with an existing OAuth grant. Public OAuth
+  clients omit the client secret. Clients that require a secret include the user's supplied value.
 
-## Google Drive setup
+## User-supplied Google Drive credentials
 
-The native Android flow requests `drive.file`, so it can upload files it creates. Completed
-uploads are shared with anyone who has the resulting link.
+Each user authorizes their own OAuth client and enters its credentials in Settings > Upload >
+Google Drive. The Android connection refreshes that existing grant through Google's token endpoint.
 
-1. Enable the Google Drive API in the publisher's Google Cloud project and configure its
-   consent screen. Add test accounts while the project is in testing.
-2. Register an Android OAuth client for `com.shirochi.npiamobile` and the SHA-1 certificate
-   fingerprint of the installed build. Register debug and release certificates separately.
-3. Open Settings > Upload, add Google Drive, and tap Sign in to Google. Google Play services
-   shows the account and permission UI. The native API identifies the client from its package
-   and certificate. The APK does not need a client secret or browser callback scheme.
-4. The optional Folder ID chooses the parent folder. Disconnect clears the app's local
-   connection and cached access token.
+1. In your Google Cloud project, enable the Drive API and configure the OAuth consent screen.
+   For the OAuth Playground procedure below, create a Web application OAuth client and add
+   `https://developers.google.com/oauthplayground` as an authorized redirect URI.
+2. Open https://developers.google.com/oauthplayground/. In its settings, select Use your own
+   OAuth credentials and enter your client ID and client secret. Select offline access.
+3. Authorize `https://www.googleapis.com/auth/drive.file` using the Google account whose Drive
+   you want to upload to. Exchange the authorization code for tokens.
+4. In NovelDB's Google Drive settings, enter that same client ID, its client secret if required,
+   and the refresh token returned by Google. Tap Sign in to Google.
+5. A successful token refresh saves the complete connection as one encrypted record. Client
+   secrets and refresh tokens are masked in the form and excluded from settings exports.
+   Disconnect clears the stored connection and cached tokens.
 
-Google no longer supports custom URI-scheme OAuth callbacks for Android. See the supported
-flow at https://developers.google.com/identity/authorization/android.
+The optional Folder ID chooses the parent folder. The app uploads files it creates with the
+`drive.file` scope and shares finished uploads with anyone who has the resulting link.
+A Google project in Testing must allow the chosen account as a test user. Google controls token
+expiry and revocation. An invalid or revoked refresh token requires authorizing that client again.
 
-### Authorization failures
+Failed validation keeps the previous working connection. A disconnect during validation or token
+refresh prevents the pending response from restoring credentials. Connection errors stay visible
+in Upload settings for the current app session.
 
-The app reads Google's status from the returned intent even when the activity result is cancelled.
-The Upload settings retain the error code and description until another sign-in attempt starts.
-Error 10 identifies developer configuration. Check the Android OAuth package and signing certificate
-in the publisher's Google Cloud project. Error 16 can carry a more specific authorization failure,
-so retain its description when reporting the problem.
-
-For the ND114 release APK, the package is `com.shirochi.npiamobile` and the signing certificate SHA-1
-is `6D:B7:60:78:05:BC:C2:F5:44:50:B3:92:5C:0D:59:F6:90:2B:5C:82`. A locally built debug APK has its
-own signing certificate and needs a separately registered Android OAuth client.
+Google's OAuth Playground documents the user-provided client option at
+https://developers.google.com/oauthplayground/. The refresh-token flow is described at
+https://developers.google.com/identity/protocols/oauth2/web-server#offline.
