@@ -846,6 +846,9 @@ function metadata(doc, url) {
     }
     let siteName = meta(doc, "og:site_name", "application-name");
     let title = ldText(book.name || book.headline) || meta(doc, "og:title", "twitter:title");
+    if (qdnGlobalCatalog(url)) {
+        title = textOf(doc.querySelector("h1")) || title;
+    }
     if (!title) {
         let h1 = doc.querySelector("h1");
         title = h1 ? textOf(h1) : textOf(doc.querySelector("title"));
@@ -902,6 +905,9 @@ function metadata(doc, url) {
     }
     cover = cover ? cleanUrl(cover, url) : "";
     let description = ldText(book.description) || meta(doc, "og:description", "description", "twitter:description");
+    if (qdnGlobalCatalog(url)) {
+        description = meta(doc, "description") || description;
+    }
     if (siteWide(description, title, siteName || new URL(url).host) || !prose(description) || template(description)) {
         description = "";  // the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     }
@@ -1108,8 +1114,36 @@ function inBadBlock(anchor) {
     return BAD_BLOCKS.test(hints.join(" "));
 }
 
+/** The selected qdn Global book's catalog, including links pasted from a chapter. */
+function qdnGlobalCatalog(url) {
+    const parts = new URL(url);
+    const domain = "\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com";
+    if (parts.hostname !== domain && !parts.hostname.endsWith("." + domain)) return "";
+    const match = /^\/(book|comic)\/(?:[^/]+_)?(\d+)(?:\/(?:catalog|(?:[^/]+_)?\d+))?\/?$/.exec(parts.pathname);
+    return match ? "https://www." + domain + "/" + match[1] + "/" + match[2] + "/catalog" : "";
+}
+
+function qdnGlobalChapters(doc, base, catalog) {
+    const chapters = [], seen = new Set();
+    let anchors = doc.querySelectorAll("ul.content-list a[href], div.volume-item ol a[href]");
+    if (!anchors.length) anchors = doc.querySelectorAll("a[href]");
+    for (const anchor of anchors) {
+        const href = cleanUrl(anchor.getAttribute("href"), base);
+        if (!href || qdnGlobalCatalog(href) !== catalog) continue;
+        const segments = pathOf(href).replace(/^\/|\/$/g, "").split("/");
+        const id = segments[segments.length - 1].split("_").pop();
+        if (segments.length !== 3 || !/^\d+$/.test(id) || seen.has(id)) continue;
+        seen.add(id);
+        const title = anchor.getAttribute("title") || textOf(anchor.querySelector("strong") || anchor);
+        chapters.push({url: href, name: cleanName(title) || "Chapter " + (chapters.length + 1)});
+    }
+    return chapters;
+}
+
 /** The page's chapter links in reading order: [{url, name}]. */
 function findChapters(doc, base) {
+    const catalog = qdnGlobalCatalog(base);
+    if (catalog) return qdnGlobalChapters(doc, base, catalog);
     let found = links(doc, base);
     if (!found.length) {
         return [];
@@ -1545,7 +1579,7 @@ async function appChapters(doc, final) {
 
 async function book(url, onChapters, active = () => true) {
     let doc, final;
-    url = asuraAddress(webtoonsSeries(dm5Desktop(url || location.href)));
+    url = qdnGlobalCatalog(url || location.href) || asuraAddress(webtoonsSeries(dm5Desktop(url || location.href)));
     if (sameAddress(url, location.href)) {
         // The page the site's scripts built: the desktop reads this one only after the plain page fails.
         doc = document;
@@ -1637,7 +1671,7 @@ async function book(url, onChapters, active = () => true) {
             onChapters(entries(published));
         }
     }
-    if (chapters.length && !episodes.length) {
+    if (chapters.length && !episodes.length && !qdnGlobalCatalog(final)) {
         chapters = await moreListPages(doc, final, chapters, warnings, onChapters && publish, active);
     }
     if (!active()) return failure("the reader was closed");

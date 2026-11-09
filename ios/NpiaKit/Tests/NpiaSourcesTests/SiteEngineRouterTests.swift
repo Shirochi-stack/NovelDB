@@ -15,6 +15,15 @@ final class SiteEngineRouterTests: XCTestCase {
         XCTAssertFalse(SiteEngineRouter.plan(for: url, engines: engines).contains(.generic))
     }
 
+    func testQdnGlobalDownloadsUseTheCatalogParserFirst() {
+        let url = URL(string: "https://www.\u{0077}\u{0065}\u{0062}\u{006e}\u{006f}\u{0076}\u{0065}\u{006c}.com/book/title_20553633305398405")!
+        var engines = EngineSettings()
+        engines.dynamicPriority = false
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: engines).first, .generic)
+        engines.disabled = [.generic]
+        XCTAssertFalse(SiteEngineRouter.plan(for: url, engines: engines).contains(.generic))
+    }
+
     // MARK: - Which engines run
 
     func testANativeOwnerOnlyFollowsEnginesThatListTheSite() {

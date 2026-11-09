@@ -50,7 +50,8 @@ class SourceCatalogTest {
         val every = EngineSettings(dynamicPriority = false)
         for (url in listOf("https://fanfox.net/manga/one_piece/", "https://m.fanfox.net/manga/one_piece/", "https://www.mangahere.cc/manga/one_piece/",
                            "https://www.webtoons.com/en/fantasy/tower-of-god/list?title_no=95",
-                           "https://011.\u0062\u006f\u006f\u006b\u006b\u006f\u0072.com/a-book")) {
+                           "https://011.\u0062\u006f\u006f\u006b\u006b\u006f\u0072.com/a-book",
+                           "https://www.\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com/book/title_20553633305398405")) {
             assertTrue(url, SourceCatalog.genericFirst(url))
             val steps = (SourceCatalog.resolve(url, every) as SiteEngineChain).steps
             assertEquals(url, SiteEngine.GENERIC, steps.first())

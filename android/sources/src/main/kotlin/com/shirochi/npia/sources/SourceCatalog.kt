@@ -101,7 +101,7 @@ object SourceCatalog {
      */
     // rawkuma.net: its book page lists every chapter and its chapter pages every picture (HaruNeko took one-chapter
     // books for chapters).
-    private val GENERIC_FIRST = listOf("fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com", "rawkuma.net",
+    private val GENERIC_FIRST = listOf("\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com", "fanfox.net", "mangahere.cc", "mangahere.com", "webtoons.com", "rawkuma.net",
         "\u0062\u006f\u006f\u006b\u006b\u006f\u0072.com")
 
     fun genericFirst(url: String): Boolean {

@@ -592,6 +592,8 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
                     book[key] = item[key]
     site_name = _meta(soup, "og:site_name", "application-name")
     title = _ld_text(book.get("name") or book.get("headline")) or _meta(soup, "og:title", "twitter:title")
+    if qdn_global_catalog(url):
+        title = text_of(soup.find("h1")) or title
     if not title:
         h1 = soup.find("h1")
         title = text_of(h1) if h1 else text_of(soup.title)
@@ -635,6 +637,8 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
                 break
     cover = clean_url(cover, url) if cover else ""
     description = _ld_text(book.get("description")) or _meta(soup, "og:description", "description", "twitter:description")
+    if qdn_global_catalog(url):
+        description = _meta(soup, "description") or description
     if _site_wide(description, title, site_name or urlsplit(url).netloc) or not _prose(description) or _template(description):
         description = ""  # the site's own blurb on every page ("Read your favorite manga online!..."), or figures
     blocks = soup.select(_FULL_SYNOPSIS) + soup.select(_SYNOPSIS) + _headed_synopsis(soup)
@@ -803,8 +807,39 @@ def _links(soup, base: str) -> List[Tuple[str, str, object]]:
     return out
 
 
+def qdn_global_catalog(url: str) -> str:
+    """The selected qdn Global book's catalog, including links pasted from a chapter."""
+    parts = urlsplit(url)
+    domain = "\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com"
+    host = (parts.hostname or "").lower()
+    if host != domain and not host.endswith("." + domain):
+        return ""
+    match = re.fullmatch(r"/(book|comic)/(?:[^/]+_)?(\d+)(?:/(?:catalog|(?:[^/]+_)?\d+))?/?", parts.path)
+    return f"https://www.{domain}/{match[1]}/{match[2]}/catalog" if match else ""
+
+
+def _qdn_global_chapters(soup, base: str, catalog: str) -> List[dict]:
+    chapters, seen = [], set()
+    anchors = soup.select("ul.content-list a[href], div.volume-item ol a[href]") or soup.select("a[href]")
+    for anchor in anchors:
+        href = urljoin(base, anchor["href"])
+        segments = urlsplit(href).path.strip("/").split("/")
+        if len(segments) != 3 or qdn_global_catalog(href) != catalog:
+            continue
+        chapter_id = segments[-1].rsplit("_", 1)[-1]
+        if not chapter_id.isdigit() or chapter_id in seen:
+            continue
+        seen.add(chapter_id)
+        title = anchor.get("title") or text_of(anchor.select_one("strong") or anchor)
+        chapters.append({"url": href, "name": clean_name(title) or f"Chapter {len(chapters) + 1}"})
+    return chapters
+
+
 def find_chapters(soup, base: str) -> List[dict]:
     """The page's chapter links, in reading order: [{url, name}]."""
+    catalog = qdn_global_catalog(base)
+    if catalog:
+        return _qdn_global_chapters(soup, base, catalog)
     links = _links(soup, base)
     if not links:
         return []
@@ -1556,7 +1591,7 @@ class GenericEngine:
         return chapters[::-1] if str(props.get("episodeOrder") or "").lower() == "desc" else chapters
 
     def parse_book(self, url: str, *, on_chapters=None, active=lambda: True) -> Optional[dict]:
-        url = asura_address(webtoons_series(dm5_desktop(url)))
+        url = qdn_global_catalog(url) or asura_address(webtoons_series(dm5_desktop(url)))
         html, final = self._page(url)
         soup = soup_of(html)
         chapters = find_chapters(soup, final)
@@ -1637,7 +1672,7 @@ class GenericEngine:
                 published[:] = ordered
                 on_chapters(entries(published))
 
-        if chapters and not episodes:
+        if chapters and not episodes and not qdn_global_catalog(final):
             chapters = self._more_list_pages(soup, final, chapters, warnings, publish if on_chapters else None, active)
         listed = self._platform_chapters(html, final)
         if len(listed) > len(chapters):
