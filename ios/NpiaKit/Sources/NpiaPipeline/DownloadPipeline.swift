@@ -329,8 +329,12 @@ public struct DownloadPipeline: Sendable {
                                 onPhase: @escaping @Sendable (JobPhase) -> Void) -> SourceContext {
         var context = base
         let counter = ChapterCounter()
+        let timings = ChapterTimings()
+        context.onChapterTiming = { ref, seconds in timings.record(ref.id, seconds) }
         context.onChapter = { result in
-            let label = "Chapter " + String(result.ref.index) + ": " + result.ref.title
+            let elapsed = timings.take(result.ref.id)
+            let suffix = base.settings.shared.chapterTiming ? elapsed.map { String(format: " (%.2f s)", $0) } ?? "" : ""
+            let label = "Chapter " + String(result.ref.index) + ": " + result.ref.title + suffix
             switch result {
             case .content: logger.log(.info, label)
             case .refused(_, let reason): logger.log(.warning, label + " skipped: " + reason)
@@ -423,5 +427,21 @@ final class ChapterCounter: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         value += 1
         return value
+    }
+}
+
+/// Each callback belongs to its own chapter, even when concurrent tasks finish out of order.
+private final class ChapterTimings: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: TimeInterval] = [:]
+    func record(_ id: String, _ seconds: TimeInterval) {
+        lock.lock()
+        defer { lock.unlock() }
+        values[id, default: 0] += seconds
+    }
+    func take(_ id: String) -> TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values.removeValue(forKey: id)
     }
 }

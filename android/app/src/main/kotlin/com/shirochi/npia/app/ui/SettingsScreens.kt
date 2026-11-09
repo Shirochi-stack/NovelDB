@@ -109,6 +109,7 @@ fun SettingsScreen(model: AppViewModel) {
         SectionHeader("Sharing")
         NavRow("Upload", "Hosts and automatic upload") { model.push(Route.Upload) }
         SectionHeader("App")
+        NavRow("Advanced", "Debug and chapter timing") { model.push(Route.Advanced) }
         NavRow("App updates", (update as? AppUpdateState.Available)?.let { "Update available: ${it.offer.version}" } ?: model.manager.appUpdater.build.statusLine) {
             model.push(Route.AppUpdates)
         }
@@ -158,8 +159,18 @@ fun GeneralSettingsScreen(model: AppViewModel) {
         SectionHeader("Cache")
         SwitchRow("Use Cache", shared.useCache, { v -> set { it.copy(useCache = v) } })
         SwitchRow("Cache Images", shared.cacheImages, { v -> set { it.copy(cacheImages = v) } })
+
+    }
+}
+
+@Composable
+fun AdvancedSettingsScreen(model: AppViewModel) {
+    val (settings, update) = settingsState(model)
+    SettingsColumn {
         SectionHeader("Debug")
-        SwitchRow("Chapter timing", shared.chapterTiming, { v -> set { it.copy(chapterTiming = v) } })
+        SwitchRow("Chapter timing", settings.shared.chapterTiming, { value ->
+            update { it.copy(shared = it.shared.copy(chapterTiming = value)) }
+        })
         Footnote("Adds the scrape duration to each chapter log. The final log includes the total download, file generation, and upload time.")
     }
 }

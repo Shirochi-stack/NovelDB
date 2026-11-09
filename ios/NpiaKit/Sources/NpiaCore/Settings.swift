@@ -38,6 +38,7 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     public var skipPaid = false
     public var imageWorkers = 6
     public var generateOnStop = false
+    public var chapterTiming = false
     public var namingMode: NamingMode = .title
     public var appendRange = false
 
@@ -49,7 +50,7 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case threads, intervalMin, intervalMax, maxRetries, requestTimeoutSeconds, pageLoadTimeoutSeconds, formats
         case rangeFrom, rangeTo, useCache, cacheImages, numberChapters, separateTXT, skipPaid, imageWorkers
-        case generateOnStop, namingMode, appendRange
+        case generateOnStop, chapterTiming, namingMode, appendRange
     }
 
     /// Every key is optional, so settings stored before a field existed (the queue keeps a copy
@@ -71,6 +72,7 @@ public struct SharedSettings: Codable, Sendable, Equatable {
         separateTXT = try c.decodeIfPresent(Bool.self, forKey: .separateTXT) ?? separateTXT
         skipPaid = try c.decodeIfPresent(Bool.self, forKey: .skipPaid) ?? skipPaid
         imageWorkers = try c.decodeIfPresent(Int.self, forKey: .imageWorkers) ?? imageWorkers
+        chapterTiming = try c.decodeIfPresent(Bool.self, forKey: .chapterTiming) ?? chapterTiming
         generateOnStop = try c.decodeIfPresent(Bool.self, forKey: .generateOnStop) ?? generateOnStop
         namingMode = try c.decodeIfPresent(NamingMode.self, forKey: .namingMode) ?? namingMode
         appendRange = try c.decodeIfPresent(Bool.self, forKey: .appendRange) ?? appendRange

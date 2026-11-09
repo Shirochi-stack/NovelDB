@@ -70,6 +70,8 @@ class ExternalJob(ExternalPipelineMixin):
     def run(self, scraper) -> dict:
         """Fetch and download the book with `scraper` (call on the browser worker thread)."""
         self._scraper = scraper
+        previous_timing = getattr(scraper, "chapter_timing", False)
+        scraper.chapter_timing = bool(self._var_chapter_timing.get())
         refresh = getattr(scraper, "refresh_net_timeouts", None)
         if callable(refresh):
             refresh()  # a shared browser context keeps the Page load wait it started with
@@ -90,6 +92,7 @@ class ExternalJob(ExternalPipelineMixin):
                 self._get_retry_passes(), interval_max,
             )
         finally:
+            scraper.chapter_timing = previous_timing
             done.set()
         return self.queue_result()
 

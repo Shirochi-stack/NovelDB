@@ -10,6 +10,7 @@ public struct SourceContext: Sendable {
     /// Called once per chapter as soon as its result is known, from any task. Adapters that
     /// override `parseChapters` must call it too, or progress jumps from 0 to done at the end.
     public var onChapter: @Sendable (ChapterResult) -> Void
+    public var onChapterTiming: @Sendable (ChapterRef, TimeInterval) -> Void
 
     public init(http: any HTTPFetching, web: any WebEngineProviding, secrets: any SecretStore, settings: AppSettings,
                 logger: any JobLogging = NullLogger(), onChapter: @escaping @Sendable (ChapterResult) -> Void = { _ in }) {
@@ -19,6 +20,14 @@ public struct SourceContext: Sendable {
         self.settings = settings
         self.logger = logger
         self.onChapter = onChapter
+        self.onChapterTiming = { _, _ in }
+    }
+
+    /// Monotonic elapsed time for this attempt, excluding the worker's initial rate-limit wait.
+    public func recordChapterTiming(_ ref: ChapterRef, since started: TimeInterval) {
+        if settings.shared.chapterTiming {
+            onChapterTiming(ref, ProcessInfo.processInfo.systemUptime - started)
+        }
     }
 
     public func shared(for source: SourceID) -> SharedSettings {
@@ -111,6 +120,8 @@ public extension SourceAdapter {
 
     private func chapterTask(_ position: Int, _ ref: ChapterRef, book: BookInfo, context: SourceContext, delay: SharedSettings?) async throws -> (Int, ChapterResult) {
         if let delay { try await delay.sleepChapterDelay() }
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { context.recordChapterTiming(ref, since: started) }
         // A chapter that failed on the network is read again after a pause (5 s, then 15 s); the
         // end-of-book retry passes still follow for what fails here too.
         let waits: [UInt64] = [5, 15]

@@ -227,6 +227,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         separate_txt=_first_bool(c, "ext_separate_txt", b.separate_txt),
         skip_paid=_first_bool(c, "ext_skip_paid", b.skip_paid),
         image_workers=_int(c.get("ext_image_workers")) or b.image_workers,
+        chapter_timing=_first_bool(c, "ext_chapter_timing", b.chapter_timing),
         generate_on_stop=_first_bool(c, "ext_generate_on_stop", b.generate_on_stop),
         max_retries=retries if retries is not None and retries >= 1 else b.max_retries,
         request_timeout=clamp_seconds(_int(c.get("request_timeout")), b.request_timeout),
@@ -500,6 +501,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["ext_skip_paid"] = shared.skip_paid
     c["ext_image_workers"] = shared.image_workers
     c["ext_generate_on_stop"] = shared.generate_on_stop
+    c["ext_chapter_timing"] = shared.chapter_timing
     c["max_retries"] = shared.max_retries
     c["request_timeout"] = clamp_seconds(shared.request_timeout)
     c["page_load_timeout"] = clamp_seconds(shared.page_load_timeout)

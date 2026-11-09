@@ -26,6 +26,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from external_scraper import ExternalScraper, write_text_output
+from noveldb.core.chapter_timing import timing_suffix
 from noveldb.core.net_timeouts import page_timeout_ms, request_timeout
 
 
@@ -611,7 +612,11 @@ class ExternalPipelineMixin:
                 # For the native browser/API scrapers, a numbered chapter line
                 # means that chapter has actually completed. Other legacy
                 # scrapers keep announcing work before the fetch starts.
+                timing_option = getattr(self, "_var_chapter_timing", None)
+                chapter_timing = bool(timing_option and timing_option.get())
                 log_on_success = (
+                    chapter_timing
+                    or
                     is_ntk
                     or is_rbooks
                     or is_kobo
@@ -651,6 +656,8 @@ class ExternalPipelineMixin:
                             )
                         )
                         line = f"  [{idx + 1}/{total}] {name}"
+                        if chapter_timing:
+                            line += timing_suffix(data)
                         with chapter_log_lock:
                             if batch_index in logged_batch_indices:
                                 return
@@ -749,6 +756,8 @@ class ExternalPipelineMixin:
                                 "the text looks scrambled (random Korean syllables, "
                                 "the site's anti-copy protection). Saved as it came."
                             )
+                    if log_on_success and data and not data.get("_locked"):
+                        log_chapter_success(j, data)
                     results[idx] = data
                     lookahead = getattr(self, "_kpage_images", None)
                     if lookahead and data and not data.get("_locked") and self._downloading:
@@ -765,9 +774,11 @@ class ExternalPipelineMixin:
                                 ExternalPipelineMixin._cache_external_result_images(
                                     self, data
                                 )
+                            cached_result = dict(data)
+                            cached_result.pop("_scrape_seconds", None)
                             cache_entries[cache_key] = (
                                 ExternalPipelineMixin._external_cache_result(
-                                    data, cache_images
+                                    cached_result, cache_images
                                 )
                             )
                         else:

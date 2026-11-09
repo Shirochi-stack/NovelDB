@@ -492,3 +492,26 @@ def test_enter_browser_is_off_while_a_download_runs(window, context, qtbot, monk
     qtbot.waitUntil(lambda: not page.enter_browser.isEnabled(), timeout=3000)
     release.set()
     qtbot.waitUntil(lambda: page.enter_browser.isEnabled(), timeout=5000)
+
+
+def test_advanced_timing_and_compact_account_buttons(context, qtbot):
+    from PySide6.QtWidgets import QCheckBox, QPushButton
+    from noveldb.qt.pages.settings import advanced_form, general_form, npia_account_panel
+
+    advanced = advanced_form(context)
+    general = general_form(context)
+    account = npia_account_panel(context)
+    for widget in (advanced, general, account):
+        qtbot.addWidget(widget)
+    timing = next(box for box in advanced.findChildren(QCheckBox) if box.text() == "Chapter timing")
+    assert not any(box.text() == "Chapter timing" for box in general.findChildren(QCheckBox))
+    timing.setChecked(True)
+    assert context.settings.shared.chapter_timing
+    account.resize(440, 500)
+    account.show()
+    qtbot.wait(30)
+    save = next(b for b in account.findChildren(QPushButton) if b.accessibleName() == "Save and sign in")
+    google = next(b for b in account.findChildren(QPushButton) if b.accessibleName() == "Sign in with Google")
+    assert save.text() == "🔑 Sign in" and google.text() == "🌐 Google"
+    assert save.y() == google.y()
+    assert save.x() < google.x()

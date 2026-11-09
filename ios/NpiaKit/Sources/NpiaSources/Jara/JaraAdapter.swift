@@ -203,6 +203,7 @@ public struct JaraAdapter: SourceAdapter {
         for ref in refs {
             try Task.checkCancellation()
             if !results.isEmpty { try await shared.sleepChapterDelay() }
+            let started = ProcessInfo.processInfo.systemUptime
             do {
                 results.append(try await parseChapter(ref, book: book, context: context))
             } catch is CancellationError {
@@ -214,11 +215,13 @@ public struct JaraAdapter: SourceAdapter {
                 for rest in refs.dropFirst(results.count) {
                     results.append(.failed(rest, message: error.message))
                 }
+                context.recordChapterTiming(ref, since: started)
                 results[start...].forEach(context.onChapter)
                 return results
             } catch {
                 results.append(.failed(ref, message: error.localizedDescription))
             }
+            context.recordChapterTiming(ref, since: started)
             if let last = results.last { context.onChapter(last) }
         }
         return results

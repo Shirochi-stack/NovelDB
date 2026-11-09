@@ -93,10 +93,13 @@ public struct FenrirAdapter: SourceAdapter {
             let slug = book.id
             let logger = context.logger
             let report = context.onChapter
+            let timing: @Sendable (ChapterRef, TimeInterval) -> Void = { ref, seconds in
+                if context.settings.shared.chapterTiming { context.onChapterTiming(ref, seconds) }
+            }
             do {
                 try await context.web.withPage(profile: WebProfile.external) { (page: any WebPageDriving) -> Void in
                     try await Self.run(page: page, refs: refs, slug: slug, pending: &pending,
-                                       results: &results, refusals: &refusals, logger: logger, report: report)
+                                       results: &results, refusals: &refusals, logger: logger, report: report, timing: timing)
                 }
             } catch is CancellationError {
                 throw CancellationError()
@@ -124,7 +127,8 @@ public struct FenrirAdapter: SourceAdapter {
     private static func run(
         page: any WebPageDriving, refs: [ChapterRef], slug: String, pending: inout [Int],
         results: inout [ChapterResult?], refusals: inout [Int: String], logger: any JobLogging,
-        report: @Sendable (ChapterResult) -> Void
+        report: @Sendable (ChapterResult) -> Void,
+        timing: @Sendable (ChapterRef, TimeInterval) -> Void
     ) async throws {
         guard let firstURL = refs[pending[0]].url else { return }
         try await page.load(firstURL, until: .domContentLoaded, timeout: 45)
@@ -163,6 +167,7 @@ public struct FenrirAdapter: SourceAdapter {
                 guard position < replies.count else { break }
                 let reply = replies[position]
                 let ref = refs[offset]
+                if let seconds = reply["_scrape_seconds"] as? Double { timing(ref, seconds) }
                 let status = FenrirParsing.integer(reply["status"]) ?? 0
                 if status == 429 {
                     retryDelays.append(FenrirParsing.retryDelay(reply["retryAfter"] as? String))
@@ -328,7 +333,12 @@ public struct FenrirAdapter: SourceAdapter {
         }
       };
       const out = [];
-      for (const item of items) out.push(await fetchOne(item));
+      for (const item of items) {
+        const started = performance.now();
+        const reply = await fetchOne(item);
+        reply._scrape_seconds = (performance.now() - started) / 1000;
+        out.push(reply);
+      }
       return out;
     }
     """#

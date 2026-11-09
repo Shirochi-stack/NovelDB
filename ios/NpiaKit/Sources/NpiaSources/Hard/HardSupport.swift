@@ -160,6 +160,8 @@ enum HardSupport {
 
         @Sendable func task(_ position: Int, _ ref: ChapterRef, rest: Bool) async throws -> (Int, ChapterResult) {
             if rest { try await shared.sleepChapterDelay() }
+            let started = ProcessInfo.processInfo.systemUptime
+            defer { context.recordChapterTiming(ref, since: started) }
             do {
                 return (position, try await work(ref))
             } catch is CancellationError {

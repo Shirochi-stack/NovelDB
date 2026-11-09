@@ -370,7 +370,9 @@ def npia_account_panel(context: AppContext) -> Form:
     f.row("Password", password)
     f.row("Session key", key)
     status = hint("Signed in." if context.signed_in else "Not signed in: only free chapters can be read.")
-    save = QPushButton("Save and sign in")
+    save = QPushButton("🔑 Sign in")
+    save.setToolTip("Save credentials and sign in")
+    save.setAccessibleName("Save and sign in")
     save.setProperty("primary", True)
     save_feedback = ButtonFeedback(save)
 
@@ -399,7 +401,9 @@ def npia_account_panel(context: AppContext) -> Form:
             save_feedback.done(ok, "Signed in" if ok else "Not signed in")
 
     context.signedInChanged.connect(signed_in)
-    google = QPushButton("Sign in with Google")
+    google = QPushButton("🌐 Google")
+    google.setToolTip("Sign in with Google")
+    google.setAccessibleName("Sign in with Google")
 
     def with_google():
         from noveldb.qt.google_login import google_login
@@ -409,7 +413,7 @@ def npia_account_panel(context: AppContext) -> Form:
 
     google.clicked.connect(with_google)
     f.add(status)
-    f.add(flow(google, save))
+    f.add(flow(save, google))
     f.check("Sign in when the app starts", "npia.auto_login")
     f.add_hint("Credentials are kept in config.json on this computer. Settings exports leave them out.")
     fill()
@@ -1128,6 +1132,9 @@ def catalog_form(context: AppContext) -> Form:
 
 def advanced_form(context: AppContext) -> Form:
     f = Form(context, "Advanced")
+    f.add_section("Debug")
+    f.check("Chapter timing", "shared.chapter_timing")
+    f.add_hint("Adds each chapter’s scrape duration to its completion log and the total download, file generation, and upload time at the end.")
     f.add_section("Folders")
     buttons = []
     for label, target in (

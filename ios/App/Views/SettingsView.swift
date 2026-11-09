@@ -24,6 +24,7 @@ struct SettingsView: View {
                 NavigationLink { UploadSettingsForm() } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
             }
             Section("App") {
+                NavigationLink { AdvancedSettingsForm() } label: { Label("Advanced", systemImage: "gearshape.2") }
                 NavigationLink { AppearanceSettingsForm() } label: { Label("Appearance", systemImage: "paintpalette") }
                 NavigationLink { CatalogSiteForm() } label: { Label("Catalog site", systemImage: "books.vertical") }
                 NavigationLink { BrowserSettingsForm() } label: { Label("Browser", systemImage: "globe") }
@@ -34,6 +35,25 @@ struct SettingsView: View {
         }
         .themedBackground()
         .navigationTitle("Settings")
+    }
+}
+
+struct AdvancedSettingsForm: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section {
+                Toggle("Chapter timing", isOn: $model.settings.shared.chapterTiming)
+            } header: {
+                Text("Debug")
+            } footer: {
+                Text("Adds the scrape duration to each chapter log. The final log includes the total download, file generation, and upload time.")
+            }
+        }
+        .themedBackground()
+        .navigationTitle("Advanced")
     }
 }
 

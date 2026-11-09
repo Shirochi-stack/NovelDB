@@ -19,6 +19,7 @@ enum class Tab(val title: String) { ADD("Add"), CATALOG("Catalog"), BROWSER("Bro
 sealed class Route(val title: String) {
     data class JobDetail(val id: String) : Route("Download")
     data object General : Route("General")
+    data object Advanced : Route("Advanced")
     data object Overrides : Route("Per-source overrides")
     data class OverrideForm(val source: SourceId) : Route(source.raw)
     data object SourceOptions : Route("Source options")

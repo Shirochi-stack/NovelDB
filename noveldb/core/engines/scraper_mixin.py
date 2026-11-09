@@ -21,6 +21,7 @@ import json
 import re
 import threading
 import time
+from noveldb.core.chapter_timing import timed_chapter, browser_chapter_timing
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -373,6 +374,9 @@ class SiteEnginesMixin:
 
     def _pump(self, page, function: str, args: list, timeout: float = 600.0):
         """Call `window[function](...args)` in `page`, running the browser jobs it queues meanwhile."""
+        if function.endswith("_parseChapterBatch") or function.endswith("_parseChapter"):
+            single = function.removesuffix("Batch")
+            browser_chapter_timing(page, single, getattr(self, "chapter_timing", False))
         page.evaluate(_ASYNC_HELPER)
         call_id = page.evaluate("([name, args]) => window.__noveldb_async.start(name, args)", [function, args])
         work = self.__dict__.get("reader_work")
@@ -823,14 +827,18 @@ class SiteEnginesMixin:
                 return engine
         return None
 
+    @timed_chapter
     def _python_parse_chapter(self, engine: str, index, chapter_info, interval=0.5, log_errors=True,
                               interval_max=None):
         runner = self._python_engine(engine)
+        started = time.perf_counter()
         try:
             data = runner.parse_chapter(chapter_info, self._book_data or {})
         except Exception as e:
             data = None
             if log_errors:
                 self.log(f"  [{index + 1}] {runner.label}: {e}")
+        if isinstance(data, dict) and getattr(self, "chapter_timing", False):
+            data["_scrape_seconds"] = time.perf_counter() - started
         self._sleep_interval(interval, interval_max)
         return data

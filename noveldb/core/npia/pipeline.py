@@ -430,7 +430,7 @@ class NpiaPipelineMixin:
         # what the cache was written with, invalidate the processed
         # html + images from each entry but keep the raw chapter JSON so
         # we don't have to re-download the text.
-        stitch_compression = self._stitch_output_compression(output_formats)
+        stitch_compression = self._stitch_output_compression(self._selected_output_formats())
         current_fp = self._image_cache_fingerprint() + ("-raw" if stitch_compression else "")
         if use_cache:
             cache_dir = _writable_data_dir('.cache')
@@ -888,6 +888,23 @@ table, th, td {
         strip_leading_spaces = self.var_strip_leading_spaces.get()
         remove_newlines = self.var_remove_newlines.get()
 
+        timing_option = getattr(self, "var_chapter_timing", None)
+        chapter_timing = bool(timing_option and timing_option.get())
+        chapter_starts = {}
+        chapter_elapsed = {}
+
+        def timing_suffix(idx):
+            started = chapter_starts.pop(idx, None)
+            elapsed = chapter_elapsed.pop(idx, None)
+            if elapsed is None and started is not None:
+                elapsed = time.perf_counter() - started
+            return f" ({elapsed:.2f} s)" if chapter_timing and elapsed is not None else ""
+
+        def download_chapter(idx):
+            if chapter_timing:
+                chapter_starts[idx] = time.perf_counter()
+            return self.downloader.download_chapter_content(selected_total[idx]['id'], max_retries)
+
         # Process cached chapters first
         uncached_indices = []
         cached_json_jobs = []
@@ -895,6 +912,8 @@ table, th, td {
         json_cache_hits = 0
         if use_cache:
             for idx, chap in enumerate(selected_total):
+                if chapter_timing:
+                    chapter_starts[idx] = time.perf_counter()
                 chap_id = chap['id']
                 entry = cache_data.get(chap_id)
                 if entry is not None:
@@ -928,12 +947,13 @@ table, th, td {
                                 except (ValueError, IndexError):
                                     pass
                             results[idx] = (chap['title'], cached_html, cached_imgs, chap.get('is_notice', False))
-                            self.log_message(f"Cached: {chap['title']}")
+                            self.log_message(f"Cached: {chap['title']}{timing_suffix(idx)}")
                             self._update_progress(value=self.progress_value + 1)
                             full_cache_hits += 1
                         else:
                             # JSON-only cache hit — still need to process images
                             if content_json:
+                                chapter_starts.pop(idx, None)
                                 cached_json_jobs.append((idx, content_json))
                                 json_cache_hits += 1
                             else:
@@ -959,6 +979,8 @@ table, th, td {
         image_futures = {}
 
         def _process_chapter_images(idx, content_json):
+            if chapter_timing and idx not in chapter_starts:
+                chapter_starts[idx] = time.perf_counter()
             chap = selected_total[idx]
             hb, imgs, img_fails = extract_chapter_content_and_images(
                 content_json, self.font_mapper, self.auth.session,
@@ -974,6 +996,8 @@ table, th, td {
                 max_retries=max_retries,
                 retry_delay=interval,
             )
+            if chapter_timing:
+                chapter_elapsed[idx] = time.perf_counter() - chapter_starts[idx]
             return idx, content_json, hb, imgs, img_fails
 
         def _queue_image_job(image_executor, idx, content_json, source_label):
@@ -999,7 +1023,7 @@ table, th, td {
                 if img_fails:
                     dl_stats.add_image_failures(chap['id'], chap.get('title', '?'), img_fails)
                     img_info += f", {img_fails} image failure(s)"
-                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] {source_label}: {chap['title']}{img_info}")
+                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] {source_label}: {chap['title']}{img_info}{timing_suffix(idx)}")
 
                 if image_count:
                     img_bytes = sum(len(d) for _, d in imgs)
@@ -1025,7 +1049,7 @@ table, th, td {
                 dl_stats.add_failed(chap['id'], chap.get('title', '?'))
                 if use_cache and content_json:
                     cache_data[chap['id']] = content_json
-                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error processing images for {chap.get('title','?')}: {e}")
+                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error processing images for {chap.get('title','?')}: {e}{timing_suffix(idx)}")
             finally:
                 self._update_progress(value=self.progress_value + 1)
 
@@ -1051,9 +1075,7 @@ table, th, td {
                             batch = uncached_indices[i:i + threads]
                             f_map = {
                                 chapter_executor.submit(
-                                    self.downloader.download_chapter_content,
-                                    selected_total[x]['id'],
-                                    max_retries,
+                                    download_chapter, x,
                                 ): x
                                 for x in batch
                             }
@@ -1066,17 +1088,17 @@ table, th, td {
                                         _queue_image_job(image_executor, idx, content_json, "Downloaded")
                                     else:
                                         dl_stats.add_failed(chap['id'], chap.get('title', '?'))
-                                        self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Failed: {chap.get('title', '?')}")
+                                        self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Failed: {chap.get('title', '?')}{timing_suffix(idx)}")
                                         self._update_progress(value=self.progress_value + 1)
                                 except AccessBlockedError:
                                     dl_stats.add_blocked(chap['id'], chap.get('title', '?'))
-                                    self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Blocked: {chap.get('title', '?')}")
+                                    self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Blocked: {chap.get('title', '?')}{timing_suffix(idx)}")
                                     self._update_progress(value=self.progress_value + 1)
                                     access_blocked_detected = True
                                     self.downloader.stop_signal = True
                                 except Exception as e:
                                     dl_stats.add_failed(chap['id'], chap.get('title', '?'))
-                                    self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error {chap.get('title','?')}: {e}")
+                                    self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error {chap.get('title','?')}: {e}{timing_suffix(idx)}")
                                     self._update_progress(value=self.progress_value + 1)
                                 _drain_finished_image_futures(wait_for_all=False)
 

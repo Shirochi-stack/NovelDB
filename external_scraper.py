@@ -34,6 +34,7 @@ import sys
 import tempfile
 import threading
 import time
+from noveldb.core.chapter_timing import timed_chapter, browser_chapter_timing
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -1038,6 +1039,7 @@ class ExternalScraper(SiteEnginesMixin):
         empty when no app session is saved."""
         return self._sfc_app_cookie_header()
 
+    @timed_chapter
     def _sfc_parse_chapter_app_api(
             self, chapter_url, chapter_name, requests_module=None,
             cookie_header=None):
@@ -5575,6 +5577,7 @@ class ExternalScraper(SiteEnginesMixin):
             'images': images,
         })
 
+    @timed_chapter
     def _qdn_global_parse_chapter_http(self, chapter_url, chapter_name):
         try:
             raw_html = self._qdn_global_http_text(
@@ -5591,6 +5594,7 @@ class ExternalScraper(SiteEnginesMixin):
                 )
             return None
 
+    @timed_chapter
     def _qdn_global_parse_chapter(
         self, chapter_url, chapter_name, page=None, _skip_http=False
     ):
@@ -6340,6 +6344,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         )
         return self._qdn_sleep(pause)
 
+    @timed_chapter
     def _qdn_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Scrape one rendered Qdn chapter."""
         if not self._context or not self._page:
@@ -6853,12 +6858,14 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return [None] * len(batch_info)
 
         active = []
+        chapter_starts = {}
         for i, (page, ch) in enumerate(zip(pages, batch_info)):
             if self._stop_requested:
                 break
             url = ch.get('url', '')
             name = ch.get('fullName', '') or ch.get('name', '')
             self._qdn_pace()
+            chapter_starts[i] = time.perf_counter()
             try:
                 goto_kwargs = {
                     "wait_until": "commit",
@@ -6897,6 +6904,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 continue
             results[i] = self._qdn_extract_loaded_chapter(page, name)
             result = results[i]
+            if isinstance(result, dict) and getattr(self, "chapter_timing", False):
+                result["_scrape_seconds"] = time.perf_counter() - chapter_starts[i]
             if result is None or (result or {}).get('_verification_required'):
                 retry.append(i)
 
@@ -8900,6 +8909,7 @@ async ({ chapterUrl, payload }) => {
         if len(pages) < len(batch_info):
             return [None] * len(batch_info)
 
+        chapter_starts = {}
         responses = [None] * len(batch_info)
         navigation_errors = [None] * len(batch_info)
         results = [None] * len(batch_info)
@@ -8972,6 +8982,8 @@ async ({ chapterUrl, payload }) => {
                 'ntk parallel browser api/novel-content',
             )
             if data and len(data.get('contentText', '')) >= 40:
+                if getattr(self, "chapter_timing", False):
+                    data["_scrape_seconds"] = time.perf_counter() - chapter_starts[index]
                 results[index] = data
                 if success_callback is not None:
                     success_callback(index, data)
@@ -8982,6 +8994,7 @@ async ({ chapterUrl, payload }) => {
                 if self._stop_requested:
                     break
                 try:
+                    chapter_starts[index] = time.perf_counter()
                     chapter_url = chapter.get('url', '')
                     target = urllib.parse.urlsplit(chapter_url)
                     if self._ntk_spa_origin == f'{target.scheme}://{target.netloc}':
@@ -9054,6 +9067,7 @@ async ({ chapterUrl, payload }) => {
                 except Exception:
                     pass
 
+    @timed_chapter
     def _ntk_fetch_chapter_browser(self, chapter_url, chapter_name):
         """Fetch and decrypt the chapter using NewToki's browser-only API."""
         target = urllib.parse.urlsplit(chapter_url)
@@ -9642,6 +9656,7 @@ async ({ chapterUrl }) => {
         if folder:
             shutil.rmtree(folder, ignore_errors=True)
 
+    @timed_chapter
     def _ntk_fetch_webtoon_chapter_browser(self, chapter_url, chapter_name):
         pages = self._ntk_webtoon_images_browser(chapter_url)
         if pages:
@@ -9769,6 +9784,7 @@ async ({ urls, concurrency }) => {
                 pass
         return fetched
 
+    @timed_chapter
     def _ntk_fetch_chapter_api(self, chapter_url, chapter_name, state=None):
         state = state or self._ntk_api_state
         if not state:
@@ -9973,6 +9989,7 @@ async ({ urls, concurrency }) => {
             '_debugSelector': selector,
         }
 
+    @timed_chapter
     def _ntk_fetch_webtoon_chapter(self, chapter_url, chapter_name, state=None):
         state = state or self._ntk_api_state
         if not state:
@@ -10222,6 +10239,7 @@ async ({ urls, concurrency }) => {
         )
         return data
 
+    @timed_chapter
     def _ntk_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Fetch one ntk novel/webtoon chapter."""
         if self._book_data and self._book_data.get('_ntk_kind') == 'webtoon':
@@ -11821,6 +11839,7 @@ async ({ urls, concurrency }) => {
             '_imageCookies': cookies,
         }
 
+    @timed_chapter
     def _global_npia_parse_chapter(self, chapter_url, chapter_name):
         """Fetch a Global Npia ticket, content payload, and signed images."""
         episode_no = self._global_npia_episode_id(chapter_url)
@@ -12257,6 +12276,7 @@ async ({ urls, concurrency }) => {
         )
         return page
 
+    @timed_chapter
     def _fnp_parse_chapter(self, chapter_url, chapter_name):
         """Read a protected chapter without attaching until CF has finished."""
         self.abort_reason = ''
@@ -13954,6 +13974,7 @@ async (ids) => {
     # RBOOKS' invisible watermark characters (runs of word joiners and separators before paragraphs).
     _RBOOKS_WATERMARK = re.compile('[\u200b\u2060-\u2064\ufeff]')
 
+    @timed_chapter
     def _rbooks_api_chapter(self, page, chapter_url, chapter_name):
         """One episode through the web viewer's API (`/api/web-viewer/generate`, then its spine files),
         from the logged-in page on the store's own address. None for anything but a full chapter: a book
@@ -14036,6 +14057,7 @@ async (ids) => {
             chapter_url,
         )
 
+    @timed_chapter
     def _rbooks_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Open and extract one authenticated Rbooks webnovel viewer page."""
         target = page or self._page
@@ -14177,6 +14199,7 @@ async (ids) => {
                 if not pages:
                     break
                 active = []
+                chapter_starts = {}
                 session_lost = False
                 for offset, (page, chapter) in enumerate(zip(pages, chunk)):
                     url = chapter.get('url', '')
@@ -14200,6 +14223,7 @@ async (ids) => {
                             except Exception:
                                 pass
                         continue
+                    chapter_starts[chunk_start + offset] = time.perf_counter()
                     navigation_failed = False
                     try:
                         kwargs = {'wait_until': 'commit', 'timeout': _page_ms(15000)}
@@ -14246,6 +14270,8 @@ async (ids) => {
                         ):
                             session_lost = True
                             break
+                        if isinstance(value, dict) and getattr(self, "chapter_timing", False):
+                            value["_scrape_seconds"] = time.perf_counter() - chapter_starts[result_index]
                         chunk_results[result_index] = value
                         if (
                             value
@@ -14893,6 +14919,7 @@ async (ids) => {
             'images': images,
         }
 
+    @timed_chapter
     def _npia_parse_chapter(
         self,
         chapter_url,
@@ -15713,6 +15740,7 @@ async (ids) => {
             'images': data.get('images') or [],
         }
 
+    @timed_chapter
     def _mpia_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Fetch one Mpia chapter using the existing authenticated browser."""
         if self._stop_requested:
@@ -15771,6 +15799,7 @@ async (ids) => {
         first_url = eligible[0][1].get('url', '') or self._book_url
         pages = self._mpia_parallel_pages(len(eligible), first_url)
         active = {}
+        chapter_starts = {}
 
         def poll_loaded():
             for index, (page, name, deadline) in list(active.items()):
@@ -15782,6 +15811,8 @@ async (ids) => {
                     results[index] = self._mpia_extract_loaded_chapter(
                         page, name
                     )
+                    if isinstance(results[index], dict) and getattr(self, "chapter_timing", False):
+                        results[index]["_scrape_seconds"] = time.perf_counter() - chapter_starts[index]
                     del active[index]
                     report_success(index, results[index])
                 elif time.monotonic() >= deadline:
@@ -15819,6 +15850,7 @@ async (ids) => {
             if self._stop_requested:
                 break
             name = chapter.get('fullName', '') or chapter.get('name', '')
+            chapter_starts[index] = time.perf_counter()
             try:
                 goto_kwargs = {'wait_until': 'commit', 'timeout': _page_ms(15000)}
                 if self._book_url:
@@ -16244,6 +16276,7 @@ async (ids) => {
                 )
                 self._page.wait_for_timeout(800)
 
+    @timed_chapter
     def _kpage_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Scrape a single Kpage chapter from the viewer.
 
@@ -17279,6 +17312,7 @@ async (ids) => {
         except Exception as exc:
             raise ValueError(f'invalid 1qxs p_key: {exc}') from exc
 
+    @timed_chapter
     def _1qxs_parse_chapter(self, chapter_url, chapter_name):
         parts = self._1qxs_url_parts(chapter_url)
         book_data = self._book_data or {}
@@ -18213,6 +18247,7 @@ async (ids) => {
         )
         return data
 
+    @timed_chapter
     def _jara_parse_chapter(self, chapter_url, chapter_name, cid=None):
         if self.abort_reason:
             return None
@@ -18833,6 +18868,7 @@ async (ids) => {
         # becoming an empty chapter that the dialog would retry.
         return kept or blocks
 
+    @timed_chapter
     def _nweb_parse_chapter(self, chapter_url, chapter_name):
         book_url = (self._book_data or {}).get('bookUrl') or ''
         try:
@@ -19153,6 +19189,7 @@ async (ids) => {
             'images': [],
         }
 
+    @timed_chapter
     def _69shuba_parse_chapter(self, chapter_url, chapter_name):
         book_id = (
             self._69shuba_book_id(chapter_url)
@@ -19412,6 +19449,7 @@ async (ids) => {
         self._book_url = index_url
         return data
 
+    @timed_chapter
     def _yeduji_parse_chapter(self, chapter_url, chapter_name,
                               is_paid=False):
         """Fetch one Yeduji chapter's content.
@@ -19851,6 +19889,7 @@ async (ids) => {
             'images': [], '_nextPage': next_page,
         }
 
+    @timed_chapter
     def _xiyuwx_parse_chapter(self, chapter_url, chapter_name,
                               interval=0, interval_max=None):
         site = self._xiyuwx_site_name(chapter_url)
@@ -19881,6 +19920,7 @@ async (ids) => {
         self.log(f'  [{site}] Chapter has too many pages: {chapter_name}')
         return None
 
+    @timed_chapter
     def _xiyuwx_browser_chapter(self, chapter_url, chapter_name,
                                 interval=0, interval_max=None):
         site = self._xiyuwx_site_name(chapter_url)
@@ -20191,6 +20231,7 @@ async (ids) => {
         self.log('[Floo] Book title or chapter catalog was not found.')
         return None
 
+    @timed_chapter
     def _floo_parse_chapter(self, chapter_url, chapter_name):
         try:
             page, _ = self._floo_fetch(chapter_url)
@@ -20396,6 +20437,7 @@ async (ids) => {
             self._floo_pages.append(self._context.new_page())
         pages = self._floo_pages[:len(chapters)]
         results = [None] * len(chapters)
+        chapter_starts = {}
         loaded = [False] * len(chapters)
         # Starting each navigation at response commit lets their page
         # loads continue together while Playwright stays on one thread.
@@ -20405,6 +20447,7 @@ async (ids) => {
             if index:
                 self._sleep_interval(interval, interval_max)
             try:
+                chapter_starts[index] = time.perf_counter()
                 pages[index].goto(
                     chapter.get('url', ''), wait_until='commit', timeout=_page_ms(30000)
                 )
@@ -20436,6 +20479,8 @@ async (ids) => {
                         )
                     },
                 )
+                if isinstance(results[index], dict) and getattr(self, 'chapter_timing', False):
+                    results[index]['_scrape_seconds'] = time.perf_counter() - chapter_starts[index]
             except Exception as exc:
                 self.log(f'  [Floo] Browser chapter failed: {exc}')
         if (not getattr(self, '_floo_login_warned', False)
@@ -20817,7 +20862,12 @@ async (items) => {
     }
   };
   const out = [];
-  for (const item of items) out.push(await fetchOne(item));
+  for (const item of items) {
+    const started = performance.now();
+    const reply = await fetchOne(item);
+    reply._scrape_seconds = (performance.now() - started) / 1000;
+    out.push(reply);
+  }
   return out;
 }
 """
@@ -21044,6 +21094,8 @@ async (items) => {
                     retry.append(index)
                     continue
                 result = self._fenrir_build_chapter(payload, name)
+                if isinstance(result, dict) and getattr(self, "chapter_timing", False):
+                    result["_scrape_seconds"] = (reply or {}).get("_scrape_seconds")
                 if result is None:
                     self.log(f'  [Fenrir] Empty chapter: {name}')
                 results[index] = result
@@ -21187,6 +21239,7 @@ async (items) => {
         )
         return result
 
+    @timed_chapter
     def _maru_parse_chapter(self, chapter_url, chapter_name):
         _, episode_id = self._maru_url_parts(chapter_url)
         if not episode_id:
@@ -21394,6 +21447,7 @@ async (items) => {
                 return reader_url
         return ''
 
+    @timed_chapter
     def _kobo_parse_chapter(self, chapter_url, chapter_name):
         if (self._book_data or {}).get('_kobo_desktop'):
             try:
@@ -22006,6 +22060,7 @@ async (items) => {
             return None, data["error"]
         return data, ''
 
+    @timed_chapter
     def _w2e_parse_chapter(self, index, chapter_info, interval=0.5, page=None,
                            log_errors=True, interval_max=None):
         target = page or self._page
@@ -22014,6 +22069,7 @@ async (items) => {
                 self.log(f"  [{index + 1}] No browser page available.")
             return None
         target = target or self._page
+        browser_chapter_timing(target, "__W2E_parseChapter", getattr(self, "chapter_timing", False))
         item = self._w2e_item(chapter_info)
         error = 'empty result'
         try:
@@ -22037,6 +22093,7 @@ async (items) => {
         if not self._ensure_page():
             self.log("  Batch aborted: no browser page available.")
             return [None] * len(batch_info)
+        browser_chapter_timing(self._page, "__W2E_parseChapter", getattr(self, "chapter_timing", False))
         items = [self._w2e_item(ch) for ch in batch_info]
         try:
             raw = self._page.evaluate(
@@ -22056,6 +22113,7 @@ async (items) => {
             report_success(index, data)
         return (parsed + [None] * len(batch_info))[:len(batch_info)]
 
+    @timed_chapter
     def parse_chapter(self, index, chapter_info, interval=0.5, page=None,
                       log_errors=True, interval_max=None):
         """Parse a single chapter's content.
@@ -22309,6 +22367,8 @@ async (items) => {
                 if log_errors:
                     self.log(f"  [{index + 1}] No browser page available.")
                 return None
+
+        browser_chapter_timing(target_page, "__ND_parseChapter", getattr(self, "chapter_timing", False))
 
         # Escape strings for JS (handle quotes and backslashes)
         def js_escape(s):
@@ -22872,6 +22932,8 @@ async (items) => {
         if not self._ensure_page():
             self.log("  Batch aborted: no browser page available.")
             return [None] * len(batch_info)
+
+        browser_chapter_timing(self._page, "__ND_parseChapter", getattr(self, "chapter_timing", False))
 
         # Build JSON payload for the JS batch function
         payload = json.dumps(batch_info, ensure_ascii=False)

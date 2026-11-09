@@ -275,3 +275,17 @@ def test_mpia_reader_lock_and_failure_are_preserved_without_success_callbacks(
     )
     assert results == [{'_locked': True, 'chapterName': 'Chapter 0'}, None]
     assert completed == []
+
+
+def test_mpia_timing_belongs_to_each_worker(batch_setup, monkeypatch):
+    scraper, clock, _, _ = batch_setup
+    scraper.chapter_timing = True
+    monkeypatch.setattr(external_scraper.time, 'perf_counter', lambda: clock.now)
+    pages = [Page(clock, ready_after=2), Page(clock, ready_after=0.5)]
+    monkeypatch.setattr(scraper, '_mpia_parallel_pages', lambda *_: pages)
+    completed = []
+    results = scraper.parse_chapter_batch(chapters(2), interval=0,
+        success_callback=lambda index, data: completed.append((index, data['_scrape_seconds'])))
+    assert [index for index, _ in completed] == [1, 0]
+    assert results[0]['_scrape_seconds'] == pytest.approx(2, abs=0.21)
+    assert results[1]['_scrape_seconds'] == pytest.approx(0.5, abs=0.21)

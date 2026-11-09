@@ -38,6 +38,7 @@ public enum DesktopConfig {
         s.shared.separateTXT = bool(c["ext_separate_txt"]) ?? s.shared.separateTXT
         s.shared.skipPaid = bool(c["ext_skip_paid"]) ?? s.shared.skipPaid
         s.shared.imageWorkers = int(c["ext_image_workers"]) ?? s.shared.imageWorkers
+        s.shared.chapterTiming = bool(c["ext_chapter_timing"]) ?? s.shared.chapterTiming
         s.shared.generateOnStop = bool(c["ext_generate_on_stop"]) ?? s.shared.generateOnStop
         s.shared.maxRetries = int(c["max_retries"]) ?? s.shared.maxRetries
         s.shared.requestTimeoutSeconds = int(c["request_timeout"]).map { min(600, max(10, $0)) } ?? s.shared.requestTimeoutSeconds
@@ -168,6 +169,7 @@ public enum DesktopConfig {
         c["ext_skip_paid"] = shared.skipPaid
         c["ext_image_workers"] = shared.imageWorkers
         c["ext_generate_on_stop"] = shared.generateOnStop
+        c["ext_chapter_timing"] = shared.chapterTiming
         c["max_retries"] = shared.maxRetries
         c["request_timeout"] = shared.requestTimeoutSeconds
         c["page_load_timeout"] = shared.pageLoadTimeoutSeconds

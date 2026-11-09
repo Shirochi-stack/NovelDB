@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import replace
+from time import perf_counter
 from typing import Callable
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -220,6 +221,15 @@ class AppContext(QObject):
         return self.runner.submit(jobs)
 
     def _execute_job(self, job: Job, token: CancelToken) -> dict:
+        started = perf_counter()
+        timing = self.settings.shared.chapter_timing
+        try:
+            return self._download_and_upload(job, token)
+        finally:
+            if timing:
+                self.hub.log(job.id, f"Total time: {perf_counter() - started:.2f} s")
+
+    def _download_and_upload(self, job: Job, token: CancelToken) -> dict:
         result = self._download(job, token) or {}
         upload = self.settings.upload
         if not upload.auto_upload or not result.get("ok", True) or result.get("cancelled") or token.cancelled:

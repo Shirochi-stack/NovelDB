@@ -491,3 +491,31 @@ def test_zip_settings_are_saved_in_the_config(context):
     context.update_settings(lambda s: replace(s, upload=replace(s.upload, zip_bundle=False, zip_max_mb=600)))
     exported = dc.export_config(context.settings)
     assert exported["upload_zip_bundle"] is False and exported["upload_zip_max_mb"] == 600
+
+
+def test_total_timing_includes_auto_upload(context, host, monkeypatch):
+    from noveldb.core.events import CancelToken
+    from noveldb.qt import context as module
+    import time
+
+    context.update_settings(lambda s: replace(s, shared=replace(s.shared, chapter_timing=True),
+                                             upload=replace(s.upload, auto_upload=True)))
+    now = [0.0]
+    monkeypatch.setattr(module, "perf_counter", lambda: now[0])
+    download = context._download
+    def scrape(job, token):
+        result = download(job, token)
+        now[0] += 2.0
+        return result
+    context._download = scrape
+    upload = module.upload_items
+    def send(*args, **kwargs):
+        result = upload(*args, **kwargs)
+        now[0] += 3.0
+        return result
+    monkeypatch.setattr(module, "upload_items", send)
+    logs = []
+    monkeypatch.setattr(context.hub, "log", lambda job_id, message: logs.append(message))
+    result = context._execute_job(Job("101", source="npia"), CancelToken())
+    assert result["status"] == "Done; uploaded"
+    assert logs[-1] == "Total time: 5.00 s"

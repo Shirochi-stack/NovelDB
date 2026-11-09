@@ -31,6 +31,15 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(old.shared.formats, SharedSettings().formats)
     }
 
+    func testChapterTimingIsOptionalAndPortable() throws {
+        let old = try SettingsCoding.decode(Data(#"{"shared": {"threads": 2}}"#.utf8))
+        XCTAssertFalse(old.shared.chapterTiming)
+        let (settings, _) = DesktopConfig.importConfig(["ext_chapter_timing": true])
+        XCTAssertTrue(settings.shared.chapterTiming)
+        XCTAssertEqual(DesktopConfig.exportConfig(settings)["ext_chapter_timing"] as? Bool, true)
+        XCTAssertTrue(try SettingsCoding.decode(SettingsCoding.encode(settings)).shared.chapterTiming)
+    }
+
     func testEncodeDecodeRoundTrip() throws {
         var settings = AppSettings()
         settings.shared.rangeFrom = 5

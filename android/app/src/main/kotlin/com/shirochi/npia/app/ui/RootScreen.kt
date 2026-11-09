@@ -196,6 +196,7 @@ fun RootScreen(model: AppViewModel) {
                 }
                 is Route.JobDetail -> JobDetailScreen(model, route.id)
                 Route.General -> GeneralSettingsScreen(model)
+                        Route.Advanced -> AdvancedSettingsScreen(model)
                 Route.Overrides -> OverridesListScreen(model)
                 is Route.OverrideForm -> OverrideFormScreen(model, route.source)
                 Route.SourceOptions -> SourceOptionsScreen(model)

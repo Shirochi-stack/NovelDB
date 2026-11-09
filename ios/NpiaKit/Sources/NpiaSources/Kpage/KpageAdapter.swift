@@ -188,6 +188,8 @@ public struct KpageAdapter: SourceAdapter {
 
     private func chapterTask(_ position: Int, _ ref: ChapterRef, context: SourceContext, leading: Int, delay: SharedSettings?) async throws -> (Int, ChapterResult) {
         if let delay { try await delay.sleepChapterDelay() }
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { context.recordChapterTiming(ref, since: started) }
         do {
             return (position, try await readChapter(ref, context: context, leadingImageBytes: leading))
         } catch is CancellationError {
