@@ -132,7 +132,12 @@ struct AddURLView: View {
                 Button {
                     queue()
                 } label: {
-                    Label(supported.count > 1 ? "Download \(supported.count) books" : "Download", systemImage: "arrow.down.circle.fill")
+                    Label {
+                        Text(supported.count > 1 ? "Download \(supported.count) books" : "Download")
+                    } icon: {
+                        Image("HalgakosDownload").renderingMode(.original)
+                            .resizable().scaledToFit().frame(width: 24, height: 24)
+                    }
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)

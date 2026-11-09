@@ -169,7 +169,12 @@ struct BrowserView: View {
                 model.pendingAddText = pageAddress
                 onDownload()
             } label: {
-                Label("Download this book", systemImage: "arrow.down.circle.fill")
+                Label {
+                    Text("Download this book")
+                } icon: {
+                    Image("HalgakosDownload").renderingMode(.original)
+                        .resizable().scaledToFit().frame(width: 24, height: 24)
+                }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity)

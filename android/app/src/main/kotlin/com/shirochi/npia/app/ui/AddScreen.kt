@@ -209,7 +209,11 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             },
             enabled = supported.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        ) { Text(if (supported.size > 1) "Download ${supported.size} books" else "Download") }
+        ) {
+            Image(painterResource(R.drawable.halgakos_download), contentDescription = null, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (supported.size > 1) "Download ${supported.size} books" else "Download")
+        }
     }
 }
 

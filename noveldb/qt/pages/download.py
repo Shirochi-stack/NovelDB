@@ -129,6 +129,7 @@ class DownloadPage(QWidget):
         # Browser sign-in, as the old external window had it: Enter Browser with the regular Chrome
         # profile switch. Enter App (sfc) is in the Tools menu, next to the other sfc session tools.
         enter_browser = QPushButton("Enter Browser")
+        icons.set_icon(enter_browser, icons.MINING)
         bind_size(enter_browser, min_width=150)
         self.enter_browser = enter_browser
         self._enter_browser_ok, self._enter_browser_reason = available("enter_browser")
@@ -144,6 +145,7 @@ class DownloadPage(QWidget):
         browser_row = flow(enter_browser, self.regular_browser, spacing=10)
         # The run button sits with the box it acts on, not at the bottom of the page.
         self.download = QPushButton("Download")
+        icons.set_icon(self.download, icons.DOWNLOAD)
         self.download.setProperty("primary", True)
         self.download.setCursor(Qt.PointingHandCursor)
         self.download.setToolTip("Queue the links above and everything in the link cart.")

@@ -314,7 +314,11 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
                     },
                     contentPadding = PaddingValues(horizontal = 8.dp),
                     modifier = Modifier.weight(1f),
-                ) { Text("Download this book", maxLines = 1) }
+                ) {
+                    Image(painterResource(R.drawable.halgakos_download), contentDescription = null, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Download this book", maxLines = 1)
+                }
                 OutlinedButton(
                     onClick = {
                         if (inCart) {

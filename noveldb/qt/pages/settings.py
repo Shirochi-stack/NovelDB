@@ -1239,6 +1239,8 @@ def sessions_form(context: AppContext) -> Form:
 
     def button(text: str, tool: str) -> QPushButton:
         btn = QPushButton(text)
+        if tool == "enter_browser":
+            icons.set_icon(btn, icons.MINING)
         ok, reason = available(tool)
         if not ok:
             btn.setEnabled(False)
