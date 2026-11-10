@@ -72,7 +72,6 @@ import com.shirochi.npia.app.FileActions
 import com.shirochi.npia.app.GENERIC_CATALOG_URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.zip.ZipFile
 
@@ -454,8 +453,8 @@ private fun Cover(book: LibraryBook) {
 internal fun LibraryReader(file: File, model: AppViewModel, onClose: () -> Unit) {
     val context = LocalContext.current
     val web = remember(file) { CatalogWeb(context, model) }
-    val jobs by model.manager.jobs.collectAsStateWithLifecycle()
-    val updating = jobs.firstOrNull { it.libraryTarget == file.name && it.state.isActive }
+    val revisions by model.manager.libraryRevisions.collectAsStateWithLifecycle()
+    LaunchedEffect(revisions) { web.refreshLocal() }
     DisposableEffect(web) {
         web.onReaderClosed = onClose
         onDispose { web.onReaderClosed = null; web.destroy() }
@@ -463,7 +462,6 @@ internal fun LibraryReader(file: File, model: AppViewModel, onClose: () -> Unit)
     val colors = MaterialTheme.colorScheme
     LaunchedEffect(colors) { web.setTheme(colors) }
     LaunchedEffect(web) {
-        model.manager.jobs.first { list -> list.none { it.libraryTarget == file.name && it.state.isActive } }
         web.load(GENERIC_CATALOG_URL, force = true)
         web.readLocal(file)
     }
@@ -478,7 +476,7 @@ internal fun LibraryReader(file: File, model: AppViewModel, onClose: () -> Unit)
                         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
-                            Text(web.error ?: if (updating != null) "Updating book…" else "Opening book…",
+                            Text(web.error ?: "Opening book…",
                                 modifier = Modifier.padding(vertical = 16.dp))
                             TextButton(onClick = onClose) { Text("Close") }
                         }

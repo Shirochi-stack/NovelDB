@@ -119,6 +119,8 @@ class DownloadManager(private val app: Application) {
     private val libraryStore = JsonFileStore(File(app.filesDir, "library-updates.json"), LibraryUpdateState.serializer())
     private val _libraryUpdates = MutableStateFlow(libraryStore.load() ?: LibraryUpdateState())
     val libraryUpdates = _libraryUpdates.asStateFlow()
+    private val _libraryRevisions = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val libraryRevisions = _libraryRevisions.asStateFlow()
 
     private val _uploadHistory = MutableStateFlow(historyStore.load().orEmpty())
     val uploadHistory: StateFlow<List<UploadResult>> = _uploadHistory.asStateFlow()
@@ -557,6 +559,7 @@ class DownloadManager(private val app: Application) {
         require(!outcome.stopped && outcome.skipped.isEmpty()) { "Library refresh was incomplete. The saved EPUB was preserved." }
         val candidate = outcome.files.single { it.extension.equals("epub", true) }
         replaceLibraryEpub(candidate, target)
+        _libraryRevisions.update { it + (target.name to ((it[target.name] ?: 0L) + 1L)) }
         val uploads = if (_libraryUpdates.value.uploadDrive) {
             val upload = _settings.value.upload.copy(hosts = listOf("gdrive"), autoUpload = false)
             listOf(UploaderCatalog.upload(target, upload, uploadContext(upload), history = null))

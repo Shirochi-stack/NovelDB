@@ -362,7 +362,7 @@ struct LibraryReaderView: View {
                 Color(uiColor: .systemBackground).ignoresSafeArea()
                 VStack(spacing: 16) {
                     ProgressView()
-                    Text(state.error ?? (updating ? "Updating book…" : "Opening book…"))
+                    Text(state.error ?? "Opening book…")
                     Button("Close", action: close)
                 }
                 .padding()
@@ -375,16 +375,9 @@ struct LibraryReaderView: View {
                 state.onReaderClosed = close
                 CatalogTransport.libraryFolder = model.outputDirectory
                 state.setTheme((Accent(rawValue: accent) ?? .halgakosRose).webTheme(dark: colorScheme == .dark))
-                while updating {
-                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-                }
-                guard !Task.isCancelled else { return }
                 state.readLocal(file)
             }
+            .onChange(of: model.libraryRevisions) { _, _ in state.refreshLocal() }
             .onDisappear { state.onReaderClosed = nil }
-    }
-
-    private var updating: Bool {
-        model.jobs.contains { $0.libraryTarget == file.lastPathComponent && $0.state.isActive }
     }
 }

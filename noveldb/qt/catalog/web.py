@@ -354,6 +354,7 @@ class CatalogPage(QWidget):
         self.cart_feedback = ButtonFeedback(self.cart_button)
         context.cartChanged.connect(self._cart_changed)
         context.settingsChanged.connect(self._settings_changed)
+        context.hub.jobSaved.connect(self._refresh_local)
         self._cart_changed()
         self._show_zoom()
 
@@ -487,6 +488,10 @@ class CatalogPage(QWidget):
         if not self._on_generic_page():
             self.page.home_host = ""
             self.view.load(QUrl.fromLocalFile(str(generic_page.PAGE)))
+
+    def _refresh_local(self, _job_id, path) -> None:
+        if self.view is not None and self._generic_ready:
+            self.generic.refresh_local(Path(path))
 
     def open_book(self, book: dict) -> None:
         """A Library book found again in the Generic search page (loaded first if another site is shown)."""

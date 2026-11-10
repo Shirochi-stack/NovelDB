@@ -2726,6 +2726,7 @@
             .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('');
     }
 
+    var localRefresh = {url: '', busy: false};
     function openReader(group, sourceIndex) {
         var reader = $('reader');
         if (R.group) send({type: 'genericReaderStop'});  // stop the previous reader request, including on source changes
@@ -2735,6 +2736,8 @@
         R.comicPick = '';
         R.comicKind = '';
         R.token++;
+        localRefresh = {url: '', busy: false};
+        R.chapterVersion = 0;
         R.cache = new Map();
         R.chapterIds = new Map();
         R.pagesFor = new Map();  // chapter -> the pages streamed in so far (a chapter read ahead too)
@@ -2945,7 +2948,7 @@
     }
     function loadChapter(index) {
         if (R.cache.has(index)) return R.cache.get(index);
-        var source = R.source, token = R.token, chapterName = R.chapters[index].name, promise;
+        var source = R.source, token = R.token, version = R.chapterVersion, chapterName = R.chapters[index].name, promise;
         // The app-side reader uses the Catalog's hidden browser and, if necessary, the downloader's
         // saved browser session.  It is also the recovery path when an LNReader request hits Cloudflare.
         var appChapter = function (recovery) {
@@ -2997,7 +3000,7 @@
             promise = appChapter();
         }
         promise = promise.then(function (result) {
-            if (token !== R.token) return {error: 'the reader was closed'};
+            if (token !== R.token || version !== R.chapterVersion) return {error: 'the chapter list changed'};
             if (!result || result.error) {
                 R.cache.delete(index);
                 R.done.delete(index);
@@ -3019,12 +3022,72 @@
     function chapterNumber() {
         $('rChapterNo').textContent = 'Chapter ' + (R.index + 1) + (R.tocLoading ? '' : ' of ' + R.chapters.length);
     }
+    function matchingChapter(chapters, current, preferred) {
+        var same = function (chapter) { return chapter && chapter.name === current.name && (chapter.section || '') === (current.section || ''); };
+        return same(chapters[preferred]) ? preferred : chapters.findIndex(same);
+    }
+    function refreshLocal(url) {
+        var source = R.group && R.group.sources[0];
+        if (!$('reader').classList.contains('open') || !source || source.source !== 'local' || key(source.url) !== key(url)) return false;
+        var refresh = localRefresh;
+        refresh.url = url;
+        // Opening the saved book and turning chapters take priority over updating its contents list.
+        if (refresh.busy || !R.source || R.index < 0 || !R.done.has(R.index)) return true;
+        refresh.url = '';
+        refresh.busy = true;
+        var token = R.token;
+        askAlive({type: 'genericBook', url: url}, 90).then(function (book) {
+            if (token !== R.token || localRefresh !== refresh || !Array.isArray(book && book.chapters) || !book.chapters.length || book.error) return;
+            if (!R.done.has(R.index)) { refresh.url = url; return; }
+            var current = R.chapters[R.index], before = R.index, at = readingAt();
+            var index = matchingChapter(book.chapters, current, before);
+            var kept = R.cache.get(before);
+            R.chapterVersion++;  // Earlier read-ahead responses belong to the previous chapter list.
+            R.chapters = book.chapters;
+            R.cache = new Map();
+            R.done = new Set();
+            R.chapterIds.clear();
+            R.pagesFor.clear();
+            if (index < 0) {
+                R.slotsIndex = -1;
+                openChapter(Math.min(before, R.chapters.length - 1), at);
+            } else {
+                R.index = index;
+                if (kept) R.cache.set(index, kept);
+                R.done.add(index);
+                if (R.slotsIndex === before) R.slotsIndex = index;
+                chapterNumber();
+                if (layout() === 'scroll') nextChapterButton(index);
+                place();
+                readAhead();
+            }
+            if ($('toc').classList.contains('open')) drawToc(false);
+        }).catch(function () {}).then(function () {
+            if (localRefresh !== refresh || token !== R.token) return;
+            refresh.busy = false;
+            if (refresh.turn) {
+                var turn = refresh.turn;
+                refresh.turn = null;
+                var index = matchingChapter(R.chapters, turn.chapter, turn.index);
+                openChapter(index < 0 ? Math.min(turn.index, R.chapters.length - 1) : index, turn.at);
+            }
+            if (refresh.url) refreshLocal(refresh.url);
+        });
+        return true;
+    }
     function nextChapterButton(index) {
-        if (index + 1 >= R.chapters.length || $('rNextChapter')) return;
-        $('flow').insertAdjacentHTML('beforeend', '<p class="next-chapter"><button type="button" id="rNextChapter">Next chapter ›</button></p>');
+        if (index + 1 >= R.chapters.length) {
+            if ($('rNextChapter')) $('rNextChapter').parentNode.remove();
+            return;
+        }
+        if (!$('rNextChapter')) $('flow').insertAdjacentHTML('beforeend', '<p class="next-chapter"><button type="button" id="rNextChapter">Next chapter ›</button></p>');
         $('rNextChapter').onclick = function () { openChapter(index + 1, 0); };
     }
     function openChapter(index, at) {
+        if (localRefresh.busy && R.source && R.source.source === 'local') {
+            localRefresh.turn = {chapter: R.chapters[index], index: index, at: at};
+            return;
+        }
         // The chapter already streaming in (its pages arriving): left as it is, not started again.
         if (index === R.index && R.slotsIndex === index && R.slots && R.slots.length) return;
         var token = R.token;
@@ -3385,6 +3448,7 @@
         if ($('toc').classList.contains('open') && tocTab === 'pages') drawPages();
         // The text being read, for laying the page out again when the window changes size.
         if (layout() !== 'scroll' && !R.switching) R.anchor = anchorAt();
+        if (localRefresh.url && !localRefresh.busy) refreshLocal(localRefresh.url);
     }
     // The pages counted again where they are now: a chapter's images still coming in add pages after it was laid
     // out (it was counted one page then, and every swipe went on to the next chapter until the window was
@@ -3943,6 +4007,7 @@
             if ($('dialog').open) $('dialog').close();
             openReader(group, 0);
         },
+        refreshLocal: refreshLocal,
         readerVisibility: readerVisibility,
         readerStatus: function (id, text) {
             R.alive[id] = readerNow();

@@ -198,6 +198,8 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     private var theme: String?
     /// A Library EPUB waiting for the generic page to be ready (its reader opens it).
     private var pendingRead: URL?
+    private var localFile: URL?
+    private var localRevision = 0
     /// A Library book waiting for the generic page to be ready (it is found again there).
     private var pendingBook: CatalogBook?
 
@@ -224,6 +226,8 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     /// Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot.
     func readLocal(_ epub: URL) {
         localReaderReady = false
+        localFile = epub
+        localRevision = model?.libraryRevisions[epub.lastPathComponent] ?? 0
         guard site.absoluteString == CatalogSite.genericAddress else {
             model?.message = "Books open in the reader of the built-in Catalog page (Settings > Catalog site)"
             return
@@ -238,7 +242,24 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
               let book = String(data: data, encoding: .utf8) else { return }
         let script = "(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.readLocal) return false; window.NovelDBGeneric.readLocal(b); return true; })(\(book))"
         webView.evaluateJavaScript(script) { [weak self] done, _ in
-            if (done as? Bool) == true { self?.pendingRead = nil; self?.localReaderReady = true }
+            if (done as? Bool) == true, self?.localFile == epub {
+                self?.pendingRead = nil
+                self?.localReaderReady = true
+                self?.refreshLocal()
+            }
+        }
+    }
+
+    func refreshLocal() {
+        guard let file = localFile, let revision = model?.libraryRevisions[file.lastPathComponent],
+              revision != localRevision,
+              let data = try? JSONSerialization.data(withJSONObject: ["url": file.absoluteString]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let script = "(function(b){return window.NovelDBGeneric && window.NovelDBGeneric.refreshLocal(b.url)})(\(json))"
+        webView.evaluateJavaScript(script) { [weak self] done, _ in
+            if (done as? Bool) == true, let self, self.localFile == file {
+                self.localRevision = max(self.localRevision, revision)
+            }
         }
     }
 
@@ -320,6 +341,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         case "genericFullscreen":
             readerFullScreen = CatalogPage.isPage(webView.url) && (body["on"] as? Bool ?? false)
         case "genericReaderClosed":
+            localFile = nil
             onReaderClosed?()
         default:
             break
@@ -431,6 +453,7 @@ struct CatalogView: View {
             }
         }
         .onChange(of: webTheme) { _, theme in state.setTheme(theme) }
+        .onChange(of: model.libraryRevisions) { _, _ in state.refreshLocal() }
         // A Library book to read: the page's reader opens it (once the page is ready).
         .onChange(of: model.readRequest) { _, epub in
             guard let epub else { return }

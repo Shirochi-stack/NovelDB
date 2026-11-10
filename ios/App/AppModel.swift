@@ -29,6 +29,7 @@ final class AppModel {
     }
     private(set) var jobs: [JobItem] = []
     private(set) var libraryUpdates = LibraryUpdateState()
+    private(set) var libraryRevisions: [String: Int] = [:]
     private(set) var uploadHistory: [UploadResult] = []
     /// Shown as an alert by the root view.
     var message: String?
@@ -483,6 +484,7 @@ final class AppModel {
         }
         try LibraryEpub.replace(candidate, target: target)
         EpubCover.invalidate(target)
+        libraryRevisions[target.lastPathComponent, default: 0] += 1
         var updated = outcome
         updated.files = [target]
         if libraryUpdates.uploadDrive {

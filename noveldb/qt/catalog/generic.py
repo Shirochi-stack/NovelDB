@@ -879,6 +879,9 @@ class GenericCatalog(QObject):
         self._local_paths[url] = str(Path(path))  # the Library's own name for it, for the place kept
         self._call("readLocal", {"url": url, "title": title, "chapter": chapter, "at": at})
 
+    def refresh_local(self, path: Path) -> None:
+        self._call("refreshLocal", Path(path).resolve().as_uri())
+
     def _note(self, text: str) -> None:
         """A progress note for the reader request this thread is answering, if any."""
         fetch_id = getattr(_reading, "id", None)

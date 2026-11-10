@@ -307,6 +307,8 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
 
     /** A Library EPUB waiting for the generic page to be ready (its reader opens it). */
     private var pendingRead: File? = null
+    private var localFile: File? = null
+    private var localRevision = 0L
     private var pendingBook: com.shirochi.npia.app.CatalogBook? = null
 
     /** Finds a Library book in the generic page (its site's page and a search for its title). */
@@ -330,6 +332,8 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
     /** Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot. */
     fun readLocal(epub: File) {
         localReaderReady = false
+        localFile = epub
+        localRevision = model.manager.libraryRevisions.value[epub.name] ?: 0L
         if (!isGenericPage(pageUrl)) {
             model.manager.message("Books open in the reader of the built-in Catalog page (Settings > Catalog site)")
             return
@@ -346,7 +350,17 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
         }
         view.evaluateJavascript("(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.readLocal) return false; " +
             "window.NovelDBGeneric.readLocal(b); return true; })($book)") { done ->
-            if (done == "true") { pendingRead = null; localReaderReady = true }
+            if (done == "true" && localFile == epub) { pendingRead = null; localReaderReady = true; refreshLocal() }
+        }
+    }
+
+    fun refreshLocal() {
+        val file = localFile ?: return
+        val revision = model.manager.libraryRevisions.value[file.name] ?: return
+        if (revision == localRevision) return
+        val url = JsonPrimitive(file.toURI().toString())
+        view.evaluateJavascript("window.NovelDBGeneric && window.NovelDBGeneric.refreshLocal($url)") { done ->
+            if (done == "true" && localFile == file) localRevision = maxOf(localRevision, revision)
         }
     }
 
@@ -449,7 +463,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
                     }
                     "genericLogin" -> if (onGenericPage) field("url").takeIf { it.startsWith("http") }?.let { model.openInBrowser(it) }
                     "genericFullscreen" -> readerFullScreen = onGenericPage && field("on") == "true"
-                    "genericReaderClosed" -> onReaderClosed?.invoke()
+                    "genericReaderClosed" -> { localFile = null; onReaderClosed?.invoke() }
                 }
             }
         }
@@ -489,6 +503,8 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     }
     // A Library book to read: the page's reader opens it (once the page is ready).
     val reading = model.readRequest
+    val libraryRevisions by model.manager.libraryRevisions.collectAsStateWithLifecycle()
+    LaunchedEffect(libraryRevisions) { web.refreshLocal() }
     LaunchedEffect(reading) {
         if (reading != null) {
             web.readLocal(reading)

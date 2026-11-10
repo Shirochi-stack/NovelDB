@@ -29,7 +29,9 @@ def test_local_open_keeps_loading_visible_until_reader_opened(catalog, qtbot, mo
     catalog.view = QWidget(catalog)
     catalog.stack.addWidget(catalog.view)
     seen = []
-    catalog.generic = SimpleNamespace(read_local=lambda *args: seen.append(args), handle=lambda *_: None)
+    refreshed = []
+    catalog.generic = SimpleNamespace(read_local=lambda *args: seen.append(args), handle=lambda *_: None,
+                                      refresh_local=refreshed.append)
     catalog._generic_ready = True
     monkeypatch.setattr(catalog, "_on_generic_page", lambda: True)
     catalog.read_local(tmp_path / "Book.epub", "Book")
@@ -39,6 +41,8 @@ def test_local_open_keeps_loading_visible_until_reader_opened(catalog, qtbot, mo
     assert web.parse_message('{"type":"genericReaderOpened"}')
     catalog._message({"type": "genericReaderOpened"})
     assert catalog.stack.currentWidget() is catalog.view
+    catalog.context.hub.jobSaved.emit("update", str(tmp_path / "Book.epub"))
+    assert refreshed == [tmp_path / "Book.epub"]
 
 
 @pytest.mark.parametrize("text", [

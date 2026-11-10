@@ -342,8 +342,16 @@ class LocalBookReader(QWidget):
     def open_book(self, book, contents: dict, start: int = -1) -> None:
         self.book = book
         self.file = book.readable().path
-        self.chapters = contents.get("chapters", [])
         self.page.epub = self.file if self.file.suffix.lower() == ".epub" else None
+        self._set_chapters(contents.get("chapters", []))
+        place = _places().get(str(self.file), {})
+        at = 0.0
+        if start < 0:
+            start, at = int(place.get("chapter", 0)), float(place.get("at", 0.0))
+        self.open_chapter(min(max(0, start), max(0, len(self.chapters) - 1)), at)
+
+    def _set_chapters(self, chapters) -> None:
+        self.chapters = chapters
         self.toc.blockSignals(True)
         self.toc.clear()
         # Numbered as on the book page: the EPUB's cover and title pages before the first chapter carry no number.
@@ -358,11 +366,26 @@ class LocalBookReader(QWidget):
             item.setToolTip(name)
             self.toc.addItem(item)
         self.toc.blockSignals(False)
-        place = _places().get(str(self.file), {})
-        at = 0.0
-        if start < 0:
-            start, at = int(place.get("chapter", 0)), float(place.get("at", 0.0))
-        self.open_chapter(min(max(0, start), max(0, len(self.chapters) - 1)), at)
+
+    def refresh_contents(self, contents) -> None:
+        chapters = contents.get("chapters", [])
+        if not chapters or not self.chapters:
+            return
+        current = self.chapters[self.index]
+        index = next((i for i, chapter in enumerate(chapters) if chapter.get("href", chapter["name"])
+                      == current.get("href", current["name"])), -1)
+        self._set_chapters(chapters)
+        if index < 0:
+            bar = self.page.verticalScrollBar()
+            self.open_chapter(min(self.index, len(chapters) - 1), bar.value() / max(1, bar.maximum()))
+            return
+        self.index = index
+        self.toc.blockSignals(True)
+        self.toc.setCurrentRow(index)
+        self.toc.blockSignals(False)
+        self.where.setText(f"Chapter {index + 1} of {len(chapters)}")
+        self.previous.setEnabled(index > 0)
+        self.next.setEnabled(index + 1 < len(chapters))
 
     def open_chapter(self, index: int, at: float = 0.0) -> None:
         if not (0 <= index < len(self.chapters)):

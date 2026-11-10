@@ -214,8 +214,8 @@ def test_library_drive_upload_preserves_unicode_file_names(tmp_path, monkeypatch
         context.shutdown()
 
 
-@pytest.mark.parametrize("close", [False, True])
-def test_reader_waits_for_replacement_and_close_prevents_late_open(tmp_path, monkeypatch, qtbot, close):
+@pytest.mark.parametrize("plain", [False, True])
+def test_reader_opens_during_update_and_refresh_preserves_current_page(tmp_path, monkeypatch, qtbot, plain):
     from dataclasses import replace
     from noveldb.qt.context import AppContext
     from noveldb.qt.pages.library import LibraryPage
@@ -229,20 +229,31 @@ def test_reader_waits_for_replacement_and_close_prevents_late_open(tmp_path, mon
     qtbot.addWidget(page)
     book = library.scan(tmp_path)[0]
     seen = []
-    page.read_in_catalog = lambda path, *_args: seen.append(len(library.epub_contents(path)["chapters"]))
+    if not plain:
+        page.read_in_catalog = lambda path, *_args: seen.append(len(library.epub_contents(path)["chapters"]))
     try:
         page._read(book)
-        assert page.views.currentWidget() is page.read_loading
-        assert not seen
-        if close:
-            page._close_pending_read()
-        epub(target, 3)
         job = context.runner.jobs[0]
+        assert job.active
+        if plain:
+            assert page.views.currentWidget() is page.reader
+            page.reader.page.setHtml('<p>' + 'Saved chapter content. ' * 1000 + '</p>')
+            page.reader.page.verticalScrollBar().setValue(100)
+            before = page.reader.page.toHtml()
+            position = page.reader.page.verticalScrollBar().value()
+        else:
+            assert seen == [2]
+        epub(target, 3)
         context.hub.jobSaved.emit(job.id, str(target))
         assert len(page.book_view.contents["chapters"]) == 3
+        assert job.active
+        if plain:
+            assert page.reader.toc.count() == 3
+            assert page.reader.page.toHtml() == before
+            assert page.reader.page.verticalScrollBar().value() == position
         job.state = "done"
         context.hub.jobChanged.emit(job.id)
-        assert seen == ([] if close else [3])
-        assert page._pending_read is None
+        if not plain:
+            assert seen == [2]
     finally:
         context.shutdown()
