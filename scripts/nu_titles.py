@@ -351,6 +351,9 @@ def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
     lines = []
     changes = {}
     for line in path.read_text(encoding="utf-8").splitlines():
+        if line.count("|||") < 2:
+            lines.append(line + "\n")
+            continue
         nid, rest = line.split("|||", 1)
         original, english = rest.rsplit("|||", 1)
         match = matches.get(nid)

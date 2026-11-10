@@ -162,7 +162,7 @@ def test_apply_rebuilds_browser_bundles_and_preserves_raw_rows(tmp_path):
     row = ["1", RAW, AUTHOR, "", [], 0, 0, 0, 0, "", 0, "", "", 0, {}, {}]
     rows = [row]
     metadata_common.atomic_json(data_dir / "kpage_novels.json", rows)
-    (data_dir / "kpage_titles_en.txt").write_text(f"1|||{RAW}|||Old Machine Title\n", encoding="utf-8")
+    (data_dir / "kpage_titles_en.txt").write_text(f"1|||{RAW}|||Old Machine Title\n\nlegacy|||incomplete\n", encoding="utf-8")
     payload = {"novels": rows, "translations": {"1": "Old Machine Title"}, "descriptions": {"1": "Synopsis"}}
     nu_titles.write_cache(data_dir / "kpage_chunk_0.json.gz", payload)
     metadata_common.atomic_json(data_dir / "kpage_chunk_manifest.json", {
@@ -171,6 +171,7 @@ def test_apply_rebuilds_browser_bundles_and_preserves_raw_rows(tmp_path):
     report = nu_titles.apply_catalog("kpage", data_dir, tmp_path / "state", cache_path, rebuild=True)
     assert report["changed"] == report["matched"] == 1
     assert report["changes"]["1"]["previous_english"] == "Old Machine Title"
+    assert (data_dir / "kpage_titles_en.txt").read_text(encoding="utf-8").endswith("\n\nlegacy|||incomplete\n")
     packed = json.loads(gzip.decompress((data_dir / "kpage_chunk_0.json.gz").read_bytes()))
     assert packed["novels"] == rows
     assert packed["descriptions"] == payload["descriptions"]
