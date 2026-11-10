@@ -261,8 +261,8 @@ public enum UploaderCatalog {
         return all.first { $0.id == id }
     }
 
-    /// Tries each configured host in order and returns the first success. Folders (separate
-    /// TXT output) are zipped first. Successful uploads are added to `history`.
+    /// Tries each configured host in order and returns the first success. Drive keeps folders;
+    /// file hosts receive a ZIP. Successful uploads are added to `history`.
     ///
     /// `nameID` is the stand-in name (like `npia_419368`) for a file whose title keeps fewer than
     /// three ASCII letters (digits do not count); the result keeps the original name. `contents` is what a
@@ -282,12 +282,9 @@ public enum UploaderCatalog {
         context.settings = settings
         if let nameID { context.nameID = nameID }
 
-        var payload = file
+        var archived: URL?
         var staged: URL?
-        if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            payload = try FolderArchiver.zip(file, in: context.temporaryDirectory)
-            staged = payload.deletingLastPathComponent()
-        }
+        let isFolder = (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
 
         var lastError: Error = UploadError.notConfigured("No upload host")
@@ -312,6 +309,16 @@ public enum UploaderCatalog {
                 }
             }
             do {
+                let payload: URL
+                if isFolder && uploader.id != "gdrive" {
+                    if archived == nil {
+                        archived = try FolderArchiver.zip(file, in: context.temporaryDirectory)
+                        staged = archived?.deletingLastPathComponent()
+                    }
+                    payload = archived!
+                } else {
+                    payload = file
+                }
                 try uploader.check(payload)
                 var result = try await uploader.upload(payload, context: context, progress: relay)
                 result.contents = contents

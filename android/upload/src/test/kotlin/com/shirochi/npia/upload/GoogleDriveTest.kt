@@ -5,6 +5,9 @@ import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.UploadSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.supervisorScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -19,9 +22,107 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.net.URLDecoder
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class GoogleDriveTest : UploadTestBase() {
+    @Test
+    fun folderFallbackPreservesTreeAndSharesOnlyTheRoot() = runBlocking<Unit> {
+        val folder = File(directory, "책.folder").apply { mkdir() }
+        File(folder, "001.txt").writeText("abc")
+        File(folder, "empty").mkdir()
+        val sub = File(folder, "sub").apply { mkdir() }
+        File(sub, "002.txt").writeText("defgh")
+        val session = "https://www.googleapis.com/folder-session".toHttpUrl()
+        handler = { request ->
+            when {
+                request.url.host == "temp.sh" -> text("offline", status = 503)
+                request.url.encodedPath == "/drive/v3/files" -> {
+                    val metadata = Json.parseToJsonElement(request.text) as JsonObject
+                    val name = (metadata["name"] as JsonPrimitive).content
+                    val id = if (name == folder.name) "root" else name
+                    json("""{"id":"$id"}""")
+                }
+                request.url.encodedPath == "/upload/drive/v3/files" -> json("", headers = mapOf("Location" to session.toString()))
+                request.url == session -> json("""{"id":"chapter"}""")
+                request.url.encodedPath == "/drive/v3/files/root/permissions" -> json("{}")
+                else -> unexpected("Unexpected folder request ${request.method} ${request.url}")
+            }
+        }
+        val settings = UploadSettings(hosts = listOf("tempsh", "gdrive"), googleDriveFolderId = "parent")
+        val ctx = context(settings = settings).copy(googleAccessToken = { "access" })
+        val progress = ProgressBox()
+        val result = UploaderCatalog.upload(folder, settings, ctx, history = null, progress = progress::add)
+        assertEquals(folder.name, result.fileName)
+        assertEquals("https://drive.google.com/drive/folders/root?usp=sharing", result.link)
+        assertTrue(seen.first().text.contains(".zip"))
+        val metadata = seen.filter { it.method == "POST" && it.url.encodedPath in listOf("/drive/v3/files", "/upload/drive/v3/files") }
+            .map { Json.parseToJsonElement(it.text) as JsonObject }
+        assertEquals(listOf("parent"), (metadata.first()["parents"] as JsonArray).map { (it as JsonPrimitive).content })
+        assertEquals(setOf(folder.name, "empty", "sub", "001.txt", "002.txt"), metadata.map { (it["name"] as JsonPrimitive).content }.toSet())
+        val nested = metadata.first { (it["name"] as JsonPrimitive).content == "002.txt" }
+        assertEquals("sub", ((nested["parents"] as JsonArray).single() as JsonPrimitive).content)
+        assertEquals(1, seen.count { it.url.encodedPath.endsWith("/permissions") })
+        assertEquals(UploadProgress(8, 8), progress.last)
+    }
+
+    @Test
+    fun batchKeepsEmptyFoldersWithZipBundlingEnabled() = runBlocking<Unit> {
+        val settings = UploadSettings(hosts = listOf("gdrive"), zipBundle = true)
+        val ctx = context(settings = settings).copy(googleAccessToken = { "access" })
+        val folders = listOf("One", "Two").map { File(directory, it).apply { mkdir() } }
+        handler = { request ->
+            if (request.url.encodedPath.endsWith("/permissions")) json("{}") else {
+                val metadata = Json.parseToJsonElement(request.text) as JsonObject
+                json("""{"id":${metadata["name"]}}""")
+            }
+        }
+        val plan = UploaderCatalog.plan(folders.map { UploadItem(it) }, settings, ctx)
+        assertTrue(plan.all { it is PlannedUpload.Single })
+        val results = UploaderCatalog.uploadAll(plan, settings, ctx, history = null)
+        assertTrue(results.all { it.succeeded })
+        assertEquals(2, results.size)
+        assertTrue(results.all { it.result!!.link.contains("/drive/folders/") })
+        assertEquals(4, seen.size)
+    }
+
+    @Test
+    fun failedAndCancelledFoldersAreTrashed() = runBlocking<Unit> {
+        val folder = File(directory, "Book").apply { mkdir() }
+        File(folder, "001.txt").writeText("abc")
+        val session = "https://www.googleapis.com/folder-session".toHttpUrl()
+        for (cancel in listOf(false, true)) {
+            seen.clear()
+            handler = { request ->
+                when {
+                    request.method == "PATCH" -> json("{}")
+                    request.url.encodedPath == "/drive/v3/files" -> json("""{"id":"root"}""")
+                    request.url.encodedPath == "/upload/drive/v3/files" -> json("", headers = mapOf("Location" to session.toString()))
+                    request.url == session -> json("""{"id":"chapter"}""")
+                    request.url.encodedPath.endsWith("/permissions") -> text("denied", status = 403)
+                    else -> unexpected("Unexpected cleanup request")
+                }
+            }
+            supervisorScope {
+                val task = async {
+                    val operationContext = coroutineContext
+                    GoogleDriveUploader().upload(folder, context().copy(googleAccessToken = { "access" })) {
+                        if (cancel) operationContext.cancel()
+                    }
+                }
+                try {
+                    task.await()
+                    fail("expected upload failure")
+                } catch (error: Exception) {
+                    assertEquals(cancel, error is CancellationException)
+                }
+            }
+            assertEquals("PATCH", seen.last().method)
+            assertEquals("/drive/v3/files/root", seen.last().url.encodedPath)
+            assertEquals("""{"trashed":true}""", seen.last().text)
+        }
+    }
+
     @Test
     fun nativeAuthorizationUploadsWithoutALegacyOAuthClient() = runBlocking {
         val session = "https://www.googleapis.com/native-session".toHttpUrl()

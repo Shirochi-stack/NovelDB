@@ -47,10 +47,7 @@ def upload(
     and the history.
     """
     staging = None
-    payload = path
-    if os.path.isdir(path):
-        staging = tempfile.mkdtemp(prefix="noveldb-upload-")
-        payload = zip_folder(path, staging)
+    archived = None
     try:
         last: Exception = UploadError("No upload host is configured.")
         for host_id in hosts or DEFAULT_HOSTS:
@@ -61,6 +58,12 @@ def upload(
                 last = NotSignedIn(host.display_name)
                 continue
             try:
+                payload = path
+                if os.path.isdir(path) and host.id != "gdrive":
+                    if archived is None:
+                        staging = tempfile.mkdtemp(prefix="noveldb-upload-")
+                        archived = zip_folder(path, staging)
+                    payload = archived
                 host.check(payload)
                 if on_host:
                     on_host(host.display_name)
@@ -154,7 +157,8 @@ def upload_items(
     ends, whether or not it worked. A failed upload does not stop the others; cancelling does.
     """
     hosts = tuple(hosts) or DEFAULT_HOSTS
-    plan = plan_bundles(items, zip_limit(max_mb, hosts, context), bundle)
+    folders_separate = any(host is not None and host.id == "gdrive" for host in map(uploader, hosts))
+    plan = plan_bundles(items, zip_limit(max_mb, hosts, context), bundle, folders_separate=folders_separate)
     count = len(plan)
     outcomes: list[UploadOutcome] = []
     staging = tempfile.mkdtemp(prefix="noveldb-upload-", dir=temp_dir)

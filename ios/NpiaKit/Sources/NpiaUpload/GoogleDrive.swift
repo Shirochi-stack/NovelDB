@@ -26,32 +26,112 @@ public struct GoogleDriveUploader: Uploader {
     public func upload(_ file: URL, context: UploadContext, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> UploadResult {
         guard let config = context.googleOAuth else { throw UploadError.notConfigured("Google Drive client ID") }
         let auth = GoogleDriveAuth(config: config, secrets: context.secrets, session: context.session)
-        let size = try fileSize(file)
-
-        let folderID = context.settings.googleDriveFolderID
-        var token = try await auth.accessToken()
-        var started = try await context.send(Self.startRequest(file: file, size: size, folderID: folderID, token: token))
-        if started.status == 401 {
-            token = try await auth.accessToken(forceRefresh: true)
-            started = try await context.send(Self.startRequest(file: file, size: size, folderID: folderID, token: token))
+        if (try file.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true {
+            return try await uploadFolder(file, context: context, auth: auth, progress: progress)
         }
+        let metadata = try await uploadFile(file, parent: context.settings.googleDriveFolderID, context: context, auth: auth, progress: progress)
+        guard let fileID = metadata["id"] as? String else {
+            throw UploadError.rejected(host: displayName, message: "no file id")
+        }
+        let shared = try await authorized(context: context, auth: auth) { Self.permissionRequest(fileID: fileID, token: $0) }
+        try shared.requireSuccess(displayName)
+        let link = (metadata["webViewLink"] as? String).flatMap(URL.init(string:))
+            ?? URL(string: "https://drive.google.com/file/d/\(fileID)/view?usp=sharing")!
+        return result(for: file, link: link, context: context)
+    }
+
+    private func authorized(context: UploadContext, auth: GoogleDriveAuth, request: (String) -> URLRequest) async throws -> HTTPReply {
+        try Task.checkCancellation()
+        let token = try await auth.accessToken()
+        let reply = try await context.send(request(token))
+        if reply.status == 401 {
+            let refreshed = try await auth.accessToken(forceRefresh: true)
+            return try await context.send(request(refreshed))
+        }
+        return reply
+    }
+
+    private func uploadFile(_ file: URL, parent: String?, context: UploadContext, auth: GoogleDriveAuth, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> [String: Any] {
+        let size = try fileSize(file)
+        try check(file)
+        let started = try await authorized(context: context, auth: auth) { Self.startRequest(file: file, size: size, folderID: parent, token: $0) }
         try started.requireSuccess(displayName)
         guard let location = started.header("Location"), let sessionURL = URL(string: location) else {
             throw UploadError.rejected(host: displayName, message: "no upload session")
         }
 
         let metadata = try await sendChunks(file, size: size, to: sessionURL, context: context, auth: auth, progress: progress)
-        guard let fileID = metadata["id"] as? String else {
+        guard metadata["id"] is String else {
             throw UploadError.rejected(host: displayName, message: "no file id")
         }
+        return metadata
+    }
 
-        token = try await auth.accessToken()
-        let shared = try await context.send(Self.permissionRequest(fileID: fileID, token: token))
-        try shared.requireSuccess(displayName)
+    private func folderEntries(_ file: URL) throws -> [URL] {
+        try Task.checkCancellation()
+        let values = try file.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        if values.isSymbolicLink == true { throw UploadError.rejected(host: displayName, message: "folder contains a symbolic link") }
+        var entries = [file]
+        if values.isDirectory == true {
+            for child in try FileManager.default.contentsOfDirectory(at: file, includingPropertiesForKeys: nil).sorted(by: { $0.path < $1.path }) {
+                entries += try folderEntries(child)
+            }
+        } else {
+            try check(file)
+        }
+        return entries
+    }
 
-        let link = (metadata["webViewLink"] as? String).flatMap(URL.init(string:))
-            ?? URL(string: "https://drive.google.com/file/d/\(fileID)/view?usp=sharing")!
-        return result(for: file, link: link, context: context)
+    private func uploadFolder(_ file: URL, context: UploadContext, auth: GoogleDriveAuth, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> UploadResult {
+        let entries = try folderEntries(file)
+        let files = try entries.filter { try $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory != true }
+        let total = try files.reduce(Int64(0)) { try $0 + fileSize($1) }
+        var folders: [String: String] = [:]
+        var sent: Int64 = 0
+        do {
+            for entry in entries {
+                let parent = entry == file ? context.settings.googleDriveFolderID : folders[entry.deletingLastPathComponent().path]
+                if try entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                    var metadata: [String: Any] = ["name": uploadName(entry), "mimeType": "application/vnd.google-apps.folder"]
+                    if let parent, !parent.isEmpty { metadata["parents"] = [parent] }
+                    let reply = try await authorized(context: context, auth: auth) { Self.metadataRequest(metadata, token: $0) }
+                    try reply.requireSuccess(displayName)
+                    guard let id = (reply.json() as? [String: Any])?["id"] as? String else {
+                        throw UploadError.rejected(host: displayName, message: "no folder id")
+                    }
+                    folders[entry.path] = id
+                } else {
+                    let base = sent
+                    _ = try await uploadFile(entry, parent: parent, context: context, auth: auth) { value in
+                        progress?(UploadProgress(sentBytes: base + value.sentBytes, totalBytes: total))
+                    }
+                    sent += try fileSize(entry)
+                }
+            }
+            let reply = try await authorized(context: context, auth: auth) { Self.permissionRequest(fileID: folders[file.path]!, token: $0) }
+            try reply.requireSuccess(displayName)
+        } catch {
+            if let id = folders[file.path] {
+                await Task.detached {
+                    _ = try? await authorized(context: context, auth: auth) { Self.metadataRequest(["trashed": true], fileID: id, token: $0) }
+                }.value
+            }
+            throw error
+        }
+        progress?(UploadProgress(sentBytes: total, totalBytes: total))
+        return result(for: file, link: URL(string: "https://drive.google.com/drive/folders/\(folders[file.path]!)?usp=sharing")!, context: context)
+    }
+
+    static func metadataRequest(_ metadata: [String: Any], fileID: String? = nil, token: String) -> URLRequest {
+        let url = fileID.map { filesEndpoint.appendingPathComponent($0) } ?? filesEndpoint
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "supportsAllDrives", value: "true"), URLQueryItem(name: "fields", value: "id")]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = fileID == nil ? "POST" : "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: metadata)
+        return request
     }
 
     static func startRequest(file: URL, size: Int64, folderID: String?, token: String) -> URLRequest {

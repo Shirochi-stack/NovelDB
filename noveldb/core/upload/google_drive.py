@@ -6,6 +6,8 @@ import mimetypes
 import os
 import re
 import threading
+from dataclasses import replace
+from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 import requests
@@ -97,7 +99,7 @@ class GoogleDriveUploader:
     def check(self, path):
         from noveldb.core.upload.transfer import TooLarge
 
-        if os.path.getsize(path) > self.max_bytes:
+        if not os.path.isdir(path) and os.path.getsize(path) > self.max_bytes:
             raise TooLarge(self.display_name, self.max_bytes)
 
     def _request(self, context, method, url, **kwargs):
@@ -119,10 +121,74 @@ class GoogleDriveUploader:
     def upload(self, path, context, progress=None, name=None):
         from noveldb.core.upload.hosts import UploadResult
 
+        if os.path.isdir(path):
+            return self._upload_folder(path, context, progress)
+        result = self._upload_file(path, context, progress, name, context.google_drive_folder_id)
+        self._share(result["id"], context)
+        link = result.get("webViewLink") or f"https://drive.google.com/file/d/{quote(result['id'], safe='')}/view?usp=sharing"
+        return UploadResult(self.id, os.path.basename(path), link)
+
+    def _share(self, file_id, context):
+        permission = self._request(
+            context, "POST", f"{self.files_endpoint}/{quote(file_id, safe='')}/permissions",
+            params={"supportsAllDrives": "true"}, json={"role": "reader", "type": "anyone"},
+        )
+        require_success(permission, self.display_name)
+
+    def _upload_folder(self, path, context, progress):
+        from noveldb.core.upload.hosts import UploadResult
+
+        root = Path(path)
+        entries = [root] + sorted(root.rglob("*"))
+        total = 0
+        for entry in entries:
+            if context.stopped():
+                raise UploadCancelled("Upload cancelled")
+            if entry.is_symlink():
+                raise Rejected(self.display_name, "folder contains a symbolic link")
+            if entry.is_file():
+                self.check(str(entry))
+                total += entry.stat().st_size
+        folders = {}
+        sent = 0
+        try:
+            for entry in entries:
+                parent = context.google_drive_folder_id if entry == root else folders[entry.parent]
+                if entry.is_dir():
+                    metadata = {"name": entry.name, "mimeType": "application/vnd.google-apps.folder"}
+                    if parent:
+                        metadata["parents"] = [parent]
+                    reply = self._request(context, "POST", self.files_endpoint,
+                                          params={"supportsAllDrives": "true", "fields": "id"}, json=metadata)
+                    require_success(reply, self.display_name)
+                    file_id = (json_of(reply) or {}).get("id")
+                    if not file_id:
+                        raise Rejected(self.display_name, "no folder id")
+                    folders[entry] = file_id
+                else:
+                    self._upload_file(str(entry), context,
+                                      (lambda done, size: progress(sent + done, total)) if progress else None,
+                                      entry.name, parent)
+                    sent += entry.stat().st_size
+            self._share(folders[root], context)
+        except BaseException:
+            if root in folders:
+                try:
+                    self._request(replace(context, stopped=lambda: False), "PATCH",
+                                  f"{self.files_endpoint}/{quote(folders[root], safe='')}",
+                                  params={"supportsAllDrives": "true"}, json={"trashed": True})
+                except Exception:
+                    pass
+            raise
+        if progress:
+            progress(total, total)
+        return UploadResult(self.id, root.name, f"https://drive.google.com/drive/folders/{quote(folders[root], safe='')}?usp=sharing")
+
+    def _upload_file(self, path, context, progress, name, parent):
         size = os.path.getsize(path)
         metadata = {"name": name or os.path.basename(path)}
-        if context.google_drive_folder_id:
-            metadata["parents"] = [context.google_drive_folder_id]
+        if parent:
+            metadata["parents"] = [parent]
         started = self._request(context, "POST", self.endpoint, params={
             "uploadType": "resumable", "supportsAllDrives": "true", "fields": "id,webViewLink",
         }, json=metadata, headers={
@@ -135,16 +201,9 @@ class GoogleDriveUploader:
         if parts.scheme != "https" or parts.hostname != "www.googleapis.com":
             raise Rejected(self.display_name, "invalid upload session")
         result = self._chunks(path, size, session, context, progress)
-        file_id = result.get("id")
-        if not file_id:
+        if not result.get("id"):
             raise Rejected(self.display_name, "no file id")
-        permission = self._request(
-            context, "POST", f"{self.files_endpoint}/{quote(file_id, safe='')}/permissions",
-            params={"supportsAllDrives": "true"}, json={"role": "reader", "type": "anyone"},
-        )
-        require_success(permission, self.display_name)
-        link = result.get("webViewLink") or f"https://drive.google.com/file/d/{quote(file_id, safe='')}/view?usp=sharing"
-        return UploadResult(self.id, os.path.basename(path), link)
+        return result
 
     def _chunks(self, path, size, session, context, progress):
         offset, failures, query_status = 0, 0, False

@@ -3,6 +3,8 @@ package com.shirochi.npia.upload
 import com.shirochi.npia.core.SecretKey
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -18,6 +20,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.nio.file.Files
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -50,28 +53,80 @@ class GoogleDriveUploader(
             val provider: suspend (Boolean) -> String = { force -> legacy.accessToken(force) }
             provider
         }
-        val size = file.length()
-        val folderId = context.settings.googleDriveFolderId
+        if (file.isDirectory) return uploadFolder(file, context, client, auth, progress)
+        val metadata = uploadFile(file, context.settings.googleDriveFolderId, client, auth, progress)
+        val fileId = metadata.string("id") ?: throw UploadException.Rejected(displayName, "no file id")
+        authorized(client, auth) { permissionRequest(fileId, it) }.requireSuccess(displayName)
+        val link = metadata.string("webViewLink")?.toHttpUrlOrNull()?.toString()
+            ?: "https://drive.google.com/file/d/$fileId/view?usp=sharing"
+        return result(file, link, context)
+    }
 
-        var token = auth(false)
-        var started = client.send(startRequest(file, size, folderId, token))
-        if (started.status == 401) {
-            token = auth(true)
-            started = client.send(startRequest(file, size, folderId, token))
-        }
+    private suspend fun authorized(client: OkHttpClient, auth: suspend (Boolean) -> String, request: (String) -> Request): HttpReply {
+        coroutineContext.ensureActive()
+        val reply = client.send(request(auth(false)))
+        return if (reply.status == 401) client.send(request(auth(true))) else reply
+    }
+
+    private suspend fun uploadFile(file: File, folderId: String?, client: OkHttpClient, auth: suspend (Boolean) -> String, progress: ((UploadProgress) -> Unit)?): JsonObject {
+        val size = file.length()
+        check(file)
+        val started = authorized(client, auth) { startRequest(file, size, folderId, it) }
         started.requireSuccess(displayName)
         val session = started.header("Location")?.toHttpUrlOrNull()
             ?: throw UploadException.Rejected(displayName, "no upload session")
 
         val metadata = sendChunks(file, size, session, client, auth, progress)
-        val fileId = metadata.string("id") ?: throw UploadException.Rejected(displayName, "no file id")
+        if (metadata.string("id") == null) throw UploadException.Rejected(displayName, "no file id")
+        return metadata
+    }
 
-        token = auth(false)
-        client.send(permissionRequest(fileId, token)).requireSuccess(displayName)
-
-        val link = metadata.string("webViewLink")?.toHttpUrlOrNull()?.toString()
-            ?: "https://drive.google.com/file/d/$fileId/view?usp=sharing"
-        return result(file, link, context)
+    private suspend fun uploadFolder(file: File, context: UploadContext, client: OkHttpClient, auth: suspend (Boolean) -> String, progress: ((UploadProgress) -> Unit)?): UploadResult {
+        val root = file.absoluteFile
+        val operationContext = coroutineContext
+        val entries = root.walkTopDown().onEnter { directory ->
+            operationContext.ensureActive()
+            if (Files.isSymbolicLink(directory.toPath())) throw UploadException.Rejected(displayName, "folder contains a symbolic link")
+            true
+        }.onFail { _, error -> throw error }.toList()
+        for (entry in entries) {
+            coroutineContext.ensureActive()
+            if (Files.isSymbolicLink(entry.toPath())) throw UploadException.Rejected(displayName, "folder contains a symbolic link")
+            if (entry.isFile) check(entry)
+        }
+        val total = entries.filter { it.isFile }.sumOf { it.length() }
+        val folders = mutableMapOf<File, String>()
+        var sent = 0L
+        try {
+            for (entry in entries) {
+                val parent = if (entry == root) context.settings.googleDriveFolderId else folders.getValue(entry.parentFile)
+                if (entry.isDirectory) {
+                    val metadata = buildJsonObject {
+                        put("name", uploadName(entry))
+                        put("mimeType", "application/vnd.google-apps.folder")
+                        if (!parent.isNullOrBlank()) put("parents", JsonArray(listOf(JsonPrimitive(parent))))
+                    }
+                    val reply = authorized(client, auth) { metadataRequest(null, metadata, it) }
+                    reply.requireSuccess(displayName)
+                    folders[entry] = reply.jsonObject()?.string("id") ?: throw UploadException.Rejected(displayName, "no folder id")
+                } else {
+                    uploadFile(entry, parent, client, auth) { value -> progress?.invoke(UploadProgress(sent + value.sentBytes, total)) }
+                    sent += entry.length()
+                }
+            }
+            authorized(client, auth) { permissionRequest(folders.getValue(root), it) }.requireSuccess(displayName)
+        } catch (error: Exception) {
+            folders[root]?.let { id ->
+                withContext(NonCancellable) {
+                    runCatching {
+                        authorized(client, auth) { metadataRequest(id, buildJsonObject { put("trashed", true) }, it) }
+                    }
+                }
+            }
+            throw error
+        }
+        progress?.invoke(UploadProgress(total, total))
+        return result(file, "https://drive.google.com/drive/folders/${folders.getValue(root)}?usp=sharing", context)
     }
 
     /**
@@ -141,6 +196,13 @@ class GoogleDriveUploader(
         val UPLOAD_ENDPOINT = "https://www.googleapis.com/upload/drive/v3/files".toHttpUrl()
         val FILES_ENDPOINT = "https://www.googleapis.com/drive/v3/files".toHttpUrl()
         private val JSON_TYPE = "application/json; charset=UTF-8".toMediaType()
+
+        private fun metadataRequest(fileId: String?, metadata: JsonObject, token: String): Request {
+            val url = FILES_ENDPOINT.newBuilder().apply { if (fileId != null) addPathSegment(fileId) }
+                .addQueryParameter("supportsAllDrives", "true").addQueryParameter("fields", "id").build()
+            return Request.Builder().url(url).header("Authorization", "Bearer $token")
+                .method(if (fileId == null) "POST" else "PATCH", metadata.toString().toRequestBody(JSON_TYPE)).build()
+        }
 
         internal fun startRequest(file: File, size: Long, folderId: String?, token: String): Request {
             val url = UPLOAD_ENDPOINT.newBuilder()

@@ -96,13 +96,14 @@ def bundle_zip_name(items: Sequence[UploadItem], taken: set[str]) -> str:
     return name
 
 
-def plan_bundles(items: Sequence[UploadItem], limit_bytes: int, enabled: bool = True) -> list[Bundle]:
+def plan_bundles(items: Sequence[UploadItem], limit_bytes: int, enabled: bool = True, *, folders_separate: bool = False) -> list[Bundle]:
     """Group `items` into as few uploads as possible, each ZIP under `limit_bytes`.
 
     Files go largest first into the first ZIP with room (file size plus `ENTRY_OVERHEAD` each). A
     file that cannot fit even alone, and a ZIP that would hold a single file, upload as the file
     itself. With bundling off or fewer than two files every file is its own upload. Uploads keep the
     order of their first file in `items`, and the files inside a ZIP keep theirs.
+    `folders_separate` keeps directory outputs available for Drive's folder uploads.
     """
     items = list(items)
     sizes = [item_size(item.path) for item in items]
@@ -111,6 +112,10 @@ def plan_bundles(items: Sequence[UploadItem], limit_bytes: int, enabled: bool = 
     bins: list[list[int]] = []
     totals: list[int] = []
     for index in sorted(range(len(items)), key=lambda i: (-sizes[i], i)):
+        if folders_separate and os.path.isdir(items[index].path):
+            bins.append([index])
+            totals.append(limit_bytes)
+            continue
         cost = sizes[index] + ENTRY_OVERHEAD
         if cost > limit_bytes:
             bins.append([index])  # too big for any ZIP: goes up alone, as the file

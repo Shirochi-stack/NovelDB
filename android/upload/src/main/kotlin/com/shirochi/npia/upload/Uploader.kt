@@ -234,8 +234,8 @@ object UploaderCatalog {
     }
 
     /**
-     * Tries each configured host in order and returns the first success. Folders (separate TXT
-     * output) are zipped first. Successful uploads are added to `history`. `onHost` gets the
+     * Tries each configured host in order and returns the first success. Drive keeps folders;
+     * file hosts receive a ZIP. Successful uploads are added to `history`. `onHost` gets the
      * display name of each host just before it is tried, so the UI can show the fallback order.
      * `bookId` is the stem (`npia_123456`) for uploads whose file name is not plain ASCII (see `UploadContext.fileId`).
      */
@@ -250,12 +250,8 @@ object UploaderCatalog {
         onHostFailed: ((String, String) -> Unit)? = null,
     ): UploadResult {
         val ctx = context.copy(settings = settings, fileId = bookId ?: context.fileId)
-        var payload = file
+        var archived: File? = null
         var staged: File? = null
-        if (file.isDirectory) {
-            payload = FolderArchiver.zip(file, ctx.temporaryDirectory)
-            staged = payload.parentFile
-        }
         try {
             var last: Exception = UploadException.NotConfigured("No upload host")
             for (id in settings.hosts) {
@@ -273,6 +269,13 @@ object UploaderCatalog {
                     continue
                 }
                 try {
+                    val payload = if (file.isDirectory && uploader.id != "gdrive") {
+                        if (archived == null) {
+                            archived = FolderArchiver.zip(file, ctx.temporaryDirectory)
+                            staged = archived.parentFile
+                        }
+                        archived
+                    } else file
                     uploader.check(payload)
                     val result = uploader.upload(payload, ctx, progress)
                     history?.add(result)

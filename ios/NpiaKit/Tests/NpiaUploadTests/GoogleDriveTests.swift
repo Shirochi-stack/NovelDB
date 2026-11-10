@@ -5,6 +5,100 @@ import NpiaCore
 final class GoogleDriveTests: UploadTestCase {
     let config = GoogleOAuthConfig(clientID: "1234-abcd.apps.googleusercontent.com")!
 
+    func testFolderFallbackPreservesTreeAndSharesOnlyRoot() async throws {
+        let folder = directory.appendingPathComponent("책.folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("empty"), withIntermediateDirectories: true)
+        try Data("abc".utf8).write(to: folder.appendingPathComponent("001.txt"))
+        try Data("defgh".utf8).write(to: folder.appendingPathComponent("sub/002.txt"))
+        let session = URL(string: "https://www.googleapis.com/folder-session")!
+        StubURLProtocol.handler = { request in
+            let url = request.url!
+            if url == GoogleOAuthConfig.tokenEndpoint { return .json(#"{"access_token":"at","expires_in":3600}"#) }
+            if url.host == "temp.sh" { return .text("offline", status: 503) }
+            if url.path == "/drive/v3/files" {
+                let body = StubURLProtocol.seen.last!.body!
+                let metadata = try JSONSerialization.jsonObject(with: body) as! [String: Any]
+                let name = metadata["name"] as! String
+                let id = name == "책.folder" ? "root" : name
+                return .json("{\"id\":\"\(id)\"}")
+            }
+            if url.path == "/upload/drive/v3/files" { return .json("", headers: ["Location": session.absoluteString]) }
+            if url == session { return .json(#"{"id":"chapter"}"#) }
+            if url.path == "/drive/v3/files/root/permissions" { return .json("{}") }
+            XCTFail("Unexpected folder request \(url)")
+            return .text("", status: 400)
+        }
+        var settings = UploadSettings()
+        settings.hosts = ["tempsh", "gdrive"]
+        settings.googleDriveFolderID = "parent"
+        let ctx = context(secrets: [.googleDriveRefreshToken: "rt"], settings: settings, google: config)
+        let progress = ProgressBox()
+        let result = try await UploaderCatalog.upload(folder, settings: settings, context: ctx, history: nil, progress: { progress.add($0) })
+        XCTAssertEqual(result.fileName, "책.folder")
+        XCTAssertEqual(result.link.absoluteString, "https://drive.google.com/drive/folders/root?usp=sharing")
+        let requests = StubURLProtocol.seen
+        let metadata = try requests.filter { ["/drive/v3/files", "/upload/drive/v3/files"].contains($0.request.url!.path) }
+            .map { try JSONSerialization.jsonObject(with: $0.body!) as! [String: Any] }
+        XCTAssertEqual(metadata.first?["parents"] as? [String], ["parent"])
+        XCTAssertEqual(Set(metadata.compactMap { $0["name"] as? String }), ["책.folder", "empty", "sub", "001.txt", "002.txt"])
+        XCTAssertEqual(metadata.first { $0["name"] as? String == "002.txt" }?["parents"] as? [String], ["sub"])
+        XCTAssertEqual(requests.filter { $0.request.url!.path.hasSuffix("/permissions") }.count, 1)
+        XCTAssertEqual(progress.last, UploadProgress(sentBytes: 8, totalBytes: 8))
+    }
+
+    func testBatchKeepsEmptyFoldersWithZipBundlingEnabled() async throws {
+        let folders = ["One", "Two"].map { directory.appendingPathComponent($0, isDirectory: true) }
+        for folder in folders { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        StubURLProtocol.handler = { request in
+            if request.url == GoogleOAuthConfig.tokenEndpoint { return .json(#"{"access_token":"at","expires_in":3600}"#) }
+            if request.url!.path.hasSuffix("/permissions") { return .json("{}") }
+            let metadata = try JSONSerialization.jsonObject(with: StubURLProtocol.seen.last!.body!) as! [String: Any]
+            return .json("{\"id\":\"\(metadata["name"] as! String)\"}")
+        }
+        var settings = UploadSettings()
+        settings.hosts = ["gdrive"]
+        settings.zipBundle = true
+        let ctx = context(secrets: [.googleDriveRefreshToken: "rt"], settings: settings, google: config)
+        let outcome = try await UploaderCatalog.uploadBatch(folders.map { UploadItem(file: $0) }, settings: settings, context: ctx, history: nil)
+        XCTAssertTrue(outcome.failures.isEmpty)
+        XCTAssertEqual(outcome.uploads.count, 2)
+        XCTAssertTrue(outcome.uploads.allSatisfy { $0.link.path.contains("/drive/folders/") })
+        XCTAssertEqual(StubURLProtocol.seen.filter { $0.request.url?.path == "/drive/v3/files" }.count, 2)
+    }
+
+    func testFailedAndCancelledFoldersAreTrashed() async throws {
+        let folder = directory.appendingPathComponent("Book", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("abc".utf8).write(to: folder.appendingPathComponent("001.txt"))
+        let session = URL(string: "https://www.googleapis.com/folder-session")!
+        for cancel in [false, true] {
+            StubURLProtocol.handler = { request in
+                let url = request.url!
+                if url == GoogleOAuthConfig.tokenEndpoint { return .json(#"{"access_token":"at","expires_in":3600}"#) }
+                if request.httpMethod == "PATCH" { return .json("{}") }
+                if url.path == "/drive/v3/files" { return .json(#"{"id":"root"}"#) }
+                if url.path == "/upload/drive/v3/files" { return .json("", headers: ["Location": session.absoluteString]) }
+                if url == session {
+                    if cancel { throw URLError(.cancelled) }
+                    return .json(#"{"id":"chapter"}"#)
+                }
+                return .text("denied", status: 403)
+            }
+            let ctx = context(secrets: [.googleDriveRefreshToken: "rt"], google: config)
+            do {
+                _ = try await GoogleDriveUploader().upload(folder, context: ctx, progress: nil)
+                XCTFail("Expected folder failure")
+            } catch {
+                XCTAssertEqual((error as? URLError)?.code == .cancelled, cancel)
+            }
+            let cleanup = try XCTUnwrap(StubURLProtocol.seen.last)
+            XCTAssertEqual(cleanup.request.httpMethod, "PATCH")
+            XCTAssertEqual(cleanup.request.url!.path, "/drive/v3/files/root")
+            XCTAssertEqual(try JSONSerialization.jsonObject(with: cleanup.body!) as? [String: Bool], ["trashed": true])
+        }
+    }
+
     struct StubBrowser: OAuthBrowser {
         var respond: @Sendable (URL) -> URL
         func authenticate(url: URL, callbackScheme: String) async throws -> URL { respond(url) }

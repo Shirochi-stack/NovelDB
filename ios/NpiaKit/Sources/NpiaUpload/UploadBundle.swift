@@ -20,7 +20,7 @@ public struct UploadItem: Sendable, Equatable, Hashable {
     /// The file's name in NFC, which is also its entry name inside a ZIP.
     public var fileName: String { uploadName(file) }
 
-    /// A folder (separate TXT output) is zipped by the single-file path and never packed.
+    /// A folder output stays separate so Drive can preserve it as a folder.
     public var isDirectory: Bool {
         (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }

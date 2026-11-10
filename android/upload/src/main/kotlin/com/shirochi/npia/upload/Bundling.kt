@@ -19,7 +19,7 @@ data class UploadItem(val file: File, val stem: String? = null)
 sealed class PlannedUpload {
     abstract val items: List<UploadItem>
 
-    /** One file, uploaded as it is (or zipped by `FolderArchiver` when it is a folder). */
+    /** One file or folder. Drive preserves folders; file hosts receive a folder ZIP. */
     class Single(val item: UploadItem) : PlannedUpload() {
         override val items: List<UploadItem> get() = listOf(item)
     }

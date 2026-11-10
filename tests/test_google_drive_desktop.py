@@ -177,6 +177,113 @@ def test_empty_file_completes(file):
     assert ctx.session.calls[1][2]["headers"]["Content-Range"] == "bytes */0"
 
 
+def test_folder_upload_preserves_tree_names_empty_folders_and_shares_only_root(tmp_path):
+    from noveldb.core.upload import upload
+
+    folder = tmp_path / "책.folder"
+    folder.mkdir()
+    (folder / "001.txt").write_bytes(b"abc")
+    (folder / "empty").mkdir()
+    (folder / "sub").mkdir()
+    (folder / "sub" / "002.txt").write_bytes(b"defgh")
+    session = drive.GoogleDriveUploader.endpoint + "?upload_id=session"
+    ctx = context(reply(data={"id": "root"}), reply(Location=session), reply(data={"id": "first"}),
+                  reply(data={"id": "empty"}), reply(data={"id": "sub"}),
+                  reply(Location=session), reply(data={"id": "second"}), reply())
+    ctx.google_drive_folder_id = "parent"
+    progress = []
+    result = upload(str(folder), ["gdrive"], ctx, lambda sent, total: progress.append((sent, total)))
+    assert result.file_name == folder.name
+    assert result.link == "https://drive.google.com/drive/folders/root?usp=sharing"
+    calls = ctx.session.calls
+    assert calls[0][2]["json"] == {"name": folder.name, "mimeType": "application/vnd.google-apps.folder", "parents": ["parent"]}
+    assert calls[1][2]["json"] == {"name": "001.txt", "parents": ["root"]}
+    assert calls[3][2]["json"]["parents"] == ["root"]
+    assert calls[4][2]["json"]["parents"] == ["root"]
+    assert calls[5][2]["json"] == {"name": "002.txt", "parents": ["sub"]}
+    assert [c[1] for c in calls if c[1].endswith("/permissions")] == [drive.GoogleDriveUploader.files_endpoint + "/root/permissions"]
+    assert progress == [(3, 8), (8, 8), (8, 8)]
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_failed_or_cancelled_folder_is_trashed_before_returning(tmp_path, cancel):
+    folder = tmp_path / "Book"
+    folder.mkdir()
+    (folder / "001.txt").write_bytes(b"abc")
+    ctx = context(reply(data={"id": "root"}),
+                  reply(Location=drive.GoogleDriveUploader.endpoint + "?upload_id=session"),
+                  reply(data={"id": "child"}), reply(403), reply())
+    stopped = [False]
+    ctx.stopped = lambda: stopped[0]
+    def progress(sent, total):
+        stopped[0] = cancel
+    with pytest.raises(UploadCancelled if cancel else Exception):
+        drive.GoogleDriveUploader().upload(str(folder), ctx, progress)
+    assert ctx.session.calls[-1][0] == "PATCH"
+    assert ctx.session.calls[-1][1].endswith("/root")
+    assert ctx.session.calls[-1][2]["json"] == {"trashed": True}
+
+
+def test_empty_folder_upload_returns_a_folder_link(tmp_path):
+    folder = tmp_path / "Empty"
+    folder.mkdir()
+    ctx = context(reply(data={"id": "root"}), reply())
+    result = drive.GoogleDriveUploader().upload(str(folder), ctx)
+    assert "/drive/folders/root" in result.link
+    assert len(ctx.session.calls) == 2
+
+
+def test_folder_can_fall_back_from_zip_host_to_drive(tmp_path, monkeypatch):
+    from noveldb.core.upload import catalog
+    from noveldb.core.upload.hosts import UploadResult
+
+    folder = tmp_path / "Book"
+    folder.mkdir()
+    (folder / "001.txt").write_text("chapter", encoding="utf-8")
+    seen = []
+    class Host:
+        display_name = "Test"
+        max_bytes = None
+        def __init__(self, id):
+            self.id = id
+        def is_ready(self, context):
+            return True
+        def check(self, path):
+            pass
+        def upload(self, path, context, progress, name=None):
+            from pathlib import Path
+            seen.append((self.id, Path(path).is_dir(), Path(path).suffix))
+            if self.id == "filehost":
+                raise Rejected("Test", "offline")
+            return UploadResult(self.id, folder.name, "https://drive.google.com/drive/folders/root")
+    monkeypatch.setattr(catalog, "uploader", lambda id: Host(id))
+    catalog.upload(str(folder), ["filehost", "gdrive"], context())
+    assert seen == [("filehost", False, ".zip"), ("gdrive", True, "")]
+
+
+def test_drive_batch_keeps_folders_separate_with_zip_bundles_enabled(tmp_path, monkeypatch):
+    from pathlib import Path
+    from noveldb.core.upload import catalog, UploadItem
+    from noveldb.core.upload.hosts import UploadResult
+
+    folder = tmp_path / "Book.folder"
+    folder.mkdir()
+    (folder / "001.txt").write_text("chapter", encoding="utf-8")
+    epub = tmp_path / "Book.epub"
+    epub.write_bytes(b"epub")
+    seen = []
+    host = SimpleNamespace(id="gdrive", display_name="Google Drive", max_bytes=None,
+                           is_ready=lambda ctx: True, check=lambda path: None)
+    def upload(path, *args, **kwargs):
+        seen.append(Path(path))
+        return UploadResult("gdrive", Path(path).name, "https://drive.google.com/test")
+    host.upload = upload
+    monkeypatch.setattr(catalog, "uploader", lambda id: host)
+    outcomes = catalog.upload_items([UploadItem(str(folder)), UploadItem(str(epub))], ["gdrive"], context(), bundle=True)
+    assert len(outcomes) == 2 and all(outcome.result for outcome in outcomes)
+    assert seen == [folder, epub]
+
+
 def test_desktop_sign_in_button_saves_grant_and_uploads_use_it(tmp_path, monkeypatch, qtbot):
     from PySide6.QtWidgets import QPushButton
     from noveldb.qt.context import AppContext
