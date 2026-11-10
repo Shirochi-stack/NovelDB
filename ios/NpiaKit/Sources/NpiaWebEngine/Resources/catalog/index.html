@@ -59,6 +59,12 @@
     .popover label { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 13px; }
     .popover label.range input, .popover label.range select { flex: 1; accent-color: var(--accent); }
     .popover label.range span { width: 38px; text-align: right; color: var(--ink-2); }
+    #settingspanel { box-sizing: border-box; width: min(350px, calc(100% - 24px)); padding: 10px 12px; }
+    #settingspanel select { min-width: 0; max-width: 100%; }
+    #settingspanel h3 { margin: 6px 0 3px; font-size: 11px; }
+    #settingspanel label { margin: 5px 0; font-size: 12px; }
+    #settingspanel p { margin: 4px 0 7px; font-size: 11px; line-height: 1.35; }
+    #settingspanel .checks { display: flex; flex-wrap: wrap; gap: 2px 12px; }
     .siterow { display: flex; gap: 8px; font-size: 13px; padding: 3px 0; border-bottom: 1px solid var(--line); }
     .siterow span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .siterow .ms { color: var(--ink-2); width: 56px; text-align: right; }
@@ -394,15 +400,14 @@
             <option value="fr">Français</option><option value="id">Bahasa Indonesia</option><option value="th">ไทย</option>
             <option value="vi">Tiếng Việt</option><option value="de">Deutsch</option><option value="tr">Türkçe</option>
             <option value="ar">العربية</option></select></label>
-        <p>The Top 100 lists show books in this language. Korean and Chinese web novels come from NovelDB's
-            index; "(English)" shows those books with their English titles. Searches look everywhere.</p>
-        <label class="range">Preferred site <select id="preferredSite"><option value="">Automatic</option></select></label>
-        <p>The preferred site's popular list and further scrolling pages are used for the current book type.
-            This choice is saved. Explicit searches include josei and BL sites, which are excluded from Top lists.</p>
+        <p>NU/MU discovery with reading-source matches. Native-language lists use NovelDB.</p>
+        <label class="range">Site <select id="preferredSite"><option value="">Automatic</option></select></label>
+        <p>Pick a site's own list. Josei/BL stays available through explicit searches.</p>
         <h3>Searches</h3>
         <div class="checks">
-            <label class="check" title="NovelDB's index, from its repository: its books, and English titles and tags for the sites' cards"><input type="checkbox" id="useNovelDB"> NovelDB search</label>
-            <label class="check" title="NovelDB's sites (npia, kpage, sfc, ...) asked directly by tag and author; off, they are searched like any site"><input type="checkbox" id="useDeep"> Deep search</label>
+            <label class="check" title="Match titles against NovelDB"><input type="checkbox" id="useNovelDB"> Index</label>
+            <label class="check" title="Query native sources by tag and author"><input type="checkbox" id="useDeep"> Native</label>
+            <label class="check" title="Query all 100 correlation sources. Takes longer."><input type="checkbox" id="useFull"> Full search</label>
         </div>
         <h3>Translation</h3>
         <label class="range">Into <select id="translateTo">
@@ -412,7 +417,7 @@
             <option value="fr">Français</option><option value="de">Deutsch</option><option value="it">Italiano</option>
             <option value="ru">Русский</option><option value="id">Bahasa Indonesia</option><option value="vi">Tiếng Việt</option>
             <option value="th">ไทย</option><option value="tr">Türkçe</option><option value="ar">العربية</option></select></label>
-        <button type="button" id="translateCards">🌐 Translate the shown cards</button>
+        <button type="button" id="translateCards">🌐 Translate cards</button>
         <p>Google Translate, into that language: the titles, tags and synopses of the cards shown (and of the
             ones that come in), until pressed again. A book's details and the reader have a 🌐 button of their own.</p>
         <h3>Cover previews</h3>
@@ -474,6 +479,7 @@
 <script src="generic-lib.js"></script>
 <script src="catalog-app.js"></script>
 <script src="lnreader-lib.js"></script>
+<script src="references.js"></script>
 <script src="generic.js"></script>
 </body>
 </html>

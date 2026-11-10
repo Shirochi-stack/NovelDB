@@ -1967,7 +1967,7 @@
      *  (NovelDB's sites asked directly). */
     function runSearch(id, text, mode, token, sort, options) {
         options = options || {};
-        var useNovelDB = options.noveldb !== false, deep = options.deep !== false;
+        var useNovelDB = options.noveldb !== false, deep = options.deep !== false, full = options.full === true;
         // The sites picked in the Sites panel: only they are asked, NovelDB for their books, and no web search.
         var only = (options.only || []).filter(function (s) { return typeof s === 'string'; });
         var picked = function (hostName) { return !only.length || only.indexOf(G().siteOf(hostName)) >= 0; };
@@ -1977,7 +1977,7 @@
         var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, detailJobs = [];
         // A title search with a book of exactly that title (its own or its original title): no more sites are
         // started, and the search ends EXACT_GRACE_MS later (for the book's other copies already on their way).
-        var exactKey = mode === 'name' ? exactTitle(text) : '', exactFound = false, exactSeen = null;
+        var exactKey = mode === 'name' && !full ? exactTitle(text) : '', exactFound = false, exactSeen = null;
         var exactWait = new Promise(function (resolve) { exactSeen = resolve; });
         function offer(cards) {
             var fresh = cards.filter(function (item) {
@@ -2015,15 +2015,15 @@
         // (remembered from earlier searches) are asked first; one that failed or was slow rests a day.
         var titleSites = mode === 'name' ? DIRECT_TITLE_SITES.filter(function (name) { return siteHosts[name] && picked(name); }) : [];
         var searchedSites = SITES.filter(function (site) {
-            return titleSites.indexOf(site.host) < 0 && site.searched !== false && !(site.lnreader || []).length && picked(site.host)
-                && (only.length || (!resting(site.host) && speedRank(site.host) < 12000));
+            return titleSites.indexOf(site.host) < 0 && (full || site.searched !== false) && !(site.lnreader || []).length && picked(site.host)
+                && (full || only.length || (!resting(site.host) && speedRank(site.host) < 12000));
         }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
-        if (!only.length) searchedSites = searchedSites.slice(0, 12);
+        if (!only.length) searchedSites = searchedSites.slice(0, full ? 100 : 12);
         var sources = [];
         // The sites in stages (STAGE_FIRST, then STAGE_MORE as the list is scrolled): the quickest first, and
         // first of all the sites the web search found matching books on. A stage stops starting sites once
         // STAGE_ENOUGH books are in; the sites not asked wait for the next stage (`staged`).
-        var staging = !only.length && mode !== 'author';
+        var staging = !only.length && mode !== 'author' && !full;
         var siteQueue = searchedSites.slice(), stageKey = [mode, text].join('\t'), startedSites = 0, askedHosts = {};
         delete staged[stageKey];
         function webFirst(urls) {
@@ -2170,7 +2170,7 @@
         var ended = Promise.race([all, exactWait.then(function () {
             return new Promise(function (resolve) { setTimeout(resolve, EXACT_GRACE_MS); });
         })]);
-        return within(ended, 45000, token).then(function (how) {
+        return within(ended, full ? 120000 : 45000, token).then(function (how) {
             summary.results = Object.keys(seen).length;
             summary.timed_out = how === 'late';
             return summary;
@@ -2941,6 +2941,36 @@
         switch (message.type) {
         case 'genericReady': init(); break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
+        case 'genericSiteQuery':
+            ready.then(async function () {
+                var token = current.token && !current.token.stopped ? current.token : {stopped: false}, cards = [];
+                if (message.web && message.query) {
+                    var blocked = false;
+                    await webSearch(String(message.query).slice(0, 2000), token, function (hits) { cards = hits; }, function () { blocked = true; });
+                    call('fetched', message.id, {cards: cards, googleBlocked: blocked});
+                    return;
+                } else if (message.url) {
+                    var result = await fetchUrl(message.url, {stop: token, quick: true});
+                    if (result && result.status === 200) {
+                        var url = result.url || message.url, metadata = G().metadata(G().parse(result.text()), url);
+                        if (metadata.title && looksLikeBook(url, metadata.title) && !isNoResults(metadata.title)) {
+                            var found = Object.assign(card(url, metadata.title, metadata.description, 'site', metadata.cover), metadata, {complete: true});
+                            if (!siteFor(url)) found.comic = null;
+                            cards = [found];
+                        }
+                    }
+                } else if (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(message.host || '') && message.query) {
+                    var site = siteFor('https://' + message.host + '/');
+                    var hits = await siteSearch('https://' + (site && site.host || message.host) + '/', String(message.query).slice(0, 300), token);
+                    cards = hits.filter(function (hit) { return looksLikeBook(hit.url, hit.title); }).slice(0, 20).map(function (hit) {
+                        var found = card(hit.url, hit.title, hit.snippet, 'site', hit.cover);
+                        if (!site) found.comic = null;
+                        return found;
+                    });
+                }
+                call('fetched', message.id, {cards: cards});
+            }).catch(function () { call('fetched', message.id, {cards: []}); });
+            break;
         case 'genericIndexSort':
             ready.then(function () {
                 return Promise.all((message.queries || []).filter(function (item) { return item.noveldb !== false && item.mode !== 'id'; }).slice(0, 6).map(function (item) {

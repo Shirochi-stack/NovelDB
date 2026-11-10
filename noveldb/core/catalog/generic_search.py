@@ -388,6 +388,7 @@ class GenericSearch:
         # them, NovelDB's books from them, and no web search. Empty: every site.
         self.only: set = set()
         self.deep = True  # the deep search: NovelDB's own sites asked directly (source_search)
+        self.full = False
         self.sort = ""  # the page's sort ("new", "updated", "likes", ...): NovelDB's lists in that order where kept
         self._site_hosts = {host: site for site in self._known for host in site.get("hosts", [site["host"]])}
 
@@ -480,7 +481,7 @@ class GenericSearch:
 
         # A title search with a book of exactly that title (its own or its original title): no more sites are
         # started, and the search ends EXACT_GRACE seconds later (for the book's other copies on their way).
-        exact_key = exact_title(text) if mode == "name" else ""
+        exact_key = exact_title(text) if mode == "name" and not self.full else ""
         exact_found = threading.Event()
         exact_done = threading.Event()
 
@@ -780,8 +781,10 @@ class GenericSearch:
         with lock:
             queue[:] = search_ranking.ranked([site for site in self.sites
                         if site["host"] not in title_sites and not (self.skip_lnreader and site.get("lnreader"))
-                        and self.picked(site["host"])], automatic=self.automatic and not self.only)
-        staging = not self.only and mode != "author"
+                        and self.picked(site["host"])], automatic=self.automatic and not self.only and not self.full)
+            if self.full:
+                queue[:] = queue[:100]
+        staging = not self.only and mode != "author" and not self.full
         stage = STAGE_FIRST if staging else len(queue)
         started = [0]
         with _staged_lock:

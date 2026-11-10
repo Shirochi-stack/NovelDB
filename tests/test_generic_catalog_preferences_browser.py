@@ -122,7 +122,7 @@ def test_cached_top_sources_are_filtered_and_preference_can_be_cleared(catalogue
     cached["more"] = [card(10, "chrysanthemumgarden.com")]
     excluded = card(11, "dummynovels.com")
     tab.evaluate("""items => localStorage.setItem('noveldb.generic.top.v9.webnovel.en', JSON.stringify({
-        time: Date.now(), how: 'sites:0:100', items: items}))""", [cached, excluded])
+        time: Date.now(), how: 'references-v1:0:100', items: items}))""", [cached, excluded])
     tab.reload()
     tab.add_script_tag(content=script)
     tab.evaluate("() => window.NovelDBGeneric.init({sites: [], comic: [], lnreader: []})")

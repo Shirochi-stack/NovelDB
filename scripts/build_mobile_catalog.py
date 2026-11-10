@@ -29,9 +29,10 @@ COMIX_TARGETS = [
 # Scripts in the order the page runs them: the link to the app, the app's download artwork, the
 # engine's helpers, the app side, the LNReader plugins (generic.js lists them when it starts), then
 # the page's own script, which says it is ready.
-SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "lnreader-lib.js", "generic.js"]
+SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "lnreader-lib.js", "references.js", "generic.js"]
 FILES = {
     "generic.js": PAGE / "generic.js",
+    "references.js": PAGE / "references.js",
     "halgakos-loading.webp": PAGE / "halgakos-loading.webp",
     "icon-cart.webp": PAGE / "icon-cart.webp",
     "icon-mining.webp": PAGE / "icon-mining.webp",

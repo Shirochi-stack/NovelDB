@@ -132,6 +132,12 @@ def test_page_messages_are_checked():
     assert generic.parse_message({"type": "genericFetch", "id": 1, "request": {"url": "file:///etc/passwd"}}) is None
     assert generic.parse_message({"type": "genericImage", "id": 2, "url": "https://a.example/c.jpg"}) is not None
     assert generic.parse_message({"type": "somethingElse"}) is None
+    assert generic.parse_message({"type": "genericSiteQuery", "id": 1, "web": True, "query": '"Dragon" site:novels.test'})
+    assert generic.parse_message({"type": "genericSiteQuery", "id": 2, "host": "novels.test", "query": "Dragon"})
+    assert generic.parse_message({"type": "genericSiteQuery", "id": 3, "url": "https://novels.test/book/dragon"})
+    assert generic.parse_message({"type": "genericSiteQuery", "id": 4, "url": "file:///book"}) is None
+    assert generic.parse_message({"type": "genericSiteQuery", "id": 5, "host": "novels.test", "query": ""}) is None
+    assert generic.parse_message({"type": "genericSearch", "queries": [{"query": "Dragon", "full": True}]})["queries"][0]["full"]
 
 
 def test_empty_search_pages_are_recognised():
