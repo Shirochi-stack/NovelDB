@@ -2456,20 +2456,21 @@
         var id = searchId, kind = $('kind').value;
         var quick = !byId && text && searches.noveldb && window.NovelDBInstant && !isComicKind(kind);
         send({type: 'genericStop', id: id});
+        var local = Promise.resolve();
         if (quick) {
-            window.NovelDBInstant.search(text, {kind: kind, sites: Array.from(siteFilter)}, instantIO(id)).then(function (cards) {
+            local = window.NovelDBInstant.search(text, {kind: kind, sites: Array.from(siteFilter)}, instantIO(id)).then(function (cards) {
                 if (id !== searchId) return;
                 add(cards.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
             }).catch(function () {});
         }
-        setTimeout(function () {
+        within(local, 700).then(function () {
             if (id !== searchId) return;
             send({type: 'genericSearch', id: id, queries: queries});
             if (!byId) lnreaderSearch(id, queries);
             if (!byId && canReference() && !siteFilter.size) {
                 startReferences({kind: kind, text: text, tags: picked.slice(), sort: sortBy(), top: false});
             }
-        }, quick ? 350 : 0);
+        });
     }
     // An author's books (a tap on an author's name): NovelDB lists books by author, and NovelDB's sites are
     // asked for their books by that name. A name of several

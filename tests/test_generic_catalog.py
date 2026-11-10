@@ -151,6 +151,38 @@ def test_empty_search_pages_are_recognised():
     assert not is_no_results("Lord of the Mysteries", "A young man wakes up in a foreign world.")
 
 
+def test_local_catalogue_replies_bypass_a_saturated_network_queue(monkeypatch):
+    import types
+    import pytest
+    pytest.importorskip("PySide6.QtWebEngineCore")
+    from noveldb.qt.catalog import generic
+
+    network = generic._Workers(1)
+    monkeypatch.setattr(generic, "_PAGE_WORKERS", network)
+    occupied, release, answered = threading.Event(), threading.Event(), threading.Event()
+    received = []
+
+    def occupy():
+        occupied.set()
+        release.wait(5)
+
+    def emit(identity, reply):
+        received.append(reply)
+        answered.set()
+
+    bridge = types.SimpleNamespace(_fetched=types.SimpleNamespace(emit=emit))
+    bridge._background = types.MethodType(generic.GenericCatalog._background, bridge)
+    bridge._instant_reply = types.MethodType(generic.GenericCatalog._instant_reply, bridge)
+    network.submit(occupy)
+    try:
+        assert occupied.wait(1)
+        generic.GenericCatalog.handle(bridge, {"type": "genericInstant", "id": 1, "key": "manifest"})
+        assert answered.wait(1), "Local results waited behind network requests"
+        assert received[0]["data"]["books"] > 1_000_000
+    finally:
+        release.set()
+
+
 def test_book_addresses_are_learned_for_the_id_search(tmp_path):
     from noveldb.core.catalog import generic_search
 

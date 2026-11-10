@@ -21,18 +21,23 @@ final class InstantCatalogTests: XCTestCase {
                 while(document.querySelectorAll('#grid .card .title').length<100&&performance.now()<deadline)
                     await new Promise(resolve=>setTimeout(resolve,10));
                 const top=document.querySelectorAll('#grid .card .title').length;
-                const query=document.getElementById('query');
-                const started=performance.now();
-                query.value='mesugaki';query.dispatchEvent(new Event('input',{bubbles:true}));
-                let titles=[];
-                deadline=performance.now()+5000;
-                while(performance.now()<deadline){
-                    titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
-                    if(document.getElementById('heading').textContent.includes('mesugaki')&&titles.length>=20)break;
-                    await new Promise(resolve=>setTimeout(resolve,10));
-                }
-                return {top,elapsed:performance.now()-started,titles};
+                const result=await new Promise(resolve=>{
+                    const query=document.getElementById('query');
+                    const started=performance.now();
+                    const observer=new MutationObserver(()=>{
+                        const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
+                        if(document.getElementById('heading').textContent.includes('mesugaki')&&titles.length>=20){
+                            observer.disconnect();clearTimeout(timer);
+                            resolve({elapsed:performance.now()-started,titles});
+                        }
+                    });
+                    observer.observe(document.getElementById('grid'),{childList:true,subtree:true});
+                    const timer=setTimeout(()=>{observer.disconnect();resolve({elapsed:5000,titles:[]});},5000);
+                    query.value='mesugaki';query.dispatchEvent(new Event('input',{bubbles:true}));
+                });
+                return {top,...result};
                 """)
+            print("INSTANT-CATALOG WebKit first-page \(result.elapsed) ms, \(result.titles.count) novels, Top \(result.top)")
             XCTAssertEqual(result.top, 100)
             XCTAssertLessThan(result.elapsed, 1000)
             XCTAssertGreaterThanOrEqual(result.titles.count, 20)

@@ -179,6 +179,7 @@ class _Workers:
 
 
 _PAGE_WORKERS = _Workers(64)
+_LOCAL_CATALOG_WORKERS = _Workers(6)
 _READER_WORKERS = _Workers(12)
 # Google Translate's requests have threads of their own: behind a search's site requests and page renders in
 # the page's pool they waited, and the cards translated many seconds later than on the phones.
@@ -585,7 +586,7 @@ class GenericCatalog(QObject):
         elif kind == "genericSiteQuery":
             self._background(self._site_query, data)
         elif kind == "genericInstant":
-            self._background(self._instant_reply, data)
+            self._background(self._instant_reply, data, workers=_LOCAL_CATALOG_WORKERS)
         elif kind == "genericMore":
             self.more(int(data.get("id") or 0), data["queries"], data["page"], data.get("ndbPage"), data.get("sites", True))
         elif kind == "genericTopMore":
