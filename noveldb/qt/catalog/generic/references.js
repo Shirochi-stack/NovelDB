@@ -128,19 +128,26 @@
         });
         return {records: records, more: (data.page || options.page || 1) * (data.per_page || 25) < data.total_hits};
     }
-    async function search(options, io) {
+    async function search(options, io, receive) {
         if (options.kind === 'all') {
-            var combined = await Promise.allSettled([nuSearch(options, io), muSearch(options, io)]);
+            var combined = await Promise.allSettled([nuSearch(options, io), muSearch(options, io)].map(function (work, provider) {
+                return work.then(function (result) {
+                    result.records.forEach(function (record) { record.rank = record.rank * 2 + provider; });
+                    if (receive && io.alive()) receive(result);
+                    return result;
+                });
+            }));
             var records = [], more = false, available = false;
             combined.forEach(function (result, provider) {
                 if (result.status !== 'fulfilled') return;
                 available = true; more = more || result.value.more;
-                result.value.records.forEach(function (record) { record.rank = record.rank * 2 + provider; records.push(record); });
+                result.value.records.forEach(function (record) { records.push(record); });
             });
             if (!available) throw new Error('NU/MU unavailable');
             return {records: records.sort(function (a, b) { return a.rank - b.rank; }), more: more, available: true};
         }
         var result = await (/^(manga|manhwa|comic)$/.test(options.kind) ? muSearch(options, io) : nuSearch(options, io));
+        if (receive && io.alive()) receive(result);
         return Object.assign(result, {available: true});
     }
     function externalLinks(value) {

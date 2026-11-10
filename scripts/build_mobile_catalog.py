@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "noveldb" / "qt" / "catalog" / "generic"
@@ -29,10 +30,11 @@ COMIX_TARGETS = [
 # Scripts in the order the page runs them: the link to the app, the app's download artwork, the
 # engine's helpers, the app side, the LNReader plugins (generic.js lists them when it starts), then
 # the page's own script, which says it is ready.
-SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "lnreader-lib.js", "references.js", "generic.js"]
+SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "lnreader-lib.js", "references.js", "instant.js", "generic.js"]
 FILES = {
     "generic.js": PAGE / "generic.js",
     "references.js": PAGE / "references.js",
+    "instant.js": PAGE / "instant.js",
     "halgakos-loading.webp": PAGE / "halgakos-loading.webp",
     "icon-cart.webp": PAGE / "icon-cart.webp",
     "icon-mining.webp": PAGE / "icon-mining.webp",
@@ -89,6 +91,12 @@ def expected() -> dict:
     out = {"index.html": page_html().encode("utf-8"), "download-icon.js": download_icon().encode("utf-8")}
     for name, source in FILES.items():
         out[name] = source.read_bytes()
+    for part in range(2):
+        with ZipFile(ROOT / f"assets/instant-catalog-{part}.zip") as archive:
+            for name in archive.namelist():
+                if not name.endswith(".json.gz") or ".." in Path(name).parts or Path(name).is_absolute():
+                    raise ValueError("Invalid local catalogue archive member")
+                out["instant/" + name.removesuffix(".json.gz") + ".bin"] = archive.read(name)
     # Text with Unix line endings, whatever the checkout wrote (core.autocrlf on Windows): the iOS copy
     # is stored byte for byte, so a Windows checkout would otherwise change every line of it.
     return {name: data.replace(b"\r\n", b"\n") if name.endswith(TEXT) else data for name, data in out.items()}
@@ -99,6 +107,12 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="only report copies that are out of date")
     args = parser.parse_args()
     files = expected()
+    if not args.check:
+        for target in TARGETS:
+            for old in (target / "instant").rglob("*.json.gz"):
+                if not old.resolve().is_relative_to(ROOT.resolve()):
+                    raise ValueError("Local catalogue asset escaped the workspace")
+                old.unlink()
     stale = []
     outputs = {target / name: data for target in TARGETS for name, data in files.items()}
     comix = COMIX_SCRIPT.read_bytes().replace(b"\r\n", b"\n")

@@ -132,6 +132,9 @@ def test_page_messages_are_checked():
     assert generic.parse_message({"type": "genericFetch", "id": 1, "request": {"url": "file:///etc/passwd"}}) is None
     assert generic.parse_message({"type": "genericImage", "id": 2, "url": "https://a.example/c.jpg"}) is not None
     assert generic.parse_message({"type": "somethingElse"}) is None
+    assert generic.parse_message({"type": "genericInstant", "id": 1, "key": "b/0", "token": "mesugaki", "prefix": True})
+    assert generic.parse_message({"type": "genericInstant", "id": 1, "key": "../../config"}) is None
+    assert generic.parse_message({"type": "genericInstant", "id": 1, "key": "c/2", "rows": [-1]}) is None
     assert generic.parse_message({"type": "genericSiteQuery", "id": 1, "web": True, "query": '"Dragon" site:novels.test'})
     assert generic.parse_message({"type": "genericSiteQuery", "id": 2, "host": "novels.test", "query": "Dragon"})
     assert generic.parse_message({"type": "genericSiteQuery", "id": 3, "url": "https://novels.test/book/dragon"})

@@ -516,6 +516,7 @@ class CatalogPage(QWidget):
         if bundle is not None:
             self.page.runJavaScript(bundle.read(), WORLD)
         self.page.runJavaScript(generic_page.REFERENCE_SCRIPT.read_text(encoding="utf-8"), WORLD)
+        self.page.runJavaScript(generic_page.INSTANT_SCRIPT.read_text(encoding="utf-8"), WORLD)
         self.page.runJavaScript(generic_page.SCRIPT.read_text(encoding="utf-8"), WORLD)
 
     def _retry(self) -> None:

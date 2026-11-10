@@ -47,3 +47,6 @@ node_modules/
 android/sources/src/main/resources/com/shirochi/npia/sources/python/
 ios/NpiaKit/Sources/NpiaSources/Reader/Resources/python/
 build/pyodide-cache/
+# Extracted from the immutable local catalogue archive by build_mobile_catalog.py.
+android/app/src/main/assets/catalog/instant/
+ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog/instant/

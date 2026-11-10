@@ -465,4 +465,5 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, mergeSame, ratingOf, SORTS, BUCKETS, PAGE};
+module.exports = {tokens, tagToken, tagConcept, authorToken, bucketOf, mergeSame, ratingOf, SORTS, BUCKETS, PAGE,
+    sourceBooks, SOURCES, readPairs};

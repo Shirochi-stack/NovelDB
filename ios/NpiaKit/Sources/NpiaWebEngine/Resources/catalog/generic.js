@@ -1551,7 +1551,7 @@
             }
             if (view === 'top' && notInTop(card)) return;
             var catalogueMatch = card.catalogMatch && ['mangak.io', 'mangadex.org', 'comix.to', 'comix.ws'].indexOf(hostOf(card.url)) >= 0;
-            if (card.via === 'name' && current.text && !card.catalogue && !catalogueMatch && ![card.title, card.originalTitle].concat(card.alternateTitles || []).some(function (title) {
+            if (card.via === 'name' && current.text && !card.instant && !card.catalogue && !catalogueMatch && ![card.title, card.originalTitle].concat(card.alternateTitles || []).some(function (title) {
                 return relevant(title || '', current.text);
             })) return;
             if (card.via === 'top') {
@@ -2056,10 +2056,8 @@
         $('heading').textContent = 'Top ' + TOP_NAMES[top.kind] + (top.only.length ? ' · ' + top.only.join(', ')
             : language === 'all' ? '' : ' · ' + chosen.text);
         $('sitesButton').style.display = '';
-        if (canReference() && !top.only.length && !NDB_LANGS[baseLang()]) {
-            startReferences({kind: $('kind').value, text: '', tags: [], sort: sortBy(), top: true});
-            return;
-        }
+        instantTop(searchId);
+        var discover = canReference() && !top.only.length && !NDB_LANGS[baseLang()];
         if (!top.only.length && NDB_LANGS[baseLang()] && !isComicKind(top.kind)) {
             // Korean and Chinese: NovelDB's list (kept or read anew), and its next pages as it is scrolled.
             top.ndbSources = NDB_LANGS[baseLang()].slice();
@@ -2080,9 +2078,14 @@
             });
             status('The most read ' + TOP_NAMES[top.kind] + ' on the top sites, as of ' + new Date(cached.time).toLocaleString() + '.');
             // A kept list: its sites are asked again only when it is scrolled past its end.
-            if (Date.now() - cached.time < TOP_HOURS * 3600e3) { top.cached = true; empty(); return; }
+            if (Date.now() - cached.time < TOP_HOURS * 3600e3) {
+                top.cached = true;
+                if (discover) startReferences({kind: $('kind').value, text: '', tags: [], sort: sortBy(), top: true});
+                empty(); return;
+            }
         }
         loadTop(searchId);
+        if (discover) startReferences({kind: $('kind').value, text: '', tags: [], sort: sortBy(), top: true});
     }
     // Kept out of the top lists (a search still finds them): a book whose tags or title say so.
     var NOT_IN_TOP = /\b(josei|danmei|yaoi|smut|bl|boys?'?s? ?love|shounen[- ]?ai|(?<!young )adult[oa]?s?|hentai|r-?18)\b|\b1[89]\+|\+1[89]\b/i;
@@ -2104,7 +2107,7 @@
         if (view !== 'top') return;  // a search started meanwhile: its results own the page
         // Picked sites show whatever they list, in any language; so does NovelDB's list of a language.
         var picked = top.only.length > 0 || !!top.ndbOnly;
-        if (!picked && !card.catalogue && window.NovelDBReferences && !window.NovelDBReferences.allowedTopSite(card.site || hostOf(card.url))) return;
+        if (!picked && !card.catalogue && card.source !== 'noveldb' && window.NovelDBReferences && !window.NovelDBReferences.allowedTopSite(card.site || hostOf(card.url))) return;
         if (card.catalogue && notInTop(card.catalogue)) return;
         if (!card.catalogue && !picked && /\s[-–—:]\s*(?:main story|side stories|if stories)\s*[✅✔]?$/i.test(card.title || '')) {
             card = Object.assign({}, card, {title: card.title.replace(/\s[-–—:]\s*(?:main story|side stories|if stories)\s*[✅✔]?$/i, '')});
@@ -2275,6 +2278,26 @@
     }
 
     // -- NU/MU discovery and source correlation -----------------------------------------------------
+    var instantPieces = new Map();
+    function instantIO(id) {
+        return {alive: function () { return id === searchId && (view !== 'search' || current.text === $('query').value.trim()); }, load: function (name, selection) {
+            var cacheKey = name + (config.instantPiecesComplete ? '' : JSON.stringify(selection || {}));
+            if (!instantPieces.has(cacheKey)) {
+                instantPieces.set(cacheKey, ask(Object.assign({type: 'genericInstant', key: name}, selection || {})).then(function (reply) { return reply && reply.data; }));
+                if (instantPieces.size > 48) instantPieces.delete(instantPieces.keys().next().value);
+            }
+            return instantPieces.get(cacheKey);
+        }};
+    }
+    function instantTop(id) {
+        if (!window.NovelDBInstant || isComicKind(top.kind)) return;
+        var io = instantIO(id);
+        io.load('top').then(function (rows) {
+            if (!io.alive() || view !== 'top' || !rows) return;
+            add(rows.map(function (row) { return Object.assign(window.NovelDBInstant.card(row), {via: 'top'}); }), id);
+            topRedraw();
+        }).catch(function () {});
+    }
     function canReference() { return !!window.NovelDBReferences; }
     function referenceIO(run) {
         function request(message, timeout) {
@@ -2329,7 +2352,6 @@
         }
     }
     function startReferences(options) {
-        send({type: 'genericStop', id: searchId});
         referenceSortLabels(options.kind);
         options.sort = sortBy();
         referenceRun = {id: searchId, options: options, page: 1, more: true, seen: new Set(), queue: [], active: 0};
@@ -2351,40 +2373,40 @@
         if (!run || run.loading || !run.more) return;
         run.queue = run.queue || []; run.active = run.active || 0;
         var io = referenceIO(run), provider = run.options.kind === 'all' ? 'NU/MU' : isComicKind(run.options.kind) ? 'MU' : 'NU';
-        run.loading = true; running = 0; setRunning(1); setMoreLoading(true);
-        status('Searching ' + provider + ' · correlating reading sources…');
+        run.loading = true; setRunning(1);
+        if (!order.length) status('Searching sources and ' + provider + '…');
         try {
-            var result = await window.NovelDBReferences.search(Object.assign({}, run.options, {page: run.page}), io);
-            if (!io.alive()) return;
-            if (run.page === 1 && !run.options.top && !result.records.length) throw new Error('No catalogue matches');
-            var fresh = result.records.filter(function (ref) { return !run.seen.has(ref.key); });
-            fresh.forEach(function (ref) { run.seen.add(ref.key); });
-            var refs = fresh.filter(function (ref) { return !run.options.top || !notInTop(ref); });
-            await window.NovelDBReferences.each(refs, 4, async function (ref) {
+            var jobs = [], freshCount = 0;
+            function receive(result) {
                 if (!io.alive()) return;
-                var prepared = await window.NovelDBReferences.prepare(ref, Object.assign({}, run.options, {index: searches.noveldb, full: searches.full}), io,
-                    function (cards) { referenceOffer(run, cards); });
-                if (io.alive()) { run.queue.push(prepared); referenceBackground(run); }
-            });
+                var fresh = result.records.filter(function (ref) { return !run.seen.has(ref.key); });
+                fresh.forEach(function (ref) { run.seen.add(ref.key); });
+                freshCount += fresh.length;
+                var refs = fresh.filter(function (ref) { return !run.options.top || !notInTop(ref); });
+                if (!searches.full) refs = refs.slice(0, 8);
+                jobs.push(window.NovelDBReferences.each(refs, 2, async function (ref) {
+                    if (!io.alive()) return;
+                    var prepared = await window.NovelDBReferences.prepare(ref, Object.assign({}, run.options, {index: searches.noveldb, full: searches.full}), io,
+                        function (cards) { referenceOffer(run, cards); });
+                    if (io.alive()) { run.queue.push(prepared); referenceBackground(run); }
+                }));
+            }
+            var result = await window.NovelDBReferences.search(Object.assign({}, run.options, {page: run.page}), io, receive);
             if (!io.alive()) return;
-            run.more = !!result.more && (!result.records.length || !!fresh.length); run.page++;
+            receive(result);
+            await Promise.all(jobs);
+            if (!io.alive()) return;
+            run.more = !!result.more && (!result.records.length || !!freshCount); run.page++;
             current.reference = {options: run.options, page: run.page, more: run.more};
-            more.has = run.more;
             if (run.options.top) topRedraw();
             referenceStatus(run);
         } catch (error) {
             if (!io.alive()) return;
-            if (run.page === 1) {
-                referenceRun = null; current.reference = null;
-                referenceSortLabels(null);
-                running = 0; setMoreLoading(false);
-                if (run.options.top) loadTop(run.id);
-                else { setRunning(1); send({type: 'genericSearch', id: run.id, queries: current.queries}); lnreaderSearch(run.id, current.queries); }
-                status(provider + ' unavailable · searching sources');
-            } else { run.more = false; status(provider + ' unavailable · retry search for more'); }
+            run.more = false;
+            status(provider + ' unavailable · source results remain active');
         } finally {
             if (referenceRun === run && run.id === searchId) {
-                run.loading = false; setRunning(-1); setMoreLoading(false); empty();
+                run.loading = false; setRunning(-1); empty();
                 setTimeout(moreSoon, 300);
             }
         }
@@ -2431,12 +2453,23 @@
         // The sites a search asks itself (the busiest; every other one is found through the web search).
         status('Searching NovelDB and Google for ' + label + '…');
         empty();
-        if (!byId && canReference() && !siteFilter.size) {
-            startReferences({kind: $('kind').value, text: text, tags: picked.slice(), sort: sortBy(), top: false});
-        } else {
-            send({type: 'genericSearch', id: searchId, queries: queries});
-            if (!byId) lnreaderSearch(searchId, queries);
+        var id = searchId, kind = $('kind').value;
+        var quick = !byId && text && searches.noveldb && window.NovelDBInstant && !isComicKind(kind);
+        send({type: 'genericStop', id: id});
+        if (quick) {
+            window.NovelDBInstant.search(text, {kind: kind, sites: Array.from(siteFilter)}, instantIO(id)).then(function (cards) {
+                if (id !== searchId) return;
+                add(cards.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
+            }).catch(function () {});
         }
+        setTimeout(function () {
+            if (id !== searchId) return;
+            send({type: 'genericSearch', id: id, queries: queries});
+            if (!byId) lnreaderSearch(id, queries);
+            if (!byId && canReference() && !siteFilter.size) {
+                startReferences({kind: kind, text: text, tags: picked.slice(), sort: sortBy(), top: false});
+            }
+        }, quick ? 350 : 0);
     }
     // An author's books (a tap on an author's name): NovelDB lists books by author, and NovelDB's sites are
     // asked for their books by that name. A name of several
@@ -2569,7 +2602,7 @@
 
     $('form').addEventListener('submit', search);
     // Clearing the search box (and with no tags picked) goes back to the Top 100.
-    // Typing searches by itself once it pauses (0.8 s): two letters at least (one CJK character), and
+    // Typing searches after a short pause. Local results precede online discovery.
     // not again for the text already searched. Enter or Search still search at once.
     // An input method (pinyin, kana, Hangul) composing a word puts partial text in the box: nothing is
     // searched until it finishes (a pause mid-word started a search that the next keystroke cancelled).
@@ -2594,7 +2627,7 @@
         typingTimer = setTimeout(function () {
             if (composing || (view === 'search' && current.text === $('query').value.trim())) return;
             search(null);
-        }, 800);
+        }, 80);
     }
     $('stop').addEventListener('click', function () {
         send({type: 'genericStop', id: searchId});
@@ -4060,8 +4093,7 @@
     function moreSoon() {
         if (!nearEnd() || $('reader').classList.contains('open')) return;
         if (referenceRun) {
-            if (!running && !more.loading && referenceRun.more && (referenceRun.queue || []).length < 12) referencePage();
-            return;
+            if (!referenceRun.loading && !more.loading && referenceRun.more && (referenceRun.queue || []).length < 12) referencePage();
         }
         if (view === 'search') {
             if (more.loading || !current.queries || current.byId) return;

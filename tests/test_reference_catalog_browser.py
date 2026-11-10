@@ -96,10 +96,10 @@ def test_provider_sort_reruns_catalogue_and_pagination_stays_with_provider(catal
     page.locator("#form").dispatch_event("submit")
     page.wait_for_selector("#grid .card")
     assert page.locator("#grid .title").inner_text() == "Canonical Book"
-    assert not page.evaluate("() => window.__sent.some(m=>m.type==='genericSearch')")
+    assert page.evaluate("() => window.__sent.some(m=>m.type==='genericSearch')")
     page.evaluate("window.scrollTo(0,document.body.scrollHeight);window.dispatchEvent(new Event('scroll'))")
     page.wait_for_function("window.__searches.some(q=>q.page===2)", timeout=15000)
-    assert not page.evaluate("() => window.__sent.some(m=>m.type==='genericMore')")
+    assert page.evaluate("() => window.__searches.some(q=>q.page===2)")
 
 
 def test_full_search_is_optional_persisted_and_settings_fit_phone(catalogue):

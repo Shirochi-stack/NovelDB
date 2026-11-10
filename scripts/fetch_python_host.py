@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -132,6 +133,8 @@ def main() -> int:
             return 1
         print("The Python engines folders are current.")
         return 0
+    if not args.out:
+        subprocess.run([sys.executable, str(ROOT / "scripts/build_mobile_catalog.py")], check=True)
     files.update({f"pyodide/{name}": data for name, data in pyodide_files().items()})
     for target in targets:
         if target.exists():

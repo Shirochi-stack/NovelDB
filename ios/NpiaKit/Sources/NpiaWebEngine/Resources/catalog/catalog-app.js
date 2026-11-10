@@ -2932,7 +2932,7 @@
             SITES.forEach(function (site) {
                 (site.lnreader || []).slice(0, 1).forEach(function (plugin) { lnreader.push({id: plugin, site: site.site, comic: site.comic}); });
             });
-            call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, searched: 12, responseProfile: SEARCH_PROFILE, downloadIcon: window.NovelDBDownloadIcon || ''});
+            call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, searched: 12, responseProfile: SEARCH_PROFILE, instantPiecesComplete: true, downloadIcon: window.NovelDBDownloadIcon || ''});
         });
     }
     // A web page, or a readable file in the Library.
@@ -2941,6 +2941,15 @@
         switch (message.type) {
         case 'genericReady': init(); break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
+        case 'genericInstant':
+            if (!/^(manifest|top|[bc]\/[0-9]{1,6})$/.test(message.key || '')) break;
+            fetch('instant/' + message.key + '.bin').then(function (response) {
+                if (!response.ok) throw new Error('Local catalogue unavailable');
+                return response.arrayBuffer();
+            }).then(function (bytes) { return gunzip(new Uint8Array(bytes)); }).then(function (text) {
+                call('fetched', message.id, {data: JSON.parse(text)});
+            }).catch(function () { call('fetched', message.id, {data: null}); });
+            break;
         case 'genericSiteQuery':
             ready.then(async function () {
                 var token = current.token && !current.token.stopped ? current.token : {stopped: false}, cards = [];

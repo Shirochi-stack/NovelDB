@@ -38,11 +38,12 @@ PAGE_DIR = Path(__file__).with_name("generic")
 PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
 REFERENCE_SCRIPT = PAGE_DIR / "references.js"
+INSTANT_SCRIPT = PAGE_DIR / "instant.js"
 SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_index.INDEX_SORTS
 MESSAGE_TYPES = ("genericReady", "genericReaderStop", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
-                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive", "genericIndexSort", "genericSiteQuery")
+                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive", "genericIndexSort", "genericSiteQuery", "genericInstant")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -249,8 +250,16 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
         data["queries"] = queries
         data["query"], data["mode"] = queries[0]["query"], queries[0]["mode"]
-    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort", "genericSiteQuery") and not isinstance(data.get("id"), int):
+    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort", "genericSiteQuery", "genericInstant") and not isinstance(data.get("id"), int):
         return None
+    if kind == "genericInstant" and not re.fullmatch(r"manifest|top|[bc]/[0-9]{1,6}", str(data.get("key", ""))):
+        return None
+    if kind == "genericInstant":
+        if "token" in data and (not isinstance(data["token"], str) or len(data["token"]) > 300):
+            return None
+        if "rows" in data and (not isinstance(data["rows"], list) or len(data["rows"]) > 120
+                               or any(type(number) is not int or not 0 <= number < 128 for number in data["rows"])):
+            return None
     if kind == "genericSiteQuery":
         host = data.get("host")
         query = data.get("query")
@@ -575,6 +584,8 @@ class GenericCatalog(QObject):
             self._background(self._index_sort, data)
         elif kind == "genericSiteQuery":
             self._background(self._site_query, data)
+        elif kind == "genericInstant":
+            self._background(self._instant_reply, data)
         elif kind == "genericMore":
             self.more(int(data.get("id") or 0), data["queries"], data["page"], data.get("ndbPage"), data.get("sites", True))
         elif kind == "genericTopMore":
@@ -709,6 +720,14 @@ class GenericCatalog(QObject):
             self._fetched.emit(data["id"], {"cards": cards, "more": has_more})
         except Exception:
             self._fetched.emit(data["id"], {"error": "The index could not be sorted"})
+
+    def _instant_reply(self, data):
+        from noveldb.core.catalog.instant import read_piece
+
+        try:
+            self._fetched.emit(data["id"], {"data": read_piece(data["key"], data.get("token"), data.get("prefix") is True, data.get("rows"))})
+        except (OSError, ValueError, KeyError):
+            self._fetched.emit(data["id"], {"data": None})
 
     def _site_query(self, data):
         from noveldb.core.catalog.generic_search import looks_like_book, is_no_results, web_search, GoogleUnavailable
