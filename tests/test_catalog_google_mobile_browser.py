@@ -16,7 +16,7 @@ def test_mobile_google_dorks_reject_unrelated_titles_and_profiles(browser, asset
                                      [{"host": f"obscure{i}.test", "site": f"obscure{i}.test"} for i in range(100)]})
             elif name == "search_profile.json":
                 route.fulfill(json={"preferred": ["books.test"], "measurements": {}})
-            elif name in {"index.html", "generic.js", "generic-lib.js", "catalog-app.js"}:
+            elif name in {"index.html", "catalog-start.js", "generic.js", "generic-lib.js", "catalog-app.js"}:
                 route.fulfill(path=assets / name)
             elif name.endswith(".json"):
                 route.fulfill(json={})

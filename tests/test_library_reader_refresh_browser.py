@@ -44,7 +44,7 @@ def test_reopening_same_epub_address_reads_new_bytes_and_chapters(browser, asset
         page = context.new_page()
         def serve(route):
             name = route.request.url.rsplit("/", 1)[-1]
-            if name in {"index.html", "generic.js", "generic-lib.js", "catalog-app.js"}:
+            if name in {"index.html", "catalog-start.js", "generic.js", "generic-lib.js", "catalog-app.js"}:
                 route.fulfill(path=assets / name)
             elif name.endswith(".json"):
                 route.fulfill(json={})
@@ -127,7 +127,7 @@ def test_mobile_live_metadata_arrives_without_rereading_epub(browser, assets, tm
         page = context.new_page()
         def serve(route):
             name = route.request.url.rsplit("/", 1)[-1]
-            if name in {"index.html", "generic.js", "generic-lib.js", "catalog-app.js"}:
+            if name in {"index.html", "catalog-start.js", "generic.js", "generic-lib.js", "catalog-app.js"}:
                 route.fulfill(path=assets / name)
             elif name.endswith(".json"):
                 route.fulfill(json={})

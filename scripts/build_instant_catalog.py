@@ -3,7 +3,6 @@ import argparse
 from contextlib import ExitStack
 import gzip
 import json
-import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -53,15 +52,8 @@ def build(data, destination):
 
 
 def build_starter(destination):
-    """Keep popular books and verified title aliases resident for the first input frame."""
-    selected = set(range(8000))
-    for part in range(2):
-        with ZipFile(destination.with_name(f"{destination.stem}-{part}{destination.suffix}")) as archive:
-            for name in archive.namelist():
-                if name.startswith("b/"):
-                    for token, numbers in json.loads(gzip.decompress(archive.read(name))).items():
-                        if re.fullmatch("[a-z]{3,}", token) and len(numbers) >= 10:
-                            selected.update(numbers[:3])
+    """Embed a bounded popular-title index before the search UI initializes."""
+    selected = set(range(256))
     rows = []
     for part in range(2):
         with ZipFile(destination.with_name(f"{destination.stem}-{part}{destination.suffix}")) as archive:
@@ -77,6 +69,8 @@ def build_starter(destination):
                         row[12] = row[13] = None
                         rows.append((start + offset, row))
     rows.sort(key=lambda entry: entry[0])
+    selected.update(number for number, row in [entry for entry in rows if entry[1][16]][:512])
+    rows = [entry for entry in rows if entry[0] in selected]
     with tempfile.TemporaryDirectory(prefix="starter-", dir=ROOT / "artifacts") as temporary:
         folder = Path(temporary)
         source = folder / "rows.input"
@@ -84,10 +78,11 @@ def build_starter(destination):
         source.write_text(dumps([row for _, row in rows], ensure_ascii=True), encoding="utf-8")
         subprocess.run(["node", str(ROOT / "scripts/noveldb_index/starter.cjs"), str(source), str(output)], check=True)
         value = json.loads(output.read_text(encoding="utf-8"))
-        raw = dumps(value, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-        target = destination.with_name("instant-starter.bin")
-        target.write_bytes(gzip.compress(raw, compresslevel=6, mtime=0))
-        print(f"Starter catalogue {len(rows)} books, {target.stat().st_size / 1048576:.1f} MiB", flush=True)
+        with ZipFile(destination.with_name(f"{destination.stem}-0{destination.suffix}")) as archive:
+            value["top"] = json.loads(gzip.decompress(archive.read("top.json.gz")))[:12]
+        target = ROOT / "noveldb/qt/catalog/generic/instant-boot.js"
+        target.write_text("window.NovelDBInstantBoot=" + dumps(value, ensure_ascii=True, separators=(",", ":")) + ";\n", encoding="utf-8")
+        print(f"Startup catalogue {len(rows)} books, {target.stat().st_size / 1024:.0f} KiB", flush=True)
 
 
 if __name__ == "__main__":

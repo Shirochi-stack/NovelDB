@@ -28,14 +28,14 @@ COMIX_TARGETS = [
     ROOT / "ios" / "NpiaKit" / "Sources" / "NpiaSources" / "Reader" / "Resources",
 ]
 # Scripts in the order the page runs them: the link to the app, the app's download artwork, the
-# engine's helpers, the app side, the LNReader plugins (generic.js lists them when it starts), then
-# the page's own script, which says it is ready.
-SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "lnreader-lib.js", "references.js", "instant.js", "generic.js"]
+# engine's helpers, the app side and the small title index, then
+# the page's own script. Plugins are requested after initial interaction.
+SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "references.js", "instant-boot.js", "instant.js", "generic.js"]
 FILES = {
     "generic.js": PAGE / "generic.js",
     "references.js": PAGE / "references.js",
     "instant.js": PAGE / "instant.js",
-    "instant/starter.bin": ROOT / "assets/instant-starter.bin",
+    "instant-boot.js": PAGE / "instant-boot.js",
     "halgakos-loading.webp": PAGE / "halgakos-loading.webp",
     "icon-cart.webp": PAGE / "icon-cart.webp",
     "icon-mining.webp": PAGE / "icon-mining.webp",
@@ -69,7 +69,7 @@ PHONE_CSS = """<style>
 
 def page_html() -> str:
     html = (PAGE / "index.html").read_text(encoding="utf-8")
-    tags = "".join(f'<script src="{name}"></script>\n' for name in SCRIPTS)
+    tags = '<script src="catalog-start.js"></script>\n'
     if "</body>" not in html or "</head>" not in html:
         raise SystemExit("index.html has no </head> or </body>")
     return html.replace("</head>", PHONE_CSS + "</head>", 1).replace("</body>", tags + "</body>", 1)
@@ -92,6 +92,7 @@ def expected() -> dict:
     out = {"index.html": page_html().encode("utf-8"), "download-icon.js": download_icon().encode("utf-8")}
     for name, source in FILES.items():
         out[name] = source.read_bytes()
+    out["catalog-start.js"] = b"\n".join(out[name].replace(b"\r\n", b"\n") for name in SCRIPTS)
     for part in range(2):
         with ZipFile(ROOT / f"assets/instant-catalog-{part}.zip") as archive:
             for name in archive.namelist():
@@ -110,6 +111,11 @@ def main() -> int:
     files = expected()
     if not args.check:
         for target in TARGETS:
+            old_starter = target / "instant/starter.bin"
+            if old_starter.exists():
+                if not old_starter.resolve().is_relative_to(ROOT.resolve()):
+                    raise ValueError("Local catalogue asset escaped the workspace")
+                old_starter.unlink()
             for old in (target / "instant").rglob("*.json.gz"):
                 if not old.resolve().is_relative_to(ROOT.resolve()):
                     raise ValueError("Local catalogue asset escaped the workspace")

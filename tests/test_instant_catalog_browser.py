@@ -39,7 +39,7 @@ def open_catalogue(browser, target, rate=6):
         }};""")
     page.goto("http://instant.test/index.html")
     if target == PAGE:
-        for name in ("references.js", "instant.js", "generic.js"):
+        for name in ("references.js", "instant-boot.js", "instant.js", "generic.js"):
             page.add_script_tag(path=target / name)
     page.wait_for_function("!!window.NovelDBGeneric")
     return context, page
@@ -73,18 +73,18 @@ def test_real_mesugaki_results_within_one_second_and_canonical_tank_first(browse
 @pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])
 def test_top_100_appears_while_all_online_services_are_stalled(browser, target):
     context, page = open_catalogue(browser, target)
-    page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=100", timeout=3000)
+    page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=12", timeout=3000)
     titles = page.locator("#grid .card .title").all_text_contents()
-    assert len(titles) == 100
+    assert len(titles) == 12
     assert "Nothing in the top lists" not in page.locator("#empty").inner_text()
     context.close()
 
 
 @pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])
-def test_resident_first_three_cards_render_within_sixty_ms(browser, target):
+def test_resident_first_matches_render_within_sixty_ms(browser, target):
     context, page = open_catalogue(browser, target, rate=1)
-    page.wait_for_function("NovelDBInstant.ready()")
-    page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=100")
+    assert page.evaluate("NovelDBInstant.ready()"), "Cold page required an asynchronous preload"
+    page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=12")
     page.evaluate("""()=>{
         window.firstPass={};
         window.longTasks=[];
@@ -97,7 +97,7 @@ def test_resident_first_three_cards_render_within_sixty_ms(browser, target):
         new MutationObserver(()=>{
             if(!firstPass.started||firstPass.ms!=null||!document.getElementById('heading').textContent.includes('mesugaki'))return;
             const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
-            if(titles.length>=3){firstPass.ms=performance.now()-firstPass.started;firstPass.titles=titles;}
+            if(titles.length>=1){firstPass.ms=performance.now()-firstPass.started;firstPass.titles=titles;}
         }).observe(document.getElementById('grid'),{childList:true,subtree:true});
     }""")
     page.locator("#query").press_sequentially("mesugaki", delay=25)
@@ -105,7 +105,7 @@ def test_resident_first_three_cards_render_within_sixty_ms(browser, target):
     result = page.evaluate("firstPass")
     print(dumps({"platform": str(target.relative_to(ROOT)), "first_pass": result}))
     assert result["ms"] < 60, result
-    assert len(result["titles"]) == 3, result
+    assert len(result["titles"]) == 1, result
     assert result["titles"][0] == "Mesugaki Tank Enters The Academy", result
     page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=20")
     assert page.locator("#grid .card .title").first.inner_text() == result["titles"][0]
@@ -116,7 +116,7 @@ def test_resident_first_three_cards_render_within_sixty_ms(browser, target):
 
 def test_resident_prefixes_and_source_filters_keep_real_identity(browser):
     context, page = open_catalogue(browser, TARGETS[1], rate=1)
-    page.wait_for_function("NovelDBInstant.ready()")
+    assert page.evaluate("NovelDBInstant.ready()"), "Cold page required an asynchronous preload"
     result = page.evaluate("""()=>({
         prefix:NovelDBInstant.first('mesugak',{kind:'novel'}),
         words:NovelDBInstant.first('mesugaki academy',{kind:'novel'}),
@@ -128,4 +128,31 @@ def test_resident_prefixes_and_source_filters_keep_real_identity(browser):
     assert result['words'][0]['title'] == result['prefix'][0]['title']
     assert result['prefix'][0]['noveldb'] == {'source': 'npia', 'id': '143618'}
     assert not result['comic'] and not result['unknown'] and not result['excluded']
+    context.close()
+
+
+@pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])
+def test_cold_document_has_immediate_results_without_preload_or_top_wait(browser, target):
+    context, page = open_catalogue(browser, target, rate=1)
+    result = page.evaluate("""()=>{
+        const ready=NovelDBInstant.ready(), plugins=!!window.__LNR_search;
+        const started=performance.now();
+        const query=document.getElementById('query');
+        query.value='mesugaki';query.dispatchEvent(new Event('input',{bubbles:true}));
+        return {ready,plugins,elapsed:performance.now()-started,
+            titles:Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent)};
+    }""")
+    assert result['ready'], result
+    assert not result['plugins'], 'The plugin bundle blocked initial interaction'
+    assert result['elapsed'] < 60, result
+    assert result['titles'][0] == 'Mesugaki Tank Enters The Academy', result
+    context.close()
+
+
+def test_mobile_loads_real_plugins_on_demand(browser):
+    context, page = open_catalogue(browser, TARGETS[1], rate=1)
+    assert not page.evaluate("!!window.__LNR_search")
+    page.evaluate("NovelDBQt.postMessage(JSON.stringify({type:'genericPlugins',id:987654}))")
+    page.wait_for_function("!!window.__LNR_search")
+    assert page.evaluate("JSON.parse(__LNR_sites()).length") > 100
     context.close()

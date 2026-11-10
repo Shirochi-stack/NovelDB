@@ -14,10 +14,8 @@ def archive(part):
 
 
 def read_piece(key, token=None, prefix=False, rows=None):
-    if not re.fullmatch(r"manifest|top|starter|[bc]/[0-9]{1,6}", key):
+    if not re.fullmatch(r"manifest|top|[bc]/[0-9]{1,6}", key):
         raise ValueError("Invalid local catalogue key")
-    if key == "starter":
-        return json.loads(gzip.decompress((paths.bundle_dir() / "assets/instant-starter.bin").read_bytes()))
     part = int(key.split("/")[1]) % 2 if "/" in key else 0
     data = json.loads(gzip.decompress(archive(part).read(key + ".json.gz")))
     if key.startswith("b/") and token:

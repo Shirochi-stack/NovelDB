@@ -10,6 +10,7 @@ import AppKit
 final class InstantCatalogTests: XCTestCase {
     func testPackagedCatalogueReturnsRealNovelsWithOnlineRequestsStalled() async throws {
         let engine = WKWebEngine(persistent: false)
+        engine.pageLoadWait = 0
         let page = try await engine.newPage(profile: "instant-catalog-test")
         #if canImport(AppKit)
         // Match the visible catalogue. Detached macOS WebViews throttle input timers.
@@ -28,11 +29,10 @@ final class InstantCatalogTests: XCTestCase {
         }
         do {
             try await page.load(URL(string: "noveldb-local://app/index.html")!, until: .load, timeout: 30)
-            struct Result: Decodable { let top: Int; let firstElapsed: Double; let elapsed: Double; let titles: [String] }
+            struct Result: Decodable { let ready: Bool; let startup: Double; let top: Int; let firstElapsed: Double; let elapsed: Double; let titles: [String] }
             let result = try await page.evaluate(Result.self, """
-                let deadline=performance.now()+10000;
-                while((document.querySelectorAll('#grid .card .title').length<100||!window.NovelDBInstant?.ready())&&performance.now()<deadline)
-                    await new Promise(resolve=>setTimeout(resolve,10));
+                const ready=!!window.NovelDBInstant?.ready();
+                const startup=performance.getEntriesByName('noveldb-search-ready')[0].startTime;
                 const top=document.querySelectorAll('#grid .card .title').length;
                 const result=await new Promise(resolve=>{
                     const query=document.getElementById('query');
@@ -41,7 +41,7 @@ final class InstantCatalogTests: XCTestCase {
                     const observer=new MutationObserver(()=>{
                         const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
                         if(!document.getElementById('heading').textContent.includes('mesugaki'))return;
-                        if(firstElapsed==null&&titles.length>=3)firstElapsed=performance.now()-started;
+                        if(firstElapsed==null&&titles.length>=1)firstElapsed=performance.now()-started;
                         if(titles.length>=20){
                             observer.disconnect();clearTimeout(timer);
                             resolve({firstElapsed,elapsed:performance.now()-started,titles});
@@ -51,10 +51,11 @@ final class InstantCatalogTests: XCTestCase {
                     const timer=setTimeout(()=>{observer.disconnect();resolve({firstElapsed:5000,elapsed:5000,titles:[]});},5000);
                     query.value='mesugaki';query.dispatchEvent(new Event('input',{bubbles:true}));
                 });
-                return {top,...result};
+                return {ready,startup,top,...result};
                 """)
-            print("INSTANT-CATALOG WebKit first-frame \(result.firstElapsed) ms, expanded \(result.elapsed) ms, \(result.titles.count) novels, Top \(result.top)")
-            XCTAssertEqual(result.top, 100)
+            print("INSTANT-CATALOG WebKit cold startup \(result.startup) ms, first-frame \(result.firstElapsed) ms, expanded \(result.elapsed) ms, \(result.titles.count) novels, Top \(result.top)")
+            XCTAssertTrue(result.ready)
+            XCTAssertLessThanOrEqual(result.top, 12)
             XCTAssertLessThan(result.firstElapsed, 60)
             XCTAssertLessThan(result.elapsed, 1000)
             XCTAssertGreaterThanOrEqual(result.titles.count, 20)

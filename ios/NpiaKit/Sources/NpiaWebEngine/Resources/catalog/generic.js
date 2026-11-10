@@ -21,8 +21,8 @@
     var cart = new Set(), pending = {}, nextId = 0, searchId = 0, running = 0;
     var view = 'top', current = {text: '', tags: []}, picked = [], resultTags = new Map();
     // TOP_KEY's version: a new one drops the top lists saved by older code.
-    // A top list shows TOP_SIZE books at first, TOP_STEP more each time it is scrolled to its end.
-    var TOP_KEY = 'noveldb.generic.top.v9', TOP_HOURS = 12, TOP_SIZE = 100, TOP_STEP = 50;
+    // Top lists retain their cache format and render a small first page, then grow on scroll.
+    var TOP_KEY = 'noveldb.generic.top.v9', TOP_HOURS = 12, TOP_SIZE = 100, TOP_INITIAL = 12, TOP_STEP = 24;
     var TAGS = ['Action', 'Adventure', 'Apocalypse', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
@@ -1905,6 +1905,10 @@
                 verified: !!item.verified};
     }
     function lnreaderSearch(id, queries) {
+        if (!window.__LNR_search) {
+            ensurePlugins().then(function (ok) { if (ok && id === searchId) lnreaderSearch(id, queries); });
+            return;
+        }
         var every = plugins().slice()
             .sort(function (a, b) { return pluginRank(a.id) - pluginRank(b.id); });
         if (!every.length || !window.__LNR_search) return;
@@ -1933,7 +1937,7 @@
     // ranking pages, read by the app. Each list is kept for 12 hours.
     var TOP_NAMES = {all: 'novels and comics', webnovel: 'web novels', lightnovel: 'light novels', manga: 'manga',
                      manhwa: 'manhwa', comic: 'comics'};
-    var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE, only: [], seen: {}};
+    var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0, limit: TOP_INITIAL, only: [], seen: {}};
     // The sites picked in the Sites panel for each kind: their own lists, in their own order.
     var topOnly = {};
     var PREFERRED_SITES_KEY = 'noveldb.generic.preferredSites';
@@ -2049,7 +2053,14 @@
     document.addEventListener('visibilitychange', function () { if (document.hidden) searchSave(true); });
     window.addEventListener('pagehide', function () { searchSave(true); });
 
-    function showTop(goingBack) {
+    function restoreTopItems(items) {
+        items.forEach(function (item, index) {
+            if (notInTop(item) || (!top.ndbOnly && !inLanguage(item))) return;
+            var group = merge(item, order.length + 1);
+            if (group) { (item.more || []).forEach(function (m) { merge(m); }); render(group); }
+        });
+    }
+    function showTop(goingBack, cold) {
         referenceRun = null;
         referenceSortLabels(null);
         if (goingBack !== true && view === 'search') rememberSearch();
@@ -2059,7 +2070,7 @@
         current = {text: '', tags: []};
         var kind = topKind();
         var sites = kind in topOnly ? topOnly[kind] : preferredSites[kind] ? [preferredSites[kind]] : [];
-        top = {kind: kind, scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE,
+        top = {kind: kind, scores: new Map(), first: 0, timer: 0, limit: TOP_INITIAL,
             preferred: !(kind in topOnly) && !!preferredSites[kind],
             only: sites.filter(function (site) { return !excludedTopSite(site); }), seen: {}, page: 1};
         showPreferredSites();
@@ -2067,7 +2078,6 @@
         $('heading').textContent = 'Top ' + TOP_NAMES[top.kind] + (top.only.length ? ' · ' + top.only.join(', ')
             : language === 'all' ? '' : ' · ' + chosen.text);
         $('sitesButton').style.display = '';
-        instantTop(searchId);
         var discover = canReference() && !top.only.length && !NDB_LANGS[baseLang()];
         if (!top.only.length && NDB_LANGS[baseLang()] && !isComicKind(top.kind)) {
             // Korean and Chinese: NovelDB's list (kept or read anew), and its next pages as it is scrolled.
@@ -2082,21 +2092,19 @@
         if (cached && cached.how !== topRecipe()) cached = null;
         if (cached && cached.items && cached.items.length) {
             if (top.ndbOnly) top.ndbPage = Math.ceil(cached.items.length / 40);
-            cached.items.forEach(function (item, index) {
-                if (notInTop(item) || (!top.ndbOnly && !inLanguage(item))) return;
-                var group = merge(item, index + 1);
-                if (group) { (item.more || []).forEach(function (m) { merge(m); }); render(group); }
-            });
+            top.cachedItems = cached.items.slice(TOP_INITIAL);
+            restoreTopItems(cached.items.slice(0, TOP_INITIAL));
             status('The most read ' + TOP_NAMES[top.kind] + ' on the top sites, as of ' + new Date(cached.time).toLocaleString() + '.');
             // A kept list: its sites are asked again only when it is scrolled past its end.
             if (Date.now() - cached.time < TOP_HOURS * 3600e3) {
                 top.cached = true;
-                if (discover) startReferences({kind: $('kind').value, text: '', tags: [], sort: sortBy(), top: true});
+                if (!order.length) instantTop(searchId);
+                if (discover) scheduleTop(searchId, true, false, cold ? 500 : 0);
                 empty(); return;
             }
         }
-        loadTop(searchId);
-        if (discover) startReferences({kind: $('kind').value, text: '', tags: [], sort: sortBy(), top: true});
+        if (!order.length) instantTop(searchId);
+        scheduleTop(searchId, discover, true, cold && !top.only.length ? 500 : 0);
     }
     // Kept out of the top lists (a search still finds them): a book whose tags or title say so.
     var NOT_IN_TOP = /\b(josei|danmei|yaoi|smut|bl|boys?'?s? ?love|shounen[- ]?ai|(?<!young )adult[oa]?s?|hentai|r-?18)\b|\b1[89]\+|\+1[89]\b/i;
@@ -2182,6 +2190,7 @@
                     return {url: s.url, title: group.title, site: s.site, source: s.source, plugin: s.plugin, path: s.path, comic: group.comic, ms: s.ms};
                 })});
         });
+        if (top.cachedItems && top.cachedItems.length) items = items.concat(top.cachedItems);
         if (items.length && !top.only.length) store(TOP_KEY + '.' + top.kind + '.' + language, {time: Date.now(), items: items, how: topRecipe()});
     }
     // The LNReader sites a novel top list reads: the picked ones, else the busiest of the language and kind.
@@ -2193,7 +2202,16 @@
         }).sort(function (a, b) { return pluginRank(a.id) - pluginRank(b.id); });
         return all ? chosen : chosen.filter(function (plugin) { return !pluginResting(plugin.id) && pluginRank(plugin.id) < 12000; }).slice(0, 12);
     }
-    function loadTop(id) {
+    function scheduleTop(id, discover, lists, delay) {
+        var run = function () {
+            if (id !== searchId || view !== 'top') return;
+            if (lists) loadTop(id);
+            if (discover) startReferences({kind: $('kind').value, text: '', tags: [], sort: sortBy(), top: true});
+        };
+        if (delay) setTimeout(run, delay);
+        else run();
+    }
+    function loadTop(id, pluginsOnly) {
         if (isComicKind(top.kind)) {
             // The comic sites' popular pages, read by the app (cards come back through add()).
             running = 0;
@@ -2226,12 +2244,18 @@
         picks.forEach(function (site) { (NOVELDB_SITES[site] || []).forEach(function (source) { top.ndbSources.push(source); }); });
         top.others = picks.filter(function (site) { return !NOVELDB_SITES[site] && !chosen.some(function (p) { return p.site === site; }); });
         if (!chosen.length && !top.ndbSources.length && !top.others.length) { empty(); return; }
-        running = 0;
-        startProgress(chosen.length);
-        if (top.ndbSources.length) askNdbTop(id, false);
-        if (top.others.length) {
-            setRunning(1);
-            send({type: 'genericTop', id: id, kind: top.kind, language: cardLang(), sites: top.others});
+        if (!pluginsOnly) {
+            running = 0;
+            startProgress(chosen.length);
+            if (top.ndbSources.length) askNdbTop(id, false);
+            if (top.others.length) {
+                setRunning(1);
+                send({type: 'genericTop', id: id, kind: top.kind, language: cardLang(), sites: top.others});
+            }
+        }
+        if (!window.__LNR_popular) {
+            ensurePlugins().then(function (ok) { if (ok && id === searchId && view === 'top') loadTop(id, true); });
+            return;
         }
         if (!chosen.length || !window.__LNR_popular) { status('Reading the Top lists of ' + picks.join(', ') + '…'); return; }
         status('Reading the popular lists of ' + chosen.length + ' ' + TOP_NAMES[top.kind] + ' sites…');
@@ -2301,13 +2325,15 @@
         }};
     }
     function instantTop(id) {
-        if (!window.NovelDBInstant || isComicKind(top.kind)) return;
+        if (!searches.noveldb || !window.NovelDBInstant || isComicKind(top.kind)) return;
         var io = instantIO(id);
-        io.load('top').then(function (rows) {
+        add(window.NovelDBInstant.top().map(function (row) { return Object.assign(window.NovelDBInstant.card(row), {via: 'top'}); }), id);
+        topRedraw();
+        setTimeout(function () { io.load('top').then(function (rows) {
             if (!io.alive() || view !== 'top' || !rows) return;
             add(rows.map(function (row) { return Object.assign(window.NovelDBInstant.card(row), {via: 'top'}); }), id);
             topRedraw();
-        }).catch(function () {});
+        }).catch(function () {}); }, 250);
     }
     function canReference() { return !!window.NovelDBReferences; }
     function referenceIO(run) {
@@ -2430,6 +2456,20 @@
         resultTags.forEach(function (_n, tag) { if (!names.has(tag.toLowerCase())) names.set(tag.toLowerCase(), tag); });
         return names;
     }
+    function addLocalCards(cards, id) {
+        var at = 0;
+        return new Promise(function (resolve) {
+            function next() {
+                if (id !== searchId) { resolve(); return; }
+                add(cards.slice(at, at + 6).map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
+                drawScheduledCards();
+                at += 6;
+                if (at < cards.length) setTimeout(next, 16);
+                else resolve();
+            }
+            next();
+        });
+    }
     function search(event, keepMenu, typing) {
         referenceRun = null;
         referenceSortLabels(null);
@@ -2473,15 +2513,15 @@
             var first = window.NovelDBInstant.first(text, options);
             add(first.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
             if (first.length) drawScheduledCards();
-            local = new Promise(function (resolve) { setTimeout(resolve, typing ? 180 : 0); }).then(function () {
+            local = new Promise(function (resolve) { setTimeout(resolve, typing ? 100 : 0); }).then(function () {
                 if (id !== searchId) return [];
                 return window.NovelDBInstant.search(text, options, instantIO(id));
             }).then(function (cards) {
                 if (id !== searchId) return;
-                add(cards.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
+                return addLocalCards(cards, id);
             }).catch(function () {});
         }
-        within(local, 700).then(function () {
+        within(local, quick && first.length ? 1500 : 700).then(function () {
             if (id !== searchId) return;
             send({type: 'genericSearch', id: id, queries: queries});
             if (!byId) lnreaderSearch(id, queries);
@@ -3214,6 +3254,13 @@
         applyLook();
     }
     function loadBook(source, token, onChapters) {
+        if (lnreaderSite(source) && !window.__LNR_parseBook) {
+            return ensurePlugins().then(function (ok) {
+                if (!ok) throw new Error('Reading plugins unavailable');
+                if (token !== R.token) throw new Error('the reader was closed');
+                return loadBook(source, token, onChapters);
+            });
+        }
         function appBook() {
             var request;
             return askAlive({type: 'genericBook', url: source.url}, 90, function (id) {
@@ -4135,6 +4182,11 @@
             status('Loading more results…');
             send({type: 'genericMore', id: searchId, queries: current.queries, page: more.page, ndbPage: ndbNext});
         } else if (view === 'top') {
+            if (top.cachedItems && top.cachedItems.length) {
+                restoreTopItems(top.cachedItems.splice(0, TOP_STEP));
+                top.limit = Math.max(top.limit, order.length);
+                return;
+            }
             var waiting = Array.from(top.scores.values()).filter(function (entry) { return !entry.group && !entry.excluded; }).length;
             if (waiting) {
                 top.limit = order.length + TOP_STEP;
@@ -4238,6 +4290,29 @@
         }
     }, {passive: true});
 
+    var pluginLoading = null;
+    function readPlugins() {
+        try {
+            var top = {};
+            (config.lnreader || []).forEach(function (p, index) { top[p.id] = index; });
+            allPlugins = (parse(window.__LNR_sites && window.__LNR_sites()) || []).map(function (p) {
+                pluginLangs[p.id] = langCode(p.lang);
+                var site = hostOf(p.site) || p.site;
+                return {id: p.id, site: site, comic: false, rank: p.id in top ? top[p.id] : -1,
+                    ln: LN_SITE.test(site + ' ' + p.name)};
+            });
+        } catch (e) { allPlugins = []; /* no plugin list: the top sites' plugins only */ }
+    }
+    function ensurePlugins() {
+        if (window.__LNR_search) return Promise.resolve(true);
+        if (!pluginLoading) pluginLoading = ask({type: 'genericPlugins'}).then(function (reply) {
+            readPlugins();
+            if (!reply || !reply.ok) pluginLoading = null;
+            return !!(reply && reply.ok);
+        }).catch(function () { pluginLoading = null; return false; });
+        return pluginLoading;
+    }
+
     // The app's theme (Halgakos Rose by default) from the start, even when the app is slow to send it or
     // its message is lost (the page showed the plain default colours).
     if (!appTheme && store(THEME_KEY)) setAppTheme(store(THEME_KEY));
@@ -4245,17 +4320,8 @@
         init: function (value) {
             config = value || config;
             if (window.NovelDBInstant) window.NovelDBInstant.prepare(instantIO(searchId));
-            try {
-                var top = {};
-                (config.lnreader || []).forEach(function (p, index) { top[p.id] = index; });
-                allPlugins = (parse(window.__LNR_sites && window.__LNR_sites()) || []).map(function (p) {
-                    pluginLangs[p.id] = langCode(p.lang);
-                    var site = hostOf(p.site) || p.site;
-                    return {id: p.id, site: site, comic: false, rank: p.id in top ? top[p.id] : -1,
-                            ln: LN_SITE.test(site + ' ' + p.name)};
-                });
-            } catch (e) { allPlugins = []; /* no plugin list: the top sites' plugins only */ }
-            if (view === 'top' && !order.length && !searchRestore()) showTop();
+            readPlugins();
+            if (view === 'top' && !order.length && !searchRestore()) showTop(false, searchId === 0);
         },
         add: add,
         moreDone: function (id, state) {
@@ -4298,7 +4364,7 @@
             top.ndbPage = (top.ndbPage || 0) + 1;
             top.ndbMore = !!(state && state.more);
             if (view !== 'top') return;
-            top.limit = Math.max(top.limit, order.length + TOP_STEP);
+            if (top.ndbScrolled) top.limit = Math.max(top.limit, order.length + TOP_STEP);
             topRedraw();
             if (top.ndbScrolled) { top.ndbScrolled = false; window.NovelDBGeneric.moreDone(id, {more: top.ndbMore}); return; }
             if (!running) status('The most read on ' + (top.ndbOnly ? 'NovelDB · ' + $('language').selectedOptions[0].text : top.only.join(', '))
@@ -4460,5 +4526,6 @@
     };
     showPicked();
     empty();
+    if (window.performance && performance.mark) performance.mark('noveldb-search-ready');
     send({type: 'genericReady'});
 })();

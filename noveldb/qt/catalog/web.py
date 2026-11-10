@@ -509,15 +509,9 @@ class CatalogPage(QWidget):
         return self.view is not None and generic_page.is_generic_page(self.view.url())
 
     def _start_generic_page(self) -> None:
-        """Load the LNReader plugins and the page's script into the bridge's world."""
-        from noveldb.core import engine_updates
-
-        bundle = engine_updates.current(engine_updates.LNREADER)
-        if bundle is not None:
-            self.page.runJavaScript(bundle.read(), WORLD)
-        self.page.runJavaScript(generic_page.REFERENCE_SCRIPT.read_text(encoding="utf-8"), WORLD)
-        self.page.runJavaScript(generic_page.INSTANT_SCRIPT.read_text(encoding="utf-8"), WORLD)
-        self.page.runJavaScript(generic_page.SCRIPT.read_text(encoding="utf-8"), WORLD)
+        """Load the local catalogue scripts into the bridge's world."""
+        scripts = (generic_page.REFERENCE_SCRIPT, generic_page.BOOT_SCRIPT, generic_page.INSTANT_SCRIPT, generic_page.SCRIPT)
+        self.page.runJavaScript("\n".join(path.read_text(encoding="utf-8") for path in scripts), WORLD)
 
     def _retry(self) -> None:
         if self.view is None:
@@ -627,6 +621,15 @@ class CatalogPage(QWidget):
     def _message(self, data: dict) -> None:
         kind = data["type"]
         if kind.startswith("generic"):
+            if kind == "genericPlugins":
+                if not self._on_generic_page() or self.page is None:
+                    return
+                from noveldb.core import engine_updates
+                bundle = engine_updates.current(engine_updates.LNREADER)
+                source = bundle.read() if bundle is not None else ""
+                script = source + f"\nwindow.NovelDBGeneric.fetched({int(data['id'])},{{ok:!!window.__LNR_search}});"
+                self.page.runJavaScript(script, WORLD)
+                return
             if kind == "genericReaderOpened":
                 self._opening_local = False
                 self.stack.setCurrentWidget(self.view)

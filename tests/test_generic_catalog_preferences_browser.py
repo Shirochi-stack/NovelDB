@@ -134,3 +134,33 @@ def test_cached_top_sources_are_filtered_and_preference_can_be_cleared(catalogue
     tab.select_option("#preferredSite", "")
     assert tab.input_value("#preferredSite") == ""
     assert tab.locator("#heading").inner_text() == "Top web novels · English"
+
+
+def test_previous_hundred_card_cache_renders_twelve_then_grows_on_scroll(catalogue):
+    tab, script = catalogue
+    tab.evaluate("""items=>localStorage.setItem('noveldb.generic.top.v9.webnovel.en',JSON.stringify({
+        time:Date.now(),how:'references-v1:0:100',items:items}))""", [card(n) for n in range(100)])
+    tab.reload()
+    tab.add_script_tag(content=script)
+    tab.evaluate("NovelDBGeneric.init({sites:[],comic:[],lnreader:[]})")
+    tab.wait_for_timeout(350)
+    assert titles(tab) == [f'Novel {n}' for n in range(12)]
+    tab.evaluate("window.scrollTo(0,document.body.scrollHeight);window.dispatchEvent(new Event('scroll'))")
+    tab.wait_for_function("document.querySelectorAll('#grid .card .title').length>=36")
+    assert titles(tab)[:12] == [f'Novel {n}' for n in range(12)]
+    assert len(titles(tab)) == 36
+
+
+def test_native_first_page_stays_small_until_scrolling(catalogue):
+    tab, _ = catalogue
+    tab.click('#settingsButton')
+    tab.select_option('#preferredSite', NPIA_HOST)
+    native = tab.evaluate("__sent.filter(m=>m.type==='genericNdbTop').at(-1)")
+    tab.evaluate("args=>NovelDBGeneric.add(args.cards,args.id)",
+                 {'id': native['id'], 'cards': [card(n, NPIA_HOST) for n in range(40)]})
+    tab.evaluate("id=>NovelDBGeneric.ndbTopDone(id,{more:true})", native['id'])
+    tab.wait_for_timeout(350)
+    assert len(titles(tab)) == 12
+    tab.evaluate("window.scrollTo(0,document.body.scrollHeight);window.dispatchEvent(new Event('scroll'))")
+    tab.wait_for_function("document.querySelectorAll('#grid .card .title').length>=36")
+    assert len(titles(tab)) == 36

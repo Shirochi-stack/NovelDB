@@ -52,7 +52,7 @@
         var blocks = Array.from(new Set(numbers.map(function (number) { return Math.floor(number / manifest.block); })));
         var found = new Map();
         var position = 0;
-        await Promise.all(Array.from({length: Math.min(32, blocks.length)}, async function () {
+        await Promise.all(Array.from({length: Math.min(6, blocks.length)}, async function () {
             while (position < blocks.length && io.alive()) {
                 var block = blocks[position++];
                 var rows = numbers.filter(function (number) { return Math.floor(number / manifest.block) === block; })
@@ -77,14 +77,9 @@
         }).sort(function (a, b) { return a.prefix - b.prefix || a.canonical - b.canonical || b.item.views - a.item.views || a.index - b.index; })
             .slice(0, limit).map(function (entry) { return entry.item; });
     }
-    var starter = null, preparing = null;
-    function prepare(io) {
-        if (!preparing) preparing = io.load('starter').then(function (value) {
-            if (value && value.rows && value.postings && value.words) starter = value;
-            return !!starter;
-        }).catch(function () { return false; });
-        return preparing;
-    }
+    var starter = window.NovelDBInstantBoot || null;
+    delete window.NovelDBInstantBoot;
+    function prepare() { return Promise.resolve(!!starter); }
     function first(query, options) {
         if (!starter || /^(manga|manhwa|comic)$/.test(options.kind || '')) return [];
         var wanted = tokens(query);
@@ -111,5 +106,5 @@
         }).slice(0, 120).map(function (number) { return starter.rows[number]; }), query, options, 3);
     }
 
-    window.NovelDBInstant = {search: search, first: first, prepare: prepare, ready: function () { return !!starter; }, card: card, tokens: tokens, bucket: bucket};
+    window.NovelDBInstant = {search: search, first: first, top: function () { return starter ? starter.top || [] : []; }, prepare: prepare, ready: function () { return !!starter; }, card: card, tokens: tokens, bucket: bucket};
 }());

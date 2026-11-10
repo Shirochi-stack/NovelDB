@@ -116,7 +116,7 @@ def test_android_catalog_finds_comix_and_uses_its_engine_for_chapter_one():
 
             def serve(route):
                 name = urlsplit(route.request.url).path.rsplit("/", 1)[-1]
-                if name in {"index.html", "generic.js", "catalog-app.js", "generic-lib.js", "generic_sites.json"}:
+                if name in {"index.html", "catalog-start.js", "generic.js", "catalog-app.js", "generic-lib.js", "generic_sites.json"}:
                     route.fulfill(path=assets / name)
                 elif name.endswith(".json"):
                     route.fulfill(json={})
@@ -174,7 +174,7 @@ def test_mobile_catalog_shows_a_direct_match_while_web_search_waits(platform, qu
                 name = urlsplit(route.request.url).path.rsplit("/", 1)[-1]
                 if name == "generic_sites.json":
                     route.fulfill(json={"sites": [MANGAK, DEX]})
-                elif name in ("index.html", "generic.js", "catalog-app.js", "generic-lib.js"):
+                elif name in ("index.html", "catalog-start.js", "generic.js", "catalog-app.js", "generic-lib.js"):
                     route.fulfill(path=assets / name)
                 elif name.endswith(".json"):
                     route.fulfill(json={})

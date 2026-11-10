@@ -46,7 +46,7 @@ def test_mpia_reader_preserves_the_source_articles_line_breaks(browser, assets):
 
         def serve(route):
             name = route.request.url.rsplit("/", 1)[-1]
-            if name in ("index.html", "generic.js", "catalog-app.js", "generic-lib.js"):
+            if name in ("index.html", "catalog-start.js", "generic.js", "catalog-app.js", "generic-lib.js"):
                 route.fulfill(path=assets / name)
             elif name.endswith(".json"):
                 route.fulfill(json={})
@@ -79,7 +79,7 @@ def test_read_starts_while_the_next_toc_page_is_still_pending(browser, assets):
 
         def serve(route):
             name = route.request.url.rsplit("/", 1)[-1]
-            if name in ("index.html", "generic.js", "catalog-app.js", "generic-lib.js"):
+            if name in ("index.html", "catalog-start.js", "generic.js", "catalog-app.js", "generic-lib.js"):
                 route.fulfill(path=assets / name)
             elif name.endswith(".json"):
                 route.fulfill(json={})

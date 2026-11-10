@@ -244,7 +244,7 @@ def test_shipped_mobile_adapter_correlates_provider_google_and_reading_site(brow
             name = urlsplit(route.request.url).path.rsplit("/", 1)[-1]
             if name == "generic_sites.json":
                 route.fulfill(json={"sites": [{"host": "novels.test", "site": "novels.test"}]})
-            elif name in {"index.html", "generic.js", "references.js", "generic-lib.js", "catalog-app.js"}:
+            elif name in {"index.html", "catalog-start.js", "generic.js", "references.js", "generic-lib.js", "catalog-app.js"}:
                 route.fulfill(path=assets / name)
             elif name.endswith(".json"):
                 route.fulfill(json={})

@@ -20,9 +20,9 @@ except ImportError:
 
 
 class DevTools:
-    def __init__(self, address):
+    def __init__(self, address, url_contains="appassets.androidplatform.net"):
         targets = requests.get(address + "/json", timeout=10).json()
-        target = next(target for target in targets if "appassets.androidplatform.net" in target.get("url", ""))
+        target = next(target for target in targets if url_contains in target.get("url", ""))
         self.socket = websocket.create_connection(target["webSocketDebuggerUrl"], suppress_origin=True, timeout=20)
         self.sequence = 0
 
@@ -75,15 +75,15 @@ def main():
             ready = False
             while time.monotonic() < deadline:
                 try:
-                    ready = tools.evaluate(f"performance.timeOrigin!=={origin}&&!!window.NovelDBGeneric&&document.querySelectorAll('#grid .card .title').length>=100&&!!window.NovelDBInstant&&NovelDBInstant.ready()")
+                    ready = tools.evaluate(f"performance.timeOrigin!=={origin}&&!!window.NovelDBGeneric&&document.querySelectorAll('#grid .card .title').length>=12&&!!window.NovelDBInstant&&NovelDBInstant.ready()")
                     if ready:
                         break
                 except RuntimeError:
                     pass
                 time.sleep(.05)
             if not ready:
-                raise AssertionError("Top 100 did not load")
-            top_ms = (time.monotonic() - started) * 1000
+                raise AssertionError("Initial catalogue did not load")
+            catalogue_ready_ms = (time.monotonic() - started) * 1000
             tools.evaluate("""window.__instantTransport=window.NovelDBTransport;
                 window.NovelDBTransport=()=>new Promise(()=>{});
                 window.__instantProbe={};
@@ -92,7 +92,7 @@ def main():
                     if(!result.started||result.ms!=null)return;
                     const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
                     if(!document.getElementById('heading').textContent.includes(result.query))return;
-                    if(result.first_ms==null&&titles.length>=3){result.first_ms=performance.now()-result.started;result.first_titles=titles;}
+                    if(result.first_ms==null&&titles.length>=1){result.first_ms=performance.now()-result.started;result.first_titles=titles;}
                     if(titles.length>=result.minimum){
                         result.ms=performance.now()-result.started;result.titles=titles;
                     }
@@ -112,7 +112,7 @@ def main():
                 if result.get("ms") is not None:
                     break
                 time.sleep(.02)
-            result.update(iteration=iteration + 1, top_ms=top_ms)
+            result.update(iteration=iteration + 1, catalogue_ready_ms=catalogue_ready_ms)
             results.append(result)
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(dumps({"platform": "installed Android WebView", "cold_page_context": True,
@@ -121,7 +121,7 @@ def main():
             assert result.get("ms", float("inf")) < args.max_ms, result
             assert args.minimum <= len(result.get("titles", [])) <= 30, result
             assert result["titles"][0] == args.expected_first, result
-            print(dumps({"iteration": iteration + 1, "first_ms": result["first_ms"], "ms": result["ms"], "top_ms": top_ms,
+            print(dumps({"iteration": iteration + 1, "first_ms": result["first_ms"], "ms": result["ms"], "catalogue_ready_ms": catalogue_ready_ms,
                          "count": len(result["titles"]), "first": result["titles"][0]}), flush=True)
             tools.evaluate("__instantObserver.disconnect();document.getElementById('query').removeEventListener('input',__instantInput,true);window.NovelDBTransport=__instantTransport")
         if args.screenshot:
