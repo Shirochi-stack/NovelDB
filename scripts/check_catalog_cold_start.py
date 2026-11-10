@@ -13,6 +13,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 import requests
 import websocket
@@ -25,6 +26,7 @@ EXPECTED = "Mesugaki Tank Enters The Academy"
 SEARCH = """(()=>{
     const ready=!!window.NovelDBInstant?.ready()||performance.getEntriesByName('noveldb-search-ready').length>0;
     const initial=document.querySelectorAll('#grid .card').length;
+    const initialQuery=document.getElementById('query').value;
     const started=performance.now();
     const query=document.getElementById('query');
     query.value='mesugaki';query.dispatchEvent(new Event('input',{bubbles:true}));
@@ -32,7 +34,7 @@ SEARCH = """(()=>{
     const nav=performance.getEntriesByType('navigation')[0];
     const readyAt=performance.getEntriesByName('noveldb-search-ready')[0]?.startTime;
     const paint=performance.getEntriesByName('first-contentful-paint')[0];
-    return {ready,initial,first_ms:performance.now()-started,titles,
+    return {ready,initial,initial_query:initialQuery,visible:document.visibilityState,first_ms:performance.now()-started,titles,
             page_ready_ms:readyAt||nav?.domContentLoadedEventEnd||performance.now(),
             first_paint_ms:paint?.startTime||null,
             ready_before_first_paint:!paint||readyAt<=paint.startTime};
@@ -155,6 +157,30 @@ def desktop_package(args, number):
             )
 
 
+def android_hierarchy(adb):
+    destination = "/data/local/tmp/noveldb-cold-window.xml"
+    dump = subprocess.run(
+        adb + ["shell", "uiautomator", "dump", destination],
+        check=True,
+        capture_output=True,
+        timeout=20,
+    )
+    if b"dumped to" not in dump.stdout:
+        raise AssertionError("Android UI hierarchy capture did not complete")
+    xml = subprocess.check_output(adb + ["exec-out", "cat", destination], timeout=10)
+    return ET.fromstring(xml)
+
+
+def android_catalog_target(adb):
+    # Locate the control on the newly launched activity before tapping it.
+    for node in android_hierarchy(adb).iter("node"):
+        if node.get("text") == "Catalog":
+            bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+            if len(bounds) == 4:
+                return ((bounds[0] + bounds[2]) // 2, (bounds[1] + bounds[3]) // 2)
+    raise AssertionError("Catalog tab control unavailable")
+
+
 def android(args):
     adb = [args.adb, "-s", args.serial]
     subprocess.run(
@@ -169,6 +195,13 @@ def android(args):
         capture_output=True,
         text=True,
     )
+    catalog_target = android_catalog_target(adb)
+    subprocess.run(
+        adb + ["shell", "input", "tap", str(catalog_target[0]), str(catalog_target[1])],
+        check=True,
+        capture_output=True,
+    )
+    opened = time.monotonic()
     deadline = started + 30
     tools = None
     while time.monotonic() < deadline:
@@ -189,7 +222,9 @@ def android(args):
                 capture_output=True,
             )
             tools = DevTools("http://127.0.0.1:9223")
-            if tools.evaluate("!!window.NovelDBGeneric"):
+            if tools.evaluate(
+                "!!window.NovelDBGeneric&&document.visibilityState==='visible'"
+            ):
                 break
             tools.socket.close()
             tools = None
@@ -212,12 +247,27 @@ def android(args):
         result = tools.evaluate(SEARCH)
         result["launch_to_probe_ms"] = (time.monotonic() - started) * 1000
         result["process_id"] = int(pid)
+        result["catalog_open_to_probe_ms"] = (time.monotonic() - opened) * 1000
+        tools.evaluate("document.getElementById('stop')?.click()")
+        hierarchy = android_hierarchy(adb)
+        result["catalog_visible_verified"] = any(
+            node.get("class") == "android.webkit.WebView"
+            and node.get("bounds") != "[0,0][0,0]"
+            for node in hierarchy.iter("node")
+        )
+        assert result["catalog_visible_verified"], (
+            "The measured WebView was not on screen"
+        )
         display = re.search(r"TotalTime: (\d+)", launch.stdout)
         result["activity_display_ms"] = int(display.group(1)) if display else None
         # The next process must start at the catalogue, without restoring this test query.
         tools.evaluate(
-            "document.getElementById('query').value='';document.getElementById('query').dispatchEvent(new Event('input',{bubbles:true}))"
+            "document.getElementById('query').value='';"
+            "document.getElementById('query').dispatchEvent(new Event('input',{bubbles:true}));"
+            "localStorage.removeItem('noveldb.generic.search.v2')"
         )
+        # Allow WebView to flush the cleared search before the next force-stop.
+        time.sleep(6)
         return result
     finally:
         tools.socket.close()
@@ -288,6 +338,7 @@ def main():
         )
         print(dumps(result), flush=True)
         assert result.get("ready"), result
+        assert not result.get("initial_query"), result
         assert result.get("ready_before_first_paint"), result
         assert result.get("first_ms", 1000) < 60, result
         assert result.get("titles", [None])[0] == EXPECTED, result
