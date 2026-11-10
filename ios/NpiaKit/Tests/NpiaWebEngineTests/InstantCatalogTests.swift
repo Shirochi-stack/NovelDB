@@ -1,6 +1,9 @@
 import Foundation
 import XCTest
 import NpiaCore
+#if canImport(AppKit)
+import AppKit
+#endif
 @testable import NpiaWebEngine
 
 @MainActor
@@ -8,6 +11,16 @@ final class InstantCatalogTests: XCTestCase {
     func testPackagedCatalogueReturnsRealNovelsWithOnlineRequestsStalled() async throws {
         let engine = WKWebEngine(persistent: false)
         let page = try await engine.newPage(profile: "instant-catalog-test")
+        #if canImport(AppKit)
+        // Match the visible catalogue. Detached macOS WebViews throttle input timers.
+        let nativePage = try XCTUnwrap(page as? WKWebPage)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 390, height: 844),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = nativePage.webView
+        window.orderFrontRegardless()
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        defer { window.orderOut(nil); window.contentView = nil }
+        #endif
         await page.addInitScript("window.NovelDBTransport=()=>new Promise(()=>{});")
         await page.serveLocal { path, _ in
             guard let file = CatalogPage.file(path), let data = try? Data(contentsOf: file) else { return nil }
