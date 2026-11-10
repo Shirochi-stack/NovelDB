@@ -376,7 +376,7 @@
         </select>
         <button id="go" class="primary" type="submit">Search</button>
         <button id="stop" type="button" disabled>Stop</button>
-        <button id="settingsButton" type="button" title="Cover preview quality">⚙</button>
+        <button id="settingsButton" type="button" title="Catalogue settings">⚙</button>
     </form>
     <div class="statusline"><span id="spinner" class="spinner"></span><span id="status">Searches each site's own search and its genre and tag pages, then reads each book's page for its details.</span>
         <a id="sitesButton" style="display:none">Sites</a></div>
@@ -394,6 +394,9 @@
             <option value="ar">العربية</option></select></label>
         <p>The Top 100 lists show books in this language. Korean and Chinese web novels come from NovelDB's
             index; "(English)" shows those books with their English titles. Searches look everywhere.</p>
+        <label class="range">Preferred site <select id="preferredSite"><option value="">Automatic</option></select></label>
+        <p>The preferred site's popular list and further scrolling pages are used for the current book type.
+            This choice is saved. Explicit searches include josei and BL sites, which are excluded from Top lists.</p>
         <h3>Searches</h3>
         <div class="checks">
             <label class="check" title="NovelDB's index, from its repository: its books, and English titles and tags for the sites' cards"><input type="checkbox" id="useNovelDB"> NovelDB search</label>

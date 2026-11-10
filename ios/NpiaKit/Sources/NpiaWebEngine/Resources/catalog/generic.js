@@ -22,7 +22,7 @@
     var view = 'top', current = {text: '', tags: []}, picked = [], resultTags = new Map();
     // TOP_KEY's version: a new one drops the top lists saved by older code.
     // A top list shows TOP_SIZE books at first, TOP_STEP more each time it is scrolled to its end.
-    var TOP_KEY = 'noveldb.generic.top.v7', TOP_HOURS = 12, TOP_SIZE = 100, TOP_STEP = 50;
+    var TOP_KEY = 'noveldb.generic.top.v8', TOP_HOURS = 12, TOP_SIZE = 100, TOP_STEP = 50;
     var TAGS = ['Action', 'Adventure', 'Apocalypse', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
@@ -237,7 +237,7 @@
     function topCandidates() {
         var names = [];
         // Only real addresses: a plugin whose site is a placeholder ("url") is no site to pick.
-        var add = function (site) { if (site && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(site) && names.indexOf(site) < 0) names.push(site); };
+        var add = function (site) { if (site && !excludedTopSite(site) && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(site) && names.indexOf(site) < 0) names.push(site); };
         top.only.forEach(add);
         if (!isComicKind(top.kind)) Object.keys(NOVELDB_SITES).forEach(add);
         BUILTIN_SITES.forEach(add);
@@ -286,7 +286,7 @@
         var names = candidates.filter(function (site) { return !filter || site.toLowerCase().indexOf(filter) >= 0 || picking.has(site); });
         // A typed address of a site not listed (one whose address keeps moving): offered as it is.
         var typed = filter.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-        if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(typed) && candidates.indexOf(typed) < 0) names.unshift(typed);
+        if (!excludedTopSite(typed) && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(typed) && candidates.indexOf(typed) < 0) names.unshift(typed);
         // The picked sites first, then NovelDB's, then the ones that answered, quickest first, then the rest.
         var rank = function (site) { return picking.has(site) ? 0 : NOVELDB_SITES[site] && !isComicKind(top.kind) ? 1 : 2; };
         names.sort(function (a, b) {
@@ -668,7 +668,10 @@
         clearTimeout(top.timer);  // a top list still loading draws nothing more
         groups.clear(); byUrl.clear(); rawTitles.clear(); order = []; resultTags.clear();
         if (nextView !== 'search') siteFilter.clear();
-        else if (from === 'top' && top.only.length) { siteFilter.clear(); top.only.forEach(function (site) { siteFilter.add(site); }); }
+        else if (from === 'top') {
+            siteFilter.clear();
+            if (!top.preferred) top.only.forEach(function (site) { siteFilter.add(site); });
+        }
         $('grid').innerHTML = '';
         queue.length = 0;
     }
@@ -715,6 +718,7 @@
         return big;
     }
     function merge(card, rank) {
+        if (view === 'top' && card && (excludedTopSite(card.site) || excludedTopSite(card.url))) return null;
         if (card && card.title) card.title = bookTitle(card.title, card.site);
         if (!card || !card.url || !card.title || JUNK.test(String(card.title).trim())) return null;
         if (NO_RESULTS.test(card.title) || NO_RESULTS.test(String(card.description || '').slice(0, 400))) return null;
@@ -767,6 +771,7 @@
         // A NovelDB book on several of its sites (one entry in the index): its other sites' pages, after it.
         (card.also || []).forEach(function (other) {
             if (!other || !other.url || byUrl.has(key(other.url))) return;
+            if (view === 'top' && excludedTopSite(other.url)) return;
             group.sources.push({url: other.url, site: hostOf(other.url), source: 'noveldb', plugin: '', ms: card.ms, noveldb: other.noveldb});
             byUrl.set(key(other.url), group);
         });
@@ -1360,6 +1365,13 @@
         store(LANG_KEY, language);
         if (view === 'top') showTop();
     });
+    $('preferredSite').addEventListener('change', function () {
+        var kind = topKind();
+        preferredSites[kind] = this.value;
+        store(PREFERRED_SITES_KEY, preferredSites);
+        delete topOnly[kind];
+        if (view === 'top') showTop();
+    });
     // "change" too: some phones' web views send no "input" for a checkbox.
     ['imgLow', 'imgQuality', 'imgResolution'].forEach(function (id) { ['input', 'change'].forEach(function (type) {
         $(id).addEventListener(type, function () {
@@ -1385,6 +1397,7 @@
         event.stopPropagation();
         $('sitespanel').classList.remove('open');
         $('settingspanel').classList.toggle('open');
+        showPreferredSites();
         showImaging();
     });
     // A tap anywhere outside the Sites and settings panels closes them: on a touch down, which every
@@ -1487,6 +1500,7 @@
                 if (known) drop(known, card.url);
                 return;
             }
+            if (view === 'top' && notInTop(card)) return;
             if (card.via === 'top') {
                 if (view === 'top') {
                     topCollect(card, 1 / Math.sqrt((card.siteRank || 0) + 1), card.position || 0, card.listLength || 1);
@@ -1848,6 +1862,33 @@
     var top = {kind: 'webnovel', scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE, only: [], seen: {}};
     // The sites picked in the Sites panel for each kind: their own lists, in their own order.
     var topOnly = {};
+    var PREFERRED_SITES_KEY = 'noveldb.generic.preferredSites';
+    var preferredSites = store(PREFERRED_SITES_KEY) || {};
+    // Hosts focused on josei or BL. Genre labels also exclude individual books on mixed sites.
+    var EXCLUDED_TOP_HOSTS = new Set(['chrysanthemumgarden.com', 'dummynovels.com', 'knoxt.space',
+        'hyacinthbloom.com', 'whitemoonlightnovels.com', 'moonlightnovel.com']);
+    function excludedTopSite(site) {
+        var name = String(site || '').toLowerCase().replace(/^https?:\/\//, '').split('/')[0]
+            .replace(/^(www|m)\./, '').replace(/:\d+$/, '');
+        return /josei|yaoi|danmei|boys?-?love|blnovels/.test(name)
+            || Array.from(EXCLUDED_TOP_HOSTS).some(function (host) { return name === host || name.endsWith('.' + host); });
+    }
+    function showPreferredSites() {
+        var kind = topKind(), selected = preferredSites[kind] || '';
+        var sites = new Set(config.sites || []);
+        plugins().forEach(function (p) { if (p.site) sites.add(p.site); });
+        Object.keys(NOVELDB_SITES).forEach(function (site) { sites.add(site); });
+        BUILTIN_SITES.forEach(function (site) { sites.add(site); });
+        if (selected) sites.add(selected);
+        $('preferredSite').innerHTML = '<option value="">Automatic</option>'
+            + Array.from(sites).filter(function (site) { return !excludedTopSite(site); }).sort().map(function (site) {
+                var label = NOVELDB_SITES[site] ? NOVELDB_SITES[site].join(' / ') : site;
+                if (site === BUILTIN_SITES[0]) label = 'qdn';
+                if (site === BUILTIN_SITES[1]) label = 'floo';
+                return '<option value="' + esc(site) + '">' + esc(label) + '</option>';
+            }).join('');
+        $('preferredSite').value = selected;
+    }
     // NovelDB's sources by the site their books are on: a pick of one shows its Top list from NovelDB's
     // index (every book of the source, the most read first). Written with escapes (the codename rule).
     var NOVELDB_SITES = {
@@ -1931,7 +1972,11 @@
         reset('top');
         current = {text: '', tags: []};
         var kind = topKind();
-        top = {kind: kind, scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE, only: (topOnly[kind] || []).slice(), seen: {}, page: 1};
+        var sites = kind in topOnly ? topOnly[kind] : preferredSites[kind] ? [preferredSites[kind]] : [];
+        top = {kind: kind, scores: new Map(), first: 0, timer: 0, limit: TOP_SIZE,
+            preferred: !(kind in topOnly) && !!preferredSites[kind],
+            only: sites.filter(function (site) { return !excludedTopSite(site); }), seen: {}, page: 1};
+        showPreferredSites();
         var chosen = $('language').selectedOptions[0];
         $('heading').textContent = 'Top ' + TOP_NAMES[top.kind] + (top.only.length ? ' · ' + top.only.join(', ')
             : language === 'all' ? '' : ' · ' + chosen.text);
@@ -1961,9 +2006,10 @@
         loadTop(searchId);
     }
     // Kept out of the top lists (a search still finds them): a book whose tags or title say so.
-    var NOT_IN_TOP = /\b(yaoi|smut|bl|boys?'?s? ?love|shounen[- ]?ai|(?<!young )adult[oa]?s?|hentai|r-?18)\b|\b1[89]\+|\+1[89]\b/i;
+    var NOT_IN_TOP = /\b(josei|danmei|yaoi|smut|bl|boys?'?s? ?love|shounen[- ]?ai|(?<!young )adult[oa]?s?|hentai|r-?18)\b|\b1[89]\+|\+1[89]\b/i;
     function notInTop(item) {
-        return NOT_IN_TOP.test(item.title || '') || (item.tags || []).some(function (tag) { return NOT_IN_TOP.test(tag); });
+        return excludedTopSite(item.site) || excludedTopSite(item.url)
+            || NOT_IN_TOP.test(item.title || '') || (item.tags || []).some(function (tag) { return NOT_IN_TOP.test(tag); });
     }
     // A book whose page shows it does not belong (another language, nothing to tell) leaves the top list, but not
     // once it is on screen or above it: cards vanished as the list was scrolled and the ones after them moved up.
@@ -2043,7 +2089,7 @@
     function topPlugins(kind, all) {
         var wantLn = kind === 'lightnovel' || language === 'ja-en';  // translated Japanese novels
         var chosen = plugins().filter(function (p) {
-            return !p.comic && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === cardLang())
+            return !p.comic && !excludedTopSite(p.site) && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === cardLang())
                 && (allPlugins.length ? !!p.ln === wantLn : true);
         }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); });
         return all ? chosen : chosen.slice(0, 100);
@@ -3821,6 +3867,7 @@
         details: function (card) {
             var group = byUrl.get(key(card.url));
             if (!group) return;
+            if (view === 'top' && notInTop(card)) { dropFromTop(group, true); return; }
             if (offTag(group, card)) { drop(group, card.url); return; }
             if (group.held && !group.verified) {
                 // Its page is in: it stays only if the page lists the tag.
