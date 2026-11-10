@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -55,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -70,6 +72,7 @@ import com.shirochi.npia.app.FileActions
 import com.shirochi.npia.app.GENERIC_CATALOG_URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.zip.ZipFile
 
@@ -451,6 +454,8 @@ private fun Cover(book: LibraryBook) {
 internal fun LibraryReader(file: File, model: AppViewModel, onClose: () -> Unit) {
     val context = LocalContext.current
     val web = remember(file) { CatalogWeb(context, model) }
+    val jobs by model.manager.jobs.collectAsStateWithLifecycle()
+    val updating = jobs.firstOrNull { it.libraryTarget == file.name && it.state.isActive }
     DisposableEffect(web) {
         web.onReaderClosed = onClose
         onDispose { web.onReaderClosed = null; web.destroy() }
@@ -458,13 +463,28 @@ internal fun LibraryReader(file: File, model: AppViewModel, onClose: () -> Unit)
     val colors = MaterialTheme.colorScheme
     LaunchedEffect(colors) { web.setTheme(colors) }
     LaunchedEffect(web) {
+        model.manager.jobs.first { list -> list.none { it.libraryTarget == file.name && it.state.isActive } }
         web.load(GENERIC_CATALOG_URL, force = true)
         web.readLocal(file)
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BackHandler { if (web.readerFullScreen) web.leaveFullScreen() else onClose() }
         Surface(Modifier.fillMaxSize()) {
-            AndroidView(factory = { web.view.fillingParent() }, modifier = Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize()) {
+                AndroidView(factory = { web.view.fillingParent() },
+                    modifier = Modifier.fillMaxSize().alpha(if (web.localReaderReady) 1f else 0f))
+                if (!web.localReaderReady) {
+                    Surface(Modifier.fillMaxSize()) {
+                        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Text(web.error ?: if (updating != null) "Updating book…" else "Opening book…",
+                                modifier = Modifier.padding(vertical = 16.dp))
+                            TextButton(onClick = onClose) { Text("Close") }
+                        }
+                    }
+                }
+            }
         }
     }
 }

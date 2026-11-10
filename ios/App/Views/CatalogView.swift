@@ -64,6 +64,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     @Published var readerFullScreen = false
     /// Called when the reader of a Library book closes (the Library's own reader closes with it).
     var onReaderClosed: (() -> Void)?
+    @Published private(set) var localReaderReady = false
     private var observations: [NSKeyValueObservation] = []
     weak var model: AppModel?
     private(set) var site: URL
@@ -222,6 +223,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
 
     /// Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot.
     func readLocal(_ epub: URL) {
+        localReaderReady = false
         guard site.absoluteString == CatalogSite.genericAddress else {
             model?.message = "Books open in the reader of the built-in Catalog page (Settings > Catalog site)"
             return
@@ -236,7 +238,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
               let book = String(data: data, encoding: .utf8) else { return }
         let script = "(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.readLocal) return false; window.NovelDBGeneric.readLocal(b); return true; })(\(book))"
         webView.evaluateJavaScript(script) { [weak self] done, _ in
-            if (done as? Bool) == true { self?.pendingRead = nil }
+            if (done as? Bool) == true { self?.pendingRead = nil; self?.localReaderReady = true }
         }
     }
 

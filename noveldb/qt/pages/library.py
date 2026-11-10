@@ -374,8 +374,14 @@ class LibraryPage(QWidget):
         # The Library's own views: the shelf, a book's page, and the reader (all from the files themselves).
         self.book_view = BookView()
         self.reader = LocalBookReader()
+        self.read_loading = Loading()
+        self.read_loading.text.setText("Updating book…")
+        close_loading = QPushButton("Close")
+        close_loading.clicked.connect(self._close_pending_read)
+        self.read_loading.layout().addWidget(close_loading, 0, Qt.AlignHCenter)
+        self._pending_read = None
         self.views = QStackedWidget()
-        for view in (shelf, self.book_view, self.reader):
+        for view in (shelf, self.book_view, self.reader, self.read_loading):
             self.views.addWidget(view)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -400,6 +406,8 @@ class LibraryPage(QWidget):
         context.settingsChanged.connect(self._folder_changed)
         context.libraryChanged.connect(self._update_badges)
         context.hub.jobChanged.connect(lambda *_: self._update_badges())
+        context.hub.jobChanged.connect(self._resume_read)
+        context.hub.jobSaved.connect(self._refresh_open_book)
         self._folder = None
         self._selection_changed()
 
@@ -427,6 +435,11 @@ class LibraryPage(QWidget):
             self._ever_shown = True
             self._watch(library_folder(self.context))
         self.refresh()
+
+    def hideEvent(self, event) -> None:
+        if self._pending_read is not None:
+            self._close_pending_read()
+        super().hideEvent(event)
 
     def refresh(self) -> None:
         folder = library_folder(self.context)
@@ -699,6 +712,11 @@ class LibraryPage(QWidget):
         file = book.readable()
         if file is None:
             return
+        if any(j.active and j.library_target == str(file.path.resolve()) for j in self.context.runner.jobs):
+            self._pending_read = (book, chapter)
+            self.read_loading.start()
+            self.views.setCurrentWidget(self.read_loading)
+            return
         if self.read_in_catalog is not None and library_folder(self.context).resolve() in file.path.resolve().parents:
             self.read_in_catalog(file.path, book.title, chapter)
             return
@@ -709,6 +727,28 @@ class LibraryPage(QWidget):
         self.reader.open_book(book, contents, chapter)
         self.views.setCurrentWidget(self.reader)
         self.reader.setFocus()
+
+    def _close_pending_read(self) -> None:
+        self._pending_read = None
+        self.read_loading.stop()
+        self.views.setCurrentWidget(self.book_view)
+
+    def _resume_read(self, *_args) -> None:
+        if self._pending_read is None:
+            return
+        book, chapter = self._pending_read
+        file = book.readable()
+        if file is not None and any(j.active and j.library_target == str(file.path.resolve()) for j in self.context.runner.jobs):
+            return
+        self._pending_read = None
+        self.read_loading.stop()
+        self.book_view.show_book(book, _cover_image(library.cover(book)))
+        self._read_at(book, chapter)
+
+    def _refresh_open_book(self, _job_id, path) -> None:
+        book = self.book_view.book
+        if book is not None and self._epub(book) == Path(path):
+            self.book_view.show_book(book, _cover_image(library.cover(book)))
 
     def _open(self, book) -> None:
         if book is not None and book.readable() is not None:

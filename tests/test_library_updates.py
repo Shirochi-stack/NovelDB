@@ -212,3 +212,37 @@ def test_library_drive_upload_preserves_unicode_file_names(tmp_path, monkeypatch
         assert context.uploads.load()[0].file_name == target.name
     finally:
         context.shutdown()
+
+
+@pytest.mark.parametrize("close", [False, True])
+def test_reader_waits_for_replacement_and_close_prevents_late_open(tmp_path, monkeypatch, qtbot, close):
+    from dataclasses import replace
+    from noveldb.qt.context import AppContext
+    from noveldb.qt.pages.library import LibraryPage
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "state"))
+    context = AppContext(start_workers=False)
+    context.runner.pause()
+    context.update_settings(lambda s: replace(s, output=replace(s.output, output_dir=str(tmp_path))))
+    target = epub(tmp_path / "Book.epub", 2)
+    context.library_updates.record(target, "https://example.test/book/1", False)
+    page = LibraryPage(context)
+    qtbot.addWidget(page)
+    book = library.scan(tmp_path)[0]
+    seen = []
+    page.read_in_catalog = lambda path, *_args: seen.append(len(library.epub_contents(path)["chapters"]))
+    try:
+        page._read(book)
+        assert page.views.currentWidget() is page.read_loading
+        assert not seen
+        if close:
+            page._close_pending_read()
+        epub(target, 3)
+        job = context.runner.jobs[0]
+        context.hub.jobSaved.emit(job.id, str(target))
+        assert len(page.book_view.contents["chapters"]) == 3
+        job.state = "done"
+        context.hub.jobChanged.emit(job.id)
+        assert seen == ([] if close else [3])
+        assert page._pending_read is None
+    finally:
+        context.shutdown()

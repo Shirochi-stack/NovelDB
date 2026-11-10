@@ -23,6 +23,24 @@ def test_parse_message_accepts_bridge_messages():
     assert message["url"] == "https://x.test/n/1" and message["title"] == "T"
 
 
+def test_local_open_keeps_loading_visible_until_reader_opened(catalog, qtbot, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QWidget
+    catalog.view = QWidget(catalog)
+    catalog.stack.addWidget(catalog.view)
+    seen = []
+    catalog.generic = SimpleNamespace(read_local=lambda *args: seen.append(args), handle=lambda *_: None)
+    catalog._generic_ready = True
+    monkeypatch.setattr(catalog, "_on_generic_page", lambda: True)
+    catalog.read_local(tmp_path / "Book.epub", "Book")
+    catalog._reveal_when_ready(100)
+    assert catalog.stack.currentWidget() is catalog.placeholder
+    assert seen and catalog.placeholder.text() == "Opening book…"
+    assert web.parse_message('{"type":"genericReaderOpened"}')
+    catalog._message({"type": "genericReaderOpened"})
+    assert catalog.stack.currentWidget() is catalog.view
+
+
 @pytest.mark.parametrize("text", [
     "not json", "[]", '{"type": "eval"}', '{"type": "open"}', '{"type": "open", "url": "javascript:alert(1)"}',
     '{"type": "cartAdd", "url": 5}', json.dumps({"type": "open", "url": "https://x.test/" + "a" * 5000}),

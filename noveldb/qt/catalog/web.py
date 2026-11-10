@@ -338,6 +338,7 @@ class CatalogPage(QWidget):
         error_layout.addStretch(2)
 
         self.stack = QStackedLayout()
+        self._opening_local = False
         self.placeholder = hint("Loading the catalog...")
         self.placeholder.setAlignment(Qt.AlignCenter)
         self.stack.addWidget(self.placeholder)
@@ -476,6 +477,9 @@ class CatalogPage(QWidget):
         """A Library book in the reader: the Generic search page's, loaded first if another site is shown."""
         if self.view is None:
             self._create_view()
+        self._opening_local = True
+        self.placeholder.setText("Opening book…")
+        self.stack.setCurrentWidget(self.placeholder)
         if self._on_generic_page() and self._generic_ready:
             self.generic.read_local(path, title, chapter)
             return
@@ -535,7 +539,7 @@ class CatalogPage(QWidget):
         self.progress.show()
 
     def _reveal_when_ready(self, progress: int) -> None:
-        if progress >= 80 and self.stack.currentWidget() is self.placeholder:
+        if progress >= 80 and not self._opening_local and self.stack.currentWidget() is self.placeholder:
             self.stack.setCurrentWidget(self.view)
 
     def _load_finished(self, ok: bool) -> None:
@@ -543,7 +547,8 @@ class CatalogPage(QWidget):
         self.back.setEnabled(self.view.history().canGoBack())
         self.forward.setEnabled(self.view.history().canGoForward())
         if ok:
-            self.stack.setCurrentWidget(self.view)
+            if not self._opening_local:
+                self.stack.setCurrentWidget(self.view)
             if self._on_generic_page():
                 self._start_generic_page()
         else:
@@ -614,6 +619,9 @@ class CatalogPage(QWidget):
     def _message(self, data: dict) -> None:
         kind = data["type"]
         if kind.startswith("generic"):
+            if kind == "genericReaderOpened":
+                self._opening_local = False
+                self.stack.setCurrentWidget(self.view)
             if kind == "genericReady":
                 self._generic_ready = True
                 self._push_state()

@@ -354,16 +354,37 @@ struct LibraryReaderView: View {
     }
 
     var body: some View {
-        CatalogWebView(state: state)
+        ZStack {
+            CatalogWebView(state: state)
+                .opacity(state.localReaderReady ? 1 : 0)
+                .allowsHitTesting(state.localReaderReady)
+            if !state.localReaderReady {
+                Color(uiColor: .systemBackground).ignoresSafeArea()
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text(state.error ?? (updating ? "Updating book…" : "Opening book…"))
+                    Button("Close", action: close)
+                }
+                .padding()
+            }
+        }
             .ignoresSafeArea(edges: state.readerFullScreen ? .all : [])
             .statusBarHidden(state.readerFullScreen)
-            .onAppear {
+            .task(id: file) {
                 state.model = model
                 state.onReaderClosed = close
                 CatalogTransport.libraryFolder = model.outputDirectory
                 state.setTheme((Accent(rawValue: accent) ?? .halgakosRose).webTheme(dark: colorScheme == .dark))
+                while updating {
+                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                }
+                guard !Task.isCancelled else { return }
                 state.readLocal(file)
             }
             .onDisappear { state.onReaderClosed = nil }
+    }
+
+    private var updating: Bool {
+        model.jobs.contains { $0.libraryTarget == file.lastPathComponent && $0.state.isActive }
     }
 }

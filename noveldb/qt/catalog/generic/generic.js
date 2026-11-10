@@ -2764,6 +2764,7 @@
         $('rChapterNo').textContent = '';
         $('rWhere').textContent = '';
         reader.classList.add('open');
+        send({type: 'genericReaderOpened'});
         document.body.style.overflow = 'hidden';
         applyLook();
         $('rBook').textContent = group.title;
@@ -3474,6 +3475,14 @@
         if ($('toc').classList.contains('open')) { drawToc(); markToc(); }
     };
     $('rLook').onclick = function () { $('toc').classList.remove('open'); $('look').classList.toggle('open'); };
+    $('reader').addEventListener('click', function (event) {
+        if (!event.target.closest('#toc, #rToc') && $('toc').classList.contains('open')) {
+            $('toc').classList.remove('open');
+            // The dismissal tap belongs to the panel, including over a page-turn zone.
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
     $('rClose').onclick = closeReader;
     $('rPrev').onclick = function () { turn(-1); };
     $('rNext').onclick = function () { turn(1); };

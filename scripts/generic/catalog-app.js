@@ -2598,11 +2598,12 @@
             });
         });
         epubs.set(url, opened);
-        opened.catch(function () { epubs.delete(url); });
+        opened.catch(function () { if (epubs.get(url) === opened) epubs.delete(url); });
         if (epubs.size > 2) epubs.delete(epubs.keys().next().value);  // a whole book each: few are kept
         return opened;
     }
     function epubBook(url) {
+        epubs.delete(url);  // A Library update can replace the file at the same address.
         return epubOpen(url).then(function (epub) {
             if (!epub.spine.length) throw new Error('the book has no chapters');
             var data = {bookname: epub.title, author: epub.author, chapters: epub.spine.map(function (item, i) {

@@ -117,6 +117,8 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
         private set
     /** Called when the reader of a Library book closes (the Library's own reader closes with it). */
     var onReaderClosed: (() -> Unit)? = null
+    var localReaderReady by mutableStateOf(false)
+        private set
 
     /** Leaves the reader's full screen (the back gesture): the page hears Escape, as from a keyboard. */
     fun leaveFullScreen() {
@@ -327,6 +329,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
 
     /** Opens a Library EPUB in the generic page's reader; on another catalog site, says why it cannot. */
     fun readLocal(epub: File) {
+        localReaderReady = false
         if (!isGenericPage(pageUrl)) {
             model.manager.message("Books open in the reader of the built-in Catalog page (Settings > Catalog site)")
             return
@@ -342,7 +345,9 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
             put("title", epub.nameWithoutExtension)
         }
         view.evaluateJavascript("(function (b) { if (!window.NovelDBGeneric || !window.NovelDBGeneric.readLocal) return false; " +
-            "window.NovelDBGeneric.readLocal(b); return true; })($book)") { done -> if (done == "true") pendingRead = null }
+            "window.NovelDBGeneric.readLocal(b); return true; })($book)") { done ->
+            if (done == "true") { pendingRead = null; localReaderReady = true }
+        }
     }
 
     /** The app theme's colours as the generic page takes them ({dark, bg, panel, ...} as #rrggbb). */
