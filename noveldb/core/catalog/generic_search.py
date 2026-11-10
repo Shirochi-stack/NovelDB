@@ -1,17 +1,7 @@
-"""The Catalog's generic search: books by name or tag from the top sites, with their metadata and covers.
+"""Stream accurate book cards from NovelDB, Google dorks and responsive supported sources.
 
-The sites are the 100 most visited sites any engine knows (`generic_sites.json`, built by
-scripts/build_generic_sites.py). Every source streams its cards to the page as they come in:
-- Each site's own search and its genre and tag pages, found and read the generic way
-  (`site_search.SiteSearch`): this covers every site in the list.
-- lightnovel-crawler's crawlers that search (here) and LNReader's plugins (in the Catalog page itself,
-  see noveldb/qt/catalog/generic/generic.js), for the sites they know.
-- Direct comic title searches, including the alternate titles supplied by each catalog.
-- A web search (DuckDuckGo's HTML results and Bing's RSS results) kept to sites an engine knows.
-- A card without a cover gets its book page read (`generic.extract_metadata`); the page asks for the
-  rest (author, description, tags) when a card is opened.
-
-No Qt here: `GenericSearch.run` calls `emit(cards)` from worker threads and stops when `stop` is set.
+Automatic searches use a bounded, measured source plan. Explicit site selections retain access to
+other supported sources. Google candidates must be book pages whose titles match the query.
 """
 
 from __future__ import annotations
@@ -27,7 +17,8 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
 from urllib.parse import parse_qs, quote_plus, unquote, urlsplit
 
-from noveldb.core.catalog.title_search import DIRECT_SITES, direct_titles, exact_title, similar_title, title_queries
+from noveldb.core.catalog.title_search import DIRECT_SITES, direct_titles, exact_title, similar_title, title_matches, title_queries
+from noveldb.core.catalog import search_ranking
 from noveldb.core.engines.generic import CHAPTER_WORDS, decode, extract_metadata, site_of
 
 SITES_FILE = Path(__file__).with_name("generic_sites.json")
@@ -80,14 +71,15 @@ TWIN_AUTHOR_BOOKS = 200  # an author's books looked through for a site card's No
 # A search's sites in stages: the first STAGE_FIRST, then STAGE_MORE each time the list is scrolled to its end;
 # a stage starts no more sites once STAGE_ENOUGH books are in. The sites the web search found matching books on
 # are asked first. `_staged`: each search's sites not asked yet, (mode, text) -> [site, ...].
-STAGE_FIRST = 100
-STAGE_MORE = 60
+STAGE_FIRST = 8
+STAGE_MORE = 8
 STAGE_ENOUGH = 90
 _staged: Dict[tuple, list] = {}
 EXACT_GRACE = 3.0  # seconds a title search goes on after a book of exactly that title came in
 
 
 _staged_lock = threading.Lock()
+_google_slots = threading.Semaphore(2)
 
 
 def is_age_tag(tag: str) -> bool:
@@ -208,7 +200,7 @@ def looks_like_book(url: str, title: str = "") -> bool:
         segments = segments[1:]
     if not segments:
         return False
-    listing = r"(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|forums?|login|register|latest|popular|"               r"ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page|contact|contact-us|about|about-us|privacy|privacy-policy|terms|terms-of-service|dmca|faq|feedback|support|donate)"
+    listing = r"(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|profiles?|reviews?|comments?|discussions?|wiki|characters?|articles?|news|forums?|login|register|latest|popular|"               r"ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page|contact|contact-us|about|about-us|privacy|privacy-policy|terms|terms-of-service|dmca|faq|feedback|support|donate)"
     has_id = re.search(r"(^|&)(title_no|id|book_?id|novel_?id|bid|no)=", parts.query, re.I)
     if re.fullmatch(listing, segments[0], re.I) and not has_id and not re.search(
             r"^(novel|book|series|story|fiction|manga|comic|webtoon|title|works?)$", segments[0], re.I):
@@ -275,15 +267,50 @@ def duckduckgo_results(query: str, fetch: Callable) -> List[dict]:
     return out
 
 
+class GoogleUnavailable(Exception):
+    pass
+
+
+def google_results(query: str, fetch: Callable) -> List[dict]:
+    """Read organic book candidates, excluding adverts and navigation links."""
+    from bs4 import BeautifulSoup
+
+    with _google_slots:
+        result = fetch("https://www.google.com/search?hl=en&udm=14&gbv=1&num=10&q=" + quote_plus(query), quick=True)
+    if not result or result.get("status") != 200:
+        raise GoogleUnavailable("Google did not return search results")
+    text = decode(result)
+    if re.search(r"/httpservice/retry/enablejs|detected unusual traffic|/sorry/|before you continue to Google", text, re.I):
+        raise GoogleUnavailable("Google requires browser verification")
+    soup = BeautifulSoup(text, "html.parser")
+    out, seen = [], set()
+    for heading in soup.select("h3"):
+        anchor = heading.find_parent("a") or heading.find("a")
+        if anchor is None or anchor.find_parent(attrs={"data-text-ad": True}):
+            continue
+        url = html_module.unescape(anchor.get("href", ""))
+        if url.startswith("/url?") or url.startswith("https://www.google.com/url?"):
+            values = parse_qs(urlsplit(url).query)
+            url = (values.get("q") or values.get("url") or [""])[0]
+        host = _host(url)
+        if not url.startswith(("http://", "https://")) or host == "google.com" or host.endswith(".google.com") or url in seen:
+            continue
+        seen.add(url)
+        out.append({"url": url, "title": heading.get_text(" ", strip=True), "snippet": ""})
+    return out
+
+
 def web_search(query: str, fetch: Callable) -> Iterable[dict]:
-    """Yield hits from each provider as soon as it answers."""
-    with ThreadPoolExecutor(2, thread_name_prefix="catalog-web-search") as pool:
-        requests = [pool.submit(engine, query, fetch) for engine in (duckduckgo_results, bing_results)]
-        for request in as_completed(requests):
-            try:
-                yield from request.result()
-            except Exception:
-                pass
+    yield from google_results(query, fetch)
+
+
+def google_dorks(text: str, mode: str, sites: List[dict]) -> List[str]:
+    phrase = '"' + text.replace('"', " ").strip() + '"'
+    exclusions = ' -inurl:chapter -inurl:profile -inurl:login -inurl:search -intitle:"Chapter"'
+    hosts = list(dict.fromkeys(site["host"] for site in search_ranking.ranked(sites, automatic=True)))[:8]
+    scoped = phrase + " (" + " OR ".join("site:" + host for host in hosts) + ")" if hosts else ""
+    broad = phrase + " (novel OR manga OR webtoon OR manhwa)"
+    return [query + exclusions for query in (scoped, broad) if query]
 
 
 def site_queries(text: str, mode: str, sites: List[dict]) -> List[str]:
@@ -334,14 +361,9 @@ def _better_synopsis(new: str, old: str, title: str) -> bool:
 
 
 def search_workers() -> int:
-    """How many sites a search asks at once: 64 on 8 cores or more, 16 on 4, 8 on 2.
-
-    Each answer is parsed in Python, which runs one thread at a time: the window's own thread waits its
-    turn among them. On a small CPU 32 parsing threads left the window little time (it lagged and
-    seemed stuck while a search ran); fewer still keep the network busy. A search asks every site the
-    engines know (nearly 2,000, most of them waiting on the network): a big CPU asks 64 at once."""
+    """Bound network and HTML parsing concurrency so the catalogue remains responsive."""
     cores = os.cpu_count() or 2
-    return 64 if cores >= 8 else 16 if cores >= 4 else 8
+    return min(8, max(4, cores))
 
 
 class GenericSearch:
@@ -355,6 +377,7 @@ class GenericSearch:
         # A search asks the busiest sites itself ("searched"); the rest are known (their books are
         # recognised, the top lists read them) and come up through the web search.
         self.sites = sites if sites is not None else [site for site in top_sites() if site.get("searched", True)]
+        self.automatic = sites is None
         self._known = sites if sites is not None else top_sites()
         self.known_site = known_site or (lambda url: False)
         self.workers = workers or search_workers()
@@ -465,6 +488,9 @@ class GenericSearch:
             fresh = []
             with lock:
                 for card in cards:
+                    if mode == "name" and not card.get("catalogMatch") and not any(title_matches(text, name) for name in
+                            [card.get("title"), card.get("originalTitle"), *card.get("alternateTitles", [])]):
+                        continue
                     key = card["url"].rstrip("/")
                     if key in seen or stop.is_set() or is_no_results(card["title"], card.get("description", "")[:400]):
                         continue
@@ -492,37 +518,100 @@ class GenericSearch:
         import time
 
         def report(site: str, started: float, found: int, state: str = "ok"):
-            progress({"site": site, "ms": int((time.monotonic() - started) * 1000), "found": found, "state": state})
+            ms = int((time.monotonic() - started) * 1000)
+            if not stop.is_set() and "." in site and (found or state != "ok"):
+                search_ranking.record(site, ms, state == "ok" and found > 0)
+            progress({"site": site, "ms": ms, "found": found, "state": state})
 
         queue: List[dict] = []
+        asked_hosts = set()
 
         def web_first(urls: List[str]):
             """The sites of the web search's hits move to the front of the queue of sites to ask."""
             with lock:
                 for url in reversed(urls):
                     root = site_of(_host(url))
+                    if root in asked_hosts:
+                        continue
                     site = next((site for site in queue if site_of(site["host"]) == root), None)
                     if site is not None:
                         queue.remove(site)
                         queue.insert(0, site)
+                    elif self.automatic:
+                        site = self.site_for(url)
+                        if site and not (self.skip_lnreader and site.get("lnreader")):
+                            if len(queue) >= search_ranking.MAX_AUTOMATIC:
+                                queue.pop()
+                            queue.insert(0, site)
 
         def from_web(query: str, open_search: bool, loose: bool = False):
             if stop.is_set():
                 return
             started = time.monotonic()
             found = 0
-            for hit in web_search(query, self.fetch):
+            def google_fetch(url, **kwargs):
+                if stop.is_set():
+                    return None
+                result = self.fetch(url, **kwargs)
+                if result and self.render is not None and "/httpservice/retry/enablejs" in decode(result):
+                    rendered = self.render(url, timeout=15)
+                    if isinstance(rendered, str) and rendered:
+                        return {"status": 200, "text": rendered, "content": rendered.encode("utf-8"), "url": url, "headers": ""}
+                    if isinstance(rendered, dict):
+                        return rendered
+                return result
+
+            try:
+                hits = list(web_search(query, google_fetch))
+            except GoogleUnavailable:
+                if not stop.is_set():
+                    summary["googleBlocked"] = True
+                    progress({"googleBlocked": True})
+                hits = []
+            priorities = search_ranking.profile()
+            hits.sort(key=lambda hit: search_ranking.score(_host(hit["url"]), priorities))
+
+            def verify_unknown(card):
+                if stop.is_set():
+                    return
+                checking = time.monotonic()
+                try:
+                    result = self.fetch(card["url"], quick=True)
+                    final = (result or {}).get("url") or card["url"]
+                    metadata = extract_metadata(decode(result), final) if result and result.get("status") == 200 else {}
+                    valid = looks_like_book(final) and bool(metadata.get("title")) and (mode != "name" or title_matches(text, metadata.get("title")))
+                except Exception:
+                    metadata, valid = {}, False
+                ms = int((time.monotonic() - checking) * 1000)
+                if stop.is_set():
+                    return
+                search_ranking.record(_host(card["url"]), ms, valid)
+                if valid and not stop.is_set():
+                    checked = dict(card, **{key: value for key, value in metadata.items() if value})
+                    fresh = offer([dict(checked, url=final, ms=ms, complete=True, verified=mode == "name")])
+                    with lock:
+                        summary["web"] += len(fresh)
+
+            for hit in hits:
                 if stop.is_set():
                     break
                 url = hit["url"]
                 if not url.startswith(("http://", "https://")) or not looks_like_book(url, hit["title"]):
                     continue
-                if self.site_for(url) is None and not (open_search and self.known_site(url)):
+                site = self.site_for(url)
+                listed = bool(site and any(_host(url) in (host, "m." + host) for host in site.get("hosts", [site["host"]])))
+                if not listed and not (open_search and self.known_site(url)):
+                    continue
+                if loose and not title_matches(text, _clean_title(hit["title"], url)):
                     continue
                 web_first([url])
-                if loose and similar_title(text, _clean_title(hit["title"], url)) < 0.6:
-                    continue
                 card = self.card(url, hit["title"], hit["snippet"], "web")
+                score = search_ranking.score(_host(url), priorities)
+                if score >= 1000000:
+                    continue
+                if self.automatic and score >= 12000:
+                    detail_futures.append(pool.submit(verify_unknown, card))
+                    continue
                 card["ms"] = int((time.monotonic() - started) * 1000)
                 fresh = offer([card])
                 found += len(fresh)
@@ -545,7 +634,9 @@ class GenericSearch:
                 card = self.card(hit["url"], hit["title"], description if isinstance(description, str) else "", "site", hit["cover"])
                 card.update({key: value for key, value in hit.items()
                              if key not in ("title", "description") and value is not None})
-                cards.append(dict(card, ms=ms, comic=True, verified=True))
+                cards.append(dict(card, ms=ms, comic=True, verified=True,
+                                  catalogMatch=any(similar_title(text, name) >= 0.75 for name in
+                                      [hit["title"], *hit.get("alternateTitles", [])])))
             fresh = offer(cards)
             summary["site"] = summary.get("site", 0) + len(fresh)
             report(host, started, len(fresh))
@@ -617,7 +708,7 @@ class GenericSearch:
             from noveldb.core.catalog import source_search
 
             started = time.monotonic()
-            cards, more = source_search.search(source, mode, name, 0, self.fetch, sort=self.sort)
+            cards, more = source_search.search(source, mode, name, 0, self.fetch)
             source_search.remember(source, mode, text, name, 1 if more else None)
             ms = int((time.monotonic() - started) * 1000)
             summary["sources"] = summary.get("sources", 0) + len(cards)
@@ -687,11 +778,11 @@ class GenericSearch:
         if self.noveldb is not None:
             ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most
         with lock:
-            queue[:] = [site for site in self.sites
+            queue[:] = search_ranking.ranked([site for site in self.sites
                         if site["host"] not in title_sites and not (self.skip_lnreader and site.get("lnreader"))
-                        and self.picked(site["host"])]
+                        and self.picked(site["host"])], automatic=self.automatic and not self.only)
         staging = not self.only and mode != "author"
-        stage = min(STAGE_FIRST, len(queue)) if staging else len(queue)
+        stage = STAGE_FIRST if staging else len(queue)
         started = [0]
         with _staged_lock:
             _staged.pop((mode, text), None)
@@ -701,7 +792,9 @@ class GenericSearch:
                 if not queue or started[0] >= stage or exact_found.is_set() or (staging and len(seen) >= STAGE_ENOUGH):
                     return None
                 started[0] += 1
-                return queue.pop(0)
+                site = queue.pop(0)
+                asked_hosts.add(site_of(site["host"]))
+                return site
 
         def sites_worker():
             while not stop.is_set():
@@ -711,22 +804,16 @@ class GenericSearch:
                 from_site(site)
 
         # Half the pool's threads ask sites; the rest are for the web search, the books' details and the like.
-        site_workers = [pool.submit(sites_worker) for _ in range(max(1, min(stage, self.workers // 2)))]
-        futures.extend(site_workers)
+        site_workers = []
         # The web search beside them (half the pool is free for it): the sites it found books on move to the front
         # of the queue as it answers. Then lightnovel-crawler's sources, after the sites.
         if not self.only:  # the web search finds books on every site
-            open_words = (f'"{text}" (novel OR manga OR webtoon)' if mode == "tag"
-                          else f'"{text}" (novel OR manga OR webtoon OR manhwa)')
-            futures.append(pool.submit(from_web, open_words, True, mode == "name"))
-            if mode == "name":
-                # A title remembered a little wrong ("Move aside I'll become a magical girl" for "...Be the Magical
-                # Girl!"): the words unquoted, for the engines to correct, and hits kept by how close their title is.
-                queries = title_queries(text)
-                if queries:
-                    loose = queries[-1]
-                    futures.append(pool.submit(from_web, loose, True, True))
-        if mode == "name":
+            web_jobs = [pool.submit(from_web, query, True, mode == "name") for query in google_dorks(text, mode, self.sites)]
+            futures.extend(web_jobs)
+            wait(web_jobs, timeout=2.0)
+        site_workers = [pool.submit(sites_worker) for _ in range(max(1, min(stage, 3)))]
+        futures.extend(site_workers)
+        if mode == "name" and self.only:
             for entry in self._lncrawl_entries():
                 if self.picked(entry["_site"]["host"]):
                     futures.append(pool.submit(from_lncrawl, entry))
@@ -829,6 +916,9 @@ class GenericSearch:
             fresh = []
             with lock:
                 for card in cards:
+                    if mode == "name" and not any(title_matches(text, name) for name in
+                            [card.get("title"), card.get("originalTitle"), *card.get("alternateTitles", [])]):
+                        continue
                     key = card["url"].rstrip("/")
                     if key not in seen and not stop.is_set():
                         seen.add(key)
@@ -858,7 +948,7 @@ class GenericSearch:
 
             if stop.is_set():
                 return
-            cards, more = source_search.search(source, mode, name, at, self.fetch, sort=self.sort)
+            cards, more = source_search.search(source, mode, name, at, self.fetch)
             source_search.remember(source, mode, text, name, at + 1 if more else None)
             fresh = offer(cards)
             twins = self.noveldb_twins(fresh or []) if not stop.is_set() else []
@@ -963,6 +1053,11 @@ class GenericSearch:
             learned = dict(_learned)
         if numeric:
             tries.extend((site, template) for site, template in learned.items() if site not in seen_sites)
+        tries = [(site, template) for site, template in tries if self.picked(_host(template.replace("{id}", "1")))]
+        if self.automatic and not self.only:
+            data = search_ranking.profile()
+            tries = sorted((entry for entry in tries if search_ranking.score(_host(entry[1]), data) < 12000),
+                           key=lambda entry: search_ranking.score(_host(entry[1]), data))[:12]
         progress({"total": len(tries)})
         found = {"n": 0}
         pool = ThreadPoolExecutor(min(self.workers, 16), thread_name_prefix="generic-id")

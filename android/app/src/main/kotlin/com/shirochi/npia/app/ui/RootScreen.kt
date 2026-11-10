@@ -103,7 +103,10 @@ fun RootScreen(model: AppViewModel) {
     LaunchedEffect(Unit) {
         manager.messages.collect { snackbar.showSnackbar(it) }
     }
-    BackHandler(enabled = stack.isNotEmpty()) { model.pop() }
+    BackHandler {
+        focusManager.clearFocus()
+        model.back()
+    }
     LaunchedEffect(model.tab, route) { topBar.actions = null }
     // The Catalog's reader in full screen: no app bars, no system bars (a swipe shows those for a moment).
     val readerFull = catalog.readerFullScreen && model.tab == Tab.CATALOG && route == null

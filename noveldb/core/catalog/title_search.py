@@ -36,6 +36,16 @@ def similar_title(query, title):
                    for other in have) for word in wanted) / len(wanted)
 
 
+def title_matches(query, title):
+    """Every meaningful query word must occur in the returned title."""
+    wanted, have = _words(query), _words(title)
+    if not wanted:
+        return bool(exact_title(query)) and exact_title(query) in exact_title(title)
+    if len(wanted) == 1 and not wanted[0].isascii():
+        return wanted[0] in exact_title(title)
+    return all(word in have for word in wanted)
+
+
 def title_queries(text):
     """Try the wording as given, then its opening and ending words for long or approximate titles."""
     text = text.strip()[:240]

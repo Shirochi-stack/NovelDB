@@ -9,8 +9,8 @@ import pytest
 sync_api = pytest.importorskip("playwright.sync_api")
 
 PAGE = Path(__file__).resolve().parents[1] / "noveldb" / "qt" / "catalog" / "generic"
-MPIA = "https://www.munpia.com/novel/detail/573666"
-NSERIES = "https://series.naver.com/novel/detail.series?productNo=14672427"
+MPIA = "https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/detail/573666"
+NSERIES = "https://series.\u006e\u0061\u0076\u0065\u0072.com/novel/detail.series?productNo=14672427"
 RAW = "군필 여대생의 게임방송"
 
 
@@ -270,7 +270,7 @@ def test_translations_go_into_the_language_picked_in_the_settings(page):
 
 def test_more_loading_shows_a_loader_and_keeps_rows_full(page):
     page.set_viewport_size({"width": 400, "height": 800})
-    page.evaluate("() => document.getElementById('query').value = 'x'")
+    page.evaluate("() => document.getElementById('query').value = 'Book'")
     page.evaluate("() => document.getElementById('go').click()")
     cards = [site_card(url=f"https://m.example.test/{n}", title=f"Book {n}") for n in range(5)]
     page.evaluate("cards => window.NovelDBGeneric.add(cards, undefined)", [dict(c, via="name") for c in cards])
@@ -499,8 +499,8 @@ def test_after_a_search_the_sites_panel_lists_every_site_to_find_and_scroll(page
     assert again["id"] != search["id"] and "site390.test" in again["queries"][0]["only"]
 
 
-def test_a_tag_search_shows_npias_and_sfcs_books_first(page):
-    """The other sites' tag lists are mostly BL: npia's and sfc's books lead a tag search."""
+def test_tag_results_keep_external_arrival_order_without_a_timed_reshuffle(page):
+    """Streaming index metadata must not move the external cards already being read."""
     page.evaluate("() => { window.__sent = []; window.NovelDBQt = {postMessage: m => window.__sent.push(JSON.parse(m))}; }")
     page.click("#tagsButton")
     page.fill("#tagFilter", "Fantasy")
@@ -514,7 +514,7 @@ def test_a_tag_search_shows_npias_and_sfcs_books_first(page):
     page.wait_for_timeout(300)
     page.evaluate("a => window.NovelDBGeneric.add(a[0], a[1])", [[lead], search["id"]])
     page.wait_for_timeout(3500)  # the one reshuffle
-    assert shown_order(page)[0] == "Lead"
+    assert shown_order(page) == ["Other 1", "Other 2", "Lead"]
 
 
 def test_a_translated_title_is_fitted_again(page):

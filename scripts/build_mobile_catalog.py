@@ -43,6 +43,7 @@ FILES = {
     "haruneko-manifest.json": ROOT / "haruneko" / "manifest.json",
     "generic_sites.json": ROOT / "noveldb" / "core" / "catalog" / "generic_sites.json",
     "id_templates.json": ROOT / "noveldb" / "core" / "catalog" / "id_templates.json",
+    "search_profile.json": ROOT / "noveldb" / "core" / "catalog" / "search_profile.json",
 }
 
 

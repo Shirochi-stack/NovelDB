@@ -51,7 +51,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openInBrowser(url: String) {
         browserUrl = url
         stacks.getValue(Tab.BROWSER).clear()
-        tab = Tab.BROWSER
+        changeTab(Tab.BROWSER)
     }
 
     /** A Library EPUB to open in the Catalog's reader; the Catalog takes it once its page is ready. */
@@ -61,7 +61,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun readInCatalog(epub: java.io.File) {
         readRequest = epub
         stacks.getValue(Tab.CATALOG).clear()
-        tab = Tab.CATALOG
+        changeTab(Tab.CATALOG)
     }
 
     /** A Library book to find in the Catalog (to download what it is missing); the Catalog takes it once ready. */
@@ -71,7 +71,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openInCatalog(book: CatalogBook) {
         catalogBookRequest = book
         stacks.getValue(Tab.CATALOG).clear()
-        tab = Tab.CATALOG
+        changeTab(Tab.CATALOG)
     }
 
     /** Last page open in the Browser tab, so switching tabs does not lose it. */
@@ -91,7 +91,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stacks.getValue(Tab.QUEUE).clear()
         queueView = QueueView.LOG
         logJobFilter = null
-        tab = Tab.QUEUE
+        changeTab(Tab.QUEUE)
     }
 
     /** Opens the Queue's job list, newest first, closing a job page or log left open there. */
@@ -99,7 +99,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stacks.getValue(Tab.QUEUE).clear()
         queueView = QueueView.JOBS
         logJobFilter = null
-        tab = Tab.QUEUE
+        changeTab(Tab.QUEUE)
     }
 
     /** Opens one book's job page; the combined log when that job is gone. */
@@ -111,10 +111,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stacks.getValue(Tab.QUEUE).clear()
         queueView = QueueView.JOBS
         stacks.getValue(Tab.QUEUE).add(Route.JobDetail(id))
-        tab = Tab.QUEUE
+        changeTab(Tab.QUEUE)
     }
 
     var tab by mutableStateOf(Tab.ADD)
+        private set
+    private val previousTabs = mutableStateListOf<Tab>()
     private val stacks: Map<Tab, SnapshotStateList<Route>> = Tab.entries.associateWith { mutableStateListOf() }
 
     /** An upload held back until the one-time sharing agreement is accepted; the dialog shows while it is set. */
@@ -144,6 +146,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun select(next: Tab) {
         // Tapping the current tab returns to its root.
         if (next == tab) stacks.getValue(tab).clear()
+        changeTab(next)
+    }
+
+    private fun changeTab(next: Tab) {
+        if (next == tab) return
+        previousTabs.add(tab)
+        if (previousTabs.size > 32) previousTabs.removeAt(0)
         tab = next
+    }
+
+    /** Back unwinds navigation and stays in the app when there is no earlier screen. */
+    fun back(): Boolean {
+        if (pop()) return true
+        if (previousTabs.isEmpty()) return false
+        tab = previousTabs.removeAt(previousTabs.lastIndex)
+        return true
     }
 }

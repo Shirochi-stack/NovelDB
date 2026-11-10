@@ -186,7 +186,7 @@ fun LibraryScreen(model: AppViewModel) {
         val key = book.name.lowercase()
         selected = if (key in selected) selected - key else selected + key
     }
-    BackHandler(enabled = selecting) { selected = emptySet() }
+    BackHandler(enabled = selecting || open != null) { if (selecting) selected = emptySet() else open = null }
     Column(Modifier.fillMaxSize()) {
         // A slim search field and the count, not a full-size form field.
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -466,7 +466,7 @@ internal fun LibraryReader(file: File, model: AppViewModel, onClose: () -> Unit)
         web.readLocal(file)
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        BackHandler { if (web.readerFullScreen) web.leaveFullScreen() else onClose() }
+        BackHandler { web.back(onClose) }
         Surface(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize()) {
                 AndroidView(factory = { web.view.fillingParent() },

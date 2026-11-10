@@ -52,7 +52,7 @@
     var DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
     var CHALLENGE = /just a moment|attention required|security check|verify you are human/i;
     var slots = {free: 24, waiting: []};
-    var renders = {free: 2, waiting: []};
+    var renders = {free: 2, waiting: []}, googleSlots = {free: 2, waiting: []};
 
     function take(pool) {
         if (pool.free > 0) { pool.free--; return Promise.resolve(); }
@@ -168,13 +168,14 @@
 
     // -- the sites ---------------------------------------------------------------------------------
 
-    var SITES = [], ID_TEMPLATES = [], siteHosts = {};
+    var SITES = [], ID_TEMPLATES = [], siteHosts = {}, SEARCH_PROFILE = {preferred: [], measurements: {}};
     function loadJson(name) {
         return fetch(BASE + name).then(function (r) { return r.json(); }).catch(function () { return null; });
     }
-    var ready = Promise.all([loadJson('generic_sites.json'), loadJson('id_templates.json')]).then(function (found) {
+    var ready = Promise.all([loadJson('generic_sites.json'), loadJson('id_templates.json'), loadJson('search_profile.json')]).then(function (found) {
         SITES = ((found[0] || {}).sites) || [];
         ID_TEMPLATES = ((found[1] || {}).templates) || [];
+        SEARCH_PROFILE = found[2] || SEARCH_PROFILE;
         SITES.forEach(function (site) { (site.hosts || [site.host]).forEach(function (host) { siteHosts[host] = site; }); });
     });
 
@@ -202,7 +203,7 @@
         for (var i = 0; i < arguments.length; i++) if (NO_RESULTS.test(arguments[i] || '')) return true;
         return false;
     }
-    var LISTING = /^(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|forums?|login|register|latest|popular|ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page|contact|contact-us|about|about-us|privacy|privacy-policy|terms|terms-of-service|dmca|faq|feedback|support|donate)$/i;
+    var LISTING = /^(search|tags?|genres?|categor(y|ies)|authors?|users?|members?|profiles?|reviews?|comments?|discussions?|wiki|characters?|articles?|news|forums?|login|register|latest|popular|ranking|rankings|top|list|library|blogs?|contests?|novel-list|manga-list|originals|canvas|page|contact|contact-us|about|about-us|privacy|privacy-policy|terms|terms-of-service|dmca|faq|feedback|support|donate)$/i;
 
     /** A book's page rather than a chapter, a list, a profile or the home page. */
     function looksLikeBook(url, title) {
@@ -1115,40 +1116,45 @@
 
     // -- the web search ----------------------------------------------------------------------------
 
-    function webSearch(text, token, onHits) {
-        var ddg = fetchUrl('https://html.duckduckgo.com/html/', {method: 'POST', stop: token, data: 'q=' + encodeURIComponent(text),
-                                                               quick: true,
-                                                               headers: {'Content-Type': 'application/x-www-form-urlencoded'}})
-            .then(function (result) {
-                if (!result || result.status !== 200) return [];
-                var html = result.text(), out = [], match, pattern = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-                while ((match = pattern.exec(html))) {
-                    var href = unescapeHtml(match[1]);
-                    var target = /[?&]uddg=([^&]+)/.exec(href);
-                    if (target) href = decodeURIComponent(target[1]);
-                    if (href.indexOf('//') === 0) href = 'https:' + href;
-                    var tail = html.slice(pattern.lastIndex, pattern.lastIndex + 2000);
-                    var found = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/.exec(tail);
-                    out.push({url: href, title: unescapeHtml(match[2].replace(/<[^>]+>/g, '')),
-                              snippet: found ? unescapeHtml(found[1].replace(/<[^>]+>/g, '')) : ''});
-                }
-                return out;
-            });
-        var bing = fetchUrl('https://www.bing.com/search?format=rss&count=50&q=' + encodeURIComponent(text), {stop: token, quick: true})
-            .then(function (result) {
-                if (!result || result.status !== 200) return [];
-                var out = [], item, pattern = /<item>([\s\S]*?)<\/item>/g, xml = result.text();
-                while ((item = pattern.exec(xml))) {
-                    var link = /<link>([\s\S]*?)<\/link>/.exec(item[1]), title = /<title>([\s\S]*?)<\/title>/.exec(item[1]);
-                    var description = /<description>([\s\S]*?)<\/description>/.exec(item[1]);
-                    if (link) out.push({url: unescapeHtml(link[1].trim()), title: title ? unescapeHtml(title[1].trim()) : '',
-                                        snippet: description ? unescapeHtml(description[1].trim()) : ''});
-                }
-                return out;
-            });
-        return Promise.all([ddg, bing].map(function (request) {
-            return request.catch(function () { return []; }).then(onHits);
-        }));
+    function googleHits(html) {
+        var doc = G().parse(html), seen = {}, out = [];
+        doc.querySelectorAll('h3').forEach(function (heading) {
+            var anchor = heading.closest('a') || heading.querySelector('a');
+            if (!anchor || anchor.closest('[data-text-ad]')) return;
+            var url = anchor.getAttribute('href') || '';
+            if (/^(?:https:\/\/www\.google\.com)?\/url\?/.test(url)) {
+                var redirect = new URL(url, 'https://www.google.com');
+                url = redirect.searchParams.get('q') || redirect.searchParams.get('url') || '';
+            }
+            if (!/^https?:/.test(url) || /(^|\.)google\.com$/.test(host(url)) || seen[url]) return;
+            seen[url] = true;
+            out.push({url: url, title: heading.textContent.trim(), snippet: ''});
+        });
+        return out;
+    }
+    function webSearch(text, token, onHits, onBlocked) {
+        var url = 'https://www.google.com/search?hl=en&udm=14&gbv=1&num=10&q=' + encodeURIComponent(text);
+        return fetchUrl(url, {stop: token, quick: true, pool: googleSlots}).then(function (result) {
+            if (!result || result.status !== 200) { onBlocked(); return []; }
+            var html = result.text();
+            if (html.indexOf('/httpservice/retry/enablejs') >= 0) {
+                return render(url).then(function (page) {
+                    var html = page ? page.text() : '';
+                    if (!html || /detected unusual traffic|\/sorry\/|before you continue to Google/i.test(html)) { onBlocked(); return []; }
+                    return googleHits(html);
+                });
+            }
+            if (/detected unusual traffic|\/sorry\/|before you continue to Google/i.test(html)) { onBlocked(); return []; }
+            return googleHits(html);
+        }).catch(function () { onBlocked(); return []; }).then(onHits);
+    }
+    function googleDorks(text, mode) {
+        var phrase = '"' + text.replace(/"/g, ' ').trim() + '"';
+        var exclude = ' -inurl:chapter -inurl:profile -inurl:login -inurl:search -intitle:"Chapter"';
+        var hosts = SITES.filter(function (site) { return speedRank(site.host) < 12000; })
+            .sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); }).slice(0, 8).map(function (site) { return site.host; });
+        return (hosts.length ? [phrase + ' (' + hosts.map(function (name) { return 'site:' + name; }).join(' OR ') + ')'] : [])
+            .concat([phrase + ' (novel OR manga OR webtoon OR manhwa)']).map(function (query) { return query + exclude; });
     }
 
     /** How much of `query` is in `title` (0 to 1), word by word: apostrophes dropped ("I'll" is "ill"), a word
@@ -1158,6 +1164,12 @@
     function titleWords(text) {
         var words = String(text || '').normalize('NFKC').toLowerCase().replace(/['’`]/g, '').match(/[\p{L}\p{N}]+/gu) || [];
         return Array.from(new Set(words.filter(function (word) { return !TITLE_FILLER.has(word); })));
+    }
+    function titleMatches(query, title) {
+        var wanted = titleWords(query), have = titleWords(title);
+        if (!wanted.length) return !!exactTitle(query) && exactTitle(title).indexOf(exactTitle(query)) >= 0;
+        if (wanted.length === 1 && /[^\x00-\x7f]/.test(wanted[0])) return exactTitle(title).indexOf(wanted[0]) >= 0;
+        return wanted.every(function (word) { return have.indexOf(word) >= 0; });
     }
     function similarTitle(query, title) {
         var key = exactTitle(query);
@@ -1303,8 +1315,10 @@
     }
     /** The order sites are asked in: the quickest known first, then the ones not tried yet. */
     function speedRank(host) {
-        var known = speeds[host];
-        return known && known.ok ? known.ms : SITE_SECONDS * 1000;
+        var known = speeds[host] || (SEARCH_PROFILE.measurements || {})[G().siteOf(host)];
+        if (known && Date.now() - known.at * (known.at < 1e12 ? 1000 : 1) < (known.ok ? 30 : 1) * 86400000) return known.ok ? known.ms : 1000000;
+        var at = (SEARCH_PROFILE.preferred || []).indexOf(G().siteOf(host));
+        return at >= 0 ? 6000 + at : 100000;
     }
 
     // -- NovelDB's own sites, by tag and author (noveldb/core/catalog/source_search.py) ------------------
@@ -1910,7 +1924,7 @@
 
     // A search's sites in stages: the first STAGE_FIRST, then STAGE_MORE each time the list is scrolled to its
     // end; a stage starts no more sites once STAGE_ENOUGH books are in. `staged`: each search's sites not asked yet.
-    var STAGE_FIRST = 100, STAGE_MORE = 60, STAGE_ENOUGH = 90, staged = {};
+    var STAGE_FIRST = 8, STAGE_MORE = 8, STAGE_ENOUGH = 90, staged = {};
     var EXACT_GRACE_MS = 3000, NDB_HEAD_START_MS = 4000;
     /** A title as an exact match compares it: letters and digits only, in one case and form. */
     function exactTitle(title) { return String(title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); }
@@ -1934,6 +1948,7 @@
         // A site gets SITE_SECONDS: past that its slot goes to the next one (it rests a day).
         var late = new Promise(function (resolve) { setTimeout(function () { resolve('late'); }, SITE_SECONDS * 1000); });
         return Promise.race([asked, late]).then(function (hits) {
+            if (stopped(token)) return;
             var ms = Date.now() - started;
             if (hits === 'late') { noteSpeed(site.host, ms, false); report(site.site, started, 0, 'failed'); return; }
             var cards = hits.map(function (hit) {
@@ -1945,7 +1960,7 @@
             noteSpeed(site.host, ms, !refusedSite);
             report(site.site, started, fresh.length, refusedSite ? 'refused' : 'ok');
             enrich(fresh.filter(function (c) { return !c.cover; }));
-        }, function () { summary.failed++; noteSpeed(site.host, Date.now() - started, false); report(site.site, started, 0, 'failed'); });
+        }, function () { if (stopped(token)) return; summary.failed++; noteSpeed(site.host, Date.now() - started, false); report(site.site, started, 0, 'failed'); });
     }
 
     /** `options`: the query's settings switched off, {noveldb: false} (NovelDB's index) or {deep: false}
@@ -1959,13 +1974,14 @@
         var ndbSources = ndbPickedSources(only), homes = sourceSites();
         speedAnswered = false;
         speedFailed = [];
-        var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, details = [];
+        var seen = {}, summary = {web: 0, details: 0, failed: 0, site: 0}, detailJobs = [];
         // A title search with a book of exactly that title (its own or its original title): no more sites are
         // started, and the search ends EXACT_GRACE_MS later (for the book's other copies already on their way).
         var exactKey = mode === 'name' ? exactTitle(text) : '', exactFound = false, exactSeen = null;
         var exactWait = new Promise(function (resolve) { exactSeen = resolve; });
         function offer(cards) {
             var fresh = cards.filter(function (item) {
+                if (mode === 'name' && !item.catalogMatch && ![item.title, item.originalTitle].concat(item.alternateTitles || []).some(function (name) { return titleMatches(text, name); })) return false;
                 var k = item.url.replace(/\/+$/, '');
                 if (seen[k] || stopped(token) || isNoResults(item.title, String(item.description || '').slice(0, 400))) return false;
                 seen[k] = item;
@@ -1982,7 +1998,7 @@
         }
         function enrich(cards) {
             cards.forEach(function (item) {
-                details.push(details_(item));
+                detailJobs.push(details_(item));
             });
         }
         function details_(item) {
@@ -2000,20 +2016,23 @@
         var titleSites = mode === 'name' ? DIRECT_TITLE_SITES.filter(function (name) { return siteHosts[name] && picked(name); }) : [];
         var searchedSites = SITES.filter(function (site) {
             return titleSites.indexOf(site.host) < 0 && site.searched !== false && !(site.lnreader || []).length && picked(site.host)
-                && (only.length || !resting(site.host));
+                && (only.length || (!resting(site.host) && speedRank(site.host) < 12000));
         }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
+        if (!only.length) searchedSites = searchedSites.slice(0, 12);
         var sources = [];
         // The sites in stages (STAGE_FIRST, then STAGE_MORE as the list is scrolled): the quickest first, and
         // first of all the sites the web search found matching books on. A stage stops starting sites once
         // STAGE_ENOUGH books are in; the sites not asked wait for the next stage (`staged`).
         var staging = !only.length && mode !== 'author';
-        var siteQueue = searchedSites.slice(), stageKey = [mode, text].join('\t'), startedSites = 0;
+        var siteQueue = searchedSites.slice(), stageKey = [mode, text].join('\t'), startedSites = 0, askedHosts = {};
         delete staged[stageKey];
         function webFirst(urls) {
             urls.forEach(function (url) {
                 var site = siteFor(url);
+                if (site && askedHosts[site.host]) return;
                 var at = site ? siteQueue.indexOf(site) : -1;
                 if (at > 0) siteQueue.unshift(siteQueue.splice(at, 1)[0]);
+                else if (site && at < 0 && !(site.lnreader || []).length) { if (siteQueue.length >= 12) siteQueue.pop(); siteQueue.unshift(site); }
             });
         }
         // NovelDB first: the sites start once it has answered, or after NDB_HEAD_START_MS at most (with them all
@@ -2040,7 +2059,7 @@
                 return directTitles(name, text, token).then(function (hits) {
                     var cards = hits.map(function (hit) {
                         var item = card(hit.url, hit.title, hit.description || '', 'site', hit.cover);
-                        return Object.assign(item, {comic: true, verified: true, ms: Date.now() - started,
+                        return Object.assign(item, {comic: true, verified: true, catalogMatch: [hit.title].concat(hit.alternateTitles || []).some(function (name) { return similarTitle(text, name) >= 0.75; }), ms: Date.now() - started,
                             alternateTitles: hit.alternateTitles, status: hit.status, author: hit.author || '',
                             chapters: hit.chapters, views: hit.views, likes: hit.likes});
                     });
@@ -2050,31 +2069,51 @@
                 });
             });
         });
+        var webJobs = [];
+        function verifyUnknown(item) {
+            var started = Date.now();
+            return fetchUrl(item.url, {stop: token, quick: true}).then(function (result) {
+                if (stopped(token)) return;
+                var final = result && result.url || item.url;
+                var metadata = result && result.status === 200 ? G().metadata(G().parse(result.text()), final) : {};
+                var valid = looksLikeBook(final, metadata.title) && metadata.title && (mode !== 'name' || titleMatches(text, metadata.title));
+                noteSpeed(host(item.url), Date.now() - started, !!valid);
+                if (valid) {
+                    var fresh = offer([Object.assign({}, item, metadata, {url: final, complete: true, verified: mode === 'name', ms: Date.now() - started})]);
+                    summary.web += fresh.length;
+                }
+            });
+        }
         function addWebSearch(query, loose) {
-            sources.push(function () {
+            webJobs.push(function () {
                 var started = Date.now(), found = 0;
                 return webSearch(query, token, function (hits) {
                     hits = hits.filter(function (hit) {
-                        return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (siteFor(hit.url) || knownSite(hit.url));
+                        var site = siteFor(hit.url);
+                        var listed = site && (site.hosts || [site.host]).some(function (name) { return host(hit.url) === name || host(hit.url) === 'm.' + name; });
+                        return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (listed || knownSite(hit.url));
                     });
                     webFirst(hits.map(function (hit) { return hit.url; }));
+                    hits.sort(function (a, b) { return speedRank(host(a.url)) - speedRank(host(b.url)); });
                     var cards = hits.filter(function (hit) {
-                        return !loose || similarTitle(text, cleanTitle(hit.title, hit.url)) >= 0.6;
+                        return !loose || titleMatches(text, cleanTitle(hit.title, hit.url));
                     }).map(function (hit) {
                         return Object.assign(card(hit.url, hit.title, hit.snippet, 'web'), {ms: Date.now() - started});
+                    });
+                    cards = cards.filter(function (item) {
+                        var score = speedRank(host(item.url));
+                        if (score >= 1000000) return false;
+                        if (score >= 12000) { detailJobs.push(verifyUnknown(item)); return false; }
+                        return true;
                     });
                     var fresh = offer(cards);
                     found += fresh.length;
                     enrich(fresh);
-                }).then(function () { summary.web += found; report('web search', started, found); });
+                }, function () { summary.googleBlocked = true; call('progress', id, {googleBlocked: true}); }).then(function () { summary.web += found; report('Google', started, found); });
             });
         }
-        if (!only.length) {
-            addWebSearch('"' + text + '" (novel OR manga OR webtoon' + (mode === 'tag' ? ')' : ' OR manhwa)'), mode === 'name');
-            if (mode === 'name') {
-                var queries = titleQueries(text);
-                if (queries.length) addWebSearch(queries[queries.length - 1], true);
-            }
+        if (!only.length && mode !== 'author') {
+            googleDorks(text, mode).forEach(function (query) { addWebSearch(query, mode === 'name'); });
         }
         // An author's books: NovelDB and its own sites know them by author; the other sites' searches are by title.
         // An age rating (R19, R15) is NovelDB's own tag: the index's rated books, the site's own rule (sites asked
@@ -2093,7 +2132,7 @@
                 found[source].forEach(function (name) {
                     jobs.push(function () {
                         var started = Date.now();
-                        return sourceSearch(source, mode, name, 0, token, sort).then(function (result) {
+                        return sourceSearch(source, mode, name, 0, token, '').then(function (result) {
                             var key = [source, mode, text, name].join('\t');
                             if (result.more) srcNext[key] = 1; else delete srcNext[key];
                             var ms = Date.now() - started;
@@ -2112,19 +2151,21 @@
             return each(jobs, 8, function (job) { return job(); }, token);
         });
         if (mode === 'author' || ratingOnly) siteQueue = [];
-        var stageSize = staging ? Math.min(STAGE_FIRST, siteQueue.length) : siteQueue.length;
+        var stageSize = staging ? STAGE_FIRST : siteQueue.length;
         call('progress', id, {total: sources.length + stageSize});
         var enough = function () { return exactFound || (staging && Object.keys(seen).length >= STAGE_ENOUGH); };
-        var sitesRun = ndbHeadStart.then(function () { return drain(siteQueue, 16, function (site) {
+        var webRun = each(webJobs, 2, function (job) { return job(); }, token);
+        var sitesRun = Promise.all([ndbHeadStart, within(webRun, 2000)]).then(function () { return drain(siteQueue, 3, function (site) {
             startedSites++;
+            askedHosts[site.host] = true;
             return siteAsk(site, mode, text, token, offer, report, enrich, summary);
         }, function () { return startedSites >= stageSize || enough(); }, token).then(function () {
             // The sites not asked: the next stage, as the list is scrolled (and the progress counts only those asked).
             if (staging && siteQueue.length) staged[stageKey] = siteQueue;
             if (stageSize > startedSites) call('progress', id, {total: startedSites - stageSize});
         }); });
-        var all = Promise.all([direct, each(sources, 16, function (source) { return source(); }, token), sitesRun]).then(function () {
-            return Promise.all(details);
+        var all = Promise.all([direct, webRun, each(sources, 4, function (source) { return source(); }, token), sitesRun]).then(function () {
+            return Promise.all(detailJobs);
         });
         var ended = Promise.race([all, exactWait.then(function () {
             return new Promise(function (resolve) { setTimeout(resolve, EXACT_GRACE_MS); });
@@ -2137,7 +2178,7 @@
     }
 
     /** The book with this ID on every site that addresses its books by ID. */
-    function runById(id, text, token) {
+    function runById(id, text, token, options) {
         var code = text.trim(), numeric = /^\d+$/.test(code), tries = [], seenSites = {}, found = 0;
         ID_TEMPLATES.forEach(function (entry) {
             if ((entry.id === 'number') === numeric) {
@@ -2146,6 +2187,10 @@
             }
         });
         if (numeric) Object.keys(learned).forEach(function (site) { if (!seenSites[site]) tries.push([site, learned[site]]); });
+        var only = (options && options.only) || [];
+        tries = tries.filter(function (entry) { return only.length ? only.indexOf(G().siteOf(host(entry[1]))) >= 0 : speedRank(host(entry[1])) < 12000; })
+            .sort(function (a, b) { return speedRank(host(a[1])) - speedRank(host(b[1])); });
+        if (!only.length) tries = tries.slice(0, 12);
         call('progress', id, {total: tries.length});
         var all = each(tries, 12, function (entry) {
             var started = Date.now(), url = entry[1].replace('{id}', code);
@@ -2212,7 +2257,7 @@
             var fits = function (site) { return (TLD_LANG[site.site.split('.').pop()] || 'en') === language; };
             sites = sites.filter(fits).concat(sites.filter(function (s) { return !fits(s); }));
         }
-        sites = sites.slice(0, 80);  // the busiest 80 of the kind (with the LNReader sites the page reads, ~180)
+        sites = sites.filter(function (site) { return only && only.length || speedRank(site.host) < 12000; }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); }).slice(0, only && only.length ? 50 : 12);  // the busiest 80 of the kind (with the LNReader sites the page reads, ~180)
         topSites = sites;
         call('progress', id, {total: sites.length});
         var seen = {};
@@ -2242,7 +2287,7 @@
             var totals = {};
             return Promise.all(queries.slice(0, 6).map(function (item) {
                 var mode = item.mode === 'tag' || item.mode === 'author' ? item.mode : 'name';
-                var run = item.mode === 'id' ? runById(id, item.query, token) : runSearch(id, item.query, mode, token, item.sort || '', item);
+                var run = item.mode === 'id' ? runById(id, item.query, token, item) : runSearch(id, item.query, mode, token, item.sort || '', item);
                 return run.catch(function () { return {failed: 1}; }).then(function (summary) {
                     Object.keys(summary).forEach(function (name) {
                         var value = summary[name];
@@ -2278,7 +2323,7 @@
                 if (sites && deep && (mode === 'tag' || mode === 'author')) Object.keys(srcNext).forEach(function (key) {
                     var parts = key.split('\t'), at = srcNext[key];
                     if (parts[1] !== mode || parts[2] !== text) return;
-                    jobs.push(sourceSearch(parts[0], mode, parts[3], at, token, item.sort || '').then(function (result) {
+                    jobs.push(sourceSearch(parts[0], mode, parts[3], at, token, '').then(function (result) {
                         if (result.more) { srcNext[key] = at + 1; state.more = true; } else delete srcNext[key];
                         var fresh = offer(result.cards);
                         return (useNovelDB ? noveldbTwins(fresh, token) : Promise.resolve([])).then(function (twins) {
@@ -2296,7 +2341,7 @@
                         call('progress', id, {site: site, ms: Date.now() - started, found: found, state: how || 'ok'});
                     };
                     call('progress', id, {total: stage.length});
-                    jobs.push(each(stage, 16, function (site) {
+                    jobs.push(each(stage, 3, function (site) {
                         return siteAsk(site, mode, text, token, offer, stageReport, noop, stageSummary);
                     }, token).then(function () { if (staged[[mode, text].join('\t')]) state.more = true; }));
                 }
@@ -2887,7 +2932,7 @@
             SITES.forEach(function (site) {
                 (site.lnreader || []).slice(0, 1).forEach(function (plugin) { lnreader.push({id: plugin, site: site.site, comic: site.comic}); });
             });
-            call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, searched: SITES.filter(function (s) { return s.searched !== false; }).length, downloadIcon: window.NovelDBDownloadIcon || ''});
+            call('init', {sites: SITES.map(function (s) { return s.site; }), comic: SITES.filter(function (s) { return s.comic; }).map(function (s) { return s.site; }), lnreader: lnreader, searched: 12, responseProfile: SEARCH_PROFILE, downloadIcon: window.NovelDBDownloadIcon || ''});
         });
     }
     // A web page, or a readable file in the Library.
@@ -2896,6 +2941,20 @@
         switch (message.type) {
         case 'genericReady': init(); break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
+        case 'genericIndexSort':
+            ready.then(function () {
+                return Promise.all((message.queries || []).filter(function (item) { return item.noveldb !== false && item.mode !== 'id'; }).slice(0, 6).map(function (item) {
+                    return ndbSearch(item.query, item.mode, NDB_FIRST, 0, null, null, item.sort || '', ndbPickedSources(item.only || []));
+                }));
+            }).then(function (results) {
+                var cards = [];
+                results.forEach(function (result, index) {
+                    var query = message.queries.filter(function (item) { return item.noveldb !== false && item.mode !== 'id'; })[index];
+                    cards = cards.concat(result.cards.map(function (card) { return Object.assign(card, {via: query.mode}); }));
+                });
+                call('fetched', message.id, {cards: cards, more: results.some(function (result) { return result.more; })});
+            }).catch(function () { call('fetched', message.id, {error: 'The index could not be sorted'}); });
+            break;
         case 'genericStop': if (current.token) current.token.stopped = true; break;
         // The reader closed: the book's pages still arriving are not handed to it any more.
         case 'genericReaderStop': pages.watching = null; reading.id = null; reading.book = null; break;

@@ -22,7 +22,7 @@
     var view = 'top', current = {text: '', tags: []}, picked = [], resultTags = new Map();
     // TOP_KEY's version: a new one drops the top lists saved by older code.
     // A top list shows TOP_SIZE books at first, TOP_STEP more each time it is scrolled to its end.
-    var TOP_KEY = 'noveldb.generic.top.v8', TOP_HOURS = 12, TOP_SIZE = 100, TOP_STEP = 50;
+    var TOP_KEY = 'noveldb.generic.top.v9', TOP_HOURS = 12, TOP_SIZE = 100, TOP_STEP = 50;
     var TAGS = ['Action', 'Adventure', 'Apocalypse', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
@@ -212,7 +212,7 @@
         if (view !== 'search') return;
         var seconds = Math.round((Date.now() - progress.started) / 1000);
         status('Searching… ' + progress.answered + ' of ' + (progress.expected || '?') + ' sources answered · ' + seconds + ' s · '
-               + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far' + noveldbCount() + memoryNote());
+               + shownCount() + ' book' + (shownCount() === 1 ? '' : 's') + ' so far' + noveldbCount() + memoryNote() + (progress.googleBlocked ? ' · Google requires verification' : ''));
     }
     // The page's memory (Chromium's estimate): a phone's page that grows past a few hundred MB is closed by Android.
     function memoryMB() {
@@ -223,7 +223,7 @@
     // While searching, the one progress line counts the books: no second line takes turns with it.
     function countLine() {
         if (running) { showProgress(); return; }
-        status(shownCount() + ' books found' + noveldbCount() + (progress.noveldb > shownCount() ? '; scroll for more.' : '.'));
+        status(shownCount() + ' books found' + noveldbCount() + (progress.noveldb > shownCount() ? '; scroll for more.' : '.') + (progress.googleBlocked ? ' · Google requires verification' : ''));
     }
     function noveldbCount() {
         return progress.noveldb ? ' · ' + progress.noveldb.toLocaleString() + ' in NovelDB' : '';
@@ -470,16 +470,16 @@
 
     // The title shares the query's words (most of them), as the app's own site search requires.
     function words(text) {
-        return (String(text || '').toLowerCase().match(/[\p{L}\p{N}']+/gu) || []).filter(function (w) {
+        return (String(text || '').normalize('NFKC').toLowerCase().replace(/['’`]/g, '').match(/[\p{L}\p{N}]+/gu) || []).filter(function (w) {
             return w.length > 1 || /[^\x00-\x7f]/.test(w);
         });
     }
     function relevant(title, query) {
-        var want = words(query), have = words(title).join(' ');
-        if (!want.length) return true;
-        if (want.length === 1 && /[^\x00-\x7f]/.test(want[0])) return have.replace(/ /g, '').indexOf(want[0]) >= 0;
-        var hits = want.filter(function (w) { return have.indexOf(w) >= 0; }).length;
-        return hits >= Math.max(1, want.length - Math.floor(want.length / 3));
+        var ignored = new Set('a an the of to in on and is be i my ill im novel manga manhwa manhua webtoon'.split(' '));
+        var want = words(query).filter(function (word) { return !ignored.has(word); }), have = words(title);
+        if (!want.length) return !!exactTitle(query) && exactTitle(title).indexOf(exactTitle(query)) >= 0;
+        if (want.length === 1 && /[^\x00-\x7f]/.test(want[0])) return have.join('').indexOf(want[0]) >= 0;
+        return want.every(function (word) { return have.indexOf(word) >= 0; });
     }
     function within(promise, ms, fallback) {
         return Promise.race([promise, new Promise(function (resolve) { setTimeout(function () { resolve(fallback === undefined ? '[]' : fallback); }, ms); })]);
@@ -901,7 +901,7 @@
         frame = {raf: requestAnimationFrame(go), timer: setTimeout(go, 120)};  // a hidden page has no frames
     }
     // -- the sort menu (NovelDB's sorts): the shown cards in that order; a search sends it along ------------
-    var SORT_KEY = 'noveldb.generic.sort';
+    var SORT_KEY = 'noveldb.generic.sort', indexSortRequest = 0;
     function sortBy() { return $('sort').value; }
     function figure(value) {
         var text = String(value == null ? '' : value).replace(/,/g, '').trim();
@@ -930,6 +930,28 @@
     }
     function orderCards(force) {
         var key = sortBy(), value = SORT_VALUES[key];
+        if (view === 'search') {
+            var placed = order.filter(function (group) { return group.element; });
+            if (!force) {
+                placed.forEach(function (group, index) { if (group.element.style.order !== '') return; group.element.style.order = String(index); });
+                return;
+            }
+            value = value || function (group) { return group.indexSortOrder == null ? 1e9 : group.indexSortOrder; };
+            var indexed = placed.filter(function (group) { return group.sources.some(function (source) { return source.source === 'noveldb' || source.noveldb; }); });
+            indexed = indexed.map(function (group, index) { return {group: group, index: index, value: value(group)}; });
+            indexed.sort(function (a, b) {
+                var missing = (a.value === '' || a.value === 0) - (b.value === '' || b.value === 0);
+                if (missing) return missing;
+                var by = a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
+                return (!key || key === 'title' ? by : -by) || a.index - b.index;
+            });
+            var next = 0;
+            placed.forEach(function (group, index) {
+                if (group.sources.some(function (source) { return source.source === 'noveldb' || source.noveldb; })) group = indexed[next++].group;
+                group.element.style.order = String(index);
+            });
+            return;
+        }
         var tagged = view === 'search' && current.tags && current.tags.length;
         if (!value && !tagged) { order.forEach(function (g) { if (g.element) g.element.style.order = ''; }); return; }
         value = value || function () { return ''; };  // the order the books came in, after npia's and sfc's
@@ -958,6 +980,7 @@
     // books came in.
     var reshuffle = {list: -1, timer: 0};
     function reshuffleOnce() {
+        if (view === 'search') return;
         if (reshuffle.list === searchId) return;
         reshuffle.list = searchId;
         clearTimeout(reshuffle.timer);
@@ -1501,6 +1524,10 @@
                 return;
             }
             if (view === 'top' && notInTop(card)) return;
+            var catalogueMatch = card.catalogMatch && ['mangak.io', 'mangadex.org', 'comix.to', 'comix.ws'].indexOf(hostOf(card.url)) >= 0;
+            if (card.via === 'name' && current.text && !catalogueMatch && ![card.title, card.originalTitle].concat(card.alternateTitles || []).some(function (title) {
+                return relevant(title || '', current.text);
+            })) return;
             if (card.via === 'top') {
                 if (view === 'top') {
                     topCollect(card, 1 / Math.sqrt((card.siteRank || 0) + 1), card.position || 0, card.listLength || 1);
@@ -1775,10 +1802,19 @@
         var known = pluginSpeeds[id];
         return !!known && !known.ok && Date.now() - known.at < PLUGIN_REST_HOURS * 3600e3;
     }
+    function sourceResponseRank(host) {
+        var profile = config.responseProfile || {}, measured = (profile.measurements || {})[host];
+        if (measured && Date.now() - measured.at * 1000 < (measured.ok ? 30 : 1) * 86400000) return measured.ok ? measured.ms : 1000000;
+        var index = (profile.preferred || []).indexOf(host);
+        return index >= 0 ? 6000 + index : 100000;
+    }
     function pluginRank(id) {
         var known = pluginSpeeds[id];
-        return known && known.ok ? known.ms : PLUGIN_SECONDS * 1000;
+        if (known && Date.now() - known.at < 30 * 86400000) return known.ok ? known.ms : 1000000;
+        var plugin = plugins().find(function (entry) { return entry.id === id; });
+        return plugin ? sourceResponseRank(plugin.site) : 100000;
     }
+
     // `options`: {active: plugins at once (8), seconds: each one's time (25), remember: note their speeds}.
     function lnreaderRun(id, jobs, each, options) {
         options = options || {};
@@ -1808,7 +1844,7 @@
                     job.started = Date.now();
                     within(job.run(), limit, '"timeout"').then(function (raw) {
                         var found = parse(raw), ms = Date.now() - this.started;
-                        if (options.remember) remember(this.plugin.id, ms, Array.isArray(found) && ms < limit);
+                        if (options.remember && id === searchId && (!Array.isArray(found) || found.length)) remember(this.plugin.id, ms, Array.isArray(found) && ms < limit);
                         if (Array.isArray(found) && id === searchId) {
                             found.forEach(function (item) { item.ms = ms; });
                             each(this, found);
@@ -1832,14 +1868,15 @@
                 verified: !!item.verified};
     }
     function lnreaderSearch(id, queries) {
-        var every = plugins().filter(function (plugin) { return !pluginResting(plugin.id); })
+        var every = plugins().slice()
             .sort(function (a, b) { return pluginRank(a.id) - pluginRank(b.id); });
         if (!every.length || !window.__LNR_search) return;
         var jobs = [];
         queries.forEach(function (q) {
             if (q.mode === 'tag' && isAgeTag(q.query)) return;  // NovelDB's own rating: no plugin lists it
             every.forEach(function (plugin) {
-                if (q.only && q.only.indexOf(plugin.site) < 0) return;  // the sites picked in the Sites panel only
+                if (q.only && q.only.length ? q.only.indexOf(plugin.site) < 0 : pluginResting(plugin.id) || pluginRank(plugin.id) >= 12000) return;
+                if ((!q.only || !q.only.length) && jobs.filter(function (job) { return job.query === q; }).length >= 8) return;
                 jobs.push({plugin: plugin, query: q, run: function () {
                     return q.mode === 'tag' && window.__LNR_genre ? window.__LNR_genre(plugin.id, q.query) : window.__LNR_search(plugin.id, q.query, 1);
                 }});
@@ -1849,7 +1886,7 @@
         lnreaderRun(id, jobs, function (job, found) {
             if (job.query.mode !== 'tag') found = found.filter(function (item) { return relevant(item.name, job.query.query); });
             add(found.slice(0, 15).map(function (item) { return lnreaderCard(job.plugin, item, job.query.mode); }), id);
-        }, {active: 16, seconds: PLUGIN_SECONDS, remember: true, stopWhen: function () { return !!current.exact; }})
+        }, {active: 3, seconds: PLUGIN_SECONDS, remember: true, stopWhen: function () { return !!current.exact; }})
             .then(function () { finishedSearch(id); });
     }
 
@@ -1913,11 +1950,11 @@
     function isComicKind(kind) { return kind === 'manga' || kind === 'manhwa' || kind === 'comic'; }
     // -- the search on screen, kept: Android ends a page left in the background (another app opened) and the app
     // opens it again, which showed the top list; the search comes back as it was, its cards and place too.
-    var SEARCH_KEY = 'noveldb.generic.search.v1', SEARCH_HOURS = 12, searchSaveTimer = 0;
+    var SEARCH_KEY = 'noveldb.generic.search.v2', SEARCH_HOURS = 12, searchSaveTimer = 0, searchHistory = [];
     function searchSave(now) {
         clearTimeout(searchSaveTimer);
         if (!now) { searchSaveTimer = setTimeout(function () { searchSave(true); }, 1000); return; }
-        if (view !== 'search' || !current.queries || !order.length) return;
+        if (view !== 'search' || !current.queries) return;
         var items = order.slice(0, 300).map(function (group) {
             var first = group.sources[0];
             var original = (group.covers && group.covers[0]) || (/^data:/.test(group.cover) ? '' : group.cover);
@@ -1929,14 +1966,20 @@
                     return {url: s.url, title: group.title, site: s.site, source: s.source, plugin: s.plugin, path: s.path, comic: group.comic, ms: s.ms};
                 })});
         });
-        store(SEARCH_KEY, {time: Date.now(), current: {text: current.text, tags: current.tags, queries: current.queries, byId: current.byId,
+        var saved = {time: Date.now(), current: {text: current.text, tags: current.tags, queries: current.queries, byId: current.byId,
                                                       author: current.author || ''},
                            kind: $('kind').value, sort: sortBy(), sites: Array.from(siteFilter), scroll: window.scrollY,
-                           heading: $('heading').innerHTML, items: items});
+                           heading: $('heading').innerHTML, items: items};
+        store(SEARCH_KEY, saved);
+        return saved;
     }
-    function searchRestore() {
-        var kept = store(SEARCH_KEY);
-        if (!kept || !kept.items || !kept.items.length || Date.now() - kept.time > SEARCH_HOURS * 3600e3) return false;
+    function rememberSearch() {
+        searchHistory.push(view === 'search' ? searchSave(true) : {top: true});
+        if (searchHistory.length > 10) searchHistory.shift();
+    }
+    function searchRestore(kept) {
+        kept = kept || store(SEARCH_KEY);
+        if (!kept || !kept.items || Date.now() - kept.time > SEARCH_HOURS * 3600e3) return false;
         searchId++;
         reset('search');
         current = kept.current;
@@ -1966,7 +2009,8 @@
     document.addEventListener('visibilitychange', function () { if (document.hidden) searchSave(true); });
     window.addEventListener('pagehide', function () { searchSave(true); });
 
-    function showTop() {
+    function showTop(goingBack) {
+        if (goingBack !== true && view === 'search') rememberSearch();
         store(SEARCH_KEY, null);  // the top list asked for: no search to come back to
         searchId++;
         reset('top');
@@ -2091,8 +2135,8 @@
         var chosen = plugins().filter(function (p) {
             return !p.comic && !excludedTopSite(p.site) && /\./.test(p.site || '') && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === cardLang())
                 && (allPlugins.length ? !!p.ln === wantLn : true);
-        }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); });
-        return all ? chosen : chosen.slice(0, 100);
+        }).sort(function (a, b) { return pluginRank(a.id) - pluginRank(b.id); });
+        return all ? chosen : chosen.filter(function (plugin) { return !pluginResting(plugin.id) && pluginRank(plugin.id) < 12000; }).slice(0, 12);
     }
     function loadTop(id) {
         if (isComicKind(top.kind)) {
@@ -2123,7 +2167,7 @@
             ? picks.map(function (site) { return plugins().filter(function (p) { return p.site === site; })[0]; }).filter(Boolean)
             : topPlugins(top.kind);
         top.plugins = chosen;
-        top.ndbSources = [];
+        top.ndbSources = !picks.length && top.kind === 'webnovel' && (baseLang() === 'en' || language === 'all') ? Object.keys(LEAD_SOURCES) : [];
         picks.forEach(function (site) { (NOVELDB_SITES[site] || []).forEach(function (source) { top.ndbSources.push(source); }); });
         top.others = picks.filter(function (site) { return !NOVELDB_SITES[site] && !chosen.some(function (p) { return p.site === site; }); });
         if (!chosen.length && !top.ndbSources.length && !top.others.length) { empty(); return; }
@@ -2215,6 +2259,7 @@
         }
         picked.slice(0, 5).forEach(function (tag) { queries.push({query: tag, mode: 'tag'}); });
         queries.forEach(function (q) { q.sort = sortBy(); searchesIn(q); });
+        rememberSearch();
         searchId++;
         reset('search');
         current = {text: text, tags: picked.slice(), queries: queries, byId: byId};
@@ -2225,7 +2270,7 @@
         $('backTop').onclick = function () { $('query').value = ''; picked = []; showPicked(); showTop(); };
         startProgress(0);
         // The sites a search asks itself (the busiest; every other one is found through the web search).
-        status('Searching ' + ((config.searched || config.sites.length || 100) + plugins().length) + ' sites for ' + label + '…');
+        status('Searching NovelDB and Google for ' + label + '…');
         empty();
         send({type: 'genericSearch', id: searchId, queries: queries});
         if (!byId) lnreaderSearch(searchId, queries);
@@ -2242,6 +2287,7 @@
         $('query').value = '';
         var names = name.split(/\s*[,，、]\s*/).filter(Boolean).slice(0, 3);
         var queries = names.map(function (one) { return searchesIn({query: one, mode: 'author', sort: sortBy()}); });
+        rememberSearch();
         searchId++;
         reset('search');
         current = {text: '', tags: [], queries: queries, byId: false, author: name};
@@ -2258,7 +2304,7 @@
     function finishedSearch(id) {
         if (id !== searchId || running) return;
         status(shownCount() + ' books found in ' + seconds(Date.now() - progress.started) + noveldbCount()
-               + (progress.noveldb > shownCount() ? '; scroll for more.' : '.'));
+               + (progress.noveldb > shownCount() ? '; scroll for more.' : '.') + (progress.googleBlocked ? ' · Google requires verification' : ''));
         empty();
     }
 
@@ -2423,10 +2469,31 @@
             if (cardsTranslated && translateFailure) status('Google Translate failed (' + translateFailure + '); the cards stay as written.');
         });
     });
+    function refreshIndexSort() {
+        if (view !== 'search' || !current.queries || current.byId) return;
+        var queries = current.queries.filter(function (query) { return query.noveldb !== false && query.mode !== 'id'; });
+        if (!queries.length) return;
+        var list = searchId, request = ++indexSortRequest;
+        if (more.loading) more.discardPendingSort = true;
+        ask({type: 'genericIndexSort', queries: queries}).then(function (result) {
+            if (list !== searchId || request !== indexSortRequest || !result || result.error) return;
+            order.forEach(function (group) { group.indexSortOrder = 1e9; });
+            add(result.cards || [], list);
+            (result.cards || []).forEach(function (card, index) {
+                var group = byUrl.get(key(card.url));
+                if (group) group.indexSortOrder = index;
+            });
+            more.ndbPage = 1;
+            more.ndbHas = !!result.more;
+            more.has = more.has || !!result.more;
+            requestAnimationFrame(function () { orderCards(true); });
+        });
+    }
     $('sort').addEventListener('change', function () {
         try { localStorage.setItem(SORT_KEY, sortBy()); } catch (e) {}
         orderCards(true);
-        if (view === 'search' && current.queries && current.queries.length) search();
+        if (view === 'search' && current.queries) current.queries.forEach(function (query) { query.sort = sortBy(); });
+        refreshIndexSort();
     });
     $('kind').addEventListener('change', function () {
         if (view === 'top' && topKind() !== top.kind) { showTop(); return; }
@@ -3966,6 +4033,7 @@
         add: add,
         moreDone: function (id, state) {
             if (id !== searchId) return;
+            if (more.discardPendingSort) { more.discardPendingSort = false; setMoreLoading(false); return; }
             if (view === 'search' && state && state.ndbPage) { more.ndbPage = state.ndbPage + 1; more.ndbHas = !!state.ndbMore; }
             if (view === 'search' && state && state.ndbOnly) {
                 // NovelDB's page read while the search runs: the sites' next page is still to come.
@@ -4012,6 +4080,7 @@
         },
         progress: function (id, item) {
             if (id !== searchId || !item) return;
+            if (item.googleBlocked) { progress.googleBlocked = true; showProgress(); return; }
             if (item.total != null) { progress.expected += item.total; showProgress(); return; }
             // NovelDB's count of matching books, before its cards arrive (scrolling reads the rest).
             if (item.noveldbTotal != null) { progress.noveldb = (progress.noveldb || 0) + item.noveldbTotal; showProgress(); return; }
@@ -4032,7 +4101,7 @@
             if (!running) {
                 status(shownCount() + ' books found in ' + seconds(Date.now() - progress.started)
                        + (slow ? ' (some sites did not answer in time)' : '') + noveldbCount()
-                       + (progress.noveldb > shownCount() ? '; scroll for more.' : '.'));
+                       + (progress.noveldb > shownCount() ? '; scroll for more.' : '.') + (progress.googleBlocked ? ' · Google requires verification' : ''));
                 empty();
             }
         },
@@ -4105,6 +4174,24 @@
             if (typeof book.chapter === 'number' && book.chapter >= 0) group.start = {chapter: book.chapter, at: Number(book.at) || 0};
             if ($('dialog').open) $('dialog').close();
             openReader(group, 0);
+        },
+        back: function () {
+            var modal = Array.from(document.querySelectorAll('dialog[open]')).pop();
+            if (modal) { modal.close(); return true; }
+            if ($('toc').classList.contains('open')) { $('toc').classList.remove('open'); return true; }
+            if ($('reader').classList.contains('open')) {
+                if (R.full) setFull(false); else closeReader();
+                return true;
+            }
+            var panel = ['tagmenu', 'sitespanel', 'settingspanel'].map($).find(function (node) { return node.classList.contains('open'); });
+            if (panel) { panel.classList.remove('open'); return true; }
+            if (searchHistory.length) {
+                var previous = searchHistory.pop();
+                if (previous && !previous.top) return searchRestore(previous);
+                $('query').value = ''; picked = []; showPicked(); showTop(true); return true;
+            }
+            if (view === 'search') { $('query').value = ''; picked = []; showPicked(); showTop(true); return true; }
+            return false;
         },
         refreshLocal: refreshLocal,
         readerVisibility: readerVisibility,

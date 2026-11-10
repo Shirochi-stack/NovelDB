@@ -121,7 +121,7 @@ def test_cached_top_sources_are_filtered_and_preference_can_be_cleared(catalogue
     cached = card(10)
     cached["more"] = [card(10, "chrysanthemumgarden.com")]
     excluded = card(11, "dummynovels.com")
-    tab.evaluate("""items => localStorage.setItem('noveldb.generic.top.v8.webnovel.en', JSON.stringify({
+    tab.evaluate("""items => localStorage.setItem('noveldb.generic.top.v9.webnovel.en', JSON.stringify({
         time: Date.now(), how: 'sites:0:100', items: items}))""", [cached, excluded])
     tab.reload()
     tab.add_script_tag(content=script)

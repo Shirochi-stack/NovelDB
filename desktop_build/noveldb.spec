@@ -37,6 +37,7 @@ if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobil
     for name in ("index.html", "generic.js", "halgakos-loading.webp", "icon-cart.webp", "icon-mining.webp"):
         datas.append((here("noveldb", "qt", "catalog", "generic", name), os.path.join("noveldb", "qt", "catalog", "generic")))
 datas.append((here("noveldb", "core", "catalog", "generic_sites.json"), os.path.join("noveldb", "core", "catalog")))
+datas.append((here("noveldb", "core", "catalog", "search_profile.json"), os.path.join("noveldb", "core", "catalog")))
 for name in ("gm_stubs.js", "bridge.js", "rules-lib.js"):
     datas.append((here(name), "."))
 datas.append((here("noveldb", "core", "engines", "comix-reader.js"), os.path.join("noveldb", "core", "engines")))

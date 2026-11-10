@@ -74,18 +74,14 @@ def test_mangadex_matches_an_alternate_title_and_returns_the_series_address():
     assert cards[0]["alternateTitles"] == [TITLE]
 
 
-def test_web_hits_stream_without_waiting_for_the_other_provider(monkeypatch):
-    release = threading.Event()
-    monkeypatch.setattr(generic_search, "duckduckgo_results", lambda *_: release.wait(5) and [])
-    monkeypatch.setattr(generic_search, "bing_results", lambda *_: [{"title": TITLE, "url": ADDRESS}])
-    stream = generic_search.web_search(QUERIES[0], lambda _: None)
-    with ThreadPoolExecutor(1) as pool:
-        hit = pool.submit(next, stream)
-        try:
-            assert hit.result(2)["url"] == ADDRESS
-            assert not release.is_set()
-        finally:
-            release.set()
+def test_google_hits_stream_without_querying_other_providers(monkeypatch):
+    monkeypatch.setattr(generic_search, "google_results", lambda *_: [{"title": TITLE, "url": ADDRESS}])
+    def unused(*args):
+        pytest.fail("A retired web provider was queried")
+    monkeypatch.setattr(generic_search, "duckduckgo_results", unused)
+    monkeypatch.setattr(generic_search, "bing_results", unused)
+    stream = generic_search.web_search(QUERIES[0], lambda *args, **kwargs: None)
+    assert next(stream)["url"] == ADDRESS
     assert list(stream) == []
 
 
@@ -206,5 +202,5 @@ def test_mobile_catalog_shows_a_direct_match_while_web_search_waits(platform, qu
             page.locator("#query").fill(query)
             page.locator("#query").press("Enter")
             playwright.expect(page.locator("#grid .card")).to_contain_text(TITLE, timeout=5000)
-            assert page.evaluate("requests.some(url => url.startsWith('https://html.duckduckgo.com/'))")
+            assert page.evaluate("requests.some(url => url.startsWith('https://www.google.com/search?'))")
             assert page.evaluate("requests.filter(url => url.startsWith('https://mangak.io/search?')).length") == 2

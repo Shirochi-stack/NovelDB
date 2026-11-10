@@ -354,6 +354,17 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
         }
     }
 
+    fun back(onRoot: () -> Unit) {
+        val currentView = view
+        val currentTab = model.tab
+        currentView.evaluateJavascript("!!(window.NovelDBGeneric && window.NovelDBGeneric.back && window.NovelDBGeneric.back())") { handled ->
+            if (view !== currentView || model.tab != currentTab) return@evaluateJavascript
+            if (handled != "true") {
+                if (view.canGoBack()) view.goBack() else onRoot()
+            }
+        }
+    }
+
     fun refreshLocal() {
         val file = localFile ?: return
         val revision = model.manager.libraryRevisions.value[file.name] ?: return
@@ -511,7 +522,7 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
             model.readRequest = null
         }
     }
-    BackHandler(enabled = web.canBack) { web.view.goBack() }
+    BackHandler { web.back { model.back() } }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             if (web.progress in 1..99) LinearProgressIndicator(progress = { web.progress / 100f }, modifier = Modifier.fillMaxWidth())

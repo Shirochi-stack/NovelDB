@@ -426,7 +426,7 @@ def test_a_search_asks_its_sites_in_stages_the_web_search_matches_first(monkeypa
 
     sites = [{"site": f"s{n}.example", "host": f"s{n}.example"} for n in range(170)]
     monkeypatch.setattr(generic_search, "web_search",
-                        lambda query, fetch: [{"url": "https://s169.example/book/1", "title": "", "snippet": ""}])
+                        lambda query, fetch: [{"url": "https://s169.example/book/1", "title": "A Title Returns", "snippet": ""}])
     asked = []
 
     class Sites:
@@ -449,7 +449,10 @@ def test_a_search_asks_its_sites_in_stages_the_web_search_matches_first(monkeypa
     engine.more("A Title", "name", 1, lambda cards: None, threading.Event(), states.append, ndb_page=0)
     assert len(asked) == generic_search.STAGE_MORE and states[-1]["more"]
     asked.clear()
-    engine.more("A Title", "name", 2, lambda cards: None, threading.Event(), states.append, ndb_page=0)
+    page_number = 2
+    while states[-1]["more"]:
+        engine.more("A Title", "name", page_number, lambda cards: None, threading.Event(), states.append, ndb_page=0)
+        page_number += 1
     assert len(asked) == 170 - generic_search.STAGE_FIRST - generic_search.STAGE_MORE and not states[-1]["more"]
 
 

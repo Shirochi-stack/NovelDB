@@ -73,7 +73,9 @@ fun QueueScreen(model: AppViewModel, topBar: TopBarState) {
     val selectable = QueueSelection.selectable(jobs, manager.outputDirectory)
     val selectableIds = selectable.map { it.id }.toSet()
     LaunchedEffect(selectableIds) { selection = selection.pruned(selectableIds) }
-    BackHandler(enabled = selection.active && view == QueueView.JOBS) { selection = selection.clear() }
+    BackHandler(enabled = selection.active || view == QueueView.LOG) {
+        if (selection.active) selection = selection.clear() else model.queueView = QueueView.JOBS
+    }
     LaunchedEffect(hasFinished, activeCount, view) {
         val actions: @Composable () -> Unit = {
             if (activeCount > 0) {

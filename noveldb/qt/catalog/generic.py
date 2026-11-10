@@ -41,7 +41,7 @@ SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_ind
 MESSAGE_TYPES = ("genericReady", "genericReaderStop", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
-                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive")
+                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive", "genericIndexSort")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -220,7 +220,7 @@ def parse_message(data: dict) -> Optional[dict]:
         return None
     if kind == "genericMore" and not isinstance(data.get("sites", True), bool):
         return None
-    if kind in ("genericSearch", "genericMore"):
+    if kind in ("genericSearch", "genericMore", "genericIndexSort"):
         # A search is one or more queries run together: the title, and each tag picked in the tag menu.
         asked = data.get("queries")
         if not isinstance(asked, list):
@@ -246,7 +246,7 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
         data["queries"] = queries
         data["query"], data["mode"] = queries[0]["query"], queries[0]["mode"]
-    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive") and not isinstance(data.get("id"), int):
+    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort") and not isinstance(data.get("id"), int):
         return None
     if kind == "genericFetch":
         request = data.get("request")
@@ -555,6 +555,8 @@ class GenericCatalog(QObject):
             self.init_page()
         elif kind == "genericSearch":
             self.search(int(data.get("id") or 0), data["queries"])
+        elif kind == "genericIndexSort":
+            self._background(self._index_sort, data)
         elif kind == "genericMore":
             self.more(int(data.get("id") or 0), data["queries"], data["page"], data.get("ndbPage"), data.get("sites", True))
         elif kind == "genericTopMore":
@@ -606,12 +608,13 @@ class GenericCatalog(QObject):
         return True
 
     def init_page(self) -> None:
+        from noveldb.core.catalog.search_ranking import profile
         sites = top_sites()
         lnreader = [{"id": plugin, "site": site["site"], "comic": site["comic"]}
                     for site in sites for plugin in site.get("lnreader", [])[:1]]
         self._call("init", {"sites": [site["site"] for site in sites], "comic": [site["site"] for site in sites if site["comic"]],
                             "lnreader": lnreader, "searched": sum(1 for site in sites if site.get("searched", True)),
-                            "downloadIcon": download_icon()})
+                            "responseProfile": profile(), "downloadIcon": download_icon()})
         if not self._reader_visible:
             self._call("readerVisibility", False)
         self.send_theme()
@@ -672,6 +675,21 @@ class GenericCatalog(QObject):
         engine.only = set(item.get("only") or [])
         return engine
 
+    def _index_sort(self, data):
+        cards, has_more = [], False
+        try:
+            for item in data["queries"]:
+                engine = self._engine(item)
+                if engine.noveldb is None or item["mode"] == "id":
+                    continue
+                found, more = engine.noveldb.search_page(item["query"], item["mode"], 0, 40,
+                                                       sources=engine.noveldb_sources(), sort=item.get("sort", ""))
+                cards.extend(dict(card, via=item["mode"]) for card in found)
+                has_more = has_more or more
+            self._fetched.emit(data["id"], {"cards": cards, "more": has_more})
+        except Exception:
+            self._fetched.emit(data["id"], {"error": "The index could not be sorted"})
+
     def top(self, search_id: int, kind: str, language: str = "all", only: Optional[list] = None) -> None:
         """The popular lists of the top sites of one kind (comics: the comic sites; novels: the rest), the
         sites of the preferred language first (a country's domain tells a site's language; .com and the
@@ -695,7 +713,8 @@ class GenericCatalog(QObject):
                 country = TLD_LANG.get(site["site"].rsplit(".", 1)[-1])
                 return (country or "en") == language
             sites = [site for site in sites if fits(site)] + [site for site in sites if not fits(site)]
-        sites = sites[:80]  # the busiest 80 of the kind (with the LNReader sites the page reads, ~180)
+        from noveldb.core.catalog.search_ranking import ranked
+        sites = ranked(sites, automatic=not only)[:50 if only else 12]
         self._top_sites = sites
         engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
 
