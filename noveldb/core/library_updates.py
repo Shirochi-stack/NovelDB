@@ -78,3 +78,4 @@ def replace_epub(candidate, target):
     if not after or len(after) < len(before):
         raise ValueError("The refreshed EPUB has fewer chapters than the saved book")
     os.replace(candidate, target)
+    return len(after)

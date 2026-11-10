@@ -3,12 +3,13 @@ import Darwin
 import ZIPFoundation
 
 public enum LibraryEpub {
-    public static func replace(_ candidate: URL, target: URL) throws {
+    @discardableResult public static func replace(_ candidate: URL, target: URL) throws -> Int {
         let count = try chapters(candidate)
         guard count > 0, count >= (try chapters(target)) else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "The refreshed EPUB has fewer chapters than the saved book"])
         }
         guard rename(candidate.path, target.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return count
     }
 
     private static func chapters(_ file: URL) throws -> Int {

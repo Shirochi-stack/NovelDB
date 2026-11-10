@@ -41,7 +41,7 @@ SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_ind
 MESSAGE_TYPES = ("genericReady", "genericReaderStop", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
-                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace")
+                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -246,7 +246,7 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
         data["queries"] = queries
         data["query"], data["mode"] = queries[0]["query"], queries[0]["mode"]
-    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter") and not isinstance(data.get("id"), int):
+    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive") and not isinstance(data.get("id"), int):
         return None
     if kind == "genericFetch":
         request = data.get("request")
@@ -257,6 +257,10 @@ def parse_message(data: dict) -> Optional[dict]:
     if kind == "genericLogin" and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
     if kind in ("genericBook", "genericChapter") and not str(data.get("url", "")).startswith(("http://", "https://", "file:")):
+        return None
+    if kind == "genericLibraryLive" and (not str(data.get("url", "")).startswith("file:")
+            or not isinstance(data.get("after", 0), int) or not isinstance(data.get("session", ""), str)
+            or ("key" in data and not isinstance(data["key"], str))):
         return None
     if kind == "genericLocalPlace" and not (str(data.get("url", "")).startswith("file:") and isinstance(data.get("chapter"), int)
                                             and isinstance(data.get("at"), (int, float))):
@@ -541,6 +545,12 @@ class GenericCatalog(QObject):
         if data is None:
             return False
         kind = data["type"]
+        if kind == "genericLibraryLive":
+            if self._in_library(data["url"]):
+                self._background(self._live_reply, data)
+            else:
+                self._fetched.emit(data["id"], {})
+            return True
         if kind == "genericReady":
             self.init_page()
         elif kind == "genericSearch":
@@ -881,6 +891,11 @@ class GenericCatalog(QObject):
 
     def refresh_local(self, path: Path) -> None:
         self._call("refreshLocal", Path(path).resolve().as_uri())
+
+    def _live_reply(self, data):
+        result = self.library_live.query(data["url"], data.get("session", ""), data.get("after", 0), data.get("key")) \
+            if getattr(self, "library_live", None) is not None else {}
+        self._fetched.emit(data["id"], result)
 
     def _note(self, text: str) -> None:
         """A progress note for the reader request this thread is answering, if any."""

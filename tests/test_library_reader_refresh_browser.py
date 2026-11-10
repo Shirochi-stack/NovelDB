@@ -94,7 +94,7 @@ def test_live_contents_refresh_preserves_current_text_page_and_position(browser,
         chapters = [{"name": "One"}, {"name": "Two"}, {"name": "Three"}]
         if inserted:
             chapters = [{"name": "Inserted"}, {"name": "One"}, {"name": "Two"}]
-        page.evaluate("chapters=>NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericBook').pop().id,{chapters})", chapters)
+        page.evaluate("chapters=>NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericLibraryLive').pop().id,{session:'job',version:1,chapters:chapters.map((c,i)=>({...c,key:String(i),identity:c.name})),states:[]})", chapters)
         page.wait_for_timeout(150)
         assert page.locator("#flow p").first.inner_html() == before
         after = page.locator("#viewport").evaluate("e=>e.scrollTop") if layout == "scroll" else page.locator("#rWhere").inner_text()
@@ -104,7 +104,7 @@ def test_live_contents_refresh_preserves_current_text_page_and_position(browser,
         page.click("#rToc")
         page.evaluate("NovelDBGeneric.refreshLocal('file:///library/book.epub')")
         page.click("#rClose")
-        page.evaluate("NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericBook').pop().id,{chapters:[{name:'One'}]})")
+        page.evaluate("NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericLibraryLive').pop().id,{session:'job',version:2,states:[]})")
         page.wait_for_timeout(50)
         assert "open" not in (page.locator("#reader").get_attribute("class") or "")
         assert not page.evaluate("NovelDBGeneric.refreshLocal('file:///library/book.epub')")
@@ -112,7 +112,7 @@ def test_live_contents_refresh_preserves_current_text_page_and_position(browser,
 
 @pytest.mark.parametrize("assets", MOBILE, ids=["android", "ios"])
 @pytest.mark.parametrize("early", [False, True])
-def test_live_refresh_reads_replaced_epub_without_reopening_reader(browser, assets, tmp_path, early):
+def test_mobile_live_metadata_arrives_without_rereading_epub(browser, assets, tmp_path, early):
     def encoded(path, count):
         epub(path, count)
         with ZipFile(path) as archive:
@@ -136,6 +136,7 @@ def test_live_refresh_reads_replaced_epub_without_reopening_reader(browser, asse
         page.route("**/*", serve)
         page.add_init_script("""window.fileReads=0;
             window.NovelDBTransport=request=>{
+                if(request.op==='libraryLive')return Promise.resolve(window.liveInfo||{});
                 if(request.op!=='file')return Promise.resolve({skip:true});
                 ++fileReads;
                 if(window.holdFirst && fileReads===1)return new Promise(resolve=>window.releaseFile=resolve);
@@ -146,7 +147,7 @@ def test_live_refresh_reads_replaced_epub_without_reopening_reader(browser, asse
         page.evaluate("NovelDBGeneric.readLocal({url:'file:///library/book.epub',title:'Book'})")
         if early:
             page.wait_for_function("!!window.releaseFile")
-            page.evaluate("bytes=>window.fileBytes=bytes", updated)
+            page.evaluate("bytes=>{window.fileBytes=bytes;window.liveInfo={session:'job',version:1,chapters:[1,2,3].map(i=>({name:'Part '+i,key:String(i-1),identity:String(i)})),states:[]}}", updated)
             assert page.evaluate("NovelDBGeneric.refreshLocal('file:///library/book.epub')")
             page.evaluate("bytes=>releaseFile({responseBase64:bytes})", original)
         else:
@@ -154,7 +155,7 @@ def test_live_refresh_reads_replaced_epub_without_reopening_reader(browser, asse
             page.click("#rNext")
             before = page.locator("#flow").inner_html()
             position = page.locator("#rWhere").inner_text()
-            page.evaluate("bytes=>window.fileBytes=bytes", updated)
+            page.evaluate("bytes=>{window.fileBytes=bytes;window.liveInfo={session:'job',version:1,chapters:[1,2,3].map(i=>({name:'Part '+i,key:String(i-1),identity:String(i)})),states:[]}}", updated)
             assert page.evaluate("NovelDBGeneric.refreshLocal('file:///library/book.epub')")
         page.wait_for_function("document.getElementById('rChapterNo').textContent==='Chapter 1 of 3'")
         if not early:
@@ -162,7 +163,7 @@ def test_live_refresh_reads_replaced_epub_without_reopening_reader(browser, asse
             assert page.locator("#rWhere").inner_text() == position
         page.click("#rToc")
         assert page.locator("#tocList [data-chapter]").count() == 3
-        assert page.evaluate("fileReads") == 2
+        assert page.evaluate("fileReads") == 1
 
 
 @pytest.mark.parametrize("assets", [DESKTOP, *MOBILE], ids=["desktop", "android", "ios"])
@@ -180,8 +181,10 @@ def test_chapter_chosen_during_refresh_follows_its_name_after_insertion(browser,
         page.click("#rToc")
         page.click('#tocList [data-chapter="1"]')
         assert "Saved chapter One." in page.locator("#flow").inner_text()
-        page.evaluate("NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericBook').pop().id,{chapters:[{name:'Inserted'},{name:'One'},{name:'Two'}]})")
-        page.wait_for_function("calls.some(m=>m.type==='genericChapter' && m.index===2)")
-        page.evaluate("NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericChapter' && m.index===2).pop().id,{html:'<p>Chapter Two.</p>'})")
+        page.evaluate("NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericLibraryLive').pop().id,{session:'job',version:1,chapters:['Inserted','One','Two'].map((name,i)=>({name,key:String(i),identity:name})),states:[]})")
+        page.wait_for_function("calls.some(m=>m.type==='genericChapter' && m.index===1)")
+        page.evaluate("NovelDBGeneric.fetched(calls.find(m=>m.type==='genericChapter' && m.index===1).id,{html:'<p>Chapter Two.</p>'})")
+        page.wait_for_function("calls.filter(m=>m.type==='genericChapter' && m.index===1).length>=2")
+        page.evaluate("NovelDBGeneric.fetched(calls.filter(m=>m.type==='genericChapter' && m.index===1).pop().id,{html:'<p>Chapter Two.</p>'})")
         page.wait_for_function("document.getElementById('flow').textContent.includes('Chapter Two.')")
         assert page.locator("#rChapterNo").inner_text() == "Chapter 3 of 3"

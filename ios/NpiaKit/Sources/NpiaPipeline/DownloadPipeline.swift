@@ -144,6 +144,8 @@ public struct DownloadPipeline: Sendable {
     public var logger: any JobLogging
     /// The pause before the first retry pass over failed chapters; later passes wait longer.
     public var retryPause: TimeInterval = 5
+    public var onBook: (@Sendable ([ChapterRef]) -> Void)?
+    public var onChapter: (@Sendable (ChapterResult) -> Void)?
 
     /// At most this many retry passes over failed chapters (fewer when Retries is set lower).
     public static let maxRetryPasses = 3
@@ -189,6 +191,7 @@ public struct DownloadPipeline: Sendable {
         if source == .npia, settings.npia.includeNotices {
             selected = book.notices + selected
         }
+        onBook?(selected)
         onPhase(.fetchingChapters(done: 0, total: selected.count))
         let chapterRun = chapterContext(context, total: selected.count, onPhase: onPhase)
         var results = try await adapter.parseChapters(selected, book: book, context: chapterRun)
@@ -332,6 +335,7 @@ public struct DownloadPipeline: Sendable {
         let timings = ChapterTimings()
         context.onChapterTiming = { ref, seconds in timings.record(ref.id, seconds) }
         context.onChapter = { result in
+            onChapter?(result)
             let elapsed = timings.take(result.ref.id)
             let suffix = base.settings.shared.chapterTiming ? elapsed.map { String(format: " (%.2f s)", $0) } ?? "" : ""
             let label = "Chapter " + String(result.ref.index) + ": " + result.ref.title + suffix

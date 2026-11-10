@@ -29,10 +29,19 @@ from noveldb.qt.bridge import QtEventHub, QtJobEvents, QtPrompts
 class RunnerJobEvents(QtJobEvents):
     """Job events that also keep the queue's `Job` (progress, status, title) current."""
 
-    def __init__(self, hub: QtEventHub, runner: QueueRunner, job: Job) -> None:
+    def __init__(self, hub: QtEventHub, runner: QueueRunner, job: Job, live=None) -> None:
         super().__init__(hub, job.id)
         self.runner = runner
         self.job = job
+        self.live = live
+
+    def live_book(self, chapters):
+        if self.live is not None:
+            self.live.book(chapters)
+
+    def live_chapter(self, index, html, images=(), error=""):
+        if self.live is not None:
+            self.live.chapter(index, html, images, error)
 
     def status(self, text):
         super().status(text)
@@ -76,6 +85,9 @@ class AppContext(QObject):
         self._uploadLinksReady.connect(self._copy_upload_links)
         net_timeouts.configure_from(self.settings)
         self.hub = QtEventHub()
+        from noveldb.core.library_live import LibraryLive
+        self.library_live = LibraryLive()
+        self._live_jobs = {}
         self.prompts = QtPrompts()
         self.signed_in = False
         self._save_timer = QTimer(self)
@@ -219,7 +231,7 @@ class AppContext(QObject):
     # -- queue ---------------------------------------------------------------------
 
     def _events_for(self, job: Job) -> QtJobEvents:
-        return RunnerJobEvents(self.hub, self.runner, job)
+        return RunnerJobEvents(self.hub, self.runner, job, self._live_jobs.get(job.id))
 
     def enqueue_text(self, text: str, output_dir: str = "") -> list[Job]:
         jobs = []
@@ -234,9 +246,14 @@ class AppContext(QObject):
     def _execute_job(self, job: Job, token: CancelToken) -> dict:
         started = perf_counter()
         timing = self.settings.shared.chapter_timing
+        if job.library_target:
+            self._live_jobs[job.id] = self.library_live.begin(job.library_target, job.input)
         try:
             return self._download_and_upload(job, token)
         finally:
+            live = self._live_jobs.pop(job.id, None)
+            if live is not None:
+                live.finish()
             if timing:
                 self.hub.log(job.id, f"Total time: {perf_counter() - started:.2f} s")
 
@@ -370,8 +387,11 @@ class AppContext(QObject):
                 return {"cancelled": True}
             if not result.get("ok", True) or result.get("warnings") or result.get("incomplete") or len(candidates) != 1:
                 raise ValueError("Library refresh did not produce a complete EPUB. See the download log.")
-            replace_epub(candidates[0], target)
+            spine_count = replace_epub(candidates[0], target)
         result.update(outputs=[str(target)], status="Library updated")
+        live = self._live_jobs.get(job.id)
+        if live is not None:
+            live.finish(saved=True, spine_count=spine_count)
         self.hub.jobSaved.emit(job.id, str(target))
         if self.library_updates.data["uploadDrive"]:
             from noveldb.core.upload.google_drive import GoogleDriveUploader
@@ -433,3 +453,4 @@ class AppContext(QObject):
         if self.reader_browser is not None:
             self.reader_browser.shutdown()
         self.save_now()
+        self.library_live.close()

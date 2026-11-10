@@ -33,7 +33,7 @@ fun librarySourceKey(url: String, source: SourceId? = null): String {
     }.getOrDefault(url)
 }
 
-fun replaceLibraryEpub(candidate: File, target: File) {
+fun replaceLibraryEpub(candidate: File, target: File): Int {
     fun chapters(file: File): Int = ZipFile(file).use { zip ->
         val container = zip.getInputStream(zip.getEntry("META-INF/container.xml")).reader().readText()
         val opf = Regex("full-path=[\"']([^\"']+)").find(container)?.groupValues?.get(1) ?: error("Invalid EPUB container")
@@ -43,4 +43,5 @@ fun replaceLibraryEpub(candidate: File, target: File) {
     val count = chapters(candidate)
     require(count > 0 && count >= chapters(target)) { "The refreshed EPUB has fewer chapters than the saved book" }
     Files.move(candidate.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+    return count
 }

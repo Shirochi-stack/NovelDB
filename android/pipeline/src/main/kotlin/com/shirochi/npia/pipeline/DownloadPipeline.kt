@@ -93,6 +93,8 @@ class DownloadPipeline(
     private val currentUploadSettings: (() -> UploadSettings)? = null,
     private val uploadContextFactory: (UploadSettings) -> UploadContext = { UploadContext(secrets, it) },
     private val generateOnStop: (() -> Boolean)? = null,
+    private val onBook: ((List<ChapterRef>) -> Unit)? = null,
+    private val onChapter: ((ChapterResult) -> Unit)? = null,
 ) {
     suspend fun run(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit = {}): JobOutcome {
         // Image bytes wait in files until the book is written (see ImageStore).
@@ -135,6 +137,7 @@ class DownloadPipeline(
         if (owner.id != adapter.id) logger.log(LogLevel.INFO, "Book read by the ${owner.id.raw} engine")
         var selected = select(book.chapters, shared)
         if (owner.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
+        onBook?.invoke(selected)
         val range = listOfNotNull(shared.rangeFrom?.let { "from $it" }, shared.rangeTo?.let { "to $it" }).joinToString(" ")
         logger.log(
             LogLevel.INFO,
@@ -401,6 +404,12 @@ class DownloadPipeline(
             onChapterStarted = { ref -> if (base.settings.shared.chapterTiming) starts[ref.id] = System.nanoTime() },
             keep = store::keep, onChapter = { result ->
             onResult(result)
+            onChapter?.let { publish ->
+                val live = if (result is ChapterResult.Content) ChapterResult.Content(result.content.copy(
+                    images = result.content.images.map { it.copy(data = it.data ?: store.held(it.filename)) }
+                )) else result
+                publish(live)
+            }
             val elapsed = starts.remove(result.ref.id)?.let { " (${durationText((System.nanoTime() - it) / 1_000_000)})" }.orEmpty()
             val label = "Chapter ${result.ref.index}: ${result.ref.title}$elapsed"
             when (result) {

@@ -408,6 +408,7 @@ class CatalogPage(QWidget):
         from noveldb.qt.pages.library import library_folder
 
         self.generic.library_folder = lambda: library_folder(self.context)
+        self.generic.library_live = self.context.library_live
         from noveldb.qt.theme import web_theme
 
         self.generic.theme = lambda: web_theme(self.context.settings.ui.theme, self.context.settings.ui.accent)

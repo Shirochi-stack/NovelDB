@@ -309,7 +309,11 @@ final class AppModel {
         log(id, .info, "Starting \(job.url.absoluteString)")
         let jobDirectory = job.libraryTarget == nil ? outputDirectory : outputDirectory.appendingPathComponent(".library-update-\(id)", isDirectory: true)
         if job.libraryTarget != nil { try? FileManager.default.createDirectory(at: jobDirectory, withIntermediateDirectories: true) }
-        let pipeline = DownloadPipeline(web: web, secrets: secrets, outputDirectory: jobDirectory, logger: logger)
+        let live = job.libraryTarget.map { LibraryLive.begin(outputDirectory.appendingPathComponent($0), referer: job.url.absoluteString) }
+        var configuredPipeline = DownloadPipeline(web: web, secrets: secrets, outputDirectory: jobDirectory, logger: logger)
+        configuredPipeline.onBook = { live?.book($0) }
+        configuredPipeline.onChapter = { live?.chapter($0) }
+        let pipeline = configuredPipeline
         background.jobStarted(id, title: job.displayTitle) { [weak self] in self?.cancel(id) }
 
         // Uploading publishes a link, so automatic uploads wait for the sharing agreement too.
@@ -321,7 +325,10 @@ final class AppModel {
         let runSettings = adjusted
 
         tasks[id] = Task { [weak self] in
-            defer { if job.libraryTarget != nil { try? FileManager.default.removeItem(at: jobDirectory) } }
+            defer {
+                live?.finish()
+                if job.libraryTarget != nil { try? FileManager.default.removeItem(at: jobDirectory) }
+            }
             var success = false
             do {
                 var outcome = try await pipeline.run(url: job.url, settings: runSettings) { phase in
@@ -482,7 +489,8 @@ final class AppModel {
         guard outcome.skipped.isEmpty, let candidate = outcome.files.first(where: { $0.pathExtension.lowercased() == "epub" }) else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "Library refresh was incomplete. The saved EPUB was preserved."])
         }
-        try LibraryEpub.replace(candidate, target: target)
+        let spineCount = try LibraryEpub.replace(candidate, target: target)
+        LibraryLive.saved(target, spineCount: spineCount)
         EpubCover.invalidate(target)
         libraryRevisions[target.lastPathComponent, default: 0] += 1
         var updated = outcome

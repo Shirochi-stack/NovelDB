@@ -99,6 +99,8 @@ class JobEvents:
     def book_info(self, info: dict) -> None: ...
     def saved(self, path: str) -> None: ...
     def finished(self, result: dict) -> None: ...
+    def live_book(self, chapters: list) -> None: ...
+    def live_chapter(self, index: int, html: str, images=(), error="") -> None: ...
 
 
 class CallbackEvents(JobEvents):
@@ -132,6 +134,12 @@ class CallbackEvents(JobEvents):
 
     def finished(self, result):
         self._call("finished", result)
+
+    def live_book(self, chapters):
+        self._call("live_book", chapters)
+
+    def live_chapter(self, index, html, images=(), error=""):
+        self._call("live_chapter", index, html, images, error)
 
 
 class Prompts:

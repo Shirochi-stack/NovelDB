@@ -373,7 +373,7 @@ class LibraryPage(QWidget):
 
         # The Library's own views: the shelf, a book's page, and the reader (all from the files themselves).
         self.book_view = BookView()
-        self.reader = LocalBookReader()
+        self.reader = LocalBookReader(context.library_live)
         self.views = QStackedWidget()
         for view in (shelf, self.book_view, self.reader):
             self.views.addWidget(view)

@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import posixpath
 import re
+import unicodedata
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Optional
 
@@ -259,8 +261,12 @@ class LocalBookReader(QWidget):
 
     back = Signal()
 
-    def __init__(self) -> None:
+    def __init__(self, live=None) -> None:
         super().__init__()
+        self.live = live
+        self.live_session = ""
+        self.live_version = 0
+        self.saved_chapters = []
         self.book = None
         self.file: Optional[Path] = None
         self.chapters = []
@@ -337,11 +343,17 @@ class LocalBookReader(QWidget):
         layout.addLayout(bottom)
         self._remember = QTimer(self, singleShot=True, interval=600)
         self._remember.timeout.connect(self._save)
+        self._live_timer = QTimer(self, interval=1000)
+        self._live_timer.timeout.connect(self.poll_live)
+        self._live_timer.start()
         self._apply_look()
 
     def open_book(self, book, contents: dict, start: int = -1) -> None:
         self.book = book
         self.file = book.readable().path
+        self.live_session = ""
+        self.live_version = 0
+        self.saved_chapters = contents.get("chapters", [])
         self.page.epub = self.file if self.file.suffix.lower() == ".epub" else None
         self._set_chapters(contents.get("chapters", []))
         place = _places().get(str(self.file), {})
@@ -349,6 +361,73 @@ class LocalBookReader(QWidget):
         if start < 0:
             start, at = int(place.get("chapter", 0)), float(place.get("at", 0.0))
         self.open_chapter(min(max(0, start), max(0, len(self.chapters) - 1)), at)
+        self.poll_live()
+
+    @staticmethod
+    def _live_title(name):
+        text = unicodedata.normalize("NFKC", str(name))
+        return " ".join(re.sub(r"^(?:chapter\s*\d+\s*[:.\-]?\s*|\d+\s*[.)、]\s*)", "", text, flags=re.I).split())
+
+    @staticmethod
+    def _available(chapter):
+        return bool("live_key" not in chapter or chapter.get("ready") or "href" in chapter or "text" in chapter or chapter.get("previous"))
+
+    def poll_live(self) -> None:
+        if self.live is None or self.file is None or not self.isVisible() or not self.chapters:
+            return
+        data = self.live.query(self.file.resolve().as_uri(), self.live_session, self.live_version)
+        if not data.get("session"):
+            return
+        changed = False
+        fresh = data.get("chapters")
+        if fresh:
+            current = self.chapters[self.index]
+            old = {c.get("identity"): c for c in self.chapters if c.get("identity")}
+            names = defaultdict(deque)
+            for index, chapter in enumerate(self.saved_chapters):
+                names[self._live_title(chapter["name"])].append(index)
+            indices = []
+            for chapter in fresh:
+                matches = names[self._live_title(chapter["name"])]
+                indices.append(matches.popleft() if matches else -1)
+            first = min((i for i in indices if i >= 0), default=0)
+            chapters = [dict(c, local_index=i) for i, c in enumerate(self.saved_chapters[:first])]
+            for ref, local in zip(fresh, indices):
+                chapter = dict(self.saved_chapters[local]) if local >= 0 else {}
+                earlier = old.get(ref["identity"], {})
+                previous = (self.live_session, earlier["live_key"]) if earlier.get("ready") else earlier.get("previous")
+                chapter.update(name=ref["name"], identity=ref["identity"], live_key=ref["key"],
+                               local_index=local, ready=False, previous=previous)
+                chapters.append(chapter)
+            local = current.get("local_index", self.index if "live_key" not in current else -1)
+            if current.get("identity"):
+                index = next((i for i, c in enumerate(chapters) if c.get("identity") == current["identity"]), -1)
+            else:
+                index = next((i for i, c in enumerate(chapters) if c.get("local_index") == local), -1)
+            if index < 0:
+                chapters.insert(0, current)
+                index = 0
+            self.chapters = chapters
+            self.index = index
+            self.live_session = data["session"]
+            changed = True
+        if self.live_session != data["session"]:
+            return
+        by_key = {c["live_key"]: c for c in self.chapters if "live_key" in c}
+        for state in data.get("states", []):
+            chapter = by_key.get(state["key"])
+            if chapter is not None and chapter.get("ready") != (state["state"] == "ready"):
+                chapter["ready"] = state["state"] == "ready"
+                changed = True
+        self.live_version = data["version"]
+        if changed:
+            self._set_chapters(self.chapters)
+            self.toc.blockSignals(True)
+            self.toc.setCurrentRow(self.index)
+            self.toc.blockSignals(False)
+            self.where.setText(f"Chapter {self.index + 1} of {len(self.chapters)}")
+            self.previous.setEnabled(self.index > 0 and self._available(self.chapters[self.index - 1]))
+            self.next.setEnabled(self.index + 1 < len(self.chapters) and self._available(self.chapters[self.index + 1]))
 
     def _set_chapters(self, chapters) -> None:
         self.chapters = chapters
@@ -364,10 +443,16 @@ class LocalBookReader(QWidget):
                 shown += 1
                 item = QListWidgetItem(f"{shown}.  {name}")
             item.setToolTip(name)
+            if not self._available(chapter):
+                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                item.setToolTip("Not downloaded yet")
             self.toc.addItem(item)
         self.toc.blockSignals(False)
 
     def refresh_contents(self, contents) -> None:
+        self.poll_live()
+        if self.live_session:
+            return
         chapters = contents.get("chapters", [])
         if not chapters or not self.chapters:
             return
@@ -390,12 +475,22 @@ class LocalBookReader(QWidget):
     def open_chapter(self, index: int, at: float = 0.0) -> None:
         if not (0 <= index < len(self.chapters)):
             return
-        self.index = index
         chapter = self.chapters[index]
+        if not self._available(chapter):
+            return
         try:
-            html, folder = library.chapter_source(self.file, chapter["href"]) if "href" in chapter else ("", "")
+            html, folder = "", ""
+            if chapter.get("ready") or chapter.get("previous"):
+                session, key = (self.live_session, chapter["live_key"]) if chapter.get("ready") else chapter["previous"]
+                result = self.live.query(self.file.resolve().as_uri(), session, key=key)
+                html = result.get("html", "")
+            if not html and "href" in chapter:
+                html, folder = library.chapter_source(self.file, chapter["href"])
+            if "live_key" in chapter and not html:
+                return
         except Exception as e:
             html, folder = f"<p>This chapter could not be read: {e}</p>", ""
+        self.index = index
         self.page.folder = folder
         if "text" in chapter:
             self.page.setPlainText(chapter["text"])
@@ -407,7 +502,7 @@ class LocalBookReader(QWidget):
         self.title.setText(f"{self.book.title} · {chapter['name']}")
         self.where.setText(f"Chapter {index + 1} of {len(self.chapters)}")
         self.previous.setEnabled(index > 0)
-        self.next.setEnabled(index + 1 < len(self.chapters))
+        self.next.setEnabled(index + 1 < len(self.chapters) and self._available(self.chapters[index + 1]))
         bar = self.page.verticalScrollBar()
         QTimer.singleShot(0, lambda: bar.setValue(int(at * bar.maximum())))
         self._remember_soon()
@@ -466,7 +561,9 @@ class LocalBookReader(QWidget):
         if self.file is None:
             return
         bar = self.page.verticalScrollBar()
-        _save_place(str(self.file), self.index, bar.value() / bar.maximum() if bar.maximum() else 0.0)
+        chapter = self.chapters[self.index] if self.chapters else {}
+        index = chapter.get("local_index", self.index)
+        _save_place(str(self.file), index if index >= 0 else self.index, bar.value() / bar.maximum() if bar.maximum() else 0.0)
 
     def _leave(self) -> None:
         self._save()

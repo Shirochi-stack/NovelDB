@@ -2726,7 +2726,7 @@
             .map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('');
     }
 
-    var localRefresh = {url: '', busy: false};
+    var localRefresh = {busy: false, pending: null};
     function openReader(group, sourceIndex) {
         var reader = $('reader');
         if (R.group) send({type: 'genericReaderStop'});  // stop the previous reader request, including on source changes
@@ -2736,7 +2736,12 @@
         R.comicPick = '';
         R.comicKind = '';
         R.token++;
-        localRefresh = {url: '', busy: false};
+        localRefresh = {busy: false, pending: null};
+        clearInterval(R.liveTimer);
+        R.live = null;
+        reader.classList.remove('library-live');
+        R.savedChapters = null;
+        R.navigation = 0;
         R.chapterVersion = 0;
         R.cache = new Map();
         R.chapterIds = new Map();
@@ -2773,6 +2778,10 @@
         $('rBook').textContent = group.title;
         $('rChapter').textContent = '';
         tryBook(group, sourceIndex || 0, R.token, []);
+        if (group.sources[0] && group.sources[0].source === 'local') {
+            R.liveTimer = setInterval(pollLibraryLive, 1000);
+            pollLibraryLive();
+        }
     }
     // A chapter's pages are streaming in (on screen): notes go to the bottom bar, not over them. No chapter
     // yet (a book just opened: both -1) is not streaming.
@@ -2848,6 +2857,7 @@
                 R.source = source;
                 if (more) R.chapters = R.chapters.concat(book.chapters);
                 else if (book.chapters) R.chapters = book.chapters;
+                if (source.source === 'local' && book.chapters && !more) R.savedChapters = book.chapters.slice();
                 if (book.lnreader) R.lnreader = book.lnreader;
                 R.tocLoading = more;
                 R.tocError = !!book.error;
@@ -2948,11 +2958,11 @@
     }
     function loadChapter(index) {
         if (R.cache.has(index)) return R.cache.get(index);
-        var source = R.source, token = R.token, version = R.chapterVersion, chapterName = R.chapters[index].name, promise;
+        var source = R.source, token = R.token, version = R.chapterVersion, item = R.chapters[index], chapterName = item.name, promise;
         // The app-side reader uses the Catalog's hidden browser and, if necessary, the downloader's
         // saved browser session.  It is also the recovery path when an LNReader request hits Cloudflare.
         var appChapter = function (recovery) {
-            return askAlive({type: 'genericChapter', url: source.url, index: index, recovery: recovery || null}, 90,
+            return askAlive({type: 'genericChapter', url: source.url, index: item.localIndex >= 0 ? item.localIndex : index, recovery: recovery || null}, 90,
                              function (id) { R.chapterIds.set(index, id); });
         };
         var protectedChapter = function (item) {
@@ -2978,7 +2988,11 @@
                     : {error: (reply && reply.error) || 'the hidden browser found no chapter text'};
             }, function (error) { return {error: String(error)}; });
         };
-        if (R.lnreader && /^https?:\/\/(?:www\.)?fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com\//i.test(source.url || '')) {
+        if (R.live && item.liveKey && (item.ready || item.previous)) {
+            var liveSource = item.ready ? {session: R.live.session, key: item.liveKey} : item.previous;
+            promise = askAlive({type: 'genericLibraryLive', url: source.url, session: liveSource.session, key: liveSource.key}, 90)
+                .then(function (result) { return result && !result.error ? result : item.localIndex >= 0 ? appChapter() : result; });
+        } else if (R.lnreader && /^https?:\/\/(?:www\.)?fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com\//i.test(source.url || '')) {
             // The chapter needs the app's browser session even when the plugin can read the TOC.
             promise = protectedChapter(R.lnreader.chapters[index]);
         } else if (R.lnreader) {
@@ -3008,7 +3022,7 @@
                 return {error: (result && result.error) || 'the chapter could not be read', blocked: !!(result && result.blocked),
                         message: result && result.message};
             }
-            var html = result.html || result.contentHtml ? clean(result.html || result.contentHtml, source.url) : '';
+            var html = result.html || result.contentHtml ? clean(result.html || result.contentHtml, result.imageReferer || source.url) : '';
             if (!html.replace(/<[^>]+>/g, '').trim() && html.indexOf('<img') < 0) html = textHtml(result.text || result.contentText);
             R.done.add(index);
             R.pagesFor.delete(index);  // its pages are in its HTML now (no second copy kept)
@@ -3026,54 +3040,112 @@
         var same = function (chapter) { return chapter && chapter.name === current.name && (chapter.section || '') === (current.section || ''); };
         return same(chapters[preferred]) ? preferred : chapters.findIndex(same);
     }
+    function chapterAvailable(chapter) {
+        return !!chapter && (!chapter.liveKey || chapter.ready || chapter.localIndex >= 0 || !!chapter.previous);
+    }
+    function liveTitle(name) {
+        return String(name || '').normalize('NFKC').replace(/^(?:chapter\s*\d+\s*[:.\-]?\s*|\d+\s*[.)、]\s*)/i, '')
+            .replace(/\s+/g, ' ').trim();
+    }
+    function liveLocalIndices(saved, fresh) {
+        var names = new Map();
+        saved.forEach(function (chapter, index) {
+            var name = liveTitle(chapter.name);
+            if (!names.has(name)) names.set(name, []);
+            names.get(name).push(index);
+        });
+        return fresh.map(function (chapter) {
+            var matches = names.get(liveTitle(chapter.name));
+            return matches && matches.length ? matches.shift() : -1;
+        });
+    }
+    function applyLibraryLive(data) {
+        if (!data || !data.session || !R.savedChapters || !R.done.has(R.index)) return false;
+        var changed = false, before = R.index, current = R.chapters[before], kept = R.cache.get(before);
+        if (Array.isArray(data.chapters) && data.chapters.length) {
+            var previous = R.live, old = new Map();
+            R.chapters.forEach(function (chapter) { if (chapter.identity) old.set(chapter.identity, chapter); });
+            var indices = liveLocalIndices(R.savedChapters, data.chapters);
+            var matched = indices.filter(function (index) { return index >= 0; });
+            var first = matched.length ? Math.min.apply(null, matched) : 0;
+            var chapters = R.savedChapters.slice(0, first).map(function (chapter, index) {
+                return Object.assign({}, chapter, {localIndex: index});
+            });
+            data.chapters.forEach(function (chapter, index) {
+                var earlier = old.get(chapter.identity), fallback = null;
+                if (earlier && previous) fallback = earlier.ready ? {session: previous.session, key: earlier.liveKey} : earlier.previous;
+                chapters.push({name: chapter.name, identity: chapter.identity, liveKey: String(chapter.key),
+                    localIndex: indices[index], ready: false, previous: fallback});
+            });
+            var currentLocal = current.localIndex >= 0 ? current.localIndex : !current.liveKey ? before : -1;
+            var next = chapters.findIndex(function (chapter) {
+                return current.identity ? chapter.identity === current.identity
+                    : currentLocal >= 0 && chapter.localIndex === currentLocal;
+            });
+            if (next < 0) next = matchingChapter(chapters, current, before);
+            // Keep an older chapter readable if the source removed it during this update.
+            if (next < 0) { chapters.unshift(Object.assign({}, current, {localIndex: currentLocal})); next = 0; }
+            R.chapterVersion++;
+            R.chapters = chapters;
+            R.index = next;
+            R.cache = new Map();
+            if (kept) R.cache.set(next, kept);
+            R.done = new Set([next]);
+            R.chapterIds.clear(); R.pagesFor.clear();
+            if (R.slotsIndex === before) R.slotsIndex = next;
+            R.live = {session: data.session, version: 0};
+            $('reader').classList.add('library-live');
+            changed = true;
+        }
+        if (!R.live || R.live.session !== data.session) return false;
+        var byKey = new Map();
+        R.chapters.forEach(function (chapter, index) { if (chapter.liveKey) byKey.set(chapter.liveKey, index); });
+        (data.states || []).forEach(function (state) {
+            var index = byKey.get(String(state.key));
+            if (index === undefined) return;
+            var chapter = R.chapters[index], ready = state.state === 'ready';
+            if (chapter.ready !== ready) {
+                chapter.ready = ready;
+                R.cache.delete(index);
+                if (index !== R.index) R.done.delete(index);
+                changed = true;
+            }
+        });
+        R.live.version = data.version;
+        if (changed) {
+            chapterNumber();
+            if ($('toc').classList.contains('open')) drawToc(false);
+            if ($('rNextChapter')) $('rNextChapter').disabled = !chapterAvailable(R.chapters[R.index + 1]);
+            place();
+            readAhead();
+        }
+        if (data.saved && typeof data.savedOffset === 'number') {
+            R.chapters.forEach(function (chapter) {
+                if (chapter.liveKey) chapter.localIndex = Number(chapter.liveKey) + data.savedOffset;
+            });
+        }
+        return true;
+    }
+    function pollLibraryLive() {
+        var monitor = localRefresh, source = R.group && R.group.sources[0];
+        if (!source || source.source !== 'local' || monitor.busy || !$('reader').classList.contains('open') || readerPausedAt !== null) return;
+        monitor.busy = true;
+        var token = R.token;
+        askAlive({type: 'genericLibraryLive', url: source.url, session: R.live ? R.live.session : '',
+                  after: R.live ? R.live.version : 0}, 5).then(function (data) {
+            if (token !== R.token || monitor !== localRefresh) return;
+            if (data && data.session && !applyLibraryLive(data)) monitor.pending = data;
+        }).catch(function () {}).then(function () { if (monitor === localRefresh) monitor.busy = false; });
+    }
     function refreshLocal(url) {
         var source = R.group && R.group.sources[0];
         if (!$('reader').classList.contains('open') || !source || source.source !== 'local' || key(source.url) !== key(url)) return false;
-        var refresh = localRefresh;
-        refresh.url = url;
-        // Opening the saved book and turning chapters take priority over updating its contents list.
-        if (refresh.busy || !R.source || R.index < 0 || !R.done.has(R.index)) return true;
-        refresh.url = '';
-        refresh.busy = true;
-        var token = R.token;
-        askAlive({type: 'genericBook', url: url}, 90).then(function (book) {
-            if (token !== R.token || localRefresh !== refresh || !Array.isArray(book && book.chapters) || !book.chapters.length || book.error) return;
-            if (!R.done.has(R.index)) { refresh.url = url; return; }
-            var current = R.chapters[R.index], before = R.index, at = readingAt();
-            var index = matchingChapter(book.chapters, current, before);
-            var kept = R.cache.get(before);
-            R.chapterVersion++;  // Earlier read-ahead responses belong to the previous chapter list.
-            R.chapters = book.chapters;
-            R.cache = new Map();
-            R.done = new Set();
-            R.chapterIds.clear();
-            R.pagesFor.clear();
-            if (index < 0) {
-                R.slotsIndex = -1;
-                openChapter(Math.min(before, R.chapters.length - 1), at);
-            } else {
-                R.index = index;
-                if (kept) R.cache.set(index, kept);
-                R.done.add(index);
-                if (R.slotsIndex === before) R.slotsIndex = index;
-                chapterNumber();
-                if (layout() === 'scroll') nextChapterButton(index);
-                place();
-                readAhead();
-            }
-            if ($('toc').classList.contains('open')) drawToc(false);
-        }).catch(function () {}).then(function () {
-            if (localRefresh !== refresh || token !== R.token) return;
-            refresh.busy = false;
-            if (refresh.turn) {
-                var turn = refresh.turn;
-                refresh.turn = null;
-                var index = matchingChapter(R.chapters, turn.chapter, turn.index);
-                openChapter(index < 0 ? Math.min(turn.index, R.chapters.length - 1) : index, turn.at);
-            }
-            if (refresh.url) refreshLocal(refresh.url);
-        });
+        pollLibraryLive();
         return true;
+    }
+    function savedChapterIndex() {
+        var chapter = R.chapters[R.index];
+        return R.live && chapter && chapter.localIndex >= 0 ? chapter.localIndex : R.index;
     }
     function nextChapterButton(index) {
         if (index + 1 >= R.chapters.length) {
@@ -3081,11 +3153,26 @@
             return;
         }
         if (!$('rNextChapter')) $('flow').insertAdjacentHTML('beforeend', '<p class="next-chapter"><button type="button" id="rNextChapter">Next chapter ›</button></p>');
+        $('rNextChapter').disabled = !chapterAvailable(R.chapters[index + 1]);
         $('rNextChapter').onclick = function () { openChapter(index + 1, 0); };
     }
     function openChapter(index, at) {
-        if (localRefresh.busy && R.source && R.source.source === 'local') {
-            localRefresh.turn = {chapter: R.chapters[index], index: index, at: at};
+        var intent = R.navigation = (R.navigation || 0) + 1;
+        if (R.live && !chapterAvailable(R.chapters[index])) {
+            R.page = Math.max(0, Math.min(R.page, R.pages - 1));
+            place();
+            return;
+        }
+        var local = R.source && R.source.source === 'local';
+        if ((R.live || (local && R.done.has(R.index))) && (!R.cache.has(index) || !R.done.has(index))) {
+            var token = R.token, wanted = R.chapters[index];
+            loadChapter(index).then(function (chapter) {
+                if (token !== R.token || intent !== R.navigation) return;
+                var next = R.chapters.indexOf(wanted);
+                if (next < 0) next = matchingChapter(R.chapters, wanted, index);
+                if (chapter.error && R.chapters[next] === wanted) return;
+                if (next >= 0) openChapter(next, at);
+            });
             return;
         }
         // The chapter already streaming in (its pages arriving): left as it is, not started again.
@@ -3101,8 +3188,8 @@
         chapterNumber();
         markToc();
         var retry = function () { R.cache.delete(index); (R.pagesFor || new Map()).delete(index); openChapter(index, at); };
-        note('Scraping chapter ' + (index + 1) + (R.chapters[index].name ? ' (' + R.chapters[index].name + ')' : '') + ' from '
-             + R.source.site + '…', 90, retry);
+        if (!local) note('Scraping chapter ' + (index + 1) + (R.chapters[index].name ? ' (' + R.chapters[index].name + ')' : '') + ' from '
+                         + R.source.site + '…', 90, retry);
         // A comic's chapter shows its page slots at once: the pages already streamed (a chapter read ahead),
         // else as many placeholders as the last chapter had pages, until its own count is known.
         var early = R.pagesFor && R.pagesFor.get(index);
@@ -3378,7 +3465,7 @@
 
     function readAhead() {
         if (readerPausedAt !== null || !$('reader').classList.contains('open')) return;
-        if (!R.done.has(R.index) || R.index + 1 >= R.chapters.length) return;
+        if (!R.done.has(R.index) || !chapterAvailable(R.chapters[R.index + 1])) return;
         if (R.comic && !$('flow').querySelector('.slot.ready')) return;
         if (R.imageFallback && pictures.done < pictures.total) return;
         loadChapter(R.index + 1);
@@ -3433,7 +3520,7 @@
         clearTimeout(localPlaceTimer);
         localPlaceTimer = setTimeout(function () {
             if (R.source && R.source.source === 'local' && R.index >= 0)
-                send({type: 'genericLocalPlace', url: R.source.url, chapter: R.index, at: readingAt()});
+                send({type: 'genericLocalPlace', url: R.source.url, chapter: savedChapterIndex(), at: readingAt()});
         }, 600);
     }
     function place() {
@@ -3442,13 +3529,17 @@
         $('rSlider').max = String(R.pages);
         $('rSlider').value = String(R.page + 1);
         $('rSlider').style.display = layout() === 'scroll' ? 'none' : '';
-        if (R.source) store('noveldb.read.' + placeKey(R.source.url), {chapter: R.index, at: readingAt(), time: Date.now()});
+        if (R.source) store('noveldb.read.' + placeKey(R.source.url), {chapter: savedChapterIndex(), at: readingAt(), time: Date.now()});
         // A Library book's place goes to the Library too (its book page and order know where it was left).
         if (R.source && R.source.source === 'local' && R.index >= 0) localPlaceSoon();
         if ($('toc').classList.contains('open') && tocTab === 'pages') drawPages();
         // The text being read, for laying the page out again when the window changes size.
         if (layout() !== 'scroll' && !R.switching) R.anchor = anchorAt();
-        if (localRefresh.url && !localRefresh.busy) refreshLocal(localRefresh.url);
+        if (localRefresh.pending && R.done.has(R.index)) {
+            var pendingLive = localRefresh.pending;
+            localRefresh.pending = null;
+            applyLibraryLive(pendingLive);
+        }
     }
     // The pages counted again where they are now: a chapter's images still coming in add pages after it was laid
     // out (it was counted one page then, and every swipe went on to the next chapter until the window was
@@ -3498,14 +3589,21 @@
             if (filter && String(chapter.name).toLowerCase().indexOf(filter) < 0 && String(index + 1) !== filter) return;
             if (chapter.section && chapter.section !== section && !filter) html += '<div class="section">' + esc(chapter.section) + '</div>';
             section = chapter.section;
-            html += '<a data-chapter="' + index + '"' + (index === R.index ? ' class="on"' : '') + '>' + (index + 1) + '. ' + esc(chapter.name) + '</a>';
+            var available = chapterAvailable(chapter);
+            html += '<a data-chapter="' + index + '" class="' + (index === R.index ? 'on ' : '') + (available ? '' : 'pending')
+                + '" aria-disabled="' + !available + '"' + (available ? '' : ' title="Not downloaded yet"')
+                + '>' + (index + 1) + '. ' + esc(chapter.name) + '</a>';
         });
         $('tocList').className = 'list';
         $('tocList').innerHTML = html + (R.tocLoading ? '<div class="section">Loading more chapters…</div>'
             : R.tocError ? '<div class="section">The rest of the chapter list could not be loaded.</div>'
             : html ? '' : '<div class="section">No chapter matches.</div>');
         $('tocList').querySelectorAll('[data-chapter]').forEach(function (link) {
-            link.onclick = function () { $('toc').classList.remove('open'); openChapter(Number(link.dataset.chapter), 0); };
+            link.onclick = function () {
+                var index = Number(link.dataset.chapter);
+                if (!chapterAvailable(R.chapters[index])) return;
+                $('toc').classList.remove('open'); openChapter(index, 0);
+            };
         });
         markToc(scrollToChapter);
     }
@@ -3611,10 +3709,11 @@
         R.swiped = Date.now();  // the tap zones ignore the click this swipe ends with
     }, {passive: true});
     function closeReader() {
+        clearInterval(R.liveTimer);
         // A Library book's place is kept before the reader goes (the Library shows it next).
         if (R.source && R.source.source === 'local' && R.index >= 0) {
             clearTimeout(localPlaceTimer);
-            send({type: 'genericLocalPlace', url: R.source.url, chapter: R.index, at: readingAt()});
+            send({type: 'genericLocalPlace', url: R.source.url, chapter: savedChapterIndex(), at: readingAt()});
         }
         if (R.full || R.switching) setFull(false, true);
         R.token++;

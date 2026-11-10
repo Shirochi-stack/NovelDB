@@ -822,6 +822,9 @@ table, th, td {
         for c in selected:
             c.setdefault('is_notice', False)
         selected_total = (notice_items + selected) if notice_items else selected
+        live = getattr(self, "events", None)
+        if live is not None:
+            live.live_book(selected_total)
         results = [None] * len(selected_total)
 
         self._progress_start_time = time.time()
@@ -947,6 +950,8 @@ table, th, td {
                                 except (ValueError, IndexError):
                                     pass
                             results[idx] = (chap['title'], cached_html, cached_imgs, chap.get('is_notice', False))
+                            if live is not None:
+                                live.live_chapter(idx, cached_html, cached_imgs)
                             self.log_message(f"Cached: {chap['title']}{timing_suffix(idx)}")
                             self._update_progress(value=self.progress_value + 1)
                             full_cache_hits += 1
@@ -1010,6 +1015,8 @@ table, th, td {
             try:
                 _idx, content_json, hb, imgs, img_fails = future.result()
                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
+                if live is not None:
+                    live.live_chapter(idx, hb, imgs)
                 remote_image_count = (
                     hb.count('class="remote-image"')
                     if save_image_urls_only

@@ -394,6 +394,7 @@ class DownloadManager(private val app: Application) {
         update(id) { it.copy(state = JobState.RUNNING, status = "Starting") }
         val logger = JobLogging { level, line -> jobLog(id, level, line) }
         jobLog(id, LogLevel.INFO, "Started")
+        val live = job.libraryTarget?.let { com.shirochi.npia.sources.reader.LibraryLive.begin(File(outputDirectory, it), job.url) }
         val pipeline = DownloadPipeline(
             secrets = secrets,
             outputDirectory = if (job.libraryTarget != null) File(outputDirectory, ".library-update-$id").apply { mkdirs() } else outputDirectory,
@@ -405,6 +406,8 @@ class DownloadManager(private val app: Application) {
             currentUploadSettings = { if (job.libraryTarget != null) job.settings.upload.copy(autoUpload = false) else uploadSettings() },
             uploadContextFactory = ::uploadContext,
             generateOnStop = { job.libraryTarget == null && _settings.value.shared.generateOnStop },
+            onBook = live?.let { it::book },
+            onChapter = live?.let { it::chapter },
         )
         running[id] = scope.launch {
             try {
@@ -426,6 +429,7 @@ class DownloadManager(private val app: Application) {
                 // An expected failure (unsupported address, sign-in needed) says it all; a surprise needs its trace.
                 if (e !is com.shirochi.npia.core.SourceException) e.stackTrace.take(8).forEach { jobLog(id, LogLevel.DEBUG, "    at $it") }
             } finally {
+                live?.finish()
                 if (job.libraryTarget != null) File(outputDirectory, ".library-update-$id").deleteRecursively()
                 update(id) { it.copy(finishedAt = System.currentTimeMillis()) }
                 persistJobs()
@@ -558,7 +562,8 @@ class DownloadManager(private val app: Application) {
         if (!libraryAllowed(target)) throw CancellationException("Library updates disabled")
         require(!outcome.stopped && outcome.skipped.isEmpty()) { "Library refresh was incomplete. The saved EPUB was preserved." }
         val candidate = outcome.files.single { it.extension.equals("epub", true) }
-        replaceLibraryEpub(candidate, target)
+        val spineCount = replaceLibraryEpub(candidate, target)
+        com.shirochi.npia.sources.reader.LibraryLive.saved(target, spineCount)
         _libraryRevisions.update { it + (target.name to ((it[target.name] ?: 0L) + 1L)) }
         val uploads = if (_libraryUpdates.value.uploadDrive) {
             val upload = _settings.value.upload.copy(hosts = listOf("gdrive"), autoUpload = false)

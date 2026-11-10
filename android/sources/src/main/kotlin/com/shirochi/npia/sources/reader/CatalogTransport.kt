@@ -44,6 +44,7 @@ object CatalogTransport {
     suspend fun handle(requestJson: String, http: HttpFetching, web: WebEngineProviding, context: SourceContext? = null): String {
         val details = runCatching { Json.parseToJsonElement(requestJson) as? JsonObject }.getOrNull()
         val op = (details?.get("op") as? JsonPrimitive)?.contentOrNull
+        if (details != null && op == "libraryLive") return LibraryLive.handle(details)
         if (details != null && context != null && (op == "book" || op == "chapter")) return BuiltInReader.handle(op, details, context)
         if (details != null && op == "file") return libraryFile((details["url"] as? JsonPrimitive)?.contentOrNull.orEmpty())
         return WebToEpubTransport.handle(requestJson, http, web)

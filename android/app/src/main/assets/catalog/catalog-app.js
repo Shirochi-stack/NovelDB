@@ -2932,6 +2932,9 @@
         case 'genericDetails': if (message.card && /^https?:/.test(message.card.url || '')) detailsFor(message.card); break;
         case 'genericCover': coverGet(String(message.key)).then(function (data) { call('fetched', message.id, data ? {dataUrl: data} : null); }); break;
         case 'genericCoverPut': if (/^data:image\//.test(message.dataUrl || '')) coverPut(String(message.key), message.dataUrl); break;
+        case 'genericLibraryLive':
+            appAsk(Object.assign({}, message, {op: 'libraryLive'})).then(function (reply) { call('fetched', message.id, reply); });
+            break;
         case 'genericBook':
             if (readable(message.url)) {
                 reading.book = message.id;

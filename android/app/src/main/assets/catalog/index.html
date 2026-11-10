@@ -300,6 +300,7 @@
     #flow img.slot.failed { cursor: pointer; outline: 2px dashed var(--r-ink-2); outline-offset: -8px; }
     .rprogress { display: none; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
     .rprogress.on { display: inline-flex; }
+    #reader.library-live .rprogress { display: none; }
     .rprogress i { display: block; width: 140px; height: 6px; border-radius: 3px; background: var(--r-line); position: relative; overflow: hidden; }
     .rprogress i::before { content: ""; position: absolute; inset: 0; width: var(--w, 0); background: var(--accent); }
     #flow .next-chapter { text-align: center; margin: 2em 0; }
@@ -320,6 +321,7 @@
                    white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
     #toc .list a:hover { background: var(--r-line); }
     #toc .list a.on { color: var(--accent); font-weight: 600; }
+    #toc .list a.pending { opacity: .45; cursor: default; }
     #toc .list .section { padding: 10px 14px 4px; font-size: 11px; text-transform: uppercase; color: var(--r-ink-2); }
     #toc .pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; padding: 10px; }
     #toc .pages a { text-align: center; border: 1px solid var(--r-line); border-radius: 6px; padding: 6px 0; }

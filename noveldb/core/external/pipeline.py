@@ -88,6 +88,18 @@ class _OutputStopped(BaseException):
 class ExternalPipelineMixin:
     """External-source downloads: fetch, download, batch, cache and output."""
 
+    def _publish_live_chapter(self, index, data):
+        events = getattr(self, "events", None)
+        if events is None:
+            return
+        body = ""
+        if data and not data.get("_locked"):
+            body = data.get("contentHtml") or '<div style="white-space:pre-wrap">' + html.escape(data.get("contentText") or "") + '</div>'
+            for image in data.get("images") or []:
+                if isinstance(image, dict) and image.get("url") and str(image.get("data", "")).startswith("data:"):
+                    body = body.replace('"' + image["url"] + '"', '"' + image["data"] + '"')
+        events.live_chapter(index, body)
+
     def _ui_fetch_done(self):
         """A fetch finished; the interface re-enables its Download button."""
 
@@ -472,6 +484,9 @@ class ExternalPipelineMixin:
                 )
             else:
                 selected = chapters[start:end]
+            live = getattr(self, "events", None)
+            if live is not None:
+                live.live_book(selected)
             total = len(selected)
             results = [None] * total
             use_cache_variable = getattr(self, '_var_use_cache', None)
@@ -512,6 +527,7 @@ class ExternalPipelineMixin:
                             )
                             cache_entries[cache_key] = cached
                         results[selected_index] = cached
+                        ExternalPipelineMixin._publish_live_chapter(self, selected_index, cached)
                         cache_hits += 1
                 if stale_cache_entries:
                     self._log(
@@ -574,6 +590,7 @@ class ExternalPipelineMixin:
                         results[i] = {'_locked': True,
                                       'chapterName': ch.get('name', ''),
                                       '_chapter_number': start + i + 1}
+                        ExternalPipelineMixin._publish_live_chapter(self, i, results[i])
                         skipped += 1
                 if skipped:
                     if is_mpia:
@@ -764,6 +781,7 @@ class ExternalPipelineMixin:
                     if log_on_success and data and not data.get("_locked"):
                         log_chapter_success(j, data)
                     results[idx] = data
+                    ExternalPipelineMixin._publish_live_chapter(self, idx, data)
                     lookahead = getattr(self, "_kpage_images", None)
                     if lookahead and data and not data.get("_locked") and self._downloading:
                         lookahead.offer(data)
