@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import time
 import unicodedata
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 try:
     from . import source_names
@@ -27,6 +27,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "metadata/state/nu_titles.json.gz"
 BASE = "https://www.novelupdates.com/"
+PARSER_VERSION = 2
 PUBLISHERS = {
     "npia": "\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061",
     "kpage": "\u006b\u0061\u006b\u0061\u006f\u0070\u0061\u0067\u0065",
@@ -46,6 +47,17 @@ def normalized(value):
     return "".join(char for char in value if not char.isspace() and char not in "\u200b\ufeff")
 
 
+def author_keys(value):
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    wrapped = re.fullmatch(r"(\[+)([^\[\]]+)(\]+)", text)
+    if wrapped and len(wrapped[1]) == len(wrapped[3]):
+        text = wrapped[2]
+    aliases = re.fullmatch(r"([^\[\]]+)\[([^\[\]]+)\]", text)
+    names = aliases.groups() if aliases else (text,)
+    return {normalized(name).rstrip(".") if NATIVE.search(name) else normalized(name)
+            for name in names if normalized(name)}
+
+
 def valid_title(value):
     return (isinstance(value, str) and bool(re.search(r"[A-Za-z]", value))
             and not re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]", value)
@@ -57,6 +69,9 @@ def nu_url(value, *, series=False):
     if url.scheme != "https" or url.netloc != "www.novelupdates.com":
         raise ValueError("Unexpected NovelUpdates address")
     if series:
+        post_id = parse_qs(url.query).get("p", [])
+        if url.path == "/" and len(post_id) == 1 and re.fullmatch(r"[1-9][0-9]*", post_id[0]):
+            return url._replace(query="p=" + post_id[0], fragment="").geturl()
         if not re.fullmatch(r"/series/[^/]+/", url.path) or url.path.split("/")[2] in (".", ".."):
             raise ValueError("Expected a canonical series address")
         url = url._replace(query="", fragment="")
@@ -87,19 +102,34 @@ def parse_series(html, expected_url):
     authors = soup.select("#showauthors a")
     language = soup.select_one("#showlang")
     canonical = soup.select_one('link[rel="canonical"]')
-    if not all((heading, language, canonical)):
-        raise ValueError("Incomplete or challenged NovelUpdates series page")
+    identity = soup.select_one("#mypostid")
+    novel_id = str(identity.get("value") or "") if identity else ""
+    missing = [name for name, element in (("heading", heading), ("language", language), ("canonical", canonical))
+               if not element]
+    if missing:
+        raise ValueError("Incomplete or challenged NovelUpdates series page. Missing " + ", ".join(missing))
     url = nu_url(canonical.get("href", ""), series=True)
-    if url != nu_url(expected_url, series=True):
+    expected = nu_url(expected_url, series=True)
+    expected_id = parse_qs(urlsplit(expected).query).get("p", [])
+    if (expected_id and novel_id != expected_id[0]) or (not expected_id and url != expected):
         raise ValueError("NovelUpdates series identity changed")
     title = heading.get_text(" ", strip=True)
     if not title:
         raise ValueError("NovelUpdates heading is empty")
+    native_aliases = []
+    if aliases:
+        for element in aliases.select("br"):
+            element.replace_with("\n")
+        for element in aliases.select("p, div, li"):
+            element.insert_after("\n")
+        native_aliases = list(dict.fromkeys(line.strip() for line in aliases.get_text().splitlines() if line.strip()))
     return {
         "url": url, "title": title,
-        "aliases": list(dict.fromkeys(aliases.get_text("\n", strip=True).splitlines())) if aliases else [],
+        "aliases": native_aliases,
         "authors": list(dict.fromkeys(author.get_text(" ", strip=True) for author in authors)),
         "language": language.get_text(" ", strip=True), "checked_at": utc_now(),
+        "parser_version": PARSER_VERSION,
+        "nu_id": novel_id,
     }
 
 
@@ -120,12 +150,13 @@ class TitleIndex:
         return cls(read_cache(path))
 
     def match(self, title, author, source):
-        if not NATIVE.search(str(title or "")) or not normalized(author):
+        if not NATIVE.search(str(title or "")) or not author_keys(author):
             return None
         language = "Chinese" if source == "sfc" else "Korean"
         candidates = [record for record in self.aliases.get(normalized(title), [])
                       if record.get("language") == language
-                      and normalized(author) in {normalized(alias) for alias in record.get("authors", [])}]
+                      and author_keys(author).intersection(
+                          key for alias in record.get("authors", []) for key in author_keys(alias))]
         return candidates[0] if len(candidates) == 1 else None
 
 
@@ -171,24 +202,35 @@ class Collector:
     def fetch(self, url):
         time.sleep(max(0, self.delay - (time.monotonic() - self.last_request)))
         self.last_request = time.monotonic()
+        if self.browser is not None:
+            return self.browser_fetch(url)
         response = self.session.get(nu_url(url), timeout=35)
         if response.status_code in (403, 503) and self.browser_fallback:
-            if self.browser is None:
-                from external_scraper import ExternalScraper
-                self.browser = ExternalScraper(logger=lambda message: print(message, flush=True))
-            else:
-                page = self.browser._site_page(url)
-                result = page.evaluate("""async url => {
-                    const response = await fetch(url);
-                    return {status: response.status, text: await response.text()};
-                }""", url)
-                if result["status"] == 200:
-                    return result["text"]
-            html = self.browser.render_html(url)
-            if html:
-                return html
+            from external_scraper import ExternalScraper
+            self.browser = ExternalScraper(logger=lambda message: print(message, flush=True))
+            return self.browser_fetch(url)
         response.raise_for_status()
         return response.text
+
+    def browser_fetch(self, url):
+        page = self.browser._site_page(url)
+        result = page.evaluate("""async url => {
+            const response = await fetch(url, {signal: AbortSignal.timeout(35000)});
+            return {status: response.status, text: await response.text()};
+        }""", url)
+        if result["status"] == 200:
+            try:
+                if "/series/" in urlsplit(url).path or parse_qs(urlsplit(url).query).get("p"):
+                    parse_series(result["text"], url)
+                else:
+                    parse_listing(result["text"], url)
+                return result["text"]
+            except ValueError:
+                pass
+        html = self.browser.render_html(url)
+        if not html:
+            raise RuntimeError("NovelUpdates browser request failed")
+        return html
 
     def close(self):
         self.session.close()
@@ -212,6 +254,11 @@ def parse_listing(html, url):
 def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fallback=False, max_seconds=1800):
     """Checkpoint each successful request. Failed pages remain pending."""
     cache = read_cache(cache_path)
+    if cache.get("parser_version") != PARSER_VERSION:
+        # Recheck old pages when alias extraction changes. Keep confirmed values
+        # available to offline translation jobs throughout the refresh.
+        cache["publishers"] = {}
+        cache["parser_version"] = PARSER_VERSION
     client = Collector(browser_fallback=browser_fallback) if fetch is None else None
     fetch = fetch or client.fetch
     publishers = list(dict.fromkeys(PUBLISHERS[source] for source in sources))
@@ -246,7 +293,8 @@ def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fal
                 while progress["pending"]:
                     existing = cache["series"].get(progress["pending"][0], {})
                     checked = existing.get("checked_at")
-                    if not checked or time.time() - datetime.fromisoformat(checked).timestamp() >= 30 * 86400:
+                    if (existing.get("parser_version") != PARSER_VERSION or not checked
+                            or time.time() - datetime.fromisoformat(checked).timestamp() >= 30 * 86400):
                         break
                     progress["pending"].pop(0)
                 url = progress["pending"][0] if progress["pending"] else progress["next"]

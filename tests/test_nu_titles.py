@@ -40,6 +40,11 @@ def test_series_addresses_drop_tracking_and_preserve_valid_slugs():
     assert nu_titles.nu_url(URL.replace("debut-or-die", "a_title"), series=True).endswith("/a_title/")
     with pytest.raises(ValueError):
         nu_titles.nu_url("https://example.com/series/debut-or-die/", series=True)
+    assert nu_titles.nu_url("https://www.novelupdates.com/?p=45524", series=True).endswith("?p=45524")
+    record = nu_titles.parse_series(HTML + '<input id="mypostid" value="45524">',
+                                   "https://www.novelupdates.com/?p=45524")
+    assert record["url"] == URL
+    assert record["nu_id"] == "45524"
 
 
 def test_duplicate_alias_author_is_ambiguous():
@@ -49,6 +54,24 @@ def test_duplicate_alias_author_is_ambiguous():
     assert nu_titles.TitleIndex(data).match(RAW, AUTHOR, "kpage") is None
     data["series"][second]["authors"] = ["다른 작가"]
     assert nu_titles.TitleIndex(data).match(RAW, AUTHOR, "kpage")["url"] == URL
+
+
+def test_all_renamed_native_titles_match_the_same_series():
+    html = HTML.replace("Other Title<br>데뷔 못하면 죽는병 걸림",
+                        "<span>원래 <b>소설</b> 제목</span><br>바뀐 소설 제목<br>데뷔 못하면 죽는병 걸림")
+    data = cache()
+    data["series"][URL] = nu_titles.parse_series(html, URL)
+    index = nu_titles.TitleIndex(data)
+    for title in ("원래 소설 제목", "바뀐 소설 제목", RAW):
+        assert index.match(title, AUTHOR, "kpage")["url"] == URL
+    assert index.match("원래", AUTHOR, "kpage") is None
+
+
+@pytest.mark.parametrize("author", ("[백덕수]", "[[백덕수]]", "[[[백덕수]]]", "백덕수.", "백덕수[다른필명]"))
+def test_decorated_author_names_keep_exact_identity(author):
+    index = nu_titles.TitleIndex(cache())
+    assert index.match(RAW, author, "jara")["title"] == "Debut or Die"
+    assert index.match(RAW, "[[다른작가]]", "jara") is None
 
 
 def test_incomplete_challenged_and_wrong_identity_pages_are_rejected():
