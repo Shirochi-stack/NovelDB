@@ -33,6 +33,7 @@ datas = [(here("icon.ico"), "."), (here("dpi_setup.py"), "."), (here("assets", "
          (here("assets", "cart-icon.png"), "assets"), (here("assets", "download-icon.png"), "assets"),
          (here("assets", "halgakos-cover.png"), "assets"), (here("assets", "mining-icon.png"), "assets")]
 if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobile apps), the generic search page
+    datas.append((here("assets", "instant-starter.bin"), "assets"))
     for part in range(2):
         datas.append((here("assets", f"instant-catalog-{part}.zip"), "assets"))
     datas.append((here("noveldb", "qt", "catalog", "catalog-bridge.js"), os.path.join("noveldb", "qt", "catalog")))

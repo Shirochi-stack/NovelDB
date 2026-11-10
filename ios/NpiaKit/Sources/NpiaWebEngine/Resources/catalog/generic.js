@@ -910,8 +910,14 @@
         if (groups.get(group.key) !== group) return;  // replaced (the top list re-sorted) or dropped
         dirty.add(group);
         if (frame) return;
-        var go = function () { if (frame) { cancelAnimationFrame(frame.raf); clearTimeout(frame.timer); frame = 0; drawCards(); } };
-        frame = {raf: requestAnimationFrame(go), timer: setTimeout(go, 120)};  // a hidden page has no frames
+        frame = {raf: requestAnimationFrame(drawScheduledCards), timer: setTimeout(drawScheduledCards, 120)};  // a hidden page has no frames
+    }
+    function drawScheduledCards() {
+        if (!frame) return;
+        cancelAnimationFrame(frame.raf);
+        clearTimeout(frame.timer);
+        frame = 0;
+        drawCards();
     }
     // -- the sort menu (NovelDB's sorts): the shown cards in that order; a search sends it along ------------
     var SORT_KEY = 'noveldb.generic.sort', indexSortRequest = 0;
@@ -1543,6 +1549,11 @@
     function exactTitle(title) { return String(title || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); }
     function add(list, id) {
         if (id !== undefined && id !== searchId) return;
+        if (view === 'search' && list && list.length > 6) {
+            var rest = list.slice(6), generation = searchId;
+            list = list.slice(0, 6);
+            setTimeout(function () { add(rest, generation); }, 16);
+        }
         (list || []).forEach(function (card) {
             if (card.empty) {
                 var known = byUrl.get(key(card.url));
@@ -2419,7 +2430,7 @@
         resultTags.forEach(function (_n, tag) { if (!names.has(tag.toLowerCase())) names.set(tag.toLowerCase(), tag); });
         return names;
     }
-    function search(event, keepMenu) {
+    function search(event, keepMenu, typing) {
         referenceRun = null;
         referenceSortLabels(null);
         if (event && event.preventDefault) event.preventDefault();
@@ -2440,10 +2451,10 @@
         }
         picked.slice(0, 5).forEach(function (tag) { queries.push({query: tag, mode: 'tag'}); });
         queries.forEach(function (q) { q.sort = sortBy(); searchesIn(q); });
-        rememberSearch();
+        if (!typing || !current.typing) rememberSearch();
         searchId++;
         reset('search');
-        current = {text: text, tags: picked.slice(), queries: queries, byId: byId};
+        current = {text: text, tags: picked.slice(), queries: queries, byId: byId, typing: !!typing};
         running = 0;
         setRunning(1);
         var label = [text ? (byId ? 'ID ' : '') + '“' + text + '”' : ''].concat(picked.map(function (t) { return '#' + t; })).filter(Boolean).join(' + ');
@@ -2458,7 +2469,14 @@
         send({type: 'genericStop', id: id});
         var local = Promise.resolve();
         if (quick) {
-            local = window.NovelDBInstant.search(text, {kind: kind, sites: Array.from(siteFilter)}, instantIO(id)).then(function (cards) {
+            var options = {kind: kind, sites: Array.from(siteFilter)};
+            var first = window.NovelDBInstant.first(text, options);
+            add(first.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
+            if (first.length) drawScheduledCards();
+            local = new Promise(function (resolve) { setTimeout(resolve, typing ? 180 : 0); }).then(function () {
+                if (id !== searchId) return [];
+                return window.NovelDBInstant.search(text, options, instantIO(id));
+            }).then(function (cards) {
                 if (id !== searchId) return;
                 add(cards.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
             }).catch(function () {});
@@ -2603,7 +2621,7 @@
 
     $('form').addEventListener('submit', search);
     // Clearing the search box (and with no tags picked) goes back to the Top 100.
-    // Typing searches after a short pause. Local results precede online discovery.
+    // Resident title matches render on input. Broader discovery starts after typing pauses.
     // not again for the text already searched. Enter or Search still search at once.
     // An input method (pinyin, kana, Hangul) composing a word puts partial text in the box: nothing is
     // searched until it finishes (a pause mid-word started a search that the next keystroke cancelled).
@@ -2625,6 +2643,11 @@
             return;
         }
         if (text.length < 2 && !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(text)) return;
+        if (!picked.length && searches.noveldb && window.NovelDBInstant && window.NovelDBInstant.ready()
+                && !isComicKind($('kind').value) && !/^(?:author\s*:|@|\d{3,12}$|n\d{4}[a-z]{1,3}$)/i.test(text)) {
+            search(null, false, true);
+            return;
+        }
         typingTimer = setTimeout(function () {
             if (composing || (view === 'search' && current.text === $('query').value.trim())) return;
             search(null);
@@ -4221,6 +4244,7 @@
     window.NovelDBGeneric = {
         init: function (value) {
             config = value || config;
+            if (window.NovelDBInstant) window.NovelDBInstant.prepare(instantIO(searchId));
             try {
                 var top = {};
                 (config.lnreader || []).forEach(function (p, index) { top[p.id] = index; });

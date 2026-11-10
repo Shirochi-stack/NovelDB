@@ -3,6 +3,7 @@ import argparse
 from contextlib import ExitStack
 import gzip
 import json
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -51,9 +52,50 @@ def build(data, destination):
     print(f"Local catalogue archives {size / 1048576:.1f} MiB", flush=True)
 
 
+def build_starter(destination):
+    """Keep popular books and verified title aliases resident for the first input frame."""
+    selected = set(range(8000))
+    for part in range(2):
+        with ZipFile(destination.with_name(f"{destination.stem}-{part}{destination.suffix}")) as archive:
+            for name in archive.namelist():
+                if name.startswith("b/"):
+                    for token, numbers in json.loads(gzip.decompress(archive.read(name))).items():
+                        if re.fullmatch("[a-z]{3,}", token) and len(numbers) >= 10:
+                            selected.update(numbers[:3])
+    rows = []
+    for part in range(2):
+        with ZipFile(destination.with_name(f"{destination.stem}-{part}{destination.suffix}")) as archive:
+            for name in archive.namelist():
+                if not name.startswith("c/"):
+                    continue
+                start = int(Path(name).stem.split(".")[0]) * 128
+                for offset, row in enumerate(json.loads(gzip.decompress(archive.read(name)))):
+                    if start + offset in selected or row[16]:
+                        # The first frame needs identity, cover and title. Full metadata follows.
+                        row[6] = row[6][:3]
+                        row[9] = 0
+                        row[12] = row[13] = None
+                        rows.append((start + offset, row))
+    rows.sort(key=lambda entry: entry[0])
+    with tempfile.TemporaryDirectory(prefix="starter-", dir=ROOT / "artifacts") as temporary:
+        folder = Path(temporary)
+        source = folder / "rows.input"
+        output = folder / "starter.output"
+        source.write_text(dumps([row for _, row in rows], ensure_ascii=True), encoding="utf-8")
+        subprocess.run(["node", str(ROOT / "scripts/noveldb_index/starter.cjs"), str(source), str(output)], check=True)
+        value = json.loads(output.read_text(encoding="utf-8"))
+        raw = dumps(value, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        target = destination.with_name("instant-starter.bin")
+        target.write_bytes(gzip.compress(raw, compresslevel=6, mtime=0))
+        print(f"Starter catalogue {len(rows)} books, {target.stat().st_size / 1048576:.1f} MiB", flush=True)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=ROOT / "docs/data")
     parser.add_argument("--output", type=Path, default=ROOT / "assets/instant-catalog.zip")
+    parser.add_argument("--starter-only", action="store_true", help="refresh the resident first-page subset from existing archives")
     args = parser.parse_args()
-    build(args.data, args.output)
+    if not args.starter_only:
+        build(args.data, args.output)
+    build_starter(args.output)

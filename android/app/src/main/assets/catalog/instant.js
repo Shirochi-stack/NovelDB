@@ -61,18 +61,55 @@
             }
         }));
         if (!io.alive()) return [];
-        var phrase = words(query).join(' ');
-        return numbers.map(function (number) {
+        return rank(numbers.map(function (number) {
             var rows = found.get(Math.floor(number / manifest.block));
             return rows && rows[number % manifest.block];
-        }).filter(Boolean).map(card).filter(function (item) {
+        }).filter(Boolean), query, options, 30);
+    }
+    function rank(rows, query, options, limit) {
+        var phrase = words(query).join(' ');
+        return rows.map(card).filter(function (item) {
             return !(options.sites || []).length || options.sites.indexOf(item.site) >= 0
                 || item.also.some(function (other) { return options.sites.indexOf(other.site) >= 0; });
         }).map(function (item, index) {
             return {item: item, prefix: words(item.title).join(' ').startsWith(phrase) ? 0 : 1,
                 canonical: item.alternateTitles.length ? 0 : 1, index: index};
         }).sort(function (a, b) { return a.prefix - b.prefix || a.canonical - b.canonical || b.item.views - a.item.views || a.index - b.index; })
-            .slice(0, 30).map(function (entry) { return entry.item; });
+            .slice(0, limit).map(function (entry) { return entry.item; });
     }
-    window.NovelDBInstant = {search: search, card: card, tokens: tokens, bucket: bucket};
+    var starter = null, preparing = null;
+    function prepare(io) {
+        if (!preparing) preparing = io.load('starter').then(function (value) {
+            if (value && value.rows && value.postings && value.words) starter = value;
+            return !!starter;
+        }).catch(function () { return false; });
+        return preparing;
+    }
+    function first(query, options) {
+        if (!starter || /^(manga|manhwa|comic)$/.test(options.kind || '')) return [];
+        var wanted = tokens(query);
+        if (!wanted.length) return [];
+        var lists = wanted.map(function (token, index) {
+            if (index !== wanted.length - 1 || cjk.test(token)) return starter.postings[token] || [];
+            // Binary prefix lookup avoids walking the resident vocabulary on each keystroke.
+            var low = 0, high = starter.words.length;
+            while (low < high) {
+                var middle = (low + high) >>> 1;
+                if (starter.words[middle] < token) low = middle + 1;
+                else high = middle;
+            }
+            var numbers = new Set();
+            while (low < starter.words.length && starter.words[low].startsWith(token) && numbers.size < 120) {
+                starter.postings[starter.words[low++]].forEach(function (number) { numbers.add(number); });
+            }
+            return Array.from(numbers);
+        });
+        lists.sort(function (a, b) { return a.length - b.length; });
+        var rest = lists.slice(1).map(function (list) { return new Set(list); });
+        return rank(lists[0].filter(function (number) {
+            return rest.every(function (list) { return list.has(number); });
+        }).slice(0, 120).map(function (number) { return starter.rows[number]; }), query, options, 3);
+    }
+
+    window.NovelDBInstant = {search: search, first: first, prepare: prepare, ready: function () { return !!starter; }, card: card, tokens: tokens, bucket: bucket};
 }());

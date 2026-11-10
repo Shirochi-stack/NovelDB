@@ -52,7 +52,7 @@ def test_real_mesugaki_results_within_one_second_and_canonical_tank_first(browse
         window.measure={};
         document.getElementById('query').addEventListener('input',event=>{
             if(event.target.value==='mesugaki')measure.started=performance.now();
-        });
+        },true);
         new MutationObserver(()=>{
             if(!measure.started||measure.ms!=null||!document.getElementById('heading').textContent.includes('mesugaki'))return;
             const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
@@ -77,4 +77,55 @@ def test_top_100_appears_while_all_online_services_are_stalled(browser, target):
     titles = page.locator("#grid .card .title").all_text_contents()
     assert len(titles) == 100
     assert "Nothing in the top lists" not in page.locator("#empty").inner_text()
+    context.close()
+
+
+@pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])
+def test_resident_first_three_cards_render_within_sixty_ms(browser, target):
+    context, page = open_catalogue(browser, target, rate=1)
+    page.wait_for_function("NovelDBInstant.ready()")
+    page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=100")
+    page.evaluate("""()=>{
+        window.firstPass={};
+        window.longTasks=[];
+        new PerformanceObserver(list=>list.getEntries().forEach(entry=>{
+            if(firstPass.started&&entry.startTime>=firstPass.started)longTasks.push(entry.duration);
+        })).observe({type:'longtask',buffered:false});
+        document.getElementById('query').addEventListener('input',event=>{
+            if(event.target.value==='mesugaki')firstPass.started=performance.now();
+        },true);
+        new MutationObserver(()=>{
+            if(!firstPass.started||firstPass.ms!=null||!document.getElementById('heading').textContent.includes('mesugaki'))return;
+            const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
+            if(titles.length>=3){firstPass.ms=performance.now()-firstPass.started;firstPass.titles=titles;}
+        }).observe(document.getElementById('grid'),{childList:true,subtree:true});
+    }""")
+    page.locator("#query").press_sequentially("mesugaki", delay=25)
+    page.wait_for_function("firstPass.ms!=null")
+    result = page.evaluate("firstPass")
+    print(dumps({"platform": str(target.relative_to(ROOT)), "first_pass": result}))
+    assert result["ms"] < 60, result
+    assert len(result["titles"]) == 3, result
+    assert result["titles"][0] == "Mesugaki Tank Enters The Academy", result
+    page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=20")
+    assert page.locator("#grid .card .title").first.inner_text() == result["titles"][0]
+    page.wait_for_timeout(150)
+    assert max(page.evaluate("longTasks"), default=0) < 60
+    context.close()
+
+
+def test_resident_prefixes_and_source_filters_keep_real_identity(browser):
+    context, page = open_catalogue(browser, TARGETS[1], rate=1)
+    page.wait_for_function("NovelDBInstant.ready()")
+    result = page.evaluate("""()=>({
+        prefix:NovelDBInstant.first('mesugak',{kind:'novel'}),
+        words:NovelDBInstant.first('mesugaki academy',{kind:'novel'}),
+        comic:NovelDBInstant.first('mesugaki',{kind:'manga'}),
+        unknown:NovelDBInstant.first('zzzznonexistenttitle',{kind:'novel'}),
+        excluded:NovelDBInstant.first('mesugaki',{kind:'novel',sites:['unrelated.invalid']})
+    })""")
+    assert result['prefix'][0]['title'] == 'Mesugaki Tank Enters The Academy'
+    assert result['words'][0]['title'] == result['prefix'][0]['title']
+    assert result['prefix'][0]['noveldb'] == {'source': 'npia', 'id': '143618'}
+    assert not result['comic'] and not result['unknown'] and not result['excluded']
     context.close()

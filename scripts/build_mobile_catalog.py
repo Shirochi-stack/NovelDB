@@ -35,6 +35,7 @@ FILES = {
     "generic.js": PAGE / "generic.js",
     "references.js": PAGE / "references.js",
     "instant.js": PAGE / "instant.js",
+    "instant/starter.bin": ROOT / "assets/instant-starter.bin",
     "halgakos-loading.webp": PAGE / "halgakos-loading.webp",
     "icon-cart.webp": PAGE / "icon-cart.webp",
     "icon-mining.webp": PAGE / "icon-mining.webp",

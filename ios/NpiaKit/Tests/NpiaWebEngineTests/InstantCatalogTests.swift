@@ -28,30 +28,34 @@ final class InstantCatalogTests: XCTestCase {
         }
         do {
             try await page.load(URL(string: "noveldb-local://app/index.html")!, until: .load, timeout: 30)
-            struct Result: Decodable { let top: Int; let elapsed: Double; let titles: [String] }
+            struct Result: Decodable { let top: Int; let firstElapsed: Double; let elapsed: Double; let titles: [String] }
             let result = try await page.evaluate(Result.self, """
                 let deadline=performance.now()+10000;
-                while(document.querySelectorAll('#grid .card .title').length<100&&performance.now()<deadline)
+                while((document.querySelectorAll('#grid .card .title').length<100||!window.NovelDBInstant?.ready())&&performance.now()<deadline)
                     await new Promise(resolve=>setTimeout(resolve,10));
                 const top=document.querySelectorAll('#grid .card .title').length;
                 const result=await new Promise(resolve=>{
                     const query=document.getElementById('query');
                     const started=performance.now();
+                    let firstElapsed=null;
                     const observer=new MutationObserver(()=>{
                         const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
-                        if(document.getElementById('heading').textContent.includes('mesugaki')&&titles.length>=20){
+                        if(!document.getElementById('heading').textContent.includes('mesugaki'))return;
+                        if(firstElapsed==null&&titles.length>=3)firstElapsed=performance.now()-started;
+                        if(titles.length>=20){
                             observer.disconnect();clearTimeout(timer);
-                            resolve({elapsed:performance.now()-started,titles});
+                            resolve({firstElapsed,elapsed:performance.now()-started,titles});
                         }
                     });
                     observer.observe(document.getElementById('grid'),{childList:true,subtree:true});
-                    const timer=setTimeout(()=>{observer.disconnect();resolve({elapsed:5000,titles:[]});},5000);
+                    const timer=setTimeout(()=>{observer.disconnect();resolve({firstElapsed:5000,elapsed:5000,titles:[]});},5000);
                     query.value='mesugaki';query.dispatchEvent(new Event('input',{bubbles:true}));
                 });
                 return {top,...result};
                 """)
-            print("INSTANT-CATALOG WebKit first-page \(result.elapsed) ms, \(result.titles.count) novels, Top \(result.top)")
+            print("INSTANT-CATALOG WebKit first-frame \(result.firstElapsed) ms, expanded \(result.elapsed) ms, \(result.titles.count) novels, Top \(result.top)")
             XCTAssertEqual(result.top, 100)
+            XCTAssertLessThan(result.firstElapsed, 60)
             XCTAssertLessThan(result.elapsed, 1000)
             XCTAssertGreaterThanOrEqual(result.titles.count, 20)
             XCTAssertLessThanOrEqual(result.titles.count, 30)

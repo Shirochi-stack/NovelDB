@@ -253,7 +253,7 @@ def parse_message(data: dict) -> Optional[dict]:
         data["query"], data["mode"] = queries[0]["query"], queries[0]["mode"]
     if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort", "genericSiteQuery", "genericInstant") and not isinstance(data.get("id"), int):
         return None
-    if kind == "genericInstant" and not re.fullmatch(r"manifest|top|[bc]/[0-9]{1,6}", str(data.get("key", ""))):
+    if kind == "genericInstant" and not re.fullmatch(r"manifest|top|starter|[bc]/[0-9]{1,6}", str(data.get("key", ""))):
         return None
     if kind == "genericInstant":
         if "token" in data and (not isinstance(data["token"], str) or len(data["token"]) > 300):

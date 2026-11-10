@@ -75,7 +75,7 @@ def main():
             ready = False
             while time.monotonic() < deadline:
                 try:
-                    ready = tools.evaluate(f"performance.timeOrigin!=={origin}&&!!window.NovelDBGeneric&&document.querySelectorAll('#grid .card .title').length>=100")
+                    ready = tools.evaluate(f"performance.timeOrigin!=={origin}&&!!window.NovelDBGeneric&&document.querySelectorAll('#grid .card .title').length>=100&&!!window.NovelDBInstant&&NovelDBInstant.ready()")
                     if ready:
                         break
                 except RuntimeError:
@@ -91,13 +91,15 @@ def main():
                     const result=window.__instantProbe;
                     if(!result.started||result.ms!=null)return;
                     const titles=Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent);
-                    if(document.getElementById('heading').textContent.includes(result.query)&&titles.length>=result.minimum){
+                    if(!document.getElementById('heading').textContent.includes(result.query))return;
+                    if(result.first_ms==null&&titles.length>=3){result.first_ms=performance.now()-result.started;result.first_titles=titles;}
+                    if(titles.length>=result.minimum){
                         result.ms=performance.now()-result.started;result.titles=titles;
                     }
                 });
                 __instantObserver.observe(document.getElementById('grid'),{childList:true,subtree:true});
                 window.__instantInput=event=>{if(event.target.value===__instantProbe.query)__instantProbe.started=performance.now()};
-                document.getElementById('query').addEventListener('input',__instantInput);
+                document.getElementById('query').addEventListener('input',__instantInput,true);
                 document.getElementById('query').focus();""")
             tools.evaluate(f"Object.assign(__instantProbe,{{query:{json.dumps(args.query)},minimum:{args.minimum}}})")
             for character in args.query:
@@ -115,19 +117,20 @@ def main():
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(dumps({"platform": "installed Android WebView", "cold_page_context": True,
                                          "online_keyword_requests": "stalled", "results": results}, indent=2), encoding="utf-8")
+            assert result.get("first_ms", float("inf")) < 60, result
             assert result.get("ms", float("inf")) < args.max_ms, result
             assert args.minimum <= len(result.get("titles", [])) <= 30, result
             assert result["titles"][0] == args.expected_first, result
-            print(dumps({"iteration": iteration + 1, "ms": result["ms"], "top_ms": top_ms,
+            print(dumps({"iteration": iteration + 1, "first_ms": result["first_ms"], "ms": result["ms"], "top_ms": top_ms,
                          "count": len(result["titles"]), "first": result["titles"][0]}), flush=True)
-            tools.evaluate("__instantObserver.disconnect();document.getElementById('query').removeEventListener('input',__instantInput);window.NovelDBTransport=__instantTransport")
+            tools.evaluate("__instantObserver.disconnect();document.getElementById('query').removeEventListener('input',__instantInput,true);window.NovelDBTransport=__instantTransport")
         if args.screenshot:
             picture = tools.command("Page.captureScreenshot", {"format": "png"})
             args.screenshot.parent.mkdir(parents=True, exist_ok=True)
             args.screenshot.write_bytes(base64.b64decode(picture["data"]))
     finally:
         try:
-            tools.evaluate("window.__instantObserver?.disconnect();if(window.__instantInput)document.getElementById('query').removeEventListener('input',__instantInput);if(window.__instantTransport)window.NovelDBTransport=__instantTransport;document.getElementById('stop')?.click()")
+            tools.evaluate("window.__instantObserver?.disconnect();if(window.__instantInput)document.getElementById('query').removeEventListener('input',__instantInput,true);if(window.__instantTransport)window.NovelDBTransport=__instantTransport;document.getElementById('stop')?.click()")
         except (RuntimeError, websocket.WebSocketException):
             pass
         tools.socket.close()

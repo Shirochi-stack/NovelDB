@@ -2942,7 +2942,7 @@
         case 'genericReady': init(); break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
         case 'genericInstant':
-            if (!/^(manifest|top|[bc]\/[0-9]{1,6})$/.test(message.key || '')) break;
+            if (!/^(manifest|top|starter|[bc]\/[0-9]{1,6})$/.test(message.key || '')) break;
             fetch('instant/' + message.key + '.bin').then(function (response) {
                 if (!response.ok) throw new Error('Local catalogue unavailable');
                 return response.arrayBuffer();
