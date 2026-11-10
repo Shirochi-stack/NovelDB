@@ -120,6 +120,7 @@ class ExternalJob(ExternalPipelineMixin):
             "cancelled": cancelled and not outputs,
             "title": title,
             "outputs": outputs,
+            "incomplete": any(r is None or r.get("_locked") for r in getattr(self, "_chapter_results", [])),
             "warnings": [] if not errors or not ok else errors[-3:],
             "error": "" if ok else (errors[-1] if errors else ("Stopped" if cancelled else "No files were written")),
             "status": "Done" if ok else "",

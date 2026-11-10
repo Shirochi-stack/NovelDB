@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -159,6 +160,8 @@ private fun formats(book: LibraryBook): String {
 fun LibraryScreen(model: AppViewModel) {
     val manager = model.manager
     val jobs by manager.jobs.collectAsStateWithLifecycle()
+    val libraryUpdates by manager.libraryUpdates.collectAsStateWithLifecycle()
+    var librarySettings by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
     var open by remember { mutableStateOf<LibraryBook?>(null) }
@@ -175,6 +178,7 @@ fun LibraryScreen(model: AppViewModel) {
         value = withContext(Dispatchers.IO) { scanLibrary(manager.outputDirectory) }
     }
     val shown = books.filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+    LaunchedEffect(books) { withContext(Dispatchers.IO) { manager.discoverLibrary(books.mapNotNull { it.epub }) } }
     val selecting = selected.isNotEmpty()
     fun toggle(book: LibraryBook) {
         val key = book.name.lowercase()
@@ -208,6 +212,7 @@ fun LibraryScreen(model: AppViewModel) {
                     modifier = Modifier.padding(start = 12.dp),
                 )
             }
+            TextButton(onClick = { librarySettings = true }) { Text("Settings") }
         }
         if (shown.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -228,12 +233,26 @@ fun LibraryScreen(model: AppViewModel) {
                 val picked = book.name.lowercase() in selected
                 Column(
                     Modifier.clip(RoundedCornerShape(8.dp)).combinedClickable(
-                        onClick = { if (selecting) toggle(book) else book.readerFile?.let { reading = it } ?: run { open = book } },
+                        onClick = {
+                            if (selecting) toggle(book) else {
+                                book.epub?.let(manager::requestLibraryUpdate)
+                                book.readerFile?.let { reading = it } ?: run { open = book }
+                            }
+                        },
                         onLongClick = { toggle(book) },
                     ),
                 ) {
                     Box {
                         Cover(book)
+                        book.epub?.let { epub ->
+                            val updating = jobs.firstOrNull { it.state.isActive && it.libraryTarget == epub.name }
+                            val badge = if (updating != null) {
+                                if (updating.state == com.shirochi.npia.app.model.JobState.QUEUED) "Update queued" else "Updating…"
+                            } else if (libraryUpdates.enabled && libraryUpdates.books[epub.name]?.enabled == true) "Auto-update" else null
+                            if (badge != null) Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(6.dp), modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)) {
+                                Text(badge, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(4.dp))
+                            }
+                        }
                         // The book's files and actions, for a tap that would rather not read; while books are
                         // being picked, whether this one is.
                         Surface(
@@ -266,6 +285,10 @@ fun LibraryScreen(model: AppViewModel) {
             val files = pickedBooks.flatMap { it.files }.filter { fileKind(it) !in kindsOff }
             Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { manager.setLibraryAutoUpdate(pickedBooks.mapNotNull { it.epub }, true) }) { Text("Enable auto-update") }
+                        TextButton(onClick = { manager.setLibraryAutoUpdate(pickedBooks.mapNotNull { it.epub }, false) }) { Text("Disable auto-update") }
+                    }
                     if (kinds.size > 1) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             kinds.forEach { kind ->
@@ -293,9 +316,41 @@ fun LibraryScreen(model: AppViewModel) {
         }
     }
     reading?.let { file -> LibraryReader(file, model) { reading = null } }
+    if (librarySettings) AlertDialog(
+        onDismissRequest = { librarySettings = false },
+        title = { Text("Library settings") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Allow Library auto-updates", Modifier.weight(1f))
+                    Switch(libraryUpdates.enabled, { manager.configureLibrary(libraryUpdates.copy(enabled = it)) })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Background auto-update", Modifier.weight(1f))
+                    Switch(libraryUpdates.background, { manager.configureLibrary(libraryUpdates.copy(background = it)) }, enabled = libraryUpdates.enabled)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Upload refreshed EPUBs to Google Drive", Modifier.weight(1f))
+                    Switch(libraryUpdates.uploadDrive, {
+                        if (it) manager.preferences.shareAgreementAccepted = true
+                        manager.configureLibrary(libraryUpdates.copy(uploadDrive = it))
+                    }, enabled = libraryUpdates.enabled)
+                }
+                Text("Background refresh runs every 15 minutes while the app is active. Ranged downloads and books without range history start off. Google Drive uploads are shared with anyone who has the link.")
+            }
+        },
+        confirmButton = { TextButton(onClick = { librarySettings = false }) { Text("Done") } },
+    )
     open?.let { book ->
         ModalBottomSheet(onDismissRequest = { open = null }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                book.epub?.let { epub ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Auto-update this book", Modifier.weight(1f))
+                        val entry = libraryUpdates.books[epub.name]
+                        Switch(entry?.enabled == true, { manager.setLibraryAutoUpdate(listOf(epub), it) }, enabled = !entry?.url.isNullOrBlank())
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.width(64.dp)) { Cover(book) }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -369,7 +424,7 @@ private fun fileKind(file: File): String = when {
 /** A book's cover on the shelf: its EPUB's own, else its initial on a tinted tile. Fills its width at 2:3. */
 @Composable
 private fun Cover(book: LibraryBook) {
-    val cover by produceState<Bitmap?>(null, book.epub?.absolutePath) {
+    val cover by produceState<Bitmap?>(null, book.epub?.absolutePath, book.modified) {
         value = book.epub?.let { withContext(Dispatchers.IO) { epubCover(it, maxSide = 360) } }
     }
     Surface(

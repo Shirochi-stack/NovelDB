@@ -29,6 +29,7 @@ enum class JobState {
 data class JobItem(
     val id: String = UUID.randomUUID().toString(),
     val url: String,
+    val libraryTarget: String? = null,
     val source: SourceId? = null,
     val title: String? = null,
     /** The adapter's id for the book (for npia the novel number); names uploaded files. */

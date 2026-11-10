@@ -14,6 +14,7 @@ enum JobState: String, Codable {
 struct JobItem: Identifiable, Codable {
     var id = UUID()
     var url: URL
+    var libraryTarget: String?
     var source: SourceID?
     var title: String?
     /// The adapter's book id (the novel number for npia); names uploaded files whose title is not ASCII.

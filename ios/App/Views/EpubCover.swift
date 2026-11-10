@@ -5,6 +5,7 @@ import UIKit
 /// names as the cover (as the Android Library's `epubCover`), decoded small. Nil when it has none.
 enum EpubCover {
     private static let cache = NSCache<NSURL, UIImage>()
+    static func invalidate(_ file: URL) { cache.removeObject(forKey: file as NSURL) }
 
     static func image(for epub: URL, maxSide: CGFloat = 360) -> UIImage? {
         if let kept = cache.object(forKey: epub as NSURL) { return kept }

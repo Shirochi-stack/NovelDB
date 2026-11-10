@@ -183,6 +183,10 @@ class QueueRunner:
                     break
                 if job.state != QUEUED:
                     continue
+                from noveldb.core.library_updates import source_key
+                if any(source_key(other.input, other.source) == source_key(job.input, job.source) and (job.library_target or other.library_target)
+                       for other in running + to_start):
+                    continue
                 busy = sum(1 for other in running + to_start if other.engine == job.engine)
                 if busy >= self._limits.get(job.engine, 1):
                     continue

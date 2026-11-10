@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+import tempfile
+from pathlib import Path
 from dataclasses import replace
 from time import perf_counter
 from typing import Callable
@@ -54,6 +56,8 @@ class AppContext(QObject):
     _googleDriveFinished = Signal(str, str)
     _uploadLinksReady = Signal(str)
     cartChanged = Signal()
+    libraryChanged = Signal()
+    _libraryBooks = Signal(object)
     toolRequested = Signal(str)  # e.g. "tag_search", handled by the main window
     engineUpdateChecked = Signal(object)  # an engine_updates.UpdateResult
     appUpdateChecked = Signal(object, bool)  # an app_update.CheckResult, and whether it was automatic
@@ -99,6 +103,13 @@ class AppContext(QObject):
             max_concurrent=self.settings.queue.max_concurrent_jobs,
             on_change=lambda job: self.hub.jobChanged.emit(job.id),
         )
+        from noveldb.core.library_updates import LibraryUpdates
+        self.library_updates = LibraryUpdates(data / "library-updates.json")
+        self._libraryBooks.connect(self._queue_library_books)
+        self._library_timer = QTimer(self, interval=15 * 60 * 1000)
+        self._library_timer.timeout.connect(self.refresh_library_background)
+        self._library_timer.start()
+        QTimer.singleShot(2000, self.refresh_library_background)
 
     # -- settings --------------------------------------------------------------------
 
@@ -230,7 +241,13 @@ class AppContext(QObject):
                 self.hub.log(job.id, f"Total time: {perf_counter() - started:.2f} s")
 
     def _download_and_upload(self, job: Job, token: CancelToken) -> dict:
+        if job.library_target:
+            return self._refresh_library_job(job, token)
         result = self._download(job, token) or {}
+        if result.get("ok", True) and not result.get("cancelled"):
+            for path in result.get("outputs") or []:
+                if Path(path).suffix.lower() == ".epub":
+                    self.library_updates.record(path, job.input, job.download_ranged is not False)
         upload = self.settings.upload
         if not upload.auto_upload or not result.get("ok", True) or result.get("cancelled") or token.cancelled:
             return result
@@ -284,6 +301,74 @@ class AppContext(QObject):
             events.log(f"Automatic upload failed: {errors[0]}")
             result["status"] = "Downloaded; automatic upload failed"
         result["warnings"] = list(result.get("warnings") or []) + [f"Automatic upload: {error}" for error in errors]
+        return result
+
+    def register_library_books(self, books):
+        self.library_updates.discover(books, self.runner.jobs)
+
+    def configure_library(self, **changes):
+        self.library_updates.configure(**changes)
+        self._cancel_disabled_library_jobs()
+        self.libraryChanged.emit()
+        self.refresh_library_background()
+
+    def set_library_auto_update(self, paths, enabled):
+        self.library_updates.set_books(paths, enabled)
+        self._cancel_disabled_library_jobs()
+        self.libraryChanged.emit()
+
+    def _cancel_disabled_library_jobs(self):
+        for job in self.runner.jobs:
+            if job.library_target and job.active and not self.library_updates.allowed(job.library_target):
+                self.runner.cancel(job.id)
+
+    def request_library_update(self, path):
+        path = str(Path(path).resolve())
+        state = self.library_updates
+        if not Path(path).is_file() or not state.allowed(path):
+            return
+        url = state.entry(path)["url"]
+        if any(j.active and (j.library_target == path or j.input == url) for j in self.runner.jobs):
+            return
+        source = detect_source(url)
+        if source is not None:
+            self.runner.submit([Job(url, source=source, engine=engine_for(url, source, self.settings.npia.engine),
+                                    title=Path(path).stem, library_target=path)])
+
+    def refresh_library_background(self):
+        if not (self.library_updates.data["enabled"] and self.library_updates.data["background"]):
+            return
+        from noveldb.core.library import scan
+        folder = Path(self.settings.output.output_dir or paths.default_output_dir())
+        threading.Thread(target=lambda: self._libraryBooks.emit(scan(folder)), daemon=True).start()
+
+    def _queue_library_books(self, books):
+        self.register_library_books(books)
+        if self.library_updates.data["enabled"] and self.library_updates.data["background"]:
+            for book in books:
+                for file in book.files:
+                    if file.format == "EPUB":
+                        self.request_library_update(file.path)
+
+    def _refresh_library_job(self, job, token):
+        from noveldb.core.library_updates import replace_epub
+        target = Path(job.library_target)
+        if not self.library_updates.allowed(target):
+            return {"cancelled": True}
+        with tempfile.TemporaryDirectory(prefix=".library-update-", dir=target.parent) as staging:
+            result = self._download(job, token, output_dir=staging) or {}
+            candidates = [Path(p) for p in result.get("outputs", []) if Path(p).suffix.lower() == ".epub"]
+            if token.cancelled or result.get("cancelled") or not self.library_updates.allowed(target):
+                return {"cancelled": True}
+            if not result.get("ok", True) or result.get("warnings") or result.get("incomplete") or len(candidates) != 1:
+                raise ValueError("Library refresh did not produce a complete EPUB. See the download log.")
+            replace_epub(candidates[0], target)
+        result.update(outputs=[str(target)], status="Library updated")
+        self.hub.jobSaved.emit(job.id, str(target))
+        if self.library_updates.data["uploadDrive"]:
+            from noveldb.core.upload import upload
+            saved = upload(str(target), ["gdrive"], self.upload_context(stopped=lambda: token.cancelled), history=self.uploads)
+            self.hub.log(job.id, f"Library uploaded to Google Drive: {saved.link}")
         return result
 
     def _copy_upload_links(self, text: str) -> None:

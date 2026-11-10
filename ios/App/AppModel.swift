@@ -2,6 +2,7 @@ import Foundation
 import NpiaCore
 import NpiaNet
 import NpiaPipeline
+import NpiaOutput
 import NpiaSources
 import NpiaUpload
 import NpiaWebEngine
@@ -27,6 +28,7 @@ final class AppModel {
         }
     }
     private(set) var jobs: [JobItem] = []
+    private(set) var libraryUpdates = LibraryUpdateState()
     private(set) var uploadHistory: [UploadResult] = []
     /// Shown as an alert by the root view.
     var message: String?
@@ -129,6 +131,8 @@ final class AppModel {
 
     private let store = SettingsStore.appDefault()
     private let jobStore = JSONFileStore<[JobItem]>(name: "jobs.json")
+    private let libraryStore = JSONFileStore<LibraryUpdateState>(name: "library-updates.json")
+    private var libraryRefreshTask: Task<Void, Never>?
     private let historyStore = JSONFileStore<[UploadResult]>(name: "upload-history.json")
     /// The last imported desktop config without credentials, so exports keep unknown keys.
     private let desktopBaseStore = JSONFileStore<[String: JSONValue]>(name: "desktop-config-base.json")
@@ -148,6 +152,7 @@ final class AppModel {
         settings = store.load()
         web.pageLoadWait = TimeInterval(settings.shared.pageLoadTimeoutSeconds)
         jobs = jobStore.load() ?? []
+        libraryUpdates = libraryStore.load() ?? LibraryUpdateState()
         uploadHistory = historyStore.load() ?? []
         // Jobs that were running when the app was killed cannot resume mid-way.
         for index in jobs.indices where jobs[index].state.isActive {
@@ -156,6 +161,13 @@ final class AppModel {
             logBuffer.append(.warning, "Interrupted when the app was closed; tap Retry", jobID: jobs[index].id, jobTitle: jobs[index].displayTitle)
         }
         QueueNotifier.shared.setHandler { [weak self] target in self?.open(target) }
+        libraryRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            while !Task.isCancelled {
+                await self?.refreshLibraryBackground()
+                try? await Task.sleep(for: .seconds(15 * 60))
+            }
+        }
     }
 
     /// UserDefaults key of the sharing agreement; the agreement sheet writes it with @AppStorage.
@@ -224,6 +236,10 @@ final class AppModel {
 
     func retry(_ id: UUID) {
         guard let index = jobs.firstIndex(where: { $0.id == id }), !jobs[index].state.isActive else { return }
+        if let target = jobs[index].libraryTarget {
+            requestLibraryUpdate(outputDirectory.appendingPathComponent(target))
+            return
+        }
         var job = jobs[index]
         job.state = .queued
         job.status = "Queued"
@@ -265,7 +281,12 @@ final class AppModel {
     private func startNext() {
         let running = jobs.filter { $0.state == .running }.count
         guard running < maxConcurrentJobs,
-              let next = jobs.lastIndex(where: { $0.state == .queued }) else { return }
+              let next = jobs.lastIndex(where: { candidate in
+                  candidate.state == .queued && !jobs.contains { active in
+                      active.state == .running && (candidate.libraryTarget != nil || active.libraryTarget != nil) &&
+                          librarySourceKey(candidate.url, source: candidate.source) == librarySourceKey(active.url, source: active.source)
+                  }
+              }) else { return }
         start(jobs[next].id)
         startNext()
     }
@@ -284,7 +305,9 @@ final class AppModel {
             }
         }
         log(id, .info, "Starting \(job.url.absoluteString)")
-        let pipeline = DownloadPipeline(web: web, secrets: secrets, outputDirectory: outputDirectory, logger: logger)
+        let jobDirectory = job.libraryTarget == nil ? outputDirectory : outputDirectory.appendingPathComponent(".library-update-\(id)", isDirectory: true)
+        if job.libraryTarget != nil { try? FileManager.default.createDirectory(at: jobDirectory, withIntermediateDirectories: true) }
+        let pipeline = DownloadPipeline(web: web, secrets: secrets, outputDirectory: jobDirectory, logger: logger)
         background.jobStarted(id, title: job.displayTitle) { [weak self] in self?.cancel(id) }
 
         // Uploading publishes a link, so automatic uploads wait for the sharing agreement too.
@@ -296,9 +319,10 @@ final class AppModel {
         let runSettings = adjusted
 
         tasks[id] = Task { [weak self] in
+            defer { if job.libraryTarget != nil { try? FileManager.default.removeItem(at: jobDirectory) } }
             var success = false
             do {
-                let outcome = try await pipeline.run(url: job.url, settings: runSettings) { phase in
+                var outcome = try await pipeline.run(url: job.url, settings: runSettings) { phase in
                     Task { @MainActor in
                         guard let self else { return }
                         self.update(id) { $0.apply(phase) }
@@ -306,6 +330,10 @@ final class AppModel {
                             self.background.jobProgress(id, fraction: item.fraction, status: item.status)
                         }
                     }
+                }
+                if job.libraryTarget != nil {
+                    guard let self else { throw CancellationError() }
+                    outcome = try await self.commitLibraryUpdate(job, outcome: outcome)
                 }
                 success = true
                 self?.finish(id, outcome: outcome)
@@ -334,6 +362,16 @@ final class AppModel {
     }
 
     private func finish(_ id: UUID, outcome: JobOutcome) {
+        if let completed = job(id), completed.libraryTarget == nil {
+            let shared = completed.source.map { completed.settings.effective(for: $0) } ?? completed.settings.shared
+            for file in outcome.files where file.pathExtension.lowercased() == "epub" {
+                var entry = libraryUpdates.books[file.lastPathComponent] ?? LibraryUpdateEntry()
+                entry.url = completed.url.absoluteString
+                entry.ranged = shared.rangeFrom != nil || shared.rangeTo != nil
+                libraryUpdates.books[file.lastPathComponent] = entry
+            }
+            libraryStore.save(libraryUpdates)
+        }
         let base = outputDirectory.standardizedFileURL.path
         update(id) { job in
             job.title = outcome.book.title
@@ -352,6 +390,94 @@ final class AppModel {
         }
         log(id, .info, "Finished: \(outcome.files.count) file" + (outcome.files.count == 1 ? "" : "s") + (outcome.skipped.isEmpty ? "" : ", \(outcome.skipped.count) chapters skipped"))
         recordUploads(outcome.uploads)
+    }
+
+    func configureLibrary(_ change: (inout LibraryUpdateState) -> Void) {
+        change(&libraryUpdates)
+        libraryStore.save(libraryUpdates)
+        for job in jobs where job.libraryTarget != nil && job.state.isActive {
+            if !libraryAllowed(outputDirectory.appendingPathComponent(job.libraryTarget!)) { cancel(job.id) }
+        }
+        Task { await refreshLibraryBackground() }
+    }
+
+    func discoverLibrary(_ files: [URL]) {
+        var changed = false
+        for file in files where libraryUpdates.books[file.lastPathComponent] == nil {
+            let previous = jobs.first { $0.libraryTarget == nil && $0.fileNames.contains(file.lastPathComponent) }
+            let shared = previous.map { job in job.source.map { job.settings.effective(for: $0) } ?? job.settings.shared }
+            let url = previous?.url.absoluteString ?? EpubCover.book(for: file)?.url ?? ""
+            libraryUpdates.books[file.lastPathComponent] = LibraryUpdateEntry(url: url,
+                ranged: shared == nil || shared?.rangeFrom != nil || shared?.rangeTo != nil)
+            changed = true
+        }
+        if changed { libraryStore.save(libraryUpdates) }
+    }
+
+    func setLibraryAutoUpdate(_ files: [URL], enabled: Bool) {
+        configureLibrary { state in
+            for file in files {
+                var entry = state.books[file.lastPathComponent] ?? LibraryUpdateEntry()
+                entry.autoUpdate = enabled
+                state.books[file.lastPathComponent] = entry
+            }
+        }
+    }
+
+    func libraryAllowed(_ file: URL) -> Bool {
+        libraryUpdates.enabled && libraryUpdates.books[file.lastPathComponent]?.enabled == true
+    }
+
+    func requestLibraryUpdate(_ file: URL) {
+        guard libraryAllowed(file), FileManager.default.fileExists(atPath: file.path),
+              let address = libraryUpdates.books[file.lastPathComponent]?.url, let url = URL(string: address),
+              !jobs.contains(where: { $0.state.isActive && ($0.libraryTarget == file.lastPathComponent || $0.url == url) }) else { return }
+        let source = SourceCatalog.adapterType(for: url).map { $0.id }
+        var adjusted = settings
+        adjusted.shared = source.map { settings.effective(for: $0) } ?? settings.shared
+        adjusted.overrides = [:]
+        adjusted.shared.rangeFrom = nil
+        adjusted.shared.rangeTo = nil
+        adjusted.shared.formats = [.epub]
+        adjusted.shared.appendRange = false
+        adjusted.shared.useCache = true
+        adjusted.shared.generateOnStop = false
+        adjusted.upload.autoUpload = false
+        let job = JobItem(url: url, libraryTarget: file.lastPathComponent, source: source, settings: adjusted)
+        jobs.insert(job, at: 0)
+        runJobIDs.append(job.id)
+        persistJobs()
+        startNext()
+    }
+
+    private func refreshLibraryBackground() async {
+        guard libraryUpdates.enabled && libraryUpdates.background, UIApplication.shared.applicationState == .active else { return }
+        let folder = outputDirectory
+        let books = await Task.detached(priority: .utility) { LibraryBook.scan(folder) }.value
+        discoverLibrary(books.compactMap(\.epub))
+        guard libraryUpdates.enabled && libraryUpdates.background else { return }
+        for file in books.compactMap(\.epub) { requestLibraryUpdate(file) }
+    }
+
+    private func commitLibraryUpdate(_ job: JobItem, outcome: JobOutcome) async throws -> JobOutcome {
+        try Task.checkCancellation()
+        let target = outputDirectory.appendingPathComponent(job.libraryTarget!)
+        guard libraryAllowed(target) else { throw CancellationError() }
+        guard outcome.skipped.isEmpty, let candidate = outcome.files.first(where: { $0.pathExtension.lowercased() == "epub" }) else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "Library refresh was incomplete. The saved EPUB was preserved."])
+        }
+        try LibraryEpub.replace(candidate, target: target)
+        EpubCover.invalidate(target)
+        var updated = outcome
+        updated.files = [target]
+        if libraryUpdates.uploadDrive {
+            var upload = settings.upload
+            upload.hosts = ["gdrive"]
+            upload.autoUpload = false
+            updated.uploads = [try await UploaderCatalog.upload(target, settings: upload,
+                context: UploadContext(secrets: secrets, settings: upload), history: nil)]
+        }
+        return updated
     }
 
     private func update(_ id: UUID, _ change: (inout JobItem) -> Void) {

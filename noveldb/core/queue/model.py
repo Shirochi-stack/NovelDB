@@ -32,6 +32,8 @@ class Job:
     status: str = ""
     error: str = ""
     output_dir: str = ""
+    library_target: str = ""
+    download_ranged: Optional[bool] = None
     outputs: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     created: float = field(default_factory=time.time)

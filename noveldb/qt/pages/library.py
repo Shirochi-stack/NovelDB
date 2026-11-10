@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QComboBox,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -154,6 +157,14 @@ class _BookCard(QStyledItemDelegate):
         if pressed:
             painter.fillRect(cover, QColor(0, 0, 0, 40))
         painter.setClipping(False)
+        badge = index.data(Qt.UserRole + 1)
+        if badge:
+            badge_rect = QRectF(cover.left() + 4, cover.top() + 4, cover.width() - 8, 24)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(accent)
+            painter.drawRoundedRect(badge_rect, 6, 6)
+            painter.setPen(palette.color(QPalette.HighlightedText))
+            painter.drawText(badge_rect, Qt.AlignCenter, badge)
         if picked:
             ring = QColor(accent)
             painter.setPen(ring)
@@ -290,6 +301,9 @@ class LibraryPage(QWidget):
         bar.addWidget(self.sort)
         bar.addWidget(refresh)
         bar.addWidget(open_folder)
+        library_settings = QPushButton("Library settings")
+        library_settings.clicked.connect(self._library_settings)
+        bar.addWidget(library_settings)
 
         self.grid = QListWidget()
         self.grid.setViewMode(QListWidget.IconMode)
@@ -301,7 +315,7 @@ class LibraryPage(QWidget):
         self.grid.setSpacing(8)
         self.grid.setUniformItemSizes(True)
         self.grid.setItemDelegate(_BookCard(self.grid))
-        self.grid.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.grid.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.grid.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid.customContextMenuRequested.connect(self._menu)
         self.grid.itemActivated.connect(lambda item: self._show_book(item.data(Qt.UserRole)))
@@ -335,6 +349,10 @@ class LibraryPage(QWidget):
         self.detail = hint("")
         actions.addWidget(self.detail, 1)
         for button in (self.read_button, self.open_button, self.show_button, self.delete_button):
+            actions.addWidget(button)
+        for label, enabled in (("Enable auto-update", True), ("Disable auto-update", False)):
+            button = QPushButton(label)
+            button.clicked.connect(lambda _checked=False, value=enabled: self._set_auto_update(value))
             actions.addWidget(button)
         self.grid.currentItemChanged.connect(lambda *_a: self._selection_changed())
 
@@ -380,6 +398,8 @@ class LibraryPage(QWidget):
         self._covered.connect(self._set_cover)
         context.hub.jobSaved.connect(lambda *_a: self._later.start() if self._ever_shown else None)
         context.settingsChanged.connect(self._folder_changed)
+        context.libraryChanged.connect(self._update_badges)
+        context.hub.jobChanged.connect(lambda *_: self._update_badges())
         self._folder = None
         self._selection_changed()
 
@@ -446,6 +466,7 @@ class LibraryPage(QWidget):
             self.loading.stop()
             self.body.setCurrentWidget(self.grid)
         self.books = books
+        self.context.register_library_books(books)
         self._show()
 
     def _take(self, books, started: float) -> None:
@@ -453,6 +474,7 @@ class LibraryPage(QWidget):
             return  # a newer scan is on its way
         self._reading = None
         self.books = books
+        self.context.register_library_books(books)
         self.loading.stop()
         self.body.setCurrentWidget(self.grid)
         self._show()
@@ -494,7 +516,7 @@ class LibraryPage(QWidget):
         self.empty.setVisible(not books)
 
     def _fill(self) -> None:
-        selected = self._selected()
+        selected = {item.data(Qt.UserRole).name for item in self.grid.selectedItems()}
         start = self.page * PER_PAGE
         page_books = self.shown[start:start + PER_PAGE]
         self._generation += 1
@@ -505,13 +527,14 @@ class LibraryPage(QWidget):
             formats = " · ".join(dict.fromkeys(f.format for f in book.files))
             item = QListWidgetItem(self._placeholder, f"{book.title}\n{formats}")
             item.setData(Qt.UserRole, book)
+            item.setData(Qt.UserRole + 1, self._badge(book))
             item.setToolTip("\n".join(filter(None, [book.title, book.author, formats, _size_text(book.size),
                                                     time.strftime("%Y-%m-%d %H:%M", time.localtime(book.modified))])))
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             self.grid.addItem(item)
             self._items[book.name] = item
-            if selected is not None and book.name == selected.name:
-                self.grid.setCurrentItem(item)
+            if book.name in selected:
+                item.setSelected(True)
         self.grid.setUpdatesEnabled(True)
         self._label()
         self._selection_changed()
@@ -574,12 +597,66 @@ class LibraryPage(QWidget):
 
     # -- actions ----------------------------------------------------------------------------------
 
+    @staticmethod
+    def _epub(book):
+        return next((f.path for f in book.files if f.format == "EPUB"), None)
+
+    def _badge(self, book):
+        path = self._epub(book)
+        if path is None:
+            return ""
+        job = next((j for j in self.context.runner.jobs if j.active and j.library_target == str(path.resolve())), None)
+        if job:
+            return "Updating…" if job.state == "running" else "Update queued"
+        return "Auto-update" if self.context.library_updates.allowed(path) else ""
+
+    def _update_badges(self):
+        for item in self._items.values():
+            item.setData(Qt.UserRole + 1, self._badge(item.data(Qt.UserRole)))
+
+    def _set_auto_update(self, enabled):
+        books = [item.data(Qt.UserRole) for item in self.grid.selectedItems()]
+        self.context.set_library_auto_update([p for p in map(self._epub, books) if p], enabled)
+
+    def _library_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Library settings")
+        layout = QVBoxLayout(dialog)
+        checks = []
+        for key, label in (("enabled", "Allow Library auto-updates"),
+                           ("background", "Background auto-update every 15 minutes while the app is open"),
+                           ("uploadDrive", "Upload refreshed EPUBs to Google Drive")):
+            check = QCheckBox(label)
+            check.setChecked(self.context.library_updates.data[key])
+            layout.addWidget(check)
+            checks.append((key, check))
+        layout.addWidget(hint("Opening a book checks for updates when its auto-update is enabled.\n"
+                              "Full downloads default on. Ranged downloads default off.\n"
+                              "Books without saved range history start off until enabled.\n"
+                              "Google Drive uploads are shared with anyone who has the link."))
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() == QDialog.Accepted:
+            changes = {key: check.isChecked() for key, check in checks}
+            if changes["uploadDrive"] and not self.context.settings.upload.agreement_accepted:
+                from dataclasses import replace
+                self.context.update_settings(lambda s: replace(s, upload=replace(s.upload, agreement_accepted=True)))
+            self.context.configure_library(**changes)
+
     def _menu(self, point) -> None:
         item = self.grid.itemAt(point)
         if item is None:
             return
         book = item.data(Qt.UserRole)
         menu = QMenu(self)
+        action = menu.addAction("Auto-update this book")
+        action.setCheckable(True)
+        path = self._epub(book)
+        action.setEnabled(path is not None and bool(self.context.library_updates.entry(path).get("url")))
+        action.setChecked(bool(path and self.context.library_updates.preferred(path)))
+        action.triggered.connect(lambda enabled: self.context.set_library_auto_update([path], enabled))
         if book.readable() is not None:
             menu.addAction("Read in the app", lambda: self._read(book))
         for file in book.files:
@@ -597,6 +674,8 @@ class LibraryPage(QWidget):
         """A book's page, in the Library tab."""
         if book is None:
             return
+        if self._epub(book):
+            self.context.request_library_update(self._epub(book))
         self.book_view.show_book(book, _cover_image(library.cover(book)) if book.cover is None else None)
         self.views.setCurrentWidget(self.book_view)
 
@@ -604,6 +683,8 @@ class LibraryPage(QWidget):
         """Read the book's preferred readable file."""
         if book is None:
             return
+        if self._epub(book):
+            self.context.request_library_update(self._epub(book))
         if book.readable() is None:
             self._open(book)
             return

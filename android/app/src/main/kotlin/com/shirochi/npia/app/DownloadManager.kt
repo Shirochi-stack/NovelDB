@@ -1,6 +1,13 @@
 package com.shirochi.npia.app
 
 import android.app.Application
+import com.shirochi.npia.app.model.LibraryUpdateState
+import com.shirochi.npia.app.model.LibraryUpdateEntry
+import com.shirochi.npia.app.model.librarySourceKey
+import com.shirochi.npia.app.model.replaceLibraryEpub
+import com.shirochi.npia.app.ui.scanLibrary
+import com.shirochi.npia.app.ui.epubSource
+import com.shirochi.npia.core.OutputFormat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -72,6 +79,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
@@ -107,6 +116,9 @@ class DownloadManager(private val app: Application) {
 
     private val _jobs = MutableStateFlow(JobItem.interrupted(jobStore.load().orEmpty()))
     val jobs: StateFlow<List<JobItem>> = _jobs.asStateFlow()
+    private val libraryStore = JsonFileStore(File(app.filesDir, "library-updates.json"), LibraryUpdateState.serializer())
+    private val _libraryUpdates = MutableStateFlow(libraryStore.load() ?: LibraryUpdateState())
+    val libraryUpdates = _libraryUpdates.asStateFlow()
 
     private val _uploadHistory = MutableStateFlow(historyStore.load().orEmpty())
     val uploadHistory: StateFlow<List<UploadResult>> = _uploadHistory.asStateFlow()
@@ -282,6 +294,13 @@ class DownloadManager(private val app: Application) {
         setUploadTestHost(preferences.uploadTestBase, preferences.uploadTestMaxBytes.takeIf { it > 0 })
         // At start: only for the engines the user opted in to, and at most once a day.
         checkEngineUpdates(automatic = true)
+        scope.launch {
+            delay(2000)
+            while (true) {
+                refreshLibraryBackground()
+                delay(15 * 60 * 1000L)
+            }
+        }
     }
 
     // Queue
@@ -325,6 +344,10 @@ class DownloadManager(private val app: Application) {
     fun retry(id: String) {
         val job = job(id) ?: return
         if (job.state.isActive) return
+        if (job.libraryTarget != null) {
+            requestLibraryUpdate(File(outputDirectory, job.libraryTarget))
+            return
+        }
         // A retry uses the settings as they are now, so a range or option changed since queueing applies.
         update(id) { it.resetForRetry().copy(settings = _settings.value) }
         jobLog(id, LogLevel.INFO, "Retry: back in the queue")
@@ -352,7 +375,12 @@ class DownloadManager(private val app: Application) {
             val runningCount = list.count { it.state == JobState.RUNNING }
             if (runningCount >= preferences.maxConcurrentJobs) break
             // The queue shows newest first; the oldest queued job runs next.
-            val next = list.lastOrNull { it.state == JobState.QUEUED } ?: break
+            val next = list.lastOrNull { candidate ->
+                candidate.state == JobState.QUEUED && list.none { active ->
+                    active.state == JobState.RUNNING && (candidate.libraryTarget != null || active.libraryTarget != null) &&
+                        librarySourceKey(candidate.url, candidate.source) == librarySourceKey(active.url, active.source)
+                }
+            } ?: break
             start(next)
         }
         if (activeCount > 0) DownloadService.start(app)
@@ -365,19 +393,20 @@ class DownloadManager(private val app: Application) {
         jobLog(id, LogLevel.INFO, "Started")
         val pipeline = DownloadPipeline(
             secrets = secrets,
-            outputDirectory = outputDirectory,
+            outputDirectory = if (job.libraryTarget != null) File(outputDirectory, ".library-update-$id").apply { mkdirs() } else outputDirectory,
             web = SnapshotAfterSignIn(web) { snapshotSessions() },
             images = AndroidImageProcessor(job.settings.images),
             logger = logger,
             // Shares cookies with the web engine, so web-view logins apply to HTTP requests.
             httpFactory = { OkHttpFetcher(it, web.cookieJar(), logger) },
-            currentUploadSettings = { uploadSettings() },
+            currentUploadSettings = { if (job.libraryTarget != null) job.settings.upload.copy(autoUpload = false) else uploadSettings() },
             uploadContextFactory = ::uploadContext,
-            generateOnStop = { _settings.value.shared.generateOnStop },
+            generateOnStop = { job.libraryTarget == null && _settings.value.shared.generateOnStop },
         )
         running[id] = scope.launch {
             try {
-                val outcome = pipeline.run(job.url, job.settings) { phase -> update(id) { it.applying(phase) } }
+                val downloaded = pipeline.run(job.url, job.settings) { phase -> update(id) { it.applying(phase) } }
+                val outcome = if (job.libraryTarget != null) commitLibraryUpdate(job, downloaded) else downloaded
                 withContext(NonCancellable) { finish(id, outcome) }
             } catch (e: CancellationException) {
                 update(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled") }
@@ -394,6 +423,7 @@ class DownloadManager(private val app: Application) {
                 // An expected failure (unsupported address, sign-in needed) says it all; a surprise needs its trace.
                 if (e !is com.shirochi.npia.core.SourceException) e.stackTrace.take(8).forEach { jobLog(id, LogLevel.DEBUG, "    at $it") }
             } finally {
+                if (job.libraryTarget != null) File(outputDirectory, ".library-update-$id").deleteRecursively()
                 update(id) { it.copy(finishedAt = System.currentTimeMillis()) }
                 persistJobs()
                 // Recorded before leaving `running`, so a job that ends at the same moment cannot
@@ -407,6 +437,18 @@ class DownloadManager(private val app: Application) {
     }
 
     private suspend fun finish(id: String, outcome: JobOutcome) {
+        val completed = job(id)
+        if (completed != null && completed.libraryTarget == null && !outcome.stopped) {
+            val shared = completed.source?.let { completed.settings.effective(it) } ?: completed.settings.shared
+            val ranged = shared.rangeFrom != null || shared.rangeTo != null
+            synchronized(this) {
+                val entries = _libraryUpdates.value.books.toMutableMap()
+                for (file in outcome.files.filter { it.extension.equals("epub", true) }) {
+                    entries[file.name] = (entries[file.name] ?: LibraryUpdateEntry()).copy(url = completed.url, ranged = ranged)
+                }
+                saveLibrary(_libraryUpdates.value.copy(books = entries))
+            }
+        }
         val base = outputDirectory.canonicalPath + File.separator
         update(id) { job ->
             job.copy(
@@ -425,6 +467,83 @@ class DownloadManager(private val app: Application) {
             }
         }
         outcome.uploads.forEach { recordUpload(it) }
+    }
+
+    @Synchronized
+    private fun saveLibrary(value: LibraryUpdateState) {
+        _libraryUpdates.value = value
+        libraryStore.save(value)
+    }
+
+    @Synchronized
+    fun configureLibrary(value: LibraryUpdateState) {
+        saveLibrary(value)
+        for (job in _jobs.value.filter { it.libraryTarget != null && it.state.isActive }) {
+            if (!libraryAllowed(File(outputDirectory, job.libraryTarget!!))) cancel(job.id)
+        }
+        scope.launch { refreshLibraryBackground() }
+    }
+
+    fun discoverLibrary(files: List<File>) = synchronized(this) {
+        val entries = _libraryUpdates.value.books.toMutableMap()
+        for (file in files.filter { it.extension.equals("epub", true) && it.name !in entries }) {
+            val previous = _jobs.value.firstOrNull { file.name in it.fileNames && it.libraryTarget == null }
+            val shared = previous?.let { it.source?.let(it.settings::effective) ?: it.settings.shared }
+            val url = previous?.url ?: epubSource(file)?.url.orEmpty()
+            entries[file.name] = LibraryUpdateEntry(url, shared == null || shared.rangeFrom != null || shared.rangeTo != null)
+        }
+        if (entries != _libraryUpdates.value.books) saveLibrary(_libraryUpdates.value.copy(books = entries))
+    }
+
+    @Synchronized
+    fun setLibraryAutoUpdate(files: List<File>, enabled: Boolean) {
+        val entries = _libraryUpdates.value.books.toMutableMap()
+        for (file in files.filter { it.extension.equals("epub", true) }) {
+            entries[file.name] = (entries[file.name] ?: LibraryUpdateEntry()).copy(autoUpdate = enabled)
+        }
+        configureLibrary(_libraryUpdates.value.copy(books = entries))
+    }
+
+    fun libraryAllowed(file: File): Boolean = _libraryUpdates.value.enabled && _libraryUpdates.value.books[file.name]?.enabled == true
+
+    @Synchronized
+    fun requestLibraryUpdate(file: File) {
+        if (!file.isFile || !libraryAllowed(file)) return
+        val entry = _libraryUpdates.value.books[file.name] ?: return
+        if (_jobs.value.any { it.state.isActive && (it.libraryTarget == file.name || it.url == entry.url) }) return
+        val source = SourceCatalog.adapterFor(entry.url)?.id
+        val shared = source?.let(_settings.value::effective) ?: _settings.value.shared
+        val adjusted = _settings.value.copy(overrides = emptyMap(), shared = shared.copy(
+            rangeFrom = null, rangeTo = null, appendRange = false, formats = listOf(OutputFormat.EPUB),
+            useCache = true, generateOnStop = false), upload = _settings.value.upload.copy(autoUpload = false))
+        val job = JobItem(url = entry.url, source = source, settings = adjusted, libraryTarget = file.name, title = file.nameWithoutExtension)
+        _jobs.update { listOf(job) + it }
+        persistJobs()
+        startNext()
+    }
+
+    private fun refreshLibraryBackground() {
+        if (!_libraryUpdates.value.enabled || !_libraryUpdates.value.background) return
+        val process = android.app.ActivityManager.RunningAppProcessInfo()
+        android.app.ActivityManager.getMyMemoryState(process)
+        if (process.importance != android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND) return
+        val files = scanLibrary(outputDirectory).flatMap { it.files }.filter { it.extension.equals("epub", true) }
+        discoverLibrary(files)
+        files.forEach(::requestLibraryUpdate)
+    }
+
+    private suspend fun commitLibraryUpdate(job: JobItem, outcome: JobOutcome): JobOutcome {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val target = File(outputDirectory, requireNotNull(job.libraryTarget))
+        if (!libraryAllowed(target)) throw CancellationException("Library updates disabled")
+        require(!outcome.stopped && outcome.skipped.isEmpty()) { "Library refresh was incomplete. The saved EPUB was preserved." }
+        val candidate = outcome.files.single { it.extension.equals("epub", true) }
+        replaceLibraryEpub(candidate, target)
+        val uploads = if (_libraryUpdates.value.uploadDrive) {
+            val upload = _settings.value.upload.copy(hosts = listOf("gdrive"), autoUpload = false)
+            listOf(UploaderCatalog.upload(target, upload, uploadContext(upload), history = null))
+        } else emptyList()
+        return outcome.copy(files = listOf(target), uploads = uploads)
     }
 
     private fun endedInRun(job: JobItem) {

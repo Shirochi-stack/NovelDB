@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import TimeoutError as FutureTimeout
+from dataclasses import replace
 from typing import Callable, Optional
 
 from noveldb.core import net_timeouts
@@ -41,11 +42,17 @@ class JobDispatcher:
         self._npia_job = npia_job_factory
         self._external_job = external_job_factory
 
-    def __call__(self, job: Job, token: CancelToken) -> dict:
+    def __call__(self, job: Job, token: CancelToken, output_dir=None) -> dict:
         settings = self._settings()
+        requested = settings.effective(job.source)
+        job.download_ranged = requested.range_from is not None or requested.range_to is not None
+        if job.library_target:
+            settings = replace(settings, overrides={}, shared=replace(requested, formats=("epub",),
+                               range_from=None, range_to=None, append_range=False, use_cache=True,
+                               generate_on_stop=False), upload=replace(settings.upload, auto_upload=False))
         net_timeouts.configure_from(settings)  # the minimum waits this job runs with
         events = self._events_for(job)
-        output_dir = job.output_dir or None
+        output_dir = output_dir or job.output_dir or None
         if job.engine == NPIA_NATIVE:
             return self._npia_job(job.input, settings, self._auth, events, self._prompts, token, output_dir).run()
         external = self._external_job(job.input, settings, job.source, events, token, output_dir)

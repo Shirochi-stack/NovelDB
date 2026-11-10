@@ -1,8 +1,9 @@
 import NpiaSources
+import NpiaCore
 import SwiftUI
 
 /// A book in the Library: every output sharing a name ("Title.epub", "Title.txt", a "Title/" TXT folder).
-struct LibraryBook: Identifiable {
+struct LibraryBook: Identifiable, Sendable {
     let name: String
     let files: [URL]
     let modified: Date
@@ -83,6 +84,7 @@ struct LibraryView: View {
     @State private var open: LibraryBook?
     @State private var deleting: LibraryBook?
     @State private var reading: URL?
+    @State private var librarySettings = false
     /// The books picked by a long press (their ids), and the file kinds left out of what they share.
     @State private var selected: Set<String> = []
     @State private var kindsOff: Set<String> = []
@@ -119,7 +121,10 @@ struct LibraryView: View {
                                     .padding(4)
                                     .accessibilityLabel(selected.contains(book.id) ? "Selected" : "Not selected")
                             } else {
-                                Button { open = book } label: {
+                                Button {
+                                    if let epub = book.epub { model.requestLibraryUpdate(epub) }
+                                    open = book
+                                } label: {
                                     Image(systemName: "ellipsis").font(.caption.bold()).frame(width: 28, height: 28)
                                         .background(.ultraThinMaterial, in: Circle())
                                 }
@@ -128,12 +133,23 @@ struct LibraryView: View {
                                 .accessibilityLabel("Files and actions")
                             }
                         }
+                        if let epub = book.epub {
+                            let active = model.jobs.first { $0.state.isActive && $0.libraryTarget == epub.lastPathComponent }
+                            if active != nil || model.libraryAllowed(epub) {
+                                Text(active == nil ? "Auto-update" : (active?.state == .queued ? "Update queued" : "Updating…"))
+                                    .font(.caption2.bold()).padding(4)
+                                    .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
+                            }
+                        }
                         Text(book.name).font(.footnote.weight(.medium)).lineLimit(2).padding(.top, 4)
                         Text(book.formats).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if selecting { toggle(book) } else if let file = book.readerFile { reading = file } else { open = book }
+                        if selecting { toggle(book) } else {
+                            if let epub = book.epub { model.requestLibraryUpdate(epub) }
+                            if let file = book.readerFile { reading = file } else { open = book }
+                        }
                     }
                     .onLongPressGesture { toggle(book) }
                 }
@@ -144,6 +160,7 @@ struct LibraryView: View {
         .searchable(text: $query, prompt: "Find a book")
         .navigationTitle(selecting ? "\(selected.count) selected" : "Library")
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { Button("Library settings") { librarySettings = true } }
             if selecting {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { selected = [] } }
                 ToolbarItem(placement: .primaryAction) {
@@ -160,6 +177,12 @@ struct LibraryView: View {
             NavigationStack {
                 List {
                     Section {
+                        if let epub = book.epub {
+                            Toggle("Auto-update this book", isOn: Binding(
+                                get: { model.libraryUpdates.books[epub.lastPathComponent]?.enabled == true },
+                                set: { model.setLibraryAutoUpdate([epub], enabled: $0) }))
+                                .disabled(model.libraryUpdates.books[epub.lastPathComponent]?.url.isEmpty != false)
+                        }
                         HStack(spacing: 12) {
                             ShelfCover(book: book).frame(width: 64)
                             VStack(alignment: .leading, spacing: 4) {
@@ -194,6 +217,27 @@ struct LibraryView: View {
         .fullScreenCover(isPresented: Binding(get: { reading != nil }, set: { if !$0 { reading = nil } })) {
             if let file = reading { LibraryReaderView(file: file) { reading = nil } }
         }
+        .sheet(isPresented: $librarySettings) {
+            NavigationStack {
+                Form {
+                    Toggle("Allow Library auto-updates", isOn: Binding(
+                        get: { model.libraryUpdates.enabled }, set: { value in model.configureLibrary { $0.enabled = value } }))
+                    Toggle("Background auto-update", isOn: Binding(
+                        get: { model.libraryUpdates.background }, set: { value in model.configureLibrary { $0.background = value } }))
+                        .disabled(!model.libraryUpdates.enabled)
+                    Toggle("Upload refreshed EPUBs to Google Drive", isOn: Binding(
+                        get: { model.libraryUpdates.uploadDrive }, set: { value in
+                            if value { UserDefaults.standard.set(true, forKey: AppModel.shareAgreementKey) }
+                            model.configureLibrary { $0.uploadDrive = value }
+                        }))
+                        .disabled(!model.libraryUpdates.enabled)
+                    Text("Background refresh runs every 15 minutes while the app is active. Ranged downloads and books without range history start off. Google Drive uploads are shared with anyone who has the link.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                .navigationTitle("Library settings")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { librarySettings = false } } }
+            }
+        }
         .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
@@ -217,6 +261,7 @@ struct LibraryView: View {
 
     private func reload() {
         books = LibraryBook.scan(model.outputDirectory)
+        model.discoverLibrary(books.compactMap(\.epub))
     }
 
     /// "EPUB", "TXT" (a TXT folder too), "PDF": a file's kind, for the selection's filter.
@@ -234,6 +279,10 @@ struct LibraryView: View {
         let kept = all.filter { !kindsOff.contains(Self.kind($0)) }
         let files = kept.map(SharedOutput.init(url:))
         return VStack(spacing: 8) {
+            HStack {
+                Button("Enable auto-update") { model.setLibraryAutoUpdate(picked.compactMap(\.epub), enabled: true) }
+                Button("Disable auto-update") { model.setLibraryAutoUpdate(picked.compactMap(\.epub), enabled: false) }
+            }
             if kinds.count > 1 {
                 HStack(spacing: 8) {
                     ForEach(kinds.sorted(), id: \.self) { kind in
@@ -282,7 +331,7 @@ private struct ShelfCover: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-            .task(id: book.epub) {
+            .task(id: book.modified) {
                 guard let epub = book.epub else { return }
                 cover = await Task.detached(priority: .utility) { EpubCover.image(for: epub) }.value
             }
