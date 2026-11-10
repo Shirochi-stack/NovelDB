@@ -336,7 +336,7 @@ fun LibraryScreen(model: AppViewModel) {
                         manager.configureLibrary(libraryUpdates.copy(uploadDrive = it))
                     }, enabled = libraryUpdates.enabled)
                 }
-                Text("Background refresh runs every 15 minutes while the app is active. Ranged downloads and books without range history start off. Google Drive uploads are shared with anyone who has the link.")
+                Text("Enabled books refresh the full novel. Background refresh runs every 15 minutes while the app is active. Ranged downloads and books without range history start off. Google Drive uploads are shared with anyone who has the link.")
             }
         },
         confirmButton = { TextButton(onClick = { librarySettings = false }) { Text("Done") } },
@@ -364,7 +364,7 @@ fun LibraryScreen(model: AppViewModel) {
                 // On a narrow phone the buttons take two rows.
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     book.readerFile?.let { file ->
-                        Button(onClick = { open = null; reading = file }) { Text("Open") }
+                        Button(onClick = { book.epub?.let(manager::requestLibraryUpdate); open = null; reading = file }) { Text("Open") }
                     }
                     // The book in the Catalog: its site's page (where it came from) and its title searched, to
                     // download what an unfinished or outdated copy is missing.

@@ -323,17 +323,28 @@ class AppContext(QObject):
                 self.runner.cancel(job.id)
 
     def request_library_update(self, path):
-        path = str(Path(path).resolve())
+        self.request_library_updates([path])
+
+    def request_library_updates(self, paths_to_update):
         state = self.library_updates
-        if not Path(path).is_file() or not state.allowed(path):
-            return
-        url = state.entry(path)["url"]
-        if any(j.active and (j.library_target == path or j.input == url) for j in self.runner.jobs):
-            return
-        source = detect_source(url)
-        if source is not None:
-            self.runner.submit([Job(url, source=source, engine=engine_for(url, source, self.settings.npia.engine),
-                                    title=Path(path).stem, library_target=path)])
+        active = [job for job in self.runner.jobs if job.active]
+        targets = {job.library_target for job in active}
+        manual_urls = {job.input for job in active if not job.library_target}
+        added = []
+        for value in paths_to_update:
+            path = str(Path(value).resolve())
+            if not Path(path).is_file() or not state.allowed(path) or path in targets:
+                continue
+            url = state.entry(path)["url"]
+            if url in manual_urls:
+                continue
+            source = detect_source(url)
+            if source is not None:
+                added.append(Job(url, source=source, engine=engine_for(url, source, self.settings.npia.engine),
+                                 title=Path(path).stem, library_target=path))
+                targets.add(path)
+        if added:
+            self.runner.submit(added)
 
     def refresh_library_background(self):
         if not (self.library_updates.data["enabled"] and self.library_updates.data["background"]):
@@ -345,10 +356,7 @@ class AppContext(QObject):
     def _queue_library_books(self, books):
         self.register_library_books(books)
         if self.library_updates.data["enabled"] and self.library_updates.data["background"]:
-            for book in books:
-                for file in book.files:
-                    if file.format == "EPUB":
-                        self.request_library_update(file.path)
+            self.request_library_updates([file.path for book in books for file in book.files if file.format == "EPUB"])
 
     def _refresh_library_job(self, job, token):
         from noveldb.core.library_updates import replace_epub

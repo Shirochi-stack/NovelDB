@@ -631,6 +631,7 @@ class LibraryPage(QWidget):
             layout.addWidget(check)
             checks.append((key, check))
         layout.addWidget(hint("Opening a book checks for updates when its auto-update is enabled.\n"
+                              "Enabled books refresh the full novel.\n"
                               "Full downloads default on. Ranged downloads default off.\n"
                               "Books without saved range history start off until enabled.\n"
                               "Google Drive uploads are shared with anyone who has the link."))

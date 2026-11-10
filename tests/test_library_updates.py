@@ -160,10 +160,14 @@ def test_open_coalesces_requests_and_global_opt_out_cancels_pending_updates(tmp_
         context.request_library_update(target)
         assert len(context.runner.jobs) == 1
         assert context.runner.jobs[0].state == "queued"
+        second = epub(tmp_path / "Another saved copy.epub", 2)
+        context.library_updates.record(second, "https://example.test/book/1", False)
+        context.request_library_updates([target, second, second])
+        assert len(context.runner.jobs) == 2
         context.configure_library(enabled=False)
         assert context.runner.jobs[0].state == "cancelled"
         context.request_library_update(target)
-        assert len(context.runner.jobs) == 1
+        assert len(context.runner.jobs) == 2
         assert context.library_updates.preferred(target)
     finally:
         context.shutdown()

@@ -375,11 +375,12 @@ class DownloadManager(private val app: Application) {
             val runningCount = list.count { it.state == JobState.RUNNING }
             if (runningCount >= preferences.maxConcurrentJobs) break
             // The queue shows newest first; the oldest queued job runs next.
-            val next = list.lastOrNull { candidate ->
-                candidate.state == JobState.QUEUED && list.none { active ->
-                    active.state == JobState.RUNNING && (candidate.libraryTarget != null || active.libraryTarget != null) &&
-                        librarySourceKey(candidate.url, candidate.source) == librarySourceKey(active.url, active.source)
-                }
+            val active = list.filter { it.state == JobState.RUNNING }
+            val busy = active.map { librarySourceKey(it.url, it.source) }.toSet()
+            val libraryBusy = active.filter { it.libraryTarget != null }.map { librarySourceKey(it.url, it.source) }.toSet()
+            val next = list.lastOrNull {
+                it.state == JobState.QUEUED && librarySourceKey(it.url, it.source) !in
+                    (if (it.libraryTarget != null) busy else libraryBusy)
             } ?: break
             start(next)
         }
@@ -508,16 +509,29 @@ class DownloadManager(private val app: Application) {
 
     @Synchronized
     fun requestLibraryUpdate(file: File) {
-        if (!file.isFile || !libraryAllowed(file)) return
-        val entry = _libraryUpdates.value.books[file.name] ?: return
-        if (_jobs.value.any { it.state.isActive && (it.libraryTarget == file.name || it.url == entry.url) }) return
-        val source = SourceCatalog.adapterFor(entry.url)?.id
-        val shared = source?.let(_settings.value::effective) ?: _settings.value.shared
-        val adjusted = _settings.value.copy(overrides = emptyMap(), shared = shared.copy(
-            rangeFrom = null, rangeTo = null, appendRange = false, formats = listOf(OutputFormat.EPUB),
-            useCache = true, generateOnStop = false), upload = _settings.value.upload.copy(autoUpload = false))
-        val job = JobItem(url = entry.url, source = source, settings = adjusted, libraryTarget = file.name, title = file.nameWithoutExtension)
-        _jobs.update { listOf(job) + it }
+        requestLibraryUpdates(listOf(file))
+    }
+
+    @Synchronized
+    private fun requestLibraryUpdates(files: List<File>) {
+        val active = _jobs.value.filter { it.state.isActive }
+        val targets = active.mapNotNull { it.libraryTarget }.toMutableSet()
+        val manualUrls = active.filter { it.libraryTarget == null }.map { it.url }.toSet()
+        val settings = _settings.value
+        val added = mutableListOf<JobItem>()
+        for (file in files) {
+            val entry = _libraryUpdates.value.books[file.name] ?: continue
+            if (!file.isFile || !libraryAllowed(file) || file.name in targets || entry.url in manualUrls) continue
+            val source = SourceCatalog.adapterFor(entry.url)?.id
+            val shared = source?.let(settings::effective) ?: settings.shared
+            val adjusted = settings.copy(overrides = emptyMap(), shared = shared.copy(
+                rangeFrom = null, rangeTo = null, appendRange = false, formats = listOf(OutputFormat.EPUB),
+                useCache = true, generateOnStop = false), upload = settings.upload.copy(autoUpload = false))
+            added += JobItem(url = entry.url, source = source, settings = adjusted, libraryTarget = file.name, title = file.nameWithoutExtension)
+            targets += file.name
+        }
+        if (added.isEmpty()) return
+        _jobs.update { added.reversed() + it }
         persistJobs()
         startNext()
     }
@@ -529,7 +543,7 @@ class DownloadManager(private val app: Application) {
         if (process.importance != android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND) return
         val files = scanLibrary(outputDirectory).flatMap { it.files }.filter { it.extension.equals("epub", true) }
         discoverLibrary(files)
-        files.forEach(::requestLibraryUpdate)
+        requestLibraryUpdates(files)
     }
 
     private suspend fun commitLibraryUpdate(job: JobItem, outcome: JobOutcome): JobOutcome {

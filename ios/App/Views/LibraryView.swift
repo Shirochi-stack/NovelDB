@@ -121,10 +121,7 @@ struct LibraryView: View {
                                     .padding(4)
                                     .accessibilityLabel(selected.contains(book.id) ? "Selected" : "Not selected")
                             } else {
-                                Button {
-                                    if let epub = book.epub { model.requestLibraryUpdate(epub) }
-                                    open = book
-                                } label: {
+                                Button { open = book } label: {
                                     Image(systemName: "ellipsis").font(.caption.bold()).frame(width: 28, height: 28)
                                         .background(.ultraThinMaterial, in: Circle())
                                 }
@@ -192,7 +189,10 @@ struct LibraryView: View {
                             }
                         }
                         if let file = book.readerFile {
-                            Button { open = nil; reading = file } label: { Label("Open", systemImage: "book") }
+                            Button {
+                                if let epub = book.epub { model.requestLibraryUpdate(epub) }
+                                open = nil; reading = file
+                            } label: { Label("Open", systemImage: "book") }
                         }
                         // The book in the Catalog: its site's page (where it came from) and its title searched, to
                         // download what an unfinished or outdated copy is missing.
@@ -231,7 +231,7 @@ struct LibraryView: View {
                             model.configureLibrary { $0.uploadDrive = value }
                         }))
                         .disabled(!model.libraryUpdates.enabled)
-                    Text("Background refresh runs every 15 minutes while the app is active. Ranged downloads and books without range history start off. Google Drive uploads are shared with anyone who has the link.")
+                    Text("Enabled books refresh the full novel. Background refresh runs every 15 minutes while the app is active. Ranged downloads and books without range history start off. Google Drive uploads are shared with anyone who has the link.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .navigationTitle("Library settings")

@@ -280,12 +280,13 @@ final class AppModel {
 
     private func startNext() {
         let running = jobs.filter { $0.state == .running }.count
+        let active = jobs.filter { $0.state == .running }
+        let busy = Set(active.map { librarySourceKey($0.url, source: $0.source) })
+        let libraryBusy = Set(active.filter { $0.libraryTarget != nil }.map { librarySourceKey($0.url, source: $0.source) })
         guard running < maxConcurrentJobs,
               let next = jobs.lastIndex(where: { candidate in
-                  candidate.state == .queued && !jobs.contains { active in
-                      active.state == .running && (candidate.libraryTarget != nil || active.libraryTarget != nil) &&
-                          librarySourceKey(candidate.url, source: candidate.source) == librarySourceKey(active.url, source: active.source)
-                  }
+                  let blocked = candidate.libraryTarget == nil ? libraryBusy : busy
+                  return candidate.state == .queued && !blocked.contains(librarySourceKey(candidate.url, source: candidate.source))
               }) else { return }
         start(jobs[next].id)
         startNext()
@@ -429,23 +430,37 @@ final class AppModel {
     }
 
     func requestLibraryUpdate(_ file: URL) {
-        guard libraryAllowed(file), FileManager.default.fileExists(atPath: file.path),
-              let address = libraryUpdates.books[file.lastPathComponent]?.url, let url = URL(string: address),
-              !jobs.contains(where: { $0.state.isActive && ($0.libraryTarget == file.lastPathComponent || $0.url == url) }) else { return }
-        let source = SourceCatalog.adapterType(for: url).map { $0.id }
-        var adjusted = settings
-        adjusted.shared = source.map { settings.effective(for: $0) } ?? settings.shared
-        adjusted.overrides = [:]
-        adjusted.shared.rangeFrom = nil
-        adjusted.shared.rangeTo = nil
-        adjusted.shared.formats = [.epub]
-        adjusted.shared.appendRange = false
-        adjusted.shared.useCache = true
-        adjusted.shared.generateOnStop = false
-        adjusted.upload.autoUpload = false
-        let job = JobItem(url: url, libraryTarget: file.lastPathComponent, source: source, settings: adjusted)
-        jobs.insert(job, at: 0)
-        runJobIDs.append(job.id)
+        requestLibraryUpdates([file])
+    }
+
+    private func requestLibraryUpdates(_ files: [URL]) {
+        let active = jobs.filter { $0.state.isActive }
+        var targets = Set(active.compactMap(\.libraryTarget))
+        let manualURLs = Set(active.filter { $0.libraryTarget == nil }.map(\.url))
+        var added: [JobItem] = []
+        for file in files {
+            guard libraryAllowed(file), FileManager.default.fileExists(atPath: file.path),
+                  !targets.contains(file.lastPathComponent),
+                  let address = libraryUpdates.books[file.lastPathComponent]?.url, let url = URL(string: address),
+                  !manualURLs.contains(url) else { continue }
+            let source = SourceCatalog.adapterType(for: url).map { $0.id }
+            var adjusted = settings
+            adjusted.shared = source.map { settings.effective(for: $0) } ?? settings.shared
+            adjusted.overrides = [:]
+            adjusted.shared.rangeFrom = nil
+            adjusted.shared.rangeTo = nil
+            adjusted.shared.formats = [.epub]
+            adjusted.shared.appendRange = false
+            adjusted.shared.useCache = true
+            adjusted.shared.generateOnStop = false
+            adjusted.upload.autoUpload = false
+            let job = JobItem(url: url, libraryTarget: file.lastPathComponent, source: source, settings: adjusted)
+            added.append(job)
+            targets.insert(file.lastPathComponent)
+        }
+        guard !added.isEmpty else { return }
+        jobs.insert(contentsOf: added.reversed(), at: 0)
+        runJobIDs.append(contentsOf: added.map(\.id))
         persistJobs()
         startNext()
     }
@@ -456,7 +471,7 @@ final class AppModel {
         let books = await Task.detached(priority: .utility) { LibraryBook.scan(folder) }.value
         discoverLibrary(books.compactMap(\.epub))
         guard libraryUpdates.enabled && libraryUpdates.background else { return }
-        for file in books.compactMap(\.epub) { requestLibraryUpdate(file) }
+        requestLibraryUpdates(books.compactMap(\.epub))
     }
 
     private func commitLibraryUpdate(_ job: JobItem, outcome: JobOutcome) async throws -> JobOutcome {
