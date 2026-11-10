@@ -83,3 +83,21 @@ def test_index_sort_only_reads_the_index_and_keeps_other_work_running():
     assert calls == [("Shadow Slave", {"sources": ["npia"], "sort": "likes"})]
     assert replies[0][0] == 9 and replies[0][1]["more"]
     assert replies[0][1]["cards"][0]["via"] == "name"
+
+
+@pytest.mark.parametrize("status,expected", [(200, 1), (404, 0)])
+def test_unfamiliar_google_candidates_need_matching_live_book_metadata(monkeypatch, status, expected):
+    sites = [{"site": "books.test", "host": "books.test"}]
+    monkeypatch.setattr(search, "top_sites", lambda: sites)
+    monkeypatch.setattr(search_ranking, "profile", lambda: {"preferred": [], "measurements": {}})
+    monkeypatch.setattr(search, "web_search", lambda *args: [{"url": "https://books.test/book/1", "title": "Shadow Slave", "snippet": ""}])
+    class Sites:
+        def search(self, home, title):
+            return []
+    def fetch(url, **kwargs):
+        result = response('<title>Shadow Slave</title><meta property="og:title" content="Shadow Slave">', status)
+        return {**result, "url": url}
+    engine = search.GenericSearch(fetch=fetch, site_search=Sites())
+    found = []
+    engine.run("Shadow Slave", "name", found.extend, threading.Event(), deadline=1)
+    assert len(found) == expected

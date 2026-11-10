@@ -1,8 +1,11 @@
 """Exercise catalogue Google dorks and record accepted book links or verification failures."""
 
 import argparse
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from noveldb.core.catalog.generic_search import (GenericSearch, GoogleUnavailable, default_fetch,
     google_dorks, google_results, looks_like_book, top_sites)

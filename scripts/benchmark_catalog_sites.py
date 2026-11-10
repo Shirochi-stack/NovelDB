@@ -2,10 +2,13 @@
 
 import argparse
 import statistics
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from noveldb.core.catalog.generic_search import default_fetch, top_sites
 from noveldb.core.catalog.search_ranking import PROFILE, profile
