@@ -121,6 +121,7 @@ def test_resident_prefixes_and_source_filters_keep_real_identity(browser):
         prefix:NovelDBInstant.first('mesugak',{kind:'novel'}),
         words:NovelDBInstant.first('mesugaki academy',{kind:'novel'}),
         comic:NovelDBInstant.first('mesugaki',{kind:'manga'}),
+        unknownWord:NovelDBInstant.first('constructor academy',{kind:'novel'}),
         unknown:NovelDBInstant.first('zzzznonexistenttitle',{kind:'novel'}),
         excluded:NovelDBInstant.first('mesugaki',{kind:'novel',sites:['unrelated.invalid']})
     })""")
@@ -128,6 +129,7 @@ def test_resident_prefixes_and_source_filters_keep_real_identity(browser):
     assert result['words'][0]['title'] == result['prefix'][0]['title']
     assert result['prefix'][0]['noveldb'] == {'source': 'npia', 'id': '143618'}
     assert not result['comic'] and not result['unknown'] and not result['excluded']
+    assert isinstance(result['unknownWord'], list)
     context.close()
 
 

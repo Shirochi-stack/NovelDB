@@ -149,9 +149,10 @@ def desktop_package(args, number):
     finally:
         if tools:
             tools.socket.close()
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True
-        )
+        if process.poll() is None:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True
+            )
 
 
 def android(args):

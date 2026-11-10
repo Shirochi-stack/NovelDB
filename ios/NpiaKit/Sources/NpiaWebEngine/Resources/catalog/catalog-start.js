@@ -6005,7 +6005,7 @@ window.NovelDBInstantBoot={"rows":[["sfc","48704","\u82f1\u96c4\u518d\u4e34(\u82
         var wanted = tokens(query);
         if (!wanted.length) return [];
         var lists = wanted.map(function (token, index) {
-            if (index !== wanted.length - 1 || cjk.test(token)) return starter.postings[token] || [];
+            if (index !== wanted.length - 1 || cjk.test(token)) return Array.isArray(starter.postings[token]) ? starter.postings[token] : [];
             // Binary prefix lookup avoids walking the resident vocabulary on each keystroke.
             var low = 0, high = starter.words.length;
             while (low < high) {
