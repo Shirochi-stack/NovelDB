@@ -52,7 +52,7 @@
         var blocks = Array.from(new Set(numbers.map(function (number) { return Math.floor(number / manifest.block); })));
         var found = new Map();
         var position = 0;
-        await Promise.all(Array.from({length: Math.min(6, blocks.length)}, async function () {
+        await Promise.all(Array.from({length: Math.min(16, blocks.length)}, async function () {
             while (position < blocks.length && io.alive()) {
                 var block = blocks[position++];
                 var rows = numbers.filter(function (number) { return Math.floor(number / manifest.block) === block; })

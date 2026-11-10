@@ -25,15 +25,20 @@ public enum CatalogPage {
         Relay(store: store, handler: handler)
     }
 
-    static func file(_ path: String) -> URL? {
-        let clean = path.split(separator: "/").filter { $0 != ".." && !$0.isEmpty }.joined(separator: "/")
-        guard !clean.isEmpty else { return nil }
-        let name = (clean as NSString).deletingPathExtension
-        let ext = (clean as NSString).pathExtension
+    private static let resourceFolder: URL? = {
         for folder in ["Resources/catalog", "catalog"] {
-            if let found = Bundle.module.url(forResource: name, withExtension: ext, subdirectory: folder) { return found }
+            if let index = Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: folder) {
+                return index.deletingLastPathComponent()
+            }
         }
         return nil
+    }()
+
+    static func file(_ path: String) -> URL? {
+        let clean = path.split(separator: "/").filter { $0 != ".." && !$0.isEmpty }.joined(separator: "/")
+        guard !clean.isEmpty, let root = resourceFolder else { return nil }
+        let file = root.appendingPathComponent(clean)
+        return FileManager.default.fileExists(atPath: file.path) ? file : nil
     }
 
     static func mimeType(_ ext: String) -> String {

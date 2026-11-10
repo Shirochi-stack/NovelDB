@@ -8,6 +8,14 @@ import AppKit
 
 @MainActor
 final class InstantCatalogTests: XCTestCase {
+    func testBundledCataloguePathsResolveWithinTheResourceFolder() throws {
+        let index = try XCTUnwrap(CatalogPage.file("/index.html"))
+        let piece = try XCTUnwrap(CatalogPage.file("/instant/manifest.bin"))
+        XCTAssertTrue(piece.path.hasPrefix(index.deletingLastPathComponent().path + "/"))
+        XCTAssertNil(CatalogPage.file("/instant/missing.bin"))
+        XCTAssertNil(CatalogPage.file(""))
+    }
+
     func testPackagedCatalogueReturnsRealNovelsWithOnlineRequestsStalled() async throws {
         let engine = WKWebEngine(persistent: false)
         engine.pageLoadWait = 0
