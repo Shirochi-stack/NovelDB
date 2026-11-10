@@ -94,6 +94,46 @@ def write_cache(path, data):
     atomic_bytes(path, gzip.compress(raw, mtime=0))
 
 
+def import_snapshot(path, cache_path, origin_url, captured_at):
+    """Import attributed NU metadata while retaining newer live observations."""
+    captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    raw = Path(path).read_bytes()
+    records = json.loads(raw)
+    if not isinstance(records, list) or not origin_url.startswith("https://"):
+        raise ValueError("Expected an attributed NU metadata snapshot")
+    cache = read_cache(cache_path)
+    known_ids = {str(record["nu_id"]): url for url, record in cache["series"].items() if record.get("nu_id")}
+    digest = hashlib.sha256(raw).hexdigest()
+    imported = 0
+    for row in records:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), int) or row["id"] <= 0:
+            continue
+        language = {"korean": "Korean", "chinese": "Chinese"}.get(row.get("original_language"))
+        aliases = row.get("assoc_names")
+        authors = row.get("authors")
+        if (not language or not valid_title(row.get("name")) or not isinstance(aliases, list)
+                or not isinstance(authors, list) or not all(isinstance(name, str) for name in aliases + authors)):
+            continue
+        url = known_ids.get(str(row["id"]), nu_url(f"?p={row['id']}", series=True))
+        existing = cache["series"].get(url)
+        if existing:
+            observed = datetime.fromisoformat(existing["checked_at"].replace("Z", "+00:00"))
+            if observed >= captured:
+                existing["aliases"] = list(dict.fromkeys(existing.get("aliases", []) + aliases))
+                existing["authors"] = list(dict.fromkeys(existing.get("authors", []) + authors))
+                continue
+        cache["series"][url] = {
+            "url": url, "title": row["name"], "aliases": list(dict.fromkeys(aliases)),
+            "authors": list(dict.fromkeys(authors)), "language": language,
+            "checked_at": captured_at, "snapshot_url": origin_url, "snapshot_sha256": digest,
+            "nu_id": str(row["id"]),
+        }
+        imported += 1
+    cache.setdefault("snapshots", {})[digest] = {"url": origin_url, "captured_at": captured_at, "imported": imported}
+    write_cache(cache_path, cache)
+    return {"imported": imported, "snapshot_sha256": digest, "captured_at": captured_at}
+
+
 def parse_series(html, expected_url):
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
@@ -137,11 +177,22 @@ class TitleIndex:
     def __init__(self, cache):
         self.aliases = defaultdict(list)
         self.urls = set(cache.get("series", {}))
+        identities = {}
         for url, record in cache.get("series", {}).items():
             if record.get("url") != nu_url(url, series=True):
                 raise ValueError("Invalid cached NovelUpdates series")
             if not valid_title(record.get("title")):
                 continue
+            identity = str(record.get("nu_id") or parse_qs(urlsplit(url).query).get("p", [url])[0])
+            previous = identities.get(identity)
+            if previous:
+                def observed(value):
+                    return datetime.fromisoformat(value["checked_at"].replace("Z", "+00:00")).timestamp()
+                newer = record if observed(record) > observed(previous) else previous
+                record = {**newer, "aliases": list(dict.fromkeys(previous.get("aliases", []) + record.get("aliases", []))),
+                          "authors": list(dict.fromkeys(previous.get("authors", []) + record.get("authors", [])))}
+            identities[identity] = record
+        for record in identities.values():
             for alias in set(normalized(alias) for alias in record.get("aliases", []) if NATIVE.search(alias)):
                 self.aliases[alias].append(record)
 
@@ -429,7 +480,7 @@ def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("collect", "apply"))
+    parser.add_argument("command", choices=("collect", "apply", "import-snapshot"))
     parser.add_argument("--source", choices=(*PUBLISHERS, "all"), default="all")
     parser.add_argument("--cache", type=Path, default=CACHE)
     parser.add_argument("--max-requests", type=int, default=100)
@@ -439,6 +490,9 @@ def main():
     parser.add_argument("--state-dir", type=Path, default=ROOT / "metadata/state")
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--snapshot", type=Path)
+    parser.add_argument("--snapshot-url")
+    parser.add_argument("--snapshot-date")
     args = parser.parse_args()
     sources = tuple(PUBLISHERS) if args.source == "all" else (args.source,)
     if args.command == "collect":
@@ -450,6 +504,11 @@ def main():
             sys.path.insert(0, str(ROOT))
         collect(sources, args.cache, args.max_requests, browser_fallback=args.browser_fallback,
                 max_seconds=args.max_seconds)
+    elif args.command == "import-snapshot":
+        if not all((args.snapshot, args.snapshot_url, args.snapshot_date)):
+            parser.error("Snapshot path, attribution URL and date are required")
+        report = import_snapshot(args.snapshot, args.cache, args.snapshot_url, args.snapshot_date)
+        print(source_names.dumps(report))
     else:
         reports = []
         for source in sources:

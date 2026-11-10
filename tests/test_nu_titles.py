@@ -20,6 +20,43 @@ def cache():
     return {"version": 1, "series": {URL: nu_titles.parse_series(HTML, URL)}, "publishers": {}}
 
 
+def test_snapshot_import_retains_live_titles_and_all_historical_aliases(tmp_path):
+    stored = cache()
+    stored["series"][URL]["nu_id"] = "45"
+    target = tmp_path / "cache.json.gz"
+    nu_titles.write_cache(target, stored)
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps([
+        {"id": 45, "name": "Old English Name", "original_language": "korean",
+         "assoc_names": [RAW, "이전 제목"], "authors": [AUTHOR]},
+        {"id": 46, "name": "Another Book", "original_language": "korean",
+         "assoc_names": ["다른 작품"], "authors": ["다른 작가"]},
+        {"id": 47, "name": "Malformed", "original_language": "korean", "assoc_names": "bad", "authors": []},
+    ]), encoding="utf-8")
+    report = nu_titles.import_snapshot(snapshot, target, "https://example.test/snapshot", "2025-08-21T00:00:00Z")
+    loaded = nu_titles.read_cache(target)
+    assert report["imported"] == 1
+    assert len(loaded["series"]) == 2
+    assert loaded["series"][URL]["title"] == "Debut or Die"
+    index = nu_titles.TitleIndex(loaded)
+    assert index.match("이전 제목", AUTHOR, "npia")["title"] == "Debut or Die"
+    assert index.match("다른 작품", "다른 작가", "npia")["title"] == "Another Book"
+    assert index.match("다른 작품", AUTHOR, "npia") is None
+    assert loaded["series"]["https://www.novelupdates.com/?p=46"]["checked_at"] == "2025-08-21T00:00:00Z"
+    assert report["snapshot_sha256"] == hashlib.sha256(snapshot.read_bytes()).hexdigest()
+
+
+def test_live_refresh_of_snapshot_id_keeps_historical_aliases_without_ambiguous_duplicates():
+    stored = cache()
+    stored["series"][URL]["nu_id"] = "45"
+    historical = "https://www.novelupdates.com/?p=45"
+    stored["series"][historical] = {**stored["series"][URL], "url": historical, "title": "Old English Title",
+                                   "aliases": ["이전 제목"], "checked_at": "2025-08-21T00:00:00Z"}
+    index = nu_titles.TitleIndex(stored)
+    assert index.match("이전 제목", AUTHOR, "kpage")["title"] == "Debut or Die"
+    assert index.match(RAW, AUTHOR, "kpage")["title"] == "Debut or Die"
+
+
 def test_live_metadata_selectors_and_exact_matching():
     index = nu_titles.TitleIndex(cache())
     assert index.match(RAW, AUTHOR, "kpage")["title"] == "Debut or Die"
