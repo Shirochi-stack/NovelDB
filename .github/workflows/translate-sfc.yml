@@ -77,7 +77,7 @@ jobs:
         run: echo "::add-mask::${{ github.event.inputs.api_key }}"
 
       # --- Translate Titles ---
-      - name: Sync SFC titles from novels JSON
+      - name: Sync sfc titles and prefer verified NovelUpdates titles before API translation
         run: python scripts/extract_titles.py sfc
 
       - name: Extract untranslated SFC titles

@@ -253,6 +253,14 @@ def ordered_records(state):
     return sorted(state["records"].items(), key=lambda item: str(item[0]))
 
 
+def apply_canonical_titles(state, state_dir):
+    try:
+        from .nu_titles import TitleIndex, apply_state
+    except ImportError:
+        from nu_titles import TitleIndex, apply_state
+    return apply_state(state, TitleIndex.load(Path(state_dir) / "nu_titles.json.gz"))
+
+
 def active_translation(record, field):
     translation = record.get("translations", {}).get(field, {})
     if (isinstance(translation, dict)
@@ -325,6 +333,8 @@ def prepare(source, output_dir, state_dir, shared_tags=None, fields=None):
                     "original": str(record.get(field) or ""), "english": english,
                     "translated_at": common().utc_now(),
                 }
+        if field == "title":
+            apply_canonical_titles(state, state_dir)
         write_field_corpus(state, field, output_dir)
     if fields is None:
         known = known_tags(output_dir, shared_tags)
@@ -441,6 +451,7 @@ def build(source, output_dir, state_dir):
     source_name(source)
     output_dir = Path(output_dir).resolve()
     state = state_for(source, state_dir)
+    apply_canonical_titles(state, state_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = common().export_rows(state)
     start_date_count = 0

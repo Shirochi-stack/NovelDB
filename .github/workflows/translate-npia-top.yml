@@ -77,7 +77,7 @@ jobs:
         run: echo "::add-mask::${{ github.event.inputs.api_key }}"
 
       # --- Titles ---
-      - name: Rebuild titles_en.txt from novels.json (adds new novels)
+      - name: Sync npia titles and prefer verified NovelUpdates titles before API translation
         run: python scripts/extract_titles.py npia
 
       - name: Extract untranslated Npia titles

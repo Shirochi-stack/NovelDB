@@ -1,0 +1,76 @@
+name: Refresh canonical titles
+
+on:
+  schedule:
+    - cron: '20 2 * * *'
+  workflow_dispatch:
+    inputs:
+      max_requests:
+        description: 'Maximum sequential NovelUpdates requests. Collection resumes from its checkpoint.'
+        default: '250'
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: data-write-lock
+  cancel-in-progress: false
+
+jobs:
+  canonical-titles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONUNBUFFERED: '1'
+      NU_MAX_REQUESTS: ${{ inputs.max_requests || '250' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Load published data
+        run: python scripts/data_branch.py checkout
+      - name: Install metadata dependencies
+        run: |
+          pip install requests beautifulsoup4 'curl_cffi>=0.14,<0.15' playwright pillow psutil
+          python -m playwright install --with-deps chromium
+      - name: Resume NovelUpdates metadata collection
+        id: collect
+        continue-on-error: true
+        run: python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --browser-fallback
+      - name: Apply verified titles and rebuild catalogue gzip bundles
+        run: python scripts/nu_titles.py apply --source all --rebuild --report .cache/nu-title-migration.json
+      - name: Preserve title provenance and migration backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-titles-${{ github.run_id }}
+          include-hidden-files: true
+          path: |
+            metadata/state/nu_titles.json.gz
+            .cache/nu-title-migration.json
+          retention-days: 30
+          if-no-files-found: error
+      - name: Publish verified titles and cache
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          python scripts/publish_metadata.py --message 'Refresh verified canonical titles' --paths metadata/state/nu_titles.json.gz 'metadata/state/*.json.gz' 'docs/data/*titles_en.txt*' 'docs/data/*chunk_*.json.gz' 'docs/data/*chunk_manifest.json' 'docs/data/*top.json.gz'
+      - name: Summarize canonical coverage
+        env:
+          NU_COLLECTION_OUTCOME: ${{ steps.collect.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          reports = json.loads(Path('.cache/nu-title-migration.json').read_text(encoding='utf-8'))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write(f"NovelUpdates collection completed with status {os.environ['NU_COLLECTION_OUTCOME']}. Failed pages remain queued for retry.\n\n")
+              for report in reports:
+                  output.write(f"- {report['source']} matched {report['matched']} of {report['rows']} titles, replaced {report['changed']}.\n")
+          PY

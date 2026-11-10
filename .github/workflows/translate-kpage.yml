@@ -80,7 +80,7 @@ jobs:
         run: echo "::add-mask::${{ github.event.inputs.api_key }}"
 
       # --- Translate Titles ---
-      - name: Sync Kpage titles from novels JSON
+      - name: Sync kpage titles and prefer verified NovelUpdates titles before API translation
         run: python scripts/extract_titles.py kpage
 
       - name: Extract untranslated Kpage titles

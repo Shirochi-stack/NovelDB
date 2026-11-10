@@ -57,9 +57,11 @@ def load_existing_translations(path):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.rstrip("\n").rstrip("\r")
-                parts = line.split("|||")
-                if len(parts) >= 3 and parts[2].strip():
-                    translations[parts[0].strip()] = parts[2].strip()
+                if line.count("|||") >= 2:
+                    novel_id, rest = line.split("|||", 1)
+                    original, english = rest.rsplit("|||", 1)
+                    if english.strip():
+                        translations[novel_id.strip()] = (original, english.strip())
     return translations
 
 
@@ -92,13 +94,25 @@ def extract(source):
     if existing_en:
         print(f"  Preserved {len(existing_en)} existing translations")
 
+    if __package__:
+        from .nu_titles import TitleIndex
+        from .metadata_pipeline import decode_field
+    else:
+        from nu_titles import TitleIndex
+        from metadata_pipeline import decode_field
+    canonical = TitleIndex.load()
+
     # Build rows, split into translated and untranslated
     translated = []
     untranslated = []
     for r in raw:
         novel_id = str(r[0])
         title = r[1] or ""
-        en = existing_en.get(novel_id, "")
+        previous_original, previous_english = existing_en.get(novel_id, (None, ""))
+        en = previous_english if decode_field(previous_original) == title else ""
+        match = canonical.match(title, r[2], source)
+        if match:
+            en = match["title"]
         row = f"{novel_id}|||{title}|||{en}\n"
         if en:
             translated.append(row)

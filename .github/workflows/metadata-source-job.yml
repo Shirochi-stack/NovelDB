@@ -103,6 +103,7 @@ jobs:
           stage=".cache/metadata-build/$METADATA_SOURCE"
           state="metadata/state"
           if [ "$METADATA_OPERATION" = translate ]; then
+            # Prepare applies the offline NovelUpdates cache before generating paid API input.
             python scripts/metadata_pipeline.py prepare --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
             python scripts/metadata_pipeline.py translate --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state" --workers "$TRANSLATION_WORKERS" --delay "$TRANSLATION_DELAY" --compression-factor "$TRANSLATION_COMPRESSION_FACTOR"
             python scripts/metadata_pipeline.py merge --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
