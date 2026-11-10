@@ -56,8 +56,10 @@ def nu_url(value, *, series=False):
     url = urlsplit(urljoin(BASE, value))
     if url.scheme != "https" or url.netloc != "www.novelupdates.com":
         raise ValueError("Unexpected NovelUpdates address")
-    if series and not re.fullmatch(r"/series/[a-z0-9-]+/", url.path):
-        raise ValueError("Expected a canonical series address")
+    if series:
+        if not re.fullmatch(r"/series/[^/]+/", url.path) or url.path.split("/")[2] in (".", ".."):
+            raise ValueError("Expected a canonical series address")
+        url = url._replace(query="", fragment="")
     return url.geturl()
 
 

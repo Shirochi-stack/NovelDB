@@ -35,6 +35,13 @@ def test_live_metadata_selectors_and_exact_matching():
         assert index.match(raw, author, source) is None
 
 
+def test_series_addresses_drop_tracking_and_preserve_valid_slugs():
+    assert nu_titles.nu_url(URL + "?utm_source=search#reviews", series=True) == URL
+    assert nu_titles.nu_url(URL.replace("debut-or-die", "a_title"), series=True).endswith("/a_title/")
+    with pytest.raises(ValueError):
+        nu_titles.nu_url("https://example.com/series/debut-or-die/", series=True)
+
+
 def test_duplicate_alias_author_is_ambiguous():
     data = cache()
     second = URL.replace("debut-or-die", "another-edition")
