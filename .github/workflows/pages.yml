@@ -9,6 +9,7 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/pages.yml'
+      - 'scripts/stage_pages.py'
   schedule:
     - cron: '20 */6 * * *'
   workflow_dispatch:
@@ -26,13 +27,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PAGES_ARTIFACT_NAME: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: docs
+          sparse-checkout: |
+            docs
+            scripts
           sparse-checkout-cone-mode: true
 
       - name: Add the published data
@@ -44,11 +49,16 @@ jobs:
           echo "Data: $(git log -1 --format='%h %s (%cI)' FETCH_HEAD)" >> "$GITHUB_STEP_SUMMARY"
           du -sh docs docs/data >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Stage the runtime site within the Pages size limit
+        run: python scripts/stage_pages.py --source docs --output "$RUNNER_TEMP/noveldb-pages" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/noveldb-pages
 
       - id: deployment
         uses: actions/deploy-pages@v4
         with:
-          timeout: '1200000'
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
+          timeout: '600000'
