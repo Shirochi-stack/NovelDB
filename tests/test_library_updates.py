@@ -191,3 +191,24 @@ def test_library_dispatch_overrides_the_current_download_range_and_formats(tmp_p
     dispatcher(job, CancelToken(), output_dir=str(tmp_path))
     assert seen[0].shared.range_from is None and seen[0].shared.range_to is None
     assert seen[0].shared.formats == ("epub",) and not seen[0].shared.generate_on_stop
+
+
+def test_library_drive_upload_preserves_unicode_file_names(tmp_path, monkeypatch, qtbot):
+    from noveldb.qt.context import AppContext
+    from noveldb.core.upload.google_drive import GoogleDriveUploader
+    from tests.test_google_drive_desktop import context as upload_context, reply
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "state"))
+    context = AppContext(start_workers=False)
+    target = epub(tmp_path / "책.epub", 2)
+    context.library_updates.record(target, "https://example.test/1", False)
+    context.library_updates.configure(uploadDrive=True)
+    ctx = upload_context(reply(Location=GoogleDriveUploader.endpoint + "?upload_id=test"), reply(data={"id": "book"}), reply())
+    monkeypatch.setattr(context, "upload_context", lambda **kwargs: ctx)
+    context._download = lambda job, token, output_dir=None: {"ok": True, "outputs": [str(epub(Path(output_dir) / "new.epub", 3))]}
+    try:
+        result = context._execute_job(Job("https://example.test/1", library_target=str(target)), CancelToken())
+        assert result["outputs"] == [str(target)]
+        assert ctx.session.calls[0][2]["json"]["name"] == target.name
+        assert context.uploads.load()[0].file_name == target.name
+    finally:
+        context.shutdown()

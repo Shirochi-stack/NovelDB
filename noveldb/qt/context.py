@@ -374,8 +374,11 @@ class AppContext(QObject):
         result.update(outputs=[str(target)], status="Library updated")
         self.hub.jobSaved.emit(job.id, str(target))
         if self.library_updates.data["uploadDrive"]:
-            from noveldb.core.upload import upload
-            saved = upload(str(target), ["gdrive"], self.upload_context(stopped=lambda: token.cancelled), history=self.uploads)
+            from noveldb.core.upload.google_drive import GoogleDriveUploader
+            host = GoogleDriveUploader()
+            host.check(str(target))
+            saved = host.upload(str(target), self.upload_context(stopped=lambda: token.cancelled))
+            self.uploads.add(saved)
             self.hub.log(job.id, f"Library uploaded to Google Drive: {saved.link}")
         return result
 
