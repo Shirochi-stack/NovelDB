@@ -34,6 +34,11 @@ class LibraryUpdatesTest {
     @Test fun oldQueueEntriesStillDecode() {
         val job = JobItem.json.decodeFromString(JobItem.serializer(), """{"url":"https://example.test/book"}""")
         assertNull(job.libraryTarget)
+        val entry = JobItem.json.decodeFromString(LibraryUpdateEntry.serializer(), """{"autoUpdate":true}""")
+        assertFalse(entry.sourceChecked)
+        assertEquals(true, entry.autoUpdate)
+        val discovered = entry.copy(url = "https://example.test/book", sourceChecked = true)
+        assertTrue(discovered.enabled)
     }
 
     @Test fun sourceAliasesShareAQueue() {

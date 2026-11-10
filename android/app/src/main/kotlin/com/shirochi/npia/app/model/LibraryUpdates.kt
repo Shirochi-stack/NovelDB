@@ -9,7 +9,12 @@ import java.nio.file.StandardCopyOption
 import java.util.zip.ZipFile
 
 @Serializable
-data class LibraryUpdateEntry(val url: String = "", val ranged: Boolean = true, val autoUpdate: Boolean? = null) {
+data class LibraryUpdateEntry(
+    val url: String = "",
+    val ranged: Boolean = true,
+    val autoUpdate: Boolean? = null,
+    val sourceChecked: Boolean = false,
+) {
     val enabled: Boolean get() = url.isNotBlank() && (autoUpdate ?: !ranged)
 }
 

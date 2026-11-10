@@ -477,8 +477,8 @@ class DownloadManager(private val app: Application) {
     }
 
     @Synchronized
-    fun configureLibrary(value: LibraryUpdateState) {
-        saveLibrary(value)
+    fun configureLibrary(change: (LibraryUpdateState) -> LibraryUpdateState) {
+        saveLibrary(change(_libraryUpdates.value))
         for (job in _jobs.value.filter { it.libraryTarget != null && it.state.isActive }) {
             if (!libraryAllowed(File(outputDirectory, job.libraryTarget!!))) cancel(job.id)
         }
@@ -487,11 +487,15 @@ class DownloadManager(private val app: Application) {
 
     fun discoverLibrary(files: List<File>) = synchronized(this) {
         val entries = _libraryUpdates.value.books.toMutableMap()
-        for (file in files.filter { it.extension.equals("epub", true) && it.name !in entries }) {
+        for (file in files.filter { it.isFile && it.extension.equals("epub", true) &&
+            entries[it.name]?.url.isNullOrBlank() && entries[it.name]?.sourceChecked != true }) {
             val previous = _jobs.value.firstOrNull { file.name in it.fileNames && it.libraryTarget == null }
             val shared = previous?.let { it.source?.let(it.settings::effective) ?: it.settings.shared }
-            val url = previous?.url ?: epubSource(file)?.url.orEmpty()
-            entries[file.name] = LibraryUpdateEntry(url, shared == null || shared.rangeFrom != null || shared.rangeTo != null)
+            val metadata = if (previous == null) epubSource(file) else null
+            val url = previous?.url ?: metadata?.url.orEmpty()
+            entries[file.name] = (entries[file.name] ?: LibraryUpdateEntry()).copy(
+                url = url, ranged = shared == null || shared.rangeFrom != null || shared.rangeTo != null,
+                sourceChecked = previous != null || metadata != null)
         }
         if (entries != _libraryUpdates.value.books) saveLibrary(_libraryUpdates.value.copy(books = entries))
     }
@@ -502,7 +506,7 @@ class DownloadManager(private val app: Application) {
         for (file in files.filter { it.extension.equals("epub", true) }) {
             entries[file.name] = (entries[file.name] ?: LibraryUpdateEntry()).copy(autoUpdate = enabled)
         }
-        configureLibrary(_libraryUpdates.value.copy(books = entries))
+        configureLibrary { it.copy(books = entries) }
     }
 
     fun libraryAllowed(file: File): Boolean = _libraryUpdates.value.enabled && _libraryUpdates.value.books[file.name]?.enabled == true

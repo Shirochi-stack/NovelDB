@@ -323,17 +323,17 @@ fun LibraryScreen(model: AppViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Allow Library auto-updates", Modifier.weight(1f))
-                    Switch(libraryUpdates.enabled, { manager.configureLibrary(libraryUpdates.copy(enabled = it)) })
+                    Switch(libraryUpdates.enabled, { enabled -> manager.configureLibrary { it.copy(enabled = enabled) } })
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Background auto-update", Modifier.weight(1f))
-                    Switch(libraryUpdates.background, { manager.configureLibrary(libraryUpdates.copy(background = it)) }, enabled = libraryUpdates.enabled)
+                    Switch(libraryUpdates.background, { background -> manager.configureLibrary { it.copy(background = background) } }, enabled = libraryUpdates.enabled)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Upload refreshed EPUBs to Google Drive", Modifier.weight(1f))
-                    Switch(libraryUpdates.uploadDrive, {
-                        if (it) manager.preferences.shareAgreementAccepted = true
-                        manager.configureLibrary(libraryUpdates.copy(uploadDrive = it))
+                    Switch(libraryUpdates.uploadDrive, { upload ->
+                        if (upload) manager.preferences.shareAgreementAccepted = true
+                        manager.configureLibrary { it.copy(uploadDrive = upload) }
                     }, enabled = libraryUpdates.enabled)
                 }
                 Text("Enabled books refresh the full novel. Background refresh runs every 15 minutes while the app is active. Ranged downloads and books without range history start off. Google Drive uploads are shared with anyone who has the link.")
