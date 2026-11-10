@@ -126,6 +126,15 @@ def test_kind_change_restarts_provider_and_native_source_overrides_it(catalogue)
     assert page.evaluate("window.__sent.filter(m=>m.type==='genericNdbTop').at(-1).sources") == ["npia"]
 
 
+def test_novel_and_comic_adaptations_keep_separate_reading_cards(catalogue):
+    page = catalogue
+    page.evaluate("""ref=>window.NovelDBGeneric.add([{url:'https://mangareader.test/book/1',title:ref.title,
+        author:'작가',site:'mangareader.test',comic:true,complete:true,verified:true,via:'top',
+        catalogue:{...ref,key:'mu:77',provider:'MU',comic:true,authors:['작가']}}])""", REF)
+    page.wait_for_function("document.querySelectorAll('#grid .card').length===2")
+    assert page.locator("#grid .title").all_text_contents() == ["Canonical Book", "Canonical Book"]
+
+
 def test_provider_failure_uses_fallback_and_filters_western_and_duplicate_arcs(catalogue):
     page = catalogue
     page.evaluate("window.__down=true")

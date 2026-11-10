@@ -727,7 +727,8 @@
         var raws = [rawKey(card.originalTitle), rawKey(card.title)].filter(Boolean);
         var group = byUrl.get(key(card.url)) || groups.get(groupKey(card))
             || raws.map(function (k) { return rawTitles.get(k); }).filter(function (g) {
-                return g && groups.has(g.key) && sameAuthor(g.author, card.author);
+                return g && groups.has(g.key) && sameAuthor(g.author, card.author)
+                    && (!card.catalogue || g.comic === !!card.catalogue.comic);
             })[0];
         if (!group) {
             group = {key: groupKey(card), title: card.title, author: '', cover: '', description: '', tags: [], status: '',
