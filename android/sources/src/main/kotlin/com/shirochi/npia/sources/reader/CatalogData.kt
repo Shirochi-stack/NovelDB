@@ -79,7 +79,8 @@ object CatalogData {
             val revision = manifest.getValue("revision").jsonPrimitive.content
             val files = manifest.getValue("files").jsonArray
             require(revisionPattern.matches(revision) && files.size == 2) { "Invalid catalogue manifest" }
-            if (installed()["revision"]?.jsonPrimitive?.content == revision) return
+            val previous = installed()["revision"]?.jsonPrimitive?.content
+            if (previous == revision) return
             val target = File(root, revision).apply { mkdirs() }
             files.forEachIndexed { part, value ->
                 val entry = value.jsonObject
@@ -109,6 +110,8 @@ object CatalogData {
             }
             val pending = File(root, "installed.tmp").apply { writeText(manifest.toString()) }
             Files.move(pending.toPath(), File(root, "installed.json").toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            root.listFiles()?.filter { it.isDirectory && it.name != revision && it.name != previous && revisionPattern.matches(it.name) }
+                ?.forEach { it.deleteRecursively() }
         } catch (error: Exception) {
             synchronized(this) { failure = error.message ?: "Catalogue download failed" }
         } finally {

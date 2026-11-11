@@ -125,6 +125,23 @@ def test_free_hosts_join_the_first_english_web_novel_page(catalogue):
     assert set(hosts) <= set(tab.locator("#grid .site").all_text_contents())
 
 
+def test_downloaded_and_online_metadata_replace_the_starter_snapshot(catalogue):
+    tab, _ = catalogue
+    tab.fill("#query", "Novel")
+    tab.locator("#form").dispatch_event("submit")
+    saved = dict(card(10, NPIA_HOST, noveldb={"source": "npia", "id": "10"}),
+                 source="noveldb", via="name", instant=True, provisional=True, chapters="12", views="100")
+    add(tab, [saved])
+    downloaded = dict(saved, provisional=False, chapters="24", views="200")
+    add(tab, [downloaded])
+    assert "24" in tab.locator("#grid .card").inner_text()
+    online = dict(downloaded, instant=False, chapters="30", views="300")
+    add(tab, [online])
+    add(tab, [saved, downloaded])
+    assert "30" in tab.locator("#grid .card").inner_text()
+    assert "300" in tab.locator("#grid .card").inner_text()
+
+
 def test_preferred_site_uses_native_index_and_persists_without_narrowing_search(catalogue):
     tab, script = catalogue
     tab.click("#settingsButton")

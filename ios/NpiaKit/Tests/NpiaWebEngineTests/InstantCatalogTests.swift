@@ -45,8 +45,8 @@ final class InstantCatalogTests: XCTestCase {
         for _ in 0..<5 { checkout.deleteLastPathComponent() }
         let archiveFolder = checkout.appendingPathComponent("assets")
         await page.serveLocal { path, _ in
-            if path.hasPrefix("/downloaded/") {
-                let key = String(path.dropFirst("/downloaded/".count))
+            if path.hasPrefix("downloaded/") {
+                let key = String(path.dropFirst("downloaded/".count))
                 let part = (Int(key.split(separator: "/").last ?? "0") ?? 0) % 2
                 let archive = try? Archive(url: archiveFolder.appendingPathComponent("instant-catalog-\(part).zip"), accessMode: .read, pathEncoding: nil)
                 guard let archive, let entry = archive[key + ".json.gz"] else { return nil }
@@ -78,7 +78,11 @@ final class InstantCatalogTests: XCTestCase {
                         }
                     });
                     observer.observe(document.getElementById('grid'),{childList:true,subtree:true});
-                    const timer=setTimeout(()=>{observer.disconnect();resolve({firstElapsed:5000,elapsed:5000,titles:[]});},5000);
+                    const timer=setTimeout(()=>{
+                        observer.disconnect();
+                        resolve({firstElapsed:firstElapsed??5000,elapsed:5000,
+                            titles:Array.from(document.querySelectorAll('#grid .card .title')).map(node=>node.textContent)});
+                    },5000);
                     query.value='mesugaki';query.dispatchEvent(new Event('input',{bubbles:true}));
                 });
                 return {ready,startup,top,...result};

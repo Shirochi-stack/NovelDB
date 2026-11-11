@@ -82,7 +82,8 @@ actor CatalogData {
                   let files = manifest["files"] as? [[String: Any]], files.count == 2 else {
                 throw CocoaError(.fileReadCorruptFile)
             }
-            if installed()["revision"] as? String == revision { return }
+            let previous = installed()["revision"] as? String
+            if previous == revision { return }
             let target = root.appendingPathComponent(revision, isDirectory: true)
             try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
             for (part, entry) in files.enumerated() {
@@ -112,6 +113,12 @@ actor CatalogData {
                 progress = Double(part + 1) / 2
             }
             try data.write(to: root.appendingPathComponent("installed.json"), options: .atomic)
+            for old in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
+                if validRevision(old.lastPathComponent), old.lastPathComponent != revision, old.lastPathComponent != previous,
+                   (try? old.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    try? FileManager.default.removeItem(at: old)
+                }
+            }
         } catch { failure = error.localizedDescription }
     }
 }

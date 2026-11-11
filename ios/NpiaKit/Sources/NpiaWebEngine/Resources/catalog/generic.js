@@ -755,10 +755,13 @@
         raws.forEach(function (k) { if (!rawTitles.has(k)) rawTitles.set(k, group); });
         if (card.originalTitle && (!group.rawTitle || card.fresh) && card.originalTitle !== group.title) group.rawTitle = card.originalTitle;
         var source = group.sources.find(function (s) { return key(s.url) === key(card.url) || hostOf(s.url).replace(/^m\./, '') === hostOf(card.url).replace(/^m\./, ''); });
+        var refreshSnapshot = source && card.source === 'noveldb'
+            && ((source.provisional && !card.provisional) || (source.instant && !card.instant));
+        if (refreshSnapshot) { source.instant = !!card.instant; source.provisional = false; }
         if (!source) {
             // `noveldb`: a NovelDB book's source and id, for its synopsis from NovelDB's own files.
             source = {url: card.url, site: card.site || hostOf(card.url), source: card.source || '', plugin: card.plugin || '', path: card.path,
-                      ms: card.ms, noveldb: card.noveldb};
+                      ms: card.ms, noveldb: card.noveldb, instant: !!card.instant, provisional: !!card.provisional};
             if (group.sources.length && leadRank(source) > leadRank(group.sources[0])) {
                 group.sources.unshift(source);
                 group.title = card.title;
@@ -788,6 +791,11 @@
             }
         }
         byUrl.set(key(card.url), group);
+        if (refreshSnapshot && group.sources[0] === source) {
+            group.title = card.title;
+            if (card.originalTitle) group.rawTitle = card.originalTitle;
+            if (card.cover) { group.cover = card.cover; group.coverFrom = card.url; }
+        }
         // A NovelDB book on several of its sites (one entry in the index): its other sites' pages, after it.
         (card.also || []).forEach(function (other) {
             if (!other || !other.url || byUrl.has(key(other.url)) || group.sources.some(function (s) { return hostOf(s.url) === hostOf(other.url); })) return;
@@ -797,7 +805,7 @@
         });
         ['author', 'status', 'published', 'updated', 'rating', 'ratings', 'likes', 'views', 'chapters'].forEach(function (name) {
             // `fresh`: a NovelDB book's figures as its site shows them now (its details): they replace the index's.
-            if (card[name] && (!group[name] || card.fresh) && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
+            if (card[name] && (!group[name] || card.fresh || refreshSnapshot) && (name !== 'chapters' || wholeCount(card[name]))) group[name] = card[name];
         });
         // Its age rating (19 adults only, 15 teens): the strictest any of its sites gives it.
         if (card.ageRating === 19 || card.ageRating === 15) group.ageRating = Math.max(group.ageRating || 0, card.ageRating);
@@ -2562,7 +2570,7 @@
         if (quick) {
             var options = {kind: kind, sites: Array.from(siteFilter)};
             var first = window.NovelDBInstant.first(text, options);
-            add(first.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
+            add(first.map(function (card) { return Object.assign(card, {via: 'name', provisional: true}); }), id);
             if (first.length) drawScheduledCards();
             local = new Promise(function (resolve) { setTimeout(resolve, typing ? 40 : 0); }).then(function () {
                 if (id !== searchId) return [];

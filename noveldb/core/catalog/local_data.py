@@ -48,7 +48,8 @@ def _download():
         revision = manifest["revision"]
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", revision) or len(manifest["files"]) != 2:
             raise ValueError("Invalid catalogue manifest")
-        if installed().get("revision") == revision:
+        previous = installed().get("revision")
+        if previous == revision:
             return
         target = folder(revision)
         target.mkdir(parents=True, exist_ok=True)
@@ -75,6 +76,9 @@ def _download():
         pending = root() / "installed.tmp"
         pending.write_text(json.dumps(manifest), encoding="utf-8")
         pending.replace(root() / "installed.json")
+        for old in root().iterdir():
+            if old.is_dir() and old.name not in (revision, previous) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", old.name):
+                shutil.rmtree(old, ignore_errors=True)
     except Exception as error:
         with _lock:
             _state["error"] = str(error)
