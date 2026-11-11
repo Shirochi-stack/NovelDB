@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "noveldb" / "qt" / "catalog" / "generic"
@@ -93,12 +92,6 @@ def expected() -> dict:
     for name, source in FILES.items():
         out[name] = source.read_bytes()
     out["catalog-start.js"] = b"\n".join(out[name].replace(b"\r\n", b"\n") for name in SCRIPTS)
-    for part in range(2):
-        with ZipFile(ROOT / f"assets/instant-catalog-{part}.zip") as archive:
-            for name in archive.namelist():
-                if not name.endswith(".json.gz") or ".." in Path(name).parts or Path(name).is_absolute():
-                    raise ValueError("Invalid local catalogue archive member")
-                out["instant/" + name.removesuffix(".json.gz") + ".bin"] = archive.read(name)
     # Text with Unix line endings, whatever the checkout wrote (core.autocrlf on Windows): the iOS copy
     # is stored byte for byte, so a Windows checkout would otherwise change every line of it.
     return {name: data.replace(b"\r\n", b"\n") if name.endswith(TEXT) else data for name, data in out.items()}
@@ -111,15 +104,15 @@ def main() -> int:
     files = expected()
     if not args.check:
         for target in TARGETS:
-            old_starter = target / "instant/starter.bin"
-            if old_starter.exists():
-                if not old_starter.resolve().is_relative_to(ROOT.resolve()):
-                    raise ValueError("Local catalogue asset escaped the workspace")
-                old_starter.unlink()
-            for old in (target / "instant").rglob("*.json.gz"):
+            for old in (target / "instant").rglob("*"):
+                if not old.is_file():
+                    continue
                 if not old.resolve().is_relative_to(ROOT.resolve()):
                     raise ValueError("Local catalogue asset escaped the workspace")
                 old.unlink()
+    elif any(any((target / "instant").rglob("*.bin")) for target in TARGETS):
+        print("Bundled catalogue data must be removed with scripts/build_mobile_catalog.py")
+        return 1
     stale = []
     outputs = {target / name: data for target in TARGETS for name, data in files.items()}
     comix = COMIX_SCRIPT.read_bytes().replace(b"\r\n", b"\n")

@@ -374,7 +374,12 @@ function main() {
                 const order = ascending ? (x < y ? -1 : x > y ? 1 : 0) : (x > y ? -1 : x < y ? 1 : 0);
                 return order || a - b;
             });
-            buckets[bucketOf(token + "|" + key)].set(token + "|" + key, {"*": sorted});
+            const lists = {"*": sorted};
+            for (const number of sorted) {
+                const source = books[number].source;
+                (lists[source] || (lists[source] = [])).push(number);
+            }
+            buckets[bucketOf(token + "|" + key)].set(token + "|" + key, lists);
         }
     }
     // Synonyms (tag-synonyms.json): every key of a group lists the tags of all of them.
@@ -468,13 +473,13 @@ function main() {
     console.log(`${tagList.length} tags listed`);
     fs.closeSync(out);
     const manifest = {
-        format: 2, newest: true, built, books: books.length, buckets: BUCKETS, block: BLOCK,
+        format: 2, newest: true, ratingSorts: true, built, books: books.length, buckets: BUCKETS, block: BLOCK,
         page: PAGE, bin: binName, binSize: offset, bucketAt, blockAt, tagsAt, sources,
     };
     fs.writeFileSync(path.join(OUT, "noveldb-search.json"), JSON.stringify(manifest));
     // The split copy's table: no offsets, a file per piece.
     fs.writeFileSync(path.join(split, "manifest.json"), JSON.stringify({
-        format: 2, newest: true, built, books: books.length, buckets: BUCKETS, block: BLOCK, page: PAGE, blocks: blockAt.length, pages, sources,
+        format: 2, newest: true, ratingSorts: true, built, books: books.length, buckets: BUCKETS, block: BLOCK, page: PAGE, blocks: blockAt.length, pages, sources,
         same: merged.length,
     }));
     console.log(`${books.length} books, ${pages} further pages, ${(offset / 1048576).toFixed(1)} MB in ${Math.round((Date.now() - started) / 1000)} s`);

@@ -10,6 +10,7 @@ on:
     paths:
       - 'docs/metadata-core.js'
       - 'scripts/noveldb_index/**'
+      - 'scripts/build_instant_catalog.py'
   schedule:
     - cron: '30 5 * * *'
   workflow_dispatch:
@@ -34,6 +35,11 @@ jobs:
           sparse-checkout: |
             docs/metadata-core.js
             scripts/noveldb_index
+            scripts/build_instant_catalog.py
+            scripts/nu_titles.py
+            scripts/source_names.py
+            scripts/metadata_common.py
+            metadata/state/nu_titles.json.gz
           sparse-checkout-cone-mode: false
 
       - name: Load published data
@@ -49,6 +55,11 @@ jobs:
       - name: Build the index
         run: node --max-old-space-size=8192 scripts/noveldb_index/build.cjs docs/data out
 
+      - name: Build optional catalogue download
+        run: |
+          python3 -m pip install requests
+          python3 scripts/build_instant_catalog.py --data docs/data --output out/instant-catalog.zip --archives-only --download-manifest out/noveldb-local.json
+
       - name: Publish it
         run: |
           set -euo pipefail
@@ -56,6 +67,8 @@ jobs:
           # The data first, under this build's own name; then the table of contents that points at it.
           gh release upload "$TAG" "$bin" --clobber
           gh release upload "$TAG" out/noveldb-search.json --clobber
+          gh release upload "$TAG" out/noveldb-local-*.zip --clobber
+          gh release upload "$TAG" out/noveldb-local.json --clobber
           # Older builds' data: kept a few minutes for searches that read the old table, then removed.
           sleep 300
           keep=$(basename "$bin")

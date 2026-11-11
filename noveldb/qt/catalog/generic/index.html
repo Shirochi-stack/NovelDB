@@ -396,6 +396,12 @@
         <p>Choose the language for the Top lists.</p>
         <label class="range">Site <select id="preferredSite"><option value="">Automatic</option></select></label>
         <p>Pick a site for the Top list.</p>
+        <h3>Offline catalogue</h3>
+        <p id="catalogDataStatus" role="status">Data not downloaded</p>
+        <progress id="catalogDataProgress" max="1" hidden style="width:100%"></progress>
+        <div class="checks"><button type="button" id="catalogDataDownload">Download data</button>
+            <button type="button" id="catalogDataRemove" disabled>Remove</button></div>
+        <label class="check"><input type="checkbox" id="catalogDataAuto"> Update automatically</label>
         <h3>Searches</h3>
         <div class="checks">
             <label class="check" title="Match titles against NovelDB"><input type="checkbox" id="useNovelDB"> Index</label>

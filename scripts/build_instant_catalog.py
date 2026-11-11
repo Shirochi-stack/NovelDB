@@ -2,9 +2,12 @@
 import argparse
 from contextlib import ExitStack
 import gzip
+import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 from zipfile import ZipFile, ZipInfo, ZIP_STORED
 
@@ -85,12 +88,32 @@ def build_starter(destination):
         print(f"Startup catalogue {len(rows)} books, {target.stat().st_size / 1024:.0f} KiB", flush=True)
 
 
+def download_manifest(destination, output):
+    archives = [destination.with_name(f"{destination.stem}-{part}{destination.suffix}") for part in range(2)]
+    hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in archives]
+    revision = hashlib.sha256("".join(hashes).encode()).hexdigest()[:24]
+    with ZipFile(archives[0]) as archive:
+        books = json.loads(gzip.decompress(archive.read("manifest.json.gz")))["books"]
+    files = []
+    for part, (path, digest) in enumerate(zip(archives, hashes)):
+        name = f"noveldb-local-{revision}-{part}.zip"
+        shutil.copyfile(path, output.parent / name)
+        files.append({"name": name, "size": path.stat().st_size, "sha256": digest})
+    output.write_text(dumps({"revision": revision, "built": datetime.now(timezone.utc).isoformat(),
+                             "books": books, "files": files}, indent=2), encoding="utf-8")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=ROOT / "docs/data")
     parser.add_argument("--output", type=Path, default=ROOT / "assets/instant-catalog.zip")
     parser.add_argument("--starter-only", action="store_true", help="refresh the resident first-page subset from existing archives")
+    parser.add_argument("--archives-only", action="store_true", help="build downloadable data without updating application assets")
+    parser.add_argument("--download-manifest", type=Path)
     args = parser.parse_args()
     if not args.starter_only:
         build(args.data, args.output)
-    build_starter(args.output)
+    if not args.archives_only:
+        build_starter(args.output)
+    if args.download_manifest:
+        download_manifest(args.output, args.download_manifest)

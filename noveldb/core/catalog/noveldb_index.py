@@ -410,6 +410,10 @@ class NovelDBIndex:
             if not wanted or self.manifest() is None:
                 return [], False
             rated = AGE_TAGS.get(normal(text).strip()) if mode == "tag" else None
+            if rated and sort in INDEX_SORTS and not self.manifest().get("ratingSorts"):
+                self._forget()
+                if self.manifest() is None:
+                    return [], False
             # An age rating is the index's own tag: its list alone, not the site tags that look like it ("R-19", "Adult"),
             # and the index keeps it in the catalogue's other orders too ("#r19|new": the newest first, every source).
             sorted_lists = self._lists(wanted[0] + "|" + sort) if rated and sort in INDEX_SORTS else {}
@@ -417,6 +421,8 @@ class NovelDBIndex:
                                        else self._streams(wanted))
         if sources:
             streams = {name: stream for name, stream in streams.items() if name in sources}
+        elif "*" in streams:
+            streams = {"*": streams["*"]}
         if on_total is not None:
             on_total(sum(stream.total for stream in streams.values()))
         order = sorted(streams, key=lambda name: (name != LEAD, streams[name].first))

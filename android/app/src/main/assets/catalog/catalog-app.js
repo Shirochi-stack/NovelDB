@@ -552,6 +552,7 @@
     var NDB_AGE_TAGS = {r19: 19, r15: 15};
     var NDB_SORTS = ['likes', 'views', 'chapters', 'new', 'updated', 'title'];
     function ndbSearch(text, mode, limit, offset, each, onTotal, sort, sources) {
+        var ordered = !!sort;
         var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)]
             : mode === 'author' ? ['@' + ndbNormal(text).replace(/\s+/g, ' ').trim()] : ndbTokens(text);
         limit = limit || NDB_MORE;
@@ -561,7 +562,8 @@
         // "Adult"), and only the books it rates so (the site's own rule, as NovelDB shows it).
         var rated = mode === 'tag' ? NDB_AGE_TAGS[ndbNormal(text).trim()] || 0 : 0;
         return ndbManifest().then(function (manifest) {
-            return mode === 'source' && sort === 'new' && manifest && !manifest.newest ? ndbManifest(true) : manifest;
+            return manifest && ((mode === 'source' && sort === 'new' && !manifest.newest)
+                || (rated && sort && !manifest.ratingSorts)) ? ndbManifest(true) : manifest;
         }).then(function (manifest) {
             if (!manifest) return [];
             var sorted = rated && NDB_SORTS.indexOf(sort) >= 0;  // "#r19|new": the newest first, every source in one list
@@ -576,6 +578,7 @@
             return lists.then(function (streams) {
                 // `sources`: only their books (the sites picked in the Sites panel).
                 if (sources && sources.length) Object.keys(streams).forEach(function (name) { if (sources.indexOf(name) < 0) delete streams[name]; });
+                else if (streams['*']) streams = {'*': streams['*']};
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
                 });
@@ -603,12 +606,16 @@
                                 ageRating: row[17] === 19 || row[17] === 15 ? row[17] : 0};  // 19 adults only, 15 teens
                     }).then(function (card) {
                         if (card && rated && card.ageRating !== rated) return null;
-                        if (card && each) each(card);
+                        if (card && each && !ordered) each(card);
                         return card;
                     });
                 }));
             });
-        }).then(function (cards) { return {cards: (cards || []).filter(Boolean), more: more}; });
+        }).then(function (cards) {
+            cards = (cards || []).filter(Boolean);
+            if (ordered && each) cards.forEach(each);
+            return {cards: cards, more: more};
+        });
     }
     // The book's pages on NovelDB's other sources (one book there: the index merged them).
     function ndbAlso(others) {
@@ -3114,12 +3121,15 @@
             loadScript('lnreader-lib.js', function () { return !!window.__LNR_search; }).then(function (ok) { call('fetched', message.id, {ok: ok}); });
             break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
+        case 'genericCatalogData':
+            transport({op: 'catalogData', action: message.action || 'status'}).then(function (reply) { call('fetched', message.id, reply); });
+            break;
         case 'genericInstant':
             if (!/^(manifest|top|[bc]\/[0-9]{1,6})$/.test(message.key || '')) break;
-            fetch('instant/' + message.key + '.bin').then(function (response) {
-                if (!response.ok) throw new Error('Local catalogue unavailable');
-                return response.arrayBuffer();
-            }).then(function (bytes) { return gunzip(new Uint8Array(bytes)); }).then(function (text) {
+            transport({op: 'catalogData', action: 'read', version: message.version, key: message.key}).then(function (reply) {
+                if (!reply || !reply.base64) throw new Error('Local catalogue unavailable');
+                return gunzip(bytesOf(reply.base64));
+            }).then(function (text) {
                 call('fetched', message.id, {data: JSON.parse(text)});
             }).catch(function () { call('fetched', message.id, {data: null}); });
             break;

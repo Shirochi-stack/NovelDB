@@ -2428,11 +2428,42 @@
 
     // -- Local catalogue startup ------------------------------------------------------------------
     var instantPieces = new Map();
+    var catalogueData = {version: '', busy: false}, catalogueDataTimer = 0, catalogueDataReady = false;
+    var DATA_AUTO_KEY = 'noveldb.generic.dataAuto', DATA_CHECK_KEY = 'noveldb.generic.dataCheck';
+    $('catalogDataAuto').checked = !!store(DATA_AUTO_KEY);
+    function dataStatus(reply) {
+        if (!reply) return;
+        if (reply.version !== catalogueData.version) instantPieces.clear();
+        catalogueData = reply;
+        $('catalogDataDownload').disabled = !!reply.busy;
+        $('catalogDataDownload').textContent = reply.version ? 'Update data' : 'Download data';
+        $('catalogDataRemove').disabled = !!reply.busy || !reply.version;
+        var bar = $('catalogDataProgress');
+        bar.hidden = !reply.busy;
+        if (reply.progress) bar.value = reply.progress;
+        else bar.removeAttribute('value');
+        $('catalogDataStatus').textContent = reply.error || (reply.busy ? 'Downloading catalogue data…'
+            : reply.version ? Number(reply.books || 0).toLocaleString() + ' books · ' + new Date(reply.built).toLocaleDateString()
+            : 'Data not downloaded');
+        clearTimeout(catalogueDataTimer);
+        if (reply.busy) catalogueDataTimer = setTimeout(function () { dataAction('status'); }, 750);
+    }
+    function dataAction(action) {
+        return ask({type: 'genericCatalogData', action: action}).then(function (reply) { dataStatus(reply); return reply; });
+    }
+    $('catalogDataDownload').onclick = function () { dataAction('download'); };
+    $('catalogDataRemove').onclick = function () { dataAction('remove'); };
+    $('catalogDataAuto').onchange = function () {
+        store(DATA_AUTO_KEY, this.checked);
+        if (this.checked && catalogueData.version) dataAction('download');
+    };
     function instantIO(id) {
+        var version = catalogueData.version;
         return {alive: function () { return id === searchId && (view !== 'search' || current.text === $('query').value.trim()); }, load: function (name, selection) {
-            var cacheKey = name + (config.instantPiecesComplete ? '' : JSON.stringify(selection || {}));
+            if (!version) return Promise.resolve(null);
+            var cacheKey = version + '/' + name + (config.instantPiecesComplete ? '' : JSON.stringify(selection || {}));
             if (!instantPieces.has(cacheKey)) {
-                instantPieces.set(cacheKey, ask(Object.assign({type: 'genericInstant', key: name}, selection || {})).then(function (reply) { return reply && reply.data; }));
+                instantPieces.set(cacheKey, ask(Object.assign({type: 'genericInstant', key: name, version: version}, selection || {})).then(function (reply) { return reply && reply.data; }));
                 if (instantPieces.size > 48) instantPieces.delete(instantPieces.keys().next().value);
             }
             return instantPieces.get(cacheKey);
@@ -2525,7 +2556,7 @@
         status('Searching NovelDB and Google for ' + label + '…');
         empty();
         var id = searchId, kind = $('kind').value;
-        var quick = !byId && text && searches.noveldb && window.NovelDBInstant && !isComicKind(kind);
+        var quick = !byId && text && !sortBy() && searches.noveldb && window.NovelDBInstant && !isComicKind(kind);
         send({type: 'genericStop', id: id});
         var local = Promise.resolve();
         if (quick) {
@@ -4355,6 +4386,15 @@
         init: function (value) {
             config = value || config;
             configured = true;
+            if (!catalogueDataReady) {
+                catalogueDataReady = true;
+                dataAction('status').then(function (saved) {
+                    if (saved && saved.version && $('catalogDataAuto').checked && Date.now() - (store(DATA_CHECK_KEY) || 0) > 24 * 3600e3) {
+                        store(DATA_CHECK_KEY, Date.now());
+                        dataAction('download');
+                    }
+                });
+            }
             if (window.NovelDBInstant) window.NovelDBInstant.prepare(instantIO(searchId));
             readPlugins();
             if (view === 'top' && top.awaitingConfig) {

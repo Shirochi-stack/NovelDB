@@ -148,6 +148,9 @@ def test_empty_search_pages_are_recognised():
 
 
 def test_local_catalogue_replies_bypass_a_saturated_network_queue(monkeypatch):
+    from pathlib import Path
+    from noveldb.core.catalog import instant
+    monkeypatch.setattr(instant, "folder", lambda version=None: Path(__file__).resolve().parents[1] / "assets")
     import types
     import pytest
     pytest.importorskip("PySide6.QtWebEngineCore")

@@ -129,6 +129,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
     init {
         // The reader opens Library EPUBs from the download folder only.
         CatalogTransport.libraryFolder = model.manager.outputDirectory
+        com.shirochi.npia.sources.reader.CatalogData.directory = java.io.File(context.filesDir, "catalogue-data")
     }
     private val bridge = context.assets.open("catalog-bridge.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)

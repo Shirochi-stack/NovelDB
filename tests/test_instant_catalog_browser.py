@@ -1,5 +1,7 @@
 """Cold-context timing against the shipped million-book index with online requests stalled."""
 import json
+import base64
+from zipfile import ZipFile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -14,7 +16,7 @@ PAGE = ROOT / "noveldb/qt/catalog/generic"
 TARGETS = [PAGE, ROOT / "android/app/src/main/assets/catalog", ROOT / "ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog"]
 
 
-def open_catalogue(browser, target, rate=6, hold_configuration=False, saved_top=None, transport=None, viewport=None):
+def open_catalogue(browser, target, rate=6, hold_configuration=False, saved_top=None, transport=None, viewport=None, installed=True):
     context = browser.new_context(viewport=viewport or {"width": 390, "height": 844})
     page = context.new_page()
     context.new_cdp_session(page).send("Emulation.setCPUThrottlingRate", {"rate": rate})
@@ -35,15 +37,31 @@ def open_catalogue(browser, target, rate=6, hold_configuration=False, saved_top=
     page.route("http://instant.test/**", serve)
     page.route("https://**/*", lambda route: route.fulfill(status=503, body=""))
     page.add_init_script(transport or "window.NovelDBTransport=()=>new Promise(()=>{});")
+    def local_piece(message):
+        return read_piece(message["key"], message.get("token"), message.get("prefix", False), message.get("rows"), directory=ROOT / "assets")
+
+    def compressed_piece(message):
+        key = message["key"]
+        part = int(key.split("/")[-1]) % 2 if "/" in key else 0
+        with ZipFile(ROOT / f"assets/instant-catalog-{part}.zip") as archive:
+            return {"base64": base64.b64encode(archive.read(key + ".json.gz")).decode()}
+
+    page.expose_function("localPiece", local_piece)
+    page.expose_function("compressedPiece", compressed_piece)
+    page.add_init_script("""const originalTransport=window.NovelDBTransport;
+        window.NovelDBTransport=details=>details.op==='catalogData'
+            ? details.action==='read'?window.compressedPiece(details):Promise.resolve({version:window.testDataInstalled?'fixture':'',books:100,built:'2026-11-11'})
+            :originalTransport(details);""")
+    page.add_init_script(f"window.testDataInstalled={str(installed).lower()};")
     page.add_init_script(f"window.holdConfiguration={str(hold_configuration).lower()};")
     if saved_top is not None:
         page.add_init_script(f"""localStorage.setItem('noveldb.generic.top.v9.webnovel.en',
             JSON.stringify({{how:'sites-v2', time:Date.now(), items:{json.dumps(saved_top)}}}));""")
     if target == PAGE:
-        page.expose_function("localPiece", lambda message: read_piece(message["key"], message.get("token"), message.get("prefix", False), message.get("rows")))
         page.add_init_script("""window.NovelDBQt={postMessage:raw=>{
             const message=JSON.parse(raw);
             if(message.type==='genericInstant')window.localPiece(message).then(data=>window.NovelDBGeneric.fetched(message.id,{data}));
+            if(message.type==='genericCatalogData')window.NovelDBGeneric.fetched(message.id,{version:window.testDataInstalled?'fixture':'',books:100,built:'2026-11-11'});
             if(message.type==='genericReady'&&!window.holdConfiguration)window.NovelDBGeneric.init({sites:[],comic:[],lnreader:[]});
         }};""")
     page.goto("http://instant.test/index.html")
@@ -52,6 +70,21 @@ def open_catalogue(browser, target, rate=6, hold_configuration=False, saved_top=
             page.add_script_tag(path=target / name)
     page.wait_for_function("!!window.NovelDBGeneric")
     return context, page
+
+
+@pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])
+def test_catalogue_opens_without_optional_data_or_automatic_download(browser, target):
+    context, page = open_catalogue(browser, target, rate=1, installed=False)
+    page.locator('#settingsButton').click()
+    assert page.locator('#catalogDataAuto').is_checked() is False
+    assert page.locator('#catalogDataDownload').inner_text() == 'Download data'
+    assert page.locator('#catalogDataRemove').is_disabled()
+    assert not (target / 'instant/manifest.bin').exists()
+    page.locator('#settingsButton').click()
+    page.locator('#query').fill('mesugaki')
+    page.wait_for_function("document.querySelectorAll('#grid .card .title').length >= 1")
+    assert page.locator('#grid .card .title').count() <= 3
+    context.close()
 
 
 @pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])

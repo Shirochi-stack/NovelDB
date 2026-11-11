@@ -3107,6 +3107,7 @@ window.__GEN_READY = true;
     var NDB_AGE_TAGS = {r19: 19, r15: 15};
     var NDB_SORTS = ['likes', 'views', 'chapters', 'new', 'updated', 'title'];
     function ndbSearch(text, mode, limit, offset, each, onTotal, sort, sources) {
+        var ordered = !!sort;
         var wanted = mode === 'source' ? String(text).split(',').filter(Boolean) : mode === 'tag' ? [ndbTag(text)]
             : mode === 'author' ? ['@' + ndbNormal(text).replace(/\s+/g, ' ').trim()] : ndbTokens(text);
         limit = limit || NDB_MORE;
@@ -3116,7 +3117,8 @@ window.__GEN_READY = true;
         // "Adult"), and only the books it rates so (the site's own rule, as NovelDB shows it).
         var rated = mode === 'tag' ? NDB_AGE_TAGS[ndbNormal(text).trim()] || 0 : 0;
         return ndbManifest().then(function (manifest) {
-            return mode === 'source' && sort === 'new' && manifest && !manifest.newest ? ndbManifest(true) : manifest;
+            return manifest && ((mode === 'source' && sort === 'new' && !manifest.newest)
+                || (rated && sort && !manifest.ratingSorts)) ? ndbManifest(true) : manifest;
         }).then(function (manifest) {
             if (!manifest) return [];
             var sorted = rated && NDB_SORTS.indexOf(sort) >= 0;  // "#r19|new": the newest first, every source in one list
@@ -3131,6 +3133,7 @@ window.__GEN_READY = true;
             return lists.then(function (streams) {
                 // `sources`: only their books (the sites picked in the Sites panel).
                 if (sources && sources.length) Object.keys(streams).forEach(function (name) { if (sources.indexOf(name) < 0) delete streams[name]; });
+                else if (streams['*']) streams = {'*': streams['*']};
                 var order = Object.keys(streams).sort(function (a, b) {
                     return (a !== NDB_LEAD) - (b !== NDB_LEAD) || streams[a].first - streams[b].first;
                 });
@@ -3158,12 +3161,16 @@ window.__GEN_READY = true;
                                 ageRating: row[17] === 19 || row[17] === 15 ? row[17] : 0};  // 19 adults only, 15 teens
                     }).then(function (card) {
                         if (card && rated && card.ageRating !== rated) return null;
-                        if (card && each) each(card);
+                        if (card && each && !ordered) each(card);
                         return card;
                     });
                 }));
             });
-        }).then(function (cards) { return {cards: (cards || []).filter(Boolean), more: more}; });
+        }).then(function (cards) {
+            cards = (cards || []).filter(Boolean);
+            if (ordered && each) cards.forEach(each);
+            return {cards: cards, more: more};
+        });
     }
     // The book's pages on NovelDB's other sources (one book there: the index merged them).
     function ndbAlso(others) {
@@ -5669,12 +5676,15 @@ window.__GEN_READY = true;
             loadScript('lnreader-lib.js', function () { return !!window.__LNR_search; }).then(function (ok) { call('fetched', message.id, {ok: ok}); });
             break;
         case 'genericSearch': search(message.id || 0, message.queries || [{query: message.query, mode: message.mode}]); break;
+        case 'genericCatalogData':
+            transport({op: 'catalogData', action: message.action || 'status'}).then(function (reply) { call('fetched', message.id, reply); });
+            break;
         case 'genericInstant':
             if (!/^(manifest|top|[bc]\/[0-9]{1,6})$/.test(message.key || '')) break;
-            fetch('instant/' + message.key + '.bin').then(function (response) {
-                if (!response.ok) throw new Error('Local catalogue unavailable');
-                return response.arrayBuffer();
-            }).then(function (bytes) { return gunzip(new Uint8Array(bytes)); }).then(function (text) {
+            transport({op: 'catalogData', action: 'read', version: message.version, key: message.key}).then(function (reply) {
+                if (!reply || !reply.base64) throw new Error('Local catalogue unavailable');
+                return gunzip(bytesOf(reply.base64));
+            }).then(function (text) {
                 call('fetched', message.id, {data: JSON.parse(text)});
             }).catch(function () { call('fetched', message.id, {data: null}); });
             break;
@@ -8445,11 +8455,42 @@ window.NovelDBTopStart = {
 
     // -- Local catalogue startup ------------------------------------------------------------------
     var instantPieces = new Map();
+    var catalogueData = {version: '', busy: false}, catalogueDataTimer = 0, catalogueDataReady = false;
+    var DATA_AUTO_KEY = 'noveldb.generic.dataAuto', DATA_CHECK_KEY = 'noveldb.generic.dataCheck';
+    $('catalogDataAuto').checked = !!store(DATA_AUTO_KEY);
+    function dataStatus(reply) {
+        if (!reply) return;
+        if (reply.version !== catalogueData.version) instantPieces.clear();
+        catalogueData = reply;
+        $('catalogDataDownload').disabled = !!reply.busy;
+        $('catalogDataDownload').textContent = reply.version ? 'Update data' : 'Download data';
+        $('catalogDataRemove').disabled = !!reply.busy || !reply.version;
+        var bar = $('catalogDataProgress');
+        bar.hidden = !reply.busy;
+        if (reply.progress) bar.value = reply.progress;
+        else bar.removeAttribute('value');
+        $('catalogDataStatus').textContent = reply.error || (reply.busy ? 'Downloading catalogue data…'
+            : reply.version ? Number(reply.books || 0).toLocaleString() + ' books · ' + new Date(reply.built).toLocaleDateString()
+            : 'Data not downloaded');
+        clearTimeout(catalogueDataTimer);
+        if (reply.busy) catalogueDataTimer = setTimeout(function () { dataAction('status'); }, 750);
+    }
+    function dataAction(action) {
+        return ask({type: 'genericCatalogData', action: action}).then(function (reply) { dataStatus(reply); return reply; });
+    }
+    $('catalogDataDownload').onclick = function () { dataAction('download'); };
+    $('catalogDataRemove').onclick = function () { dataAction('remove'); };
+    $('catalogDataAuto').onchange = function () {
+        store(DATA_AUTO_KEY, this.checked);
+        if (this.checked && catalogueData.version) dataAction('download');
+    };
     function instantIO(id) {
+        var version = catalogueData.version;
         return {alive: function () { return id === searchId && (view !== 'search' || current.text === $('query').value.trim()); }, load: function (name, selection) {
-            var cacheKey = name + (config.instantPiecesComplete ? '' : JSON.stringify(selection || {}));
+            if (!version) return Promise.resolve(null);
+            var cacheKey = version + '/' + name + (config.instantPiecesComplete ? '' : JSON.stringify(selection || {}));
             if (!instantPieces.has(cacheKey)) {
-                instantPieces.set(cacheKey, ask(Object.assign({type: 'genericInstant', key: name}, selection || {})).then(function (reply) { return reply && reply.data; }));
+                instantPieces.set(cacheKey, ask(Object.assign({type: 'genericInstant', key: name, version: version}, selection || {})).then(function (reply) { return reply && reply.data; }));
                 if (instantPieces.size > 48) instantPieces.delete(instantPieces.keys().next().value);
             }
             return instantPieces.get(cacheKey);
@@ -8542,7 +8583,7 @@ window.NovelDBTopStart = {
         status('Searching NovelDB and Google for ' + label + '…');
         empty();
         var id = searchId, kind = $('kind').value;
-        var quick = !byId && text && searches.noveldb && window.NovelDBInstant && !isComicKind(kind);
+        var quick = !byId && text && !sortBy() && searches.noveldb && window.NovelDBInstant && !isComicKind(kind);
         send({type: 'genericStop', id: id});
         var local = Promise.resolve();
         if (quick) {
@@ -10372,6 +10413,15 @@ window.NovelDBTopStart = {
         init: function (value) {
             config = value || config;
             configured = true;
+            if (!catalogueDataReady) {
+                catalogueDataReady = true;
+                dataAction('status').then(function (saved) {
+                    if (saved && saved.version && $('catalogDataAuto').checked && Date.now() - (store(DATA_CHECK_KEY) || 0) > 24 * 3600e3) {
+                        store(DATA_CHECK_KEY, Date.now());
+                        dataAction('download');
+                    }
+                });
+            }
             if (window.NovelDBInstant) window.NovelDBInstant.prepare(instantIO(searchId));
             readPlugins();
             if (view === 'top' && top.awaitingConfig) {

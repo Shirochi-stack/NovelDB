@@ -32,6 +32,9 @@ public enum CatalogTransport {
     public static func handle(_ json: String, context: SourceContext) async -> String {
         if let data = json.data(using: .utf8),
            let details = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           details["op"] as? String == "catalogData" { return await CatalogData.shared.handle(details) }
+        if let data = json.data(using: .utf8),
+           let details = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
            details["op"] as? String == "libraryLive" { return LibraryLive.handle(details) }
         if let data = json.data(using: .utf8),
            let details = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],

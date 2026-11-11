@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import NpiaCore
+import ZIPFoundation
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -10,8 +11,8 @@ import AppKit
 final class InstantCatalogTests: XCTestCase {
     func testBundledCataloguePathsResolveWithinTheResourceFolder() throws {
         let index = try XCTUnwrap(CatalogPage.file("/index.html"))
-        let piece = try XCTUnwrap(CatalogPage.file("/instant/manifest.bin"))
-        XCTAssertTrue(piece.path.hasPrefix(index.deletingLastPathComponent().path + "/"))
+        XCTAssertTrue(index.lastPathComponent == "index.html")
+        XCTAssertNil(CatalogPage.file("/instant/manifest.bin"))
         XCTAssertNil(CatalogPage.file("/instant/missing.bin"))
         XCTAssertNil(CatalogPage.file(""))
     }
@@ -30,8 +31,29 @@ final class InstantCatalogTests: XCTestCase {
         NSApplication.shared.activate(ignoringOtherApps: true)
         defer { window.orderOut(nil); window.contentView = nil }
         #endif
-        await page.addInitScript("window.NovelDBTransport=()=>new Promise(()=>{});")
+        await page.addInitScript("""
+            window.NovelDBTransport=async details=>{
+                if(details.op!=='catalogData')return new Promise(()=>{});
+                if(details.action!=='read')return {version:'fixture',books:100,built:'2026-11-11'};
+                const response=await fetch('noveldb-local://app/downloaded/'+details.key);
+                const bytes=new Uint8Array(await response.arrayBuffer());
+                let text='';for(let i=0;i<bytes.length;i+=0x8000)text+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));
+                return {base64:btoa(text)};
+            };
+            """)
+        var checkout = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { checkout.deleteLastPathComponent() }
+        let archiveFolder = checkout.appendingPathComponent("assets")
         await page.serveLocal { path, _ in
+            if path.hasPrefix("/downloaded/") {
+                let key = String(path.dropFirst("/downloaded/".count))
+                let part = (Int(key.split(separator: "/").last ?? "0") ?? 0) % 2
+                let archive = try? Archive(url: archiveFolder.appendingPathComponent("instant-catalog-\(part).zip"), accessMode: .read, pathEncoding: nil)
+                guard let archive, let entry = archive[key + ".json.gz"] else { return nil }
+                var bytes = Data()
+                guard (try? archive.extract(entry, consumer: { bytes.append($0) })) != nil else { return nil }
+                return LocalResponse(mimeType: "application/octet-stream", body: bytes)
+            }
             guard let file = CatalogPage.file(path), let data = try? Data(contentsOf: file) else { return nil }
             return LocalResponse(mimeType: CatalogPage.mimeType(file.pathExtension), body: data)
         }

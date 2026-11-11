@@ -47,7 +47,7 @@ SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_ind
 MESSAGE_TYPES = ("genericReady", "genericReaderStop", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
-                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive", "genericIndexSort", "genericInstant", "genericPlugins")
+                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive", "genericIndexSort", "genericInstant", "genericPlugins", "genericCatalogData")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -257,7 +257,9 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
         data["queries"] = queries
         data["query"], data["mode"] = queries[0]["query"], queries[0]["mode"]
-    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort", "genericInstant", "genericPlugins") and not isinstance(data.get("id"), int):
+    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort", "genericInstant", "genericPlugins", "genericCatalogData") and not isinstance(data.get("id"), int):
+        return None
+    if kind == "genericCatalogData" and data.get("action") not in ("status", "download", "remove"):
         return None
     if kind == "genericInstant" and not re.fullmatch(r"manifest|top|[bc]/[0-9]{1,6}", str(data.get("key", ""))):
         return None
@@ -577,6 +579,9 @@ class GenericCatalog(QObject):
             self.search(int(data.get("id") or 0), data["queries"])
         elif kind == "genericIndexSort":
             self._background(self._index_sort, data)
+        elif kind == "genericCatalogData":
+            from noveldb.core.catalog.local_data import handle
+            self._fetched.emit(data["id"], handle(data.get("action", "status")))
         elif kind == "genericInstant":
             self._background(self._instant_reply, data, workers=_LOCAL_CATALOG_WORKERS)
         elif kind == "genericMore":
@@ -719,7 +724,7 @@ class GenericCatalog(QObject):
         from noveldb.core.catalog.instant import read_piece
 
         try:
-            self._fetched.emit(data["id"], {"data": read_piece(data["key"], data.get("token"), data.get("prefix") is True, data.get("rows"))})
+            self._fetched.emit(data["id"], {"data": read_piece(data["key"], data.get("token"), data.get("prefix") is True, data.get("rows"), data.get("version"))})
         except (OSError, ValueError, KeyError):
             self._fetched.emit(data["id"], {"data": None})
 
