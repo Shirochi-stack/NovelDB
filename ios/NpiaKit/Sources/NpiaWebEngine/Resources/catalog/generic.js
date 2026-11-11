@@ -1019,8 +1019,7 @@
         dirty.clear();
         if (drawn.length) { orderCards(); reshuffleOnce(); evenRowsSoon(); }
         if (drawn.length && cardsTranslated) { knownTranslations(drawn); translateCardsSoon(drawn); }
-        fitTitles(drawn.map(function (group) { return group.element.querySelector('.title'); }));
-        fitTagRows(drawn.map(function (group) { return group.element.querySelector('.tags'); }));
+        fitCardsSoon(drawn);
         empty();
         if (drawn.length && view === 'top') {
             if (running) {
@@ -1029,6 +1028,19 @@
             }
             fillTopViewportSoon();
         }
+    }
+    var pendingFit = new Set(), fitTimer = 0;
+    function fitCardsSoon(cards) {
+        cards.forEach(function (card) { pendingFit.add(card); });
+        if (fitTimer || !pendingFit.size) return;
+        // Insert the results before measuring text. Layout must not delay the first input response.
+        fitTimer = setTimeout(function () {
+            fitTimer = 0;
+            var cards = Array.from(pendingFit).filter(function (card) { return groups.get(card.key) === card; });
+            pendingFit.clear();
+            fitTitles(cards.map(function (card) { return card.element.querySelector('.title'); }));
+            fitTagRows(cards.map(function (card) { return card.element.querySelector('.tags'); }));
+        }, 80);
     }
     function drawCard(group) {
         if (groups.get(group.key) !== group) return false;
@@ -2521,7 +2533,7 @@
             var first = window.NovelDBInstant.first(text, options);
             add(first.map(function (card) { return Object.assign(card, {via: 'name'}); }), id);
             if (first.length) drawScheduledCards();
-            local = new Promise(function (resolve) { setTimeout(resolve, typing ? 100 : 0); }).then(function () {
+            local = new Promise(function (resolve) { setTimeout(resolve, typing ? 40 : 0); }).then(function () {
                 if (id !== searchId) return [];
                 return window.NovelDBInstant.search(text, options, instantIO(id));
             }).then(function (cards) {
