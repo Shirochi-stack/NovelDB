@@ -4,6 +4,14 @@ import NpiaCore
 
 @MainActor
 final class WKWebEngineTests: XCTestCase {
+    func testScraperPagesUseTheSameSafariIdentificationAsTheBrowser() async throws {
+        let page = try await WKWebEngine(persistent: false).newPage(profile: "test-browser-identity")
+        try await page.load(dataURL("<p>Ready</p>"), until: .load, timeout: 30)
+        let agent = try await page.evaluate(String.self, "return navigator.userAgent;")
+        XCTAssertTrue(agent.contains(BrowserProfile.safariApplicationName), agent)
+        await page.close()
+    }
+
     func testLoadDataURLAndEvaluateJSON() async throws {
         let engine = WKWebEngine(persistent: false)
         let page = try await engine.newPage(profile: "test-eval")

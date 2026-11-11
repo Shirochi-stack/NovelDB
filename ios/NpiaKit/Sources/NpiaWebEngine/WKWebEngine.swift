@@ -186,6 +186,7 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         self.store = store
         self.waits = waits
         let configuration = WKWebViewConfiguration()
+        configuration.applicationNameForUserAgent = BrowserProfile.safariApplicationName
         configuration.websiteDataStore = store
         configuration.suppressesIncrementalRendering = false
         configuration.setURLSchemeHandler(local, forURLScheme: LocalResponse.scheme)
