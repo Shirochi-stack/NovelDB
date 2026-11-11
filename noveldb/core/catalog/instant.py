@@ -17,7 +17,10 @@ def read_piece(key, token=None, prefix=False, rows=None, version=None, directory
     if not re.fullmatch(r"manifest|top|[bc]/[0-9]{1,6}", key):
         raise ValueError("Invalid local catalogue key")
     part = int(key.split("/")[1]) % 2 if "/" in key else 0
-    data = json.loads(gzip.decompress(archive(directory or folder(version), part).read(key + ".json.gz")))
+    location = directory or folder(version)
+    piece = location / "pieces" / (key + ".bin")
+    payload = piece.read_bytes() if piece.is_file() else archive(location, part).read(key + ".json.gz")
+    data = json.loads(gzip.decompress(payload))
     if key.startswith("b/") and token:
         return {word: numbers for word, numbers in data.items() if word == token or (prefix and word.startswith(token))}
     if key.startswith("c/") and rows is not None:

@@ -61,6 +61,10 @@ object CatalogData {
                 val key = details["key"]?.jsonPrimitive?.content.orEmpty()
                 require(revisionPattern.matches(revision) && Regex("manifest|top|[bc]/[0-9]{1,6}").matches(key))
                 val part = key.substringAfter('/', "0").toInt() % 2
+                val piece = File(File(File(root, revision), "pieces"), "$key.bin")
+                if (piece.isFile) return buildJsonObject {
+                    put("base64", Base64.getEncoder().encodeToString(piece.readBytes()))
+                }.toString()
                 val archive = File(File(root, revision), "instant-catalog-$part.zip")
                 val zip = archives.getOrPut("$revision/$part") { ZipFile(archive) }
                 val bytes = zip.getInputStream(zip.getEntry("$key.json.gz")).use { it.readBytes() }
@@ -83,8 +87,9 @@ object CatalogData {
             val revision = manifest.getValue("revision").jsonPrimitive.content
             val files = manifest.getValue("files").jsonArray
             require(revisionPattern.matches(revision) && files.size == 2) { "Invalid catalogue manifest" }
-            val previous = installed()["revision"]?.jsonPrimitive?.content
-            if (previous == revision) return
+            val saved = installed()
+            val previous = saved["revision"]?.jsonPrimitive?.content
+            if (previous == revision && saved["storage"]?.jsonPrimitive?.content == "pieces") return
             val target = File(root, revision).apply { mkdirs() }
             files.forEachIndexed { part, value ->
                 val entry = value.jsonObject
@@ -109,10 +114,20 @@ object CatalogData {
                 }
                 val hash = digest.digest().joinToString("") { "%02x".format(it) }
                 require(size == expected && hash == entry.getValue("sha256").jsonPrimitive.content) { "Catalogue download failed its checksum" }
-                ZipFile(pending).use { require(it.size() > 0) }
-                Files.move(pending.toPath(), File(target, "instant-catalog-$part.zip").toPath(), StandardCopyOption.REPLACE_EXISTING)
+                ZipFile(pending).use { zip ->
+                    val entries = zip.entries()
+                    while (entries.hasMoreElements()) {
+                        val piece = entries.nextElement()
+                        require(Regex("(manifest|top|[bc]/[0-9]{1,6})\\.json\\.gz").matches(piece.name))
+                        val destination = File(File(target, "pieces"), piece.name.removeSuffix(".json.gz") + ".bin")
+                        destination.parentFile.mkdirs()
+                        zip.getInputStream(piece).use { input -> destination.outputStream().use { input.copyTo(it) } }
+                    }
+                }
+                pending.delete()
             }
-            val pending = File(root, "installed.tmp").apply { writeText(manifest.toString()) }
+            val installedManifest = JsonObject(manifest + ("storage" to JsonPrimitive("pieces")))
+            val pending = File(root, "installed.tmp").apply { writeText(installedManifest.toString()) }
             Files.move(pending.toPath(), File(root, "installed.json").toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
             synchronized(this) {
                 val expired = archives.keys.filter { !it.startsWith("$revision/") && (previous == null || !it.startsWith("$previous/")) }

@@ -48,8 +48,9 @@ def _download():
         revision = manifest["revision"]
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", revision) or len(manifest["files"]) != 2:
             raise ValueError("Invalid catalogue manifest")
-        previous = installed().get("revision")
-        if previous == revision:
+        saved = installed()
+        previous = saved.get("revision")
+        if previous == revision and saved.get("storage") == "pieces":
             return
         target = folder(revision)
         target.mkdir(parents=True, exist_ok=True)
@@ -70,10 +71,16 @@ def _download():
             if size != entry["size"] or digest.hexdigest() != entry["sha256"]:
                 raise ValueError("Catalogue download failed its checksum")
             with ZipFile(pending) as archive:
-                if archive.testzip() is not None:
-                    raise ValueError("Catalogue archive is damaged")
-            pending.replace(target / f"instant-catalog-{part}.zip")
+                for name in archive.namelist():
+                    if not re.fullmatch(r"(manifest|top|[bc]/[0-9]{1,6})\.json\.gz", name):
+                        raise ValueError("Invalid catalogue piece")
+                    piece = target / "pieces" / (name.removesuffix(".json.gz") + ".bin")
+                    piece.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(name) as source, piece.open("wb") as output:
+                        shutil.copyfileobj(source, output)
+            pending.unlink()
         pending = root() / "installed.tmp"
+        manifest["storage"] = "pieces"
         pending.write_text(json.dumps(manifest), encoding="utf-8")
         pending.replace(root() / "installed.json")
         from .instant import archive

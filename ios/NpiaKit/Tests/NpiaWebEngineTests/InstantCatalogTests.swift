@@ -45,13 +45,10 @@ final class InstantCatalogTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: installed) }
         let versionFolder = installed.appendingPathComponent("fixture")
         try FileManager.default.createDirectory(at: versionFolder, withIntermediateDirectories: true)
-        for part in 0..<2 {
-            try FileManager.default.createSymbolicLink(at: versionFolder.appendingPathComponent("instant-catalog-\(part).zip"),
-                withDestinationURL: archiveFolder.appendingPathComponent("instant-catalog-\(part).zip"))
-        }
+        let store = CatalogData(directory: installed)
+        for part in 0..<2 { try await store.unpack(archiveFolder.appendingPathComponent("instant-catalog-\(part).zip"), revision: "fixture") }
         try Data("{\"revision\":\"fixture\",\"books\":100,\"built\":\"2026-11-11\"}".utf8)
             .write(to: installed.appendingPathComponent("installed.json"))
-        let store = CatalogData(directory: installed)
         await page.serveLocal { path, query in
             if path == "catalog-data",
                let encoded = URLComponents(string: "?" + query)?.queryItems?.first(where: { $0.name == "request" })?.value,

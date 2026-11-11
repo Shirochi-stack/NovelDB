@@ -60,6 +60,10 @@ actor CatalogData {
                let key = details["key"] as? String,
                key.range(of: "^(manifest|top|[bc]/[0-9]{1,6})$", options: .regularExpression) != nil {
                 let part = (Int(key.split(separator: "/").last ?? "0") ?? 0) % 2
+                let piece = root.appendingPathComponent(revision).appendingPathComponent("pieces/" + key + ".bin")
+                if let data = try? Data(contentsOf: piece) {
+                    return "{\"base64\":\"" + data.base64EncodedString() + "\"}"
+                }
                 let file = root.appendingPathComponent(revision).appendingPathComponent("instant-catalog-\(part).zip")
                 let archiveKey = revision + "/" + String(part)
                 if archives[archiveKey] == nil, let archive = try? Archive(url: file, accessMode: .read, pathEncoding: nil) {
@@ -88,8 +92,9 @@ actor CatalogData {
                   let files = manifest["files"] as? [[String: Any]], files.count == 2 else {
                 throw CocoaError(.fileReadCorruptFile)
             }
-            let previous = installed()["revision"] as? String
-            if previous == revision { return }
+            let saved = installed()
+            let previous = saved["revision"] as? String
+            if previous == revision && saved["storage"] as? String == "pieces" { return }
             let target = root.appendingPathComponent(revision, isDirectory: true)
             try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
             for (part, entry) in files.enumerated() {
@@ -112,13 +117,12 @@ actor CatalogData {
                 guard count == size, digest.finalize().map({ String(format: "%02x", $0) }).joined() == expected else {
                     throw CocoaError(.fileReadCorruptFile)
                 }
-                _ = try Archive(url: temporary, accessMode: .read, pathEncoding: nil)
-                let destination = target.appendingPathComponent("instant-catalog-\(part).zip")
-                if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
-                try FileManager.default.moveItem(at: temporary, to: destination)
+                try unpack(temporary, revision: revision)
                 progress = Double(part + 1) / 2
             }
-            try data.write(to: root.appendingPathComponent("installed.json"), options: .atomic)
+            var installedManifest = manifest
+            installedManifest["storage"] = "pieces"
+            try JSONSerialization.data(withJSONObject: installedManifest).write(to: root.appendingPathComponent("installed.json"), options: .atomic)
             archives = archives.filter { key, _ in key.hasPrefix(revision + "/") || (previous.map { key.hasPrefix($0 + "/") } ?? false) }
             for old in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
                 if validRevision(old.lastPathComponent), old.lastPathComponent != revision, old.lastPathComponent != previous,
@@ -127,5 +131,20 @@ actor CatalogData {
                 }
             }
         } catch { failure = error.localizedDescription }
+    }
+
+    func unpack(_ file: URL, revision: String) throws {
+        guard validRevision(revision) else { throw CocoaError(.fileReadCorruptFile) }
+        let archive = try Archive(url: file, accessMode: .read, pathEncoding: nil)
+        let folder = root.appendingPathComponent(revision).appendingPathComponent("pieces")
+        for entry in archive {
+            guard entry.path.range(of: "^(manifest|top|[bc]/[0-9]{1,6})\\.json\\.gz$", options: .regularExpression) != nil else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let destination = folder.appendingPathComponent(String(entry.path.dropLast(".json.gz".count)) + ".bin")
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
+            _ = try archive.extract(entry, to: destination)
+        }
     }
 }
