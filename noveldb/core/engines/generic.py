@@ -693,13 +693,23 @@ def extract_metadata(html: str, url: str, soup=None) -> dict:
         found = soup.find(string=re.compile(r"\b(ongoing|completed|complete|hiatus)\b", re.I))
         status = re.search(r"(ongoing|completed|complete|hiatus)", str(found or ""), re.I)
         status = status.group(1).title() if status else ""
+    structured_tags = []
+    if (urlsplit(url).hostname or "").removeprefix("www.") == "mangak.io":
+        from noveldb.core.engines.mangak import catalogue_tags, page_props
+
+        try:
+            row = page_props(html, soup).get("initialManga")
+            if isinstance(row, dict):
+                structured_tags = catalogue_tags(row)
+        except (ValueError, TypeError, AttributeError):
+            pass
     return {
         **_figures(soup, book),
         "title": _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url)[:300],
         "author": re.sub(r"\s+", " ", author or "").strip()[:200],
         "cover": cover,
         "description": _clean_synopsis(re.sub(r"[ \t]+", " ", _html_text(description or "")).strip())[:4000],
-        "tags": _clean_tags(tags or _labelled_tags(soup) or _chip_tags(soup), _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url))[:30],
+        "tags": (structured_tags or _clean_tags(tags or _labelled_tags(soup) or _chip_tags(soup), _strip_site_name(re.sub(r"\s+", " ", title or "").strip(), site_name, url)))[:30],
         "status": status,
         "site": site_name,
     }

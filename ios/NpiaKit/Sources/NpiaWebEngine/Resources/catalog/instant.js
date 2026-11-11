@@ -106,5 +106,19 @@
         }).slice(0, 120).map(function (number) { return starter.rows[number]; }), query, options, 3);
     }
 
-    window.NovelDBInstant = {search: search, first: first, top: function () { return starter ? starter.top || [] : []; }, prepare: prepare, ready: function () { return !!starter; }, card: card, tokens: tokens, bucket: bucket};
+    function top(sources) {
+        if (!starter) return [];
+        var firstPage = starter.top || [];
+        if (!sources || !sources.length) return firstPage;
+        var matching = firstPage.filter(function (row) { return sources.indexOf(row[0]) >= 0; });
+        var seen = new Set(matching.map(function (row) { return row[11]; }));
+        for (var row of starter.rows) {
+            if (matching.length >= 12) break;
+            if (sources.indexOf(row[0]) < 0 || seen.has(row[11])) continue;
+            matching.push(row);
+            seen.add(row[11]);
+        }
+        return matching;
+    }
+    window.NovelDBInstant = {search: search, first: first, top: top, prepare: prepare, ready: function () { return !!starter; }, card: card, tokens: tokens, bucket: bucket};
 }());

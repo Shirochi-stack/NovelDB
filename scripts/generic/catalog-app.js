@@ -182,6 +182,9 @@
     function host(url) {
         try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch (e) { return ''; }
     }
+    function isReferenceSite(name) {
+        return /(^|\.)(novelupdates|mangaupdates)\.com$/i.test(name);
+    }
     function siteFor(url) {
         var name = host(url);
         if (siteHosts[name]) return siteHosts[name];
@@ -263,6 +266,14 @@
                 complete: false};
     }
 
+    function siteCard(hit) {
+        var item = card(hit.url, hit.title, hit.snippet, 'site', hit.cover);
+        ['tags', 'chapters', 'views', 'likes', 'status'].forEach(function (field) {
+            if (hit[field] != null) item[field] = hit[field];
+        });
+        return item;
+    }
+
     // -- NovelDB's own books (noveldb/core/catalog/noveldb_index.py; scripts/noveldb_index/build.cjs) --
     // The index's table of contents is read once a day; a search reads one word bucket per query word
     // and the card blocks of the books found, with Range requests. A synopsis comes from NovelDB's
@@ -319,10 +330,10 @@
     function gunzip(bytes) {
         return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
     }
-    function ndbManifest() {
-        if (ndb.manifest && Date.now() - ndb.manifest._read < NDB_HOURS * 3600e3) return Promise.resolve(ndb.manifest);
+    function ndbManifest(force) {
+        if (!force && ndb.manifest && Date.now() - ndb.manifest._read < NDB_HOURS * 3600e3) return Promise.resolve(ndb.manifest);
         var kept = store(NDB_KEY);
-        if (kept && kept._read && kept.format === NDB_FORMAT && Date.now() - kept._read < NDB_HOURS * 3600e3) { ndb.manifest = kept; return Promise.resolve(kept); }
+        if (!force && kept && kept._read && kept.format === NDB_FORMAT && Date.now() - kept._read < NDB_HOURS * 3600e3) { ndb.manifest = kept; return Promise.resolve(kept); }
         if (ndb.loading) return ndb.loading;
         ndb.loading = ndbReading(fetchUrl(NDB_INDEX + 'noveldb-search.json', {binary: true, priority: true})).then(function (result) {
             ndb.loading = null;
@@ -529,8 +540,8 @@
      *  match, as soon as that is known (before any card is read). Mode 'source': `text` names sources
      *  ("npia,sfc") and the results are their books, the most read first (their Top lists). */
     var NDB_FIRST = 12, NDB_MORE = 40;  // the first batch is small, to show quickly; scrolling reads the rest
-    function ndbSourceLists(manifest, names) {
-        return Promise.all(names.map(function (name) { return ndbLists(manifest, '!' + name); })).then(function (found) {
+    function ndbSourceLists(manifest, names, newest) {
+        return Promise.all(names.map(function (name) { return ndbLists(manifest, (newest ? '!new|' : '!') + name); })).then(function (found) {
             var out = {};
             found.forEach(function (lists, i) { if (lists[names[i]]) out[names[i]] = lists[names[i]]; });
             return out;
@@ -550,9 +561,15 @@
         // "Adult"), and only the books it rates so (the site's own rule, as NovelDB shows it).
         var rated = mode === 'tag' ? NDB_AGE_TAGS[ndbNormal(text).trim()] || 0 : 0;
         return ndbManifest().then(function (manifest) {
+            return mode === 'source' && sort === 'new' && manifest && !manifest.newest ? ndbManifest(true) : manifest;
+        }).then(function (manifest) {
             if (!manifest) return [];
             var sorted = rated && NDB_SORTS.indexOf(sort) >= 0;  // "#r19|new": the newest first, every source in one list
-            var lists = mode === 'source' ? ndbSourceLists(manifest, wanted)
+            var newest = mode === 'source' && sort === 'new';
+            var unique = new Set(wanted);
+            var lists = mode === 'source' ? (newest && unique.size === 8 ? ndbLists(manifest, '!new')
+                : newest && unique.size === 7 && !unique.has('sfc') ? ndbLists(manifest, '!new|ko')
+                : ndbSourceLists(manifest, wanted, newest))
                 : mode === 'tag' ? (sorted ? ndbLists(manifest, wanted[0] + '|' + sort).then(function (found) {
                     return Object.keys(found).length ? found : ndbLists(manifest, wanted[0]);  // an older index: its own order
                 }) : rated ? ndbLists(manifest, wanted[0]) : ndbTagLists(manifest, text)) : ndbStreams(manifest, wanted);
@@ -862,14 +879,28 @@
         if (found) nextPages[key] = found; else delete nextPages[key];
     }
     function hasMore(home, kind, text) { return !!nextPages[home + '|' + kind + '|' + text]; }
+    var popularSeen = new Map(), popularSlots = {free: 12, waiting: []};
+    function rememberPopular(home, result, url, cards, first) {
+        if (first || !popularSeen.has(home)) popularSeen.set(home, new Set());
+        var seen = popularSeen.get(home);
+        var fresh = cards.filter(function (card) {
+            var key = card.url.replace(/\/+$/, '');
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        rememberNext(home, 'popular', '', fresh.length ? result : null, url);
+        return fresh;
+    }
     /** The next page of the list a search, tag or popular list of `home` read last (its own next page is kept). */
-    function siteMore(home, kind, text, token) {
+    function siteMore(home, kind, text, token, quick) {
         var key = home + '|' + kind + '|' + text, url = nextPages[key];
         delete nextPages[key];
         if (!url) return Promise.resolve([]);
-        return fetchUrl(url, {stop: token}).then(function (result) {
-            if (!result || result.status >= 400) return [];
+        return fetchUrl(url, {stop: token, quick: quick, pool: quick ? popularSlots : undefined}).then(function (result) {
+            if (!result || result.status >= 400 || stopped(token)) return [];
             var cards = extractCards(result.text(), result.url || url);
+            if (kind === 'popular') return rememberPopular(home, result, url, cards);
             if (kind === 'search') cards = cards.filter(function (c) { return relevant(c.title, text); });
             if (cards.length) rememberNext(home, kind, text, result, url);
             return cards.slice(0, 40).map(function (c) { return kind === 'tag' ? Object.assign(c, {verified: true}) : c; });
@@ -958,7 +989,17 @@
         return cards.filter(function (c) { return home.has(c.url); }).length >= cards.length * 0.5;
     }
     /** Cards from the site's popular or ranking list, else the home page's biggest list. */
-    function sitePopular(home, token) {
+    function sitePopular(home, token, listing) {
+        if (listing) {
+            return fetchUrl(listing, {stop: token, quick: true, pool: popularSlots}).then(function (result) {
+                if (stopped(token)) return [];
+                if (!result || result.status >= 400) {
+                    rememberNext(listing, 'popular', '', null);
+                    return [];
+                }
+                return rememberPopular(listing, result, listing, extractCards(result.text(), result.url || listing), true);
+            });
+        }
         return plan(home).then(function (made) {
             if (made.reachable === false) return [];
             var origin = new URL(made.home).origin, known = made.popular;
@@ -968,9 +1009,8 @@
             function next() {
                 if (index >= tries.length || stopped(token)) {
                     return fetchUrl(made.home, {stop: token}).then(function (result) {
-                        if (!result || result.status >= 400) return [];
-                        rememberNext(home, 'popular', '', result, made.home);
-                        return extractCards(result.text(), result.url || made.home).slice(0, 30);
+                        if (!result || result.status >= 400 || stopped(token)) return [];
+                        return rememberPopular(home, result, made.home, extractCards(result.text(), result.url || made.home), true);
                     });
                 }
                 var url = tries[index++];
@@ -979,8 +1019,7 @@
                     var cards = extractCards(result.text(), result.url || url);
                     if (cards.length < 6) return next();
                     if (made.popular !== url) { made.popular = url; savePlans(); }
-                    rememberNext(home, 'popular', '', result, url);
-                    return cards.slice(0, 30);
+                    return stopped(token) ? [] : rememberPopular(home, result, url, cards, true);
                 }, next);
             }
             return next();
@@ -1065,6 +1104,10 @@
     /** Book cards on a search, tag or list page: [{url, title, cover, snippet}]. */
     function extractCards(html, base) {
         var doc = G().parse(html);
+        if (host(base) === 'mangak.io') {
+            var cards = mangakTitles(doc);
+            if (cards.length) return cards;
+        }
         Array.prototype.forEach.call(doc.querySelectorAll('script, style, noscript, header, footer, nav'), function (n) { n.remove(); });
         var groups = new Map();
         Array.prototype.forEach.call(doc.querySelectorAll('a[href]'), function (anchor) {
@@ -1107,6 +1150,9 @@
                 var snippet = G().textOf(box);
                 if (item.title && snippet.indexOf(item.title) === 0) snippet = snippet.slice(item.title.length).trim();
                 item.snippet = snippet.slice(0, 300);
+                item.tags = Array.from(new Set(Array.from(box.querySelectorAll('a[href]')).filter(function (a) {
+                    return TAG_LINK.test(a.getAttribute('href'));
+                }).map(G().textOf).filter(function (tag) { return tag.length > 1 && tag.length <= 40; })));
             }
             item.title = bestTitle(item, anchors, base);
             if (item.title) out.push(item);
@@ -1148,10 +1194,10 @@
             return googleHits(html);
         }).catch(function () { onBlocked(); return []; }).then(onHits);
     }
-    function googleDorks(text, mode) {
+    function googleDorks(text, mode, quickHosts) {
         var phrase = '"' + text.replace(/"/g, ' ').trim() + '"';
         var exclude = ' -inurl:chapter -inurl:profile -inurl:login -inurl:search -intitle:"Chapter"';
-        var hosts = SITES.filter(function (site) { return speedRank(site.host) < 12000; })
+        var hosts = quickHosts.length ? quickHosts.slice(0, 8) : SITES.filter(function (site) { return speedRank(site.host) < 12000; })
             .sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); }).slice(0, 8).map(function (site) { return site.host; });
         return (hosts.length ? [phrase + ' (' + hosts.map(function (name) { return 'site:' + name; }).join(' OR ') + ')'] : [])
             .concat([phrase + ' (novel OR manga OR webtoon OR manhwa)']).map(function (query) { return query + exclude; });
@@ -1194,14 +1240,16 @@
         if (!values || typeof values !== 'object') return '';
         return values.en || Object.values(values).find(function (value) { return typeof value === 'string'; }) || '';
     }
-    function mangakTitles(result) {
-        var data = G().parse(result.text()).querySelector('script#__NEXT_DATA__');
-        var rows = data ? JSON.parse(data.textContent).props.pageProps.ssrItems : [];
-        return (rows || []).slice(0, 40).filter(function (row) {
-            return row && typeof row.slug === 'string' && /^[a-z0-9][a-z0-9-]{0,220}$/.test(row.slug);
+    function mangakTitles(doc) {
+        var props = G().mangakProps(doc), rows = props.ssrItems || props.items;
+        if (!Array.isArray(rows)) return [];
+        return rows.slice(0, 40).filter(function (row) {
+            return row && typeof row.name === 'string' && row.name.trim()
+                && typeof row.slug === 'string' && /^[a-z0-9][a-z0-9-]{0,220}$/.test(row.slug);
         }).map(function (row) {
             var stats = row.stats || {};
-            return {url: 'https://mangak.io/' + row.slug, title: row.name, description: row.summary,
+            return {url: 'https://mangak.io/' + row.slug, title: row.name, description: row.summary, snippet: row.summary || '',
+                    tags: G().mangakTags(row),
                     alternateTitles: (row.altNames || []).map(function (alias) { return alias && alias.name; }),
                     cover: G().cleanUrl(row.cover || '', 'https://mangak.io/'), status: row.status,
                     chapters: stats.chaptersCount, views: stats.views, likes: stats.bookmarksCount};
@@ -1260,7 +1308,7 @@
                 } else {
                     var result = await fetchUrl(url, {quick: true, timeout: 5000, priority: true, stop: token});
                     if (!result || result.status !== 200) break;
-                    rows = site === 'mangak.io' ? mangakTitles(result) : mangadexTitles(result);
+                    rows = site === 'mangak.io' ? mangakTitles(G().parse(result.text())) : mangadexTitles(result);
                 }
                 var scored = rows.filter(function (row) { return typeof row.title === 'string' && row.title.trim(); })
                     .map(function (row) {
@@ -1605,16 +1653,19 @@
                     // Its matches are words of a tag or a name: only books with the tag itself, or by the author.
                     if (mode === 'tag' && tags.map(function (t) { return t.toLowerCase(); }).indexOf(want) < 0) return;
                     if (mode === 'author' && String(row.member_name || '').trim().toLowerCase() !== want) return;
-                    var cover = String(row.cover || '');
-                    cards.push(srcCard('jara', JARA + '/book/' + row.book_code, row.subject, row.member_name, cover.indexOf('//') === 0 ? 'https:' + cover : cover,
-                                       (row.category_name ? [row.category_name] : []).concat(tags), row.intro,
-                                       {views: row.page_read, likes: row.recommend_count, chapters: row.total_chapter_count,
-                                        status: ['Y', '1', 'True', 'true'].indexOf(String(row.chkfinish)) >= 0 ? 'Completed' : 'Ongoing',
-                                        updated: row.last_regist_datetime, published: row.first_regist_datetime}));
+                    cards.push(jaraCard(row));
                 });
                 return {cards: cards, more: rows.length >= 100 && (page + 1) * 100 < Number(data.total_cnt || 0)};
             });
         });
+    }
+    function jaraCard(row) {
+        var cover = String(row.cover || ''), tags = (row.keyword || []).map(String).filter(function (t) { return t.trim(); });
+        return srcCard('jara', JARA + '/book/' + row.book_code, row.subject, row.member_name,
+            cover.indexOf('//') === 0 ? 'https:' + cover : cover, (row.category_name ? [row.category_name] : []).concat(tags), row.intro,
+            {views: row.page_read, likes: row.recommend_count, chapters: row.total_chapter_count,
+             status: ['Y', '1', 'True', 'true'].indexOf(String(row.chkfinish)) >= 0 ? 'Completed' : 'Ongoing',
+             updated: row.last_regist_datetime, published: row.first_regist_datetime});
     }
 
     // sfc: its app API (system tags, author search); other tags from its old tag pages.
@@ -1952,7 +2003,7 @@
             var ms = Date.now() - started;
             if (hits === 'late') { noteSpeed(site.host, ms, false); report(site.site, started, 0, 'failed'); return; }
             var cards = hits.map(function (hit) {
-                return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover), {ms: ms, verified: !!hit.verified});
+                return Object.assign(siteCard(hit), {ms: ms, verified: !!hit.verified});
             });
             summary.site += cards.length;
             var fresh = offer(cards);
@@ -1970,7 +2021,8 @@
         var useNovelDB = options.noveldb !== false, deep = options.deep !== false, full = options.full === true;
         // The sites picked in the Sites panel: only they are asked, NovelDB for their books, and no web search.
         var only = (options.only || []).filter(function (s) { return typeof s === 'string'; });
-        var picked = function (hostName) { return !only.length || only.indexOf(G().siteOf(hostName)) >= 0; };
+        var picked = function (hostName) { return !isReferenceSite(hostName) && (!only.length || only.indexOf(G().siteOf(hostName)) >= 0); };
+        var quickHosts = !full && !only.length && (SEARCH_PROFILE.quickSearch || {})[options.kind] || [];
         var ndbSources = ndbPickedSources(only), homes = sourceSites();
         speedAnswered = false;
         speedFailed = [];
@@ -2013,10 +2065,13 @@
         }
         // The busiest sites ("searched"); the rest come up through the web search. The quickest sites
         // (remembered from earlier searches) are asked first; one that failed or was slow rests a day.
-        var titleSites = mode === 'name' ? DIRECT_TITLE_SITES.filter(function (name) { return siteHosts[name] && picked(name); }) : [];
+        var titleSites = mode === 'name' ? DIRECT_TITLE_SITES.filter(function (name) {
+            return siteHosts[name] && picked(name) && (!quickHosts.length || quickHosts.includes(name));
+        }) : [];
         var searchedSites = SITES.filter(function (site) {
-            return titleSites.indexOf(site.host) < 0 && (full || site.searched !== false) && !(site.lnreader || []).length && picked(site.host)
-                && (full || only.length || (!resting(site.host) && speedRank(site.host) < 12000));
+            if (titleSites.includes(site.host) || (site.lnreader || []).length || !picked(site.host)) return false;
+            if (quickHosts.length) return quickHosts.some(function (name) { return site.host === name || (site.hosts || []).includes(name); });
+            return (full || only.length || (site.searched !== false && !resting(site.host) && speedRank(site.host) < 12000));
         }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
         if (!only.length) searchedSites = searchedSites.slice(0, full ? 100 : 12);
         var sources = [];
@@ -2032,7 +2087,7 @@
                 if (site && askedHosts[site.host]) return;
                 var at = site ? siteQueue.indexOf(site) : -1;
                 if (at > 0) siteQueue.unshift(siteQueue.splice(at, 1)[0]);
-                else if (site && at < 0 && !(site.lnreader || []).length) { if (siteQueue.length >= 12) siteQueue.pop(); siteQueue.unshift(site); }
+                else if (site && at < 0 && !quickHosts.length && !(site.lnreader || []).length) { if (siteQueue.length >= 12) siteQueue.pop(); siteQueue.unshift(site); }
             });
         }
         // NovelDB first: the sites start once it has answered, or after NDB_HEAD_START_MS at most (with them all
@@ -2060,7 +2115,7 @@
                     var cards = hits.map(function (hit) {
                         var item = card(hit.url, hit.title, hit.description || '', 'site', hit.cover);
                         return Object.assign(item, {comic: true, verified: true, catalogMatch: [hit.title].concat(hit.alternateTitles || []).some(function (name) { return similarTitle(text, name) >= 0.75; }), ms: Date.now() - started,
-                            alternateTitles: hit.alternateTitles, status: hit.status, author: hit.author || '',
+                            alternateTitles: hit.alternateTitles, status: hit.status, author: hit.author || '', tags: hit.tags || [],
                             chapters: hit.chapters, views: hit.views, likes: hit.likes});
                     });
                     var fresh = offer(cards);
@@ -2091,7 +2146,7 @@
                     hits = hits.filter(function (hit) {
                         var site = siteFor(hit.url);
                         var listed = site && (site.hosts || [site.host]).some(function (name) { return host(hit.url) === name || host(hit.url) === 'm.' + name; });
-                        return /^https?:\/\//.test(hit.url) && looksLikeBook(hit.url, hit.title) && (listed || knownSite(hit.url));
+                        return /^https?:\/\//.test(hit.url) && picked(host(hit.url)) && looksLikeBook(hit.url, hit.title) && (listed || knownSite(hit.url));
                     });
                     webFirst(hits.map(function (hit) { return hit.url; }));
                     hits.sort(function (a, b) { return speedRank(host(a.url)) - speedRank(host(b.url)); });
@@ -2113,7 +2168,7 @@
             });
         }
         if (!only.length && mode !== 'author') {
-            googleDorks(text, mode).forEach(function (query) { addWebSearch(query, mode === 'name'); });
+            googleDorks(text, mode, quickHosts).forEach(function (query) { addWebSearch(query, mode === 'name'); });
         }
         // An author's books: NovelDB and its own sites know them by author; the other sites' searches are by title.
         // An age rating (R19, R15) is NovelDB's own tag: the index's rated books, the site's own rule (sites asked
@@ -2240,7 +2295,7 @@
     function runTop(id, kind, language, token, only) {
         var comic = kind === 'manga' || kind === 'manhwa' || kind === 'comic';
         var sites = SITES.filter(function (site) {
-            return (!!site.comic === comic && !(site.lnreader || []).length) || (comic && COMIC_SITE.test(site.site));
+            return !isReferenceSite(site.site) && ((!!site.comic === comic && !(site.lnreader || []).length) || (comic && COMIC_SITE.test(site.site)));
         });
         if (only && only.length) {
             sites = only.map(function (name) {
@@ -2250,29 +2305,46 @@
         } else if (comic) {
             var manga = sites.filter(function (s) { return MANGA_SITE.test(s.site); });
             var manhwa = sites.filter(function (s) { return MANHWA_SITE.test(s.site) && manga.indexOf(s) < 0; });
-            var rest = sites.filter(function (s) { return manga.indexOf(s) < 0 && manhwa.indexOf(s) < 0; });
-            sites = ({manga: manga, manhwa: manhwa}[kind]) || (rest.length ? rest : sites);
+            sites = ({manga: manga, manhwa: manhwa}[kind]) || sites;
         }
         if (language && language !== 'all') {
             var fits = function (site) { return (TLD_LANG[site.site.split('.').pop()] || 'en') === language; };
             sites = sites.filter(fits).concat(sites.filter(function (s) { return !fits(s); }));
         }
-        sites = sites.filter(function (site) { return only && only.length || speedRank(site.host) < 12000; }).sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); }).slice(0, only && only.length ? 50 : 12);  // the busiest 80 of the kind (with the LNReader sites the page reads, ~180)
+        var curated = new Map(Object.entries(SEARCH_PROFILE.freeTop || {}).filter(function (entry) {
+            return !!entry[1][kind];
+        }).map(function (entry) {
+            return [entry[0], {site: entry[0], host: entry[0], comic: comic, popularUrl: entry[1][kind]}];
+        }));
+        if (only && only.length) {
+            sites = sites.slice(0, 50).map(function (site) { return curated.get(site.site) || site; });
+        } else {
+            sites = sites.filter(function (site) { return speedRank(site.host) < 12000; })
+                .sort(function (a, b) { return speedRank(a.host) - speedRank(b.host); });
+            if (language === 'en' || language === 'all') {
+                sites = Array.from(curated.values()).concat(sites.filter(function (site) { return !curated.has(site.site); }));
+            }
+            sites = sites.slice(0, 12);
+        }
         topSites = sites;
         call('progress', id, {total: sites.length});
         var seen = {};
         var all = each(sites, 12, function (site, index) {
             var started = Date.now();
-            return sitePopular('https://' + site.host + '/', token).catch(function () { return []; }).then(function (hits) {
+            return sitePopular('https://' + site.host + '/', token, site.popularUrl).catch(function () { return []; }).then(function (hits) {
                 var ms = Date.now() - started, cards = [];
                 hits.forEach(function (hit, position) {
                     var k = hit.url.replace(/\/+$/, '');
                     if (seen[k] || isNoResults(hit.title) || !looksLikeBook(hit.url, hit.title)) return;
                     seen[k] = true;
-                    cards.push(Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover),
+                    var item = siteCard(hit);
+                    if (site.popularUrl) item.comic = site.comic;
+                    cards.push(Object.assign(item,
                                              {ms: ms, siteRank: index, position: position, listLength: hits.length, via: 'top'}));
                 });
-                call('progress', id, {site: site.site, ms: ms, found: cards.length, state: cards.length ? 'ok' : 'failed'});
+                var listing = site.popularUrl || 'https://' + site.host + '/';
+                call('progress', id, {site: site.site, ms: ms, found: cards.length, state: cards.length ? 'ok' : 'failed',
+                    more: hasMore(listing, 'popular', '')});
                 if (cards.length && !stopped(token)) call('add', cards, id);
             });
         }, token);
@@ -2350,7 +2422,7 @@
                     var home = 'https://' + site.host + '/';
                     if (!hasMore(home, kind, text)) return;
                     jobs.push(siteMore(home, kind, text, token).then(function (hits) {
-                        offer(hits.map(function (hit) { return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover), {verified: !!hit.verified}); }));
+                        offer(hits.map(function (hit) { return Object.assign(siteCard(hit), {verified: !!hit.verified}); }));
                         if (hasMore(home, kind, text)) state.more = true;
                     }));
                 });
@@ -2361,11 +2433,106 @@
     /** The next page of the shown top list's sites' popular lists. */
     /** A Top list of NovelDB's sources (`sources`: "npia", ...): page `page` of their books, the most
      *  read first, each source in turn. The page hears `ndbTopDone(id, {more})`. */
-    function ndbTop(id, sources, page) {
+    function newestPage(source, page, token) {
+        function read(url, headers) {
+            return fetchUrl(url, {pool: SRC_POOL, stop: token, headers: headers, timeout: 8000});
+        }
+        if (source === 'npia') {
+            return read(NPIA + '/plus/entry/new/' + (page + 1) + '/?main_genre=').then(function (response) {
+                var doc = srcDoc(response), cards = [], seen = new Set();
+                if (doc) doc.querySelectorAll('.plus-novel-wrapper .novelbox [onclick]').forEach(function (tile) {
+                    var found = tile.getAttribute('onclick').match(/\/novel\/(\d+)\b/), title = srcText(tile.querySelector('b.cut_line_one'));
+                    if (!found || !title || seen.has(found[1])) return;
+                    seen.add(found[1]);
+                    var image = tile.querySelector('img.scale[src]'), chapters = srcText(tile.querySelector('.thumb_s2')).match(/\d+/);
+                    cards.push(srcCard('npia', NPIA + '/novel/' + found[1], title, srcText(tile.querySelector('font')),
+                        image ? new URL(image.getAttribute('src'), NPIA).href : '', [], '', {chapters: chapters && chapters[0]}));
+                });
+                return {cards: cards, more: cards.length >= 300};
+            });
+        }
+        if (source === 'jara') {
+            return jaraPublic(token).then(function (params) {
+                if (!params) return {cards: [], more: false};
+                return read(JARA_API + '/v2/book/latest_book?' + srcQuery(Object.assign({}, params,
+                    {category: 0, store: 'all', orderby: 'wdate', page: page + 1, offset: 40}))).then(function (response) {
+                    var data = srcJson(response) || {}, rows = (data.data || {}).list || [];
+                    return {cards: rows.filter(function (row) { return row.book_code && row.subject; }).map(jaraCard),
+                        more: rows.length >= 40 && (page + 1) * 40 < Number(data.total_cnt || 0)};
+                });
+            });
+        }
+        if (source === 'kpage' && page === 0) {
+            return read(KPAGE_API + '/view/v1/landing/today_new?category_uid=11&screen_uid=101',
+                {Accept: 'application/json', Origin: KPAGE, Referer: KPAGE + '/'}).then(function (response) {
+                var result = (srcJson(response) || {}).result || {};
+                var rows = (result.list || []).flatMap(function (day) { return day.series_list || []; });
+                return {cards: rows.filter(function (row) { return row.series_id && row.title; }).map(kpageCard), more: false};
+            });
+        }
+        if (source === 'nseries') return read(NSERIES + '/novel/recentList.series?OSType=pc&orderTypeCode=new&page=' + (page + 1)).then(nseriesPage);
+        if (source === 'mpia') {
+            return read(MPIA + '/api/v1/pc/remocon/novels?' + srcQuery({novelType: 'ALL', gradeType: '', serialStatus: '',
+                genreCode: 'ALL', contestOnly: 'false', adultOnly: 'false', keyword: '', order: 'CREATED_AT',
+                adultMode: 'false', page: page, size: 40, sort: ''}), {Accept: 'application/json'}).then(function (response) {
+                var result = (srcJson(response) || {}).result || {};
+                return {cards: (result.items || []).filter(function (row) { return row.novelId && row.novelTitle; }).map(function (row) {
+                    return srcCard('mpia', MPIA + '/novel/detail/' + row.novelId, row.novelTitle, row.authorName, '',
+                        row.groupTitle ? [row.groupTitle] : []);
+                }), more: !!result.hasNext};
+            });
+        }
+        if (source === 'sfc' && page === 0) {
+            var origin = 'https://m.\u0073\u0066\u0061\u0063\u0067.com';
+            return read(origin + '/rank/new.html', {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15'}).then(function (response) {
+                var doc = srcDoc(response), cards = [], seen = new Set();
+                if (doc) doc.querySelectorAll('a[href^="/b/"]').forEach(function (link) {
+                    var found = link.getAttribute('href').match(/^\/b\/(\d+)\/?$/), title = srcText(link.querySelector('#listtitle, .title, h3, h4, .name'));
+                    if (!found || !title || seen.has(found[1])) return;
+                    seen.add(found[1]);
+                    var image = link.querySelector('img[src]');
+                    cards.push(srcCard('sfc', SFC_BOOK + '/Novel/' + found[1] + '/', title, '',
+                        image ? new URL(image.getAttribute('src'), origin).href : '', []));
+                });
+                return {cards: cards, more: false};
+            });
+        }
+        if (source === 'rbooks') {
+            return Promise.all(['fantasy_serial', 'romance_serial', 'romance_fantasy_serial'].map(function (genre) {
+                return rbooksProps(RBOOKS + '/new-releases/' + genre + '?order=recent&type=serial&page=' + (page + 1), token).then(function (props) {
+                    var result = rbooksQuery(props, 'NewReleases').newReleases || {};
+                    return {cards: (result.items || []).map(function (item) { return (item.bookShell || {}).book || {}; })
+                        .filter(function (book) { return book.id && !book.isAdultOnly; }).map(function (book) {
+                            return rbooksCard(book, (book.categories || []).map(function (category) { return category.name; }).filter(Boolean));
+                        }), more: !!(result.pagination || {}).hasMore};
+                });
+            })).then(function (lists) {
+                var cards = [], length = Math.max.apply(null, lists.map(function (list) { return list.cards.length; }));
+                for (var i = 0; i < length; i++) lists.forEach(function (list) { if (list.cards[i]) cards.push(list.cards[i]); });
+                return {cards: cards, more: lists.some(function (list) { return list.more; })};
+            });
+        }
+        return Promise.resolve({cards: [], more: false});
+    }
+    function ndbTop(id, sources, page, sort) {
+        if (sort === 'new') {
+            var token = newToken(), state = {more: false, unavailable: []};
+            Promise.all(Array.from(new Set(sources)).map(function (source, rank) {
+                return newestPage(source, page, token).catch(function () { return {cards: [], more: false}; }).then(function (found) {
+                    if (found.cards.length) call('add', found.cards.map(function (card, i) {
+                        return Object.assign(card, {via: 'top', siteRank: rank, position: i, listLength: found.cards.length});
+                    }), id);
+                    else if (page === 0) state.unavailable.push(source);
+                    state.more = state.more || found.more;
+                });
+            })).then(function () { state.unavailable.sort(); call('ndbTopDone', id, state); });
+            return;
+        }
         var position = page * NDB_MORE;
-        ndbSearch(sources.join(','), 'source', NDB_MORE, position, function (c) {
-            call('add', [Object.assign(c, {via: 'top', siteRank: 0, position: position++, listLength: 1e6})], id);
-        }).then(function (found) {
+        ndbSearch(sources.join(','), 'source', NDB_MORE, position, null, null, sort === 'index-new' ? 'new' : '').then(function (found) {
+            call('add', found.cards.map(function (card, i) {
+                return Object.assign(card, {via: 'top', siteRank: 0, position: position + i, listLength: 1e6});
+            }), id);
             call('ndbTopDone', id, {more: found.more});
         }, function () { call('ndbTopDone', id, {more: false}); });
     }
@@ -2373,11 +2540,13 @@
         var token = current.token || newToken(), state = {more: false};
         ready.then(function () {
             return within(each(topSites, 12, function (site, index) {
-                var home = 'https://' + site.host + '/';
+                var home = site.popularUrl || 'https://' + site.host + '/';
                 if (!hasMore(home, 'popular', '')) return Promise.resolve();
-                return siteMore(home, 'popular', '', token).then(function (hits) {
+                return siteMore(home, 'popular', '', token, !!site.popularUrl).then(function (hits) {
                     var cards = hits.filter(function (hit) { return looksLikeBook(hit.url, hit.title); }).map(function (hit, position) {
-                        return Object.assign(card(hit.url, hit.title, hit.snippet, 'site', hit.cover),
+                        var item = siteCard(hit);
+                        if (site.popularUrl) item.comic = site.comic;
+                        return Object.assign(item,
                                              {siteRank: index, position: position, listLength: hits.length, via: 'top'});
                     });
                     if (hasMore(home, 'popular', '')) state.more = true;
@@ -2400,13 +2569,14 @@
     // stored value (hundreds of synopses), too big to parse or write for every card.
     var detailsKept = null, detailsTimer = 0;
     function detailsCache() { return detailsKept || (detailsKept = store(DETAILS_KEY) || {}); }
+    function detailsKey(url) { return host(url) === 'mangak.io' ? 'mangak:' + url : url; }
     function cachedDetails(url) {
-        var found = detailsCache()[url];
+        var found = detailsCache()[detailsKey(url)];
         return found && Date.now() - found.at < DETAILS_DAYS * 86400000 ? found.value : null;
     }
     function keepDetails(url, value) {
         var all = detailsCache();
-        all[url] = {at: Date.now(), value: value};
+        all[detailsKey(url)] = {at: Date.now(), value: value};
         var keys = Object.keys(all);
         if (keys.length > 400) {
             keys.sort(function (a, b) { return all[a].at - all[b].at; }).slice(0, keys.length - 400).forEach(function (k) { delete all[k]; });
@@ -2953,36 +3123,6 @@
                 call('fetched', message.id, {data: JSON.parse(text)});
             }).catch(function () { call('fetched', message.id, {data: null}); });
             break;
-        case 'genericSiteQuery':
-            ready.then(async function () {
-                var token = current.token && !current.token.stopped ? current.token : {stopped: false}, cards = [];
-                if (message.web && message.query) {
-                    var blocked = false;
-                    await webSearch(String(message.query).slice(0, 2000), token, function (hits) { cards = hits; }, function () { blocked = true; });
-                    call('fetched', message.id, {cards: cards, googleBlocked: blocked});
-                    return;
-                } else if (message.url) {
-                    var result = await fetchUrl(message.url, {stop: token, quick: true});
-                    if (result && result.status === 200) {
-                        var url = result.url || message.url, metadata = G().metadata(G().parse(result.text()), url);
-                        if (metadata.title && looksLikeBook(url, metadata.title) && !isNoResults(metadata.title)) {
-                            var found = Object.assign(card(url, metadata.title, metadata.description, 'site', metadata.cover), metadata, {complete: true});
-                            if (!siteFor(url)) found.comic = null;
-                            cards = [found];
-                        }
-                    }
-                } else if (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(message.host || '') && message.query) {
-                    var site = siteFor('https://' + message.host + '/');
-                    var hits = await siteSearch('https://' + (site && site.host || message.host) + '/', String(message.query).slice(0, 300), token);
-                    cards = hits.filter(function (hit) { return looksLikeBook(hit.url, hit.title); }).slice(0, 20).map(function (hit) {
-                        var found = card(hit.url, hit.title, hit.snippet, 'site', hit.cover);
-                        if (!site) found.comic = null;
-                        return found;
-                    });
-                }
-                call('fetched', message.id, {cards: cards});
-            }).catch(function () { call('fetched', message.id, {cards: []}); });
-            break;
         case 'genericIndexSort':
             ready.then(function () {
                 return Promise.all((message.queries || []).filter(function (item) { return item.noveldb !== false && item.mode !== 'id'; }).slice(0, 6).map(function (item) {
@@ -3024,7 +3164,7 @@
             break;
         case 'genericNdbTop':
             ndbTop(message.id || 0, (Array.isArray(message.sources) ? message.sources : []).filter(function (s) { return /^[a-z0-9_]{1,20}$/.test(s); }).slice(0, 12),
-                   Math.max(0, Math.min(10000, Number(message.page) || 0)));
+                   Math.max(0, Math.min(10000, Number(message.page) || 0)), message.sort);
             break;
         case 'genericFetch':
             transport(message.request).then(function (reply) { call('fetched', message.id, reply); });

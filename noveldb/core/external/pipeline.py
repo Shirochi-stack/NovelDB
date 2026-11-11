@@ -26,6 +26,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from external_scraper import ExternalScraper, write_text_output
+from noveldb.core.chapter_cache import ChapterCache
 from noveldb.core.chapter_timing import timing_suffix
 from noveldb.core.net_timeouts import page_timeout_ms, request_timeout
 
@@ -250,22 +251,32 @@ class ExternalPipelineMixin:
             return {}, None
         try:
             path = self._external_cache_path()
-            if not os.path.exists(path):
-                return {}, path
-            with open(path, 'r', encoding='utf-8') as cache_file:
-                payload = json.load(cache_file)
-            if ((self._book_data or {}).get('_lncrawl')
-                    and payload.get('textEncodingVersion', 1) < 2):
-                self._log("Refreshing the chapter cache after the text decoding fix.")
-                return {}, path
-            entries = payload.get('chapters', {})
-            if not isinstance(entries, dict):
-                raise ValueError('invalid chapter cache')
-            self._log(f"Cache loaded ({len(entries)} external chapters cached).")
-            return entries, path
         except Exception as exc:
-            self._log(f"⚠ External cache could not be loaded: {exc}")
+            self._log(f"⚠ External cache is unavailable: {exc}")
             return {}, None
+        entries = {}
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as cache_file:
+                    payload = json.load(cache_file)
+                if ((self._book_data or {}).get('_lncrawl')
+                        and payload.get('textEncodingVersion', 1) < 2):
+                    self._log("Refreshing the chapter cache after the text decoding fix.")
+                elif isinstance(payload.get('chapters'), dict):
+                    entries = payload['chapters']
+            except Exception as exc:
+                self._log(f"⚠ Legacy external cache could not be loaded: {exc}")
+        try:
+            for key, value in ChapterCache(path).entries().items():
+                if value is None:
+                    entries.pop(key, None)
+                else:
+                    entries[key] = value
+        except Exception as exc:
+            self._log(f"⚠ External chapter checkpoints could not be loaded: {exc}")
+        if entries:
+            self._log(f"Cache loaded ({len(entries)} external chapters cached).")
+        return entries, path
 
     @staticmethod
     def _external_cache_result(result, cache_images):
@@ -303,28 +314,6 @@ class ExternalPipelineMixin:
             and not image.get('data')
             for image in result.get('images') or []
         )
-
-    def _save_external_cache(self, entries, path):
-        if not path or not self._var_use_cache.get():
-            return
-        payload = {
-            'version': 1,
-            'textEncodingVersion': 2,
-            'bookUrl': (self._book_data or {}).get('bookUrl', ''),
-            'chapters': entries,
-        }
-        temporary = f'{path}.tmp'
-        try:
-            with open(temporary, 'w', encoding='utf-8') as cache_file:
-                json.dump(payload, cache_file, ensure_ascii=False)
-            os.replace(temporary, path)
-        except Exception as exc:
-            self._log(f"⚠ External cache could not be saved: {exc}")
-            try:
-                if os.path.exists(temporary):
-                    os.remove(temporary)
-            except OSError:
-                pass
 
     def _cache_external_result_images(self, result):
         """Attach downloaded image bytes so cached chapters are self-contained."""
@@ -505,6 +494,47 @@ class ExternalPipelineMixin:
                 )
             else:
                 cache_entries, cache_path = {}, None
+            checkpoint = ChapterCache(cache_path) if cache_path else None
+            cache_write_failed = False
+
+            def save_checkpoint(key, value):
+                nonlocal cache_write_failed
+                if checkpoint is None:
+                    return False
+                try:
+                    checkpoint.put(key, value)
+                    return True
+                except Exception as exc:
+                    if not cache_write_failed:
+                        self._log(f"⚠ External chapter checkpoint could not be saved: {exc}")
+                        cache_write_failed = True
+                    return False
+
+            def numbered(idx, data):
+                chapter = selected[idx]
+                is_notice = bool(chapter.get('isNotice'))
+                data.setdefault('_is_notice', is_notice)
+                source_number = chapter.get('_npiaNoticeNumber', idx + 1) if is_notice else chapter.get(
+                    '_npiaChapterNumber', chapter.get('_globalNpiaChapterNumber', start + idx + 1)
+                )
+                data.setdefault('_chapter_number', source_number)
+                return data
+
+            def checkpoint_result(idx, data, include_images):
+                if checkpoint is None or not ExternalPipelineMixin._external_cacheable(data):
+                    return
+                if is_kobo and not cache_images:
+                    return
+                snapshot = numbered(idx, dict(data))
+                snapshot.pop("_scrape_seconds", None)
+                cached = ExternalPipelineMixin._external_cache_result(snapshot, include_images)
+                # A path into a temporary reader is invalid after a restart.
+                if any(isinstance(image, dict) and str(image.get('data') or '').startswith('file:')
+                       for image in cached.get('images') or []):
+                    return
+                if ExternalPipelineMixin._external_cacheable(cached):
+                    key = ExternalPipelineMixin._external_cache_chapter_key(selected[idx], start + idx)
+                    return save_checkpoint(key, cached)
             cache_hits = 0
             stale_cache_entries = 0
             if use_cache:
@@ -518,6 +548,7 @@ class ExternalPipelineMixin:
                         or (is_kobo and not cache_images)
                     ):
                         cache_entries.pop(cache_key, None)
+                        save_checkpoint(cache_key, None)
                         stale_cache_entries += 1
                         continue
                     if isinstance(cached, dict):
@@ -525,7 +556,8 @@ class ExternalPipelineMixin:
                             ExternalPipelineMixin._cache_external_result_images(
                                 self, cached
                             )
-                            cache_entries[cache_key] = cached
+                            if cached.get('images'):
+                                checkpoint_result(selected_index, cached, True)
                         results[selected_index] = cached
                         ExternalPipelineMixin._publish_live_chapter(self, selected_index, cached)
                         cache_hits += 1
@@ -662,6 +694,7 @@ class ExternalPipelineMixin:
                 batch_number = (batch_start // batch_size) + 1
                 batch_t0 = time.perf_counter()
                 batch_options = {'interval': interval}
+                saved_in_batch = set()
                 if log_on_success:
                     pending_chapter_logs = {}
                     logged_batch_indices = set()
@@ -703,7 +736,14 @@ class ExternalPipelineMixin:
                                     logged_batch_indices.add(batch_index)
                             pending_chapter_logs.clear()
 
-                    batch_options['success_callback'] = log_chapter_success
+                def chapter_completed(batch_index, data):
+                    if checkpoint_result(batch_indices[batch_index], data, cache_images):
+                        saved_in_batch.add(batch_index)
+                    if log_on_success:
+                        log_chapter_success(batch_index, data)
+
+                if log_on_success or checkpoint is not None:
+                    batch_options['success_callback'] = chapter_completed
                 if interval_max_supplied:
                     batch_options['interval_max'] = interval_max
                 batch_results = self._scraper.parse_chapter_batch(
@@ -739,6 +779,8 @@ class ExternalPipelineMixin:
                             if data:
                                 if data.get('_locked'):
                                     break
+                                if checkpoint_result(idx, data, cache_images):
+                                    saved_in_batch.add(j)
                                 if log_on_success:
                                     log_chapter_success(j, data)
                                 else:
@@ -756,21 +798,7 @@ class ExternalPipelineMixin:
                             )
                     if isinstance(data, dict):
                         chapter_info = selected[idx]
-                        is_notice = bool(chapter_info.get('isNotice'))
-                        data.setdefault('_is_notice', is_notice)
-                        if is_notice:
-                            source_number = chapter_info.get(
-                                '_npiaNoticeNumber', idx + 1
-                            )
-                        else:
-                            source_number = chapter_info.get(
-                                '_npiaChapterNumber',
-                                chapter_info.get(
-                                    '_globalNpiaChapterNumber',
-                                    start + idx + 1,
-                                ),
-                            )
-                        data.setdefault('_chapter_number', source_number)
+                        numbered(idx, data)
                         if _scrambled_text(data):
                             self._log(
                                 f"  ⚠️ [{idx + 1}/{total}] "
@@ -785,27 +813,15 @@ class ExternalPipelineMixin:
                     lookahead = getattr(self, "_kpage_images", None)
                     if lookahead and data and not data.get("_locked") and self._downloading:
                         lookahead.offer(data)
-                    if isinstance(data, dict) and use_cache:
-                        cache_key = (
-                            ExternalPipelineMixin._external_cache_chapter_key(
-                                selected[idx], start + idx
-                            )
+                    if checkpoint is not None and ExternalPipelineMixin._external_cacheable(data):
+                        needs_images = cache_images and any(
+                            isinstance(image, dict) and (not image.get('data') or str(image['data']).startswith('file:'))
+                            for image in data.get('images') or []
                         )
-                        if (ExternalPipelineMixin._external_cacheable(data)
-                                and (not is_kobo or cache_images)):
-                            if cache_images:
-                                ExternalPipelineMixin._cache_external_result_images(
-                                    self, data
-                                )
-                            cached_result = dict(data)
-                            cached_result.pop("_scrape_seconds", None)
-                            cache_entries[cache_key] = (
-                                ExternalPipelineMixin._external_cache_result(
-                                    cached_result, cache_images
-                                )
-                            )
-                        else:
-                            cache_entries.pop(cache_key, None)
+                        if needs_images:
+                            ExternalPipelineMixin._cache_external_result_images(self, data)
+                        if needs_images or j not in saved_in_batch:
+                            checkpoint_result(idx, data, cache_images)
 
                 if log_on_success:
                     # A failed or locked earlier chapter has no success
@@ -855,11 +871,6 @@ class ExternalPipelineMixin:
                         self._download_cancelled = True
                         self._log("Download stopped by user.")
                         break
-
-            if use_cache:
-                ExternalPipelineMixin._save_external_cache(
-                    self, cache_entries, cache_path
-                )
 
             # Npia intentionally does not retry failed chapters.
             failed_indices = [

@@ -22,7 +22,8 @@ def profile():
     if not isinstance(data, dict):
         data = {}
     with _lock:
-        return {"preferred": data.get("preferred", []), "measurements": {**data.get("measurements", {}), **_observed}}
+        return {"preferred": data.get("preferred", []), "measurements": {**data.get("measurements", {}), **_observed},
+                "freeTop": data.get("freeTop", {}), "quickSearch": data.get("quickSearch", {})}
 
 
 def score(host, data=None):

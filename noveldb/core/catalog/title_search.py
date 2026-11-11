@@ -7,7 +7,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 from noveldb.core.engines.comix import knows as comix_knows
 from noveldb.core.engines.generic import clean_url, decode, soup_of
-from noveldb.core.engines.mangak import page_props
+from noveldb.core.engines.mangak import catalogue_tags, page_props
 
 
 DIRECT_SITES = ("mangak.io", "mangadex.org", "comix.to")
@@ -61,7 +61,12 @@ def _localized(values):
 
 
 def _mangak_rows(result):
-    rows = page_props(decode(result)).get("ssrItems") or []
+    yield from mangak_catalogue_rows(decode(result))
+
+
+def mangak_catalogue_rows(html):
+    props = page_props(html)
+    rows = props.get("ssrItems") or props.get("items") or []
     for row in rows[:40]:
         if not isinstance(row, dict):
             continue
@@ -70,7 +75,9 @@ def _mangak_rows(result):
             continue
         stats = row.get("stats") if isinstance(row.get("stats"), dict) else {}
         cover = row.get("cover")
-        yield {"url": "https://mangak.io/" + slug, "title": row.get("name"),
+        if not isinstance(row.get("name"), str) or not row["name"].strip():
+            continue
+        yield {"url": "https://mangak.io/" + slug, "title": row["name"], "tags": catalogue_tags(row),
                "alternateTitles": [item.get("name") for item in row.get("altNames") or [] if isinstance(item, dict)],
                "description": row.get("summary"), "cover": clean_url(cover, "https://mangak.io/") if isinstance(cover, str) else "",
                "status": row.get("status"), "chapters": stats.get("chaptersCount"), "views": stats.get("views"),

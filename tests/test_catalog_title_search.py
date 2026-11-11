@@ -7,7 +7,9 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from noveldb.core.catalog import generic_search
+from noveldb.core.catalog.site_search import SiteSearch
 from noveldb.core.catalog.title_search import direct_titles
+from noveldb.core.engines.generic import extract_metadata
 
 
 TITLE = "Move Aside, I'll Be the Magical Girl!"
@@ -17,11 +19,11 @@ QUERIES = ("Move aside, I'll become the magical girl", "step aside i'll be the m
 MANGAK = {"site": "mangak.io", "host": "mangak.io", "comic": True}
 DEX = {"site": "mangadex.org", "host": "mangadex.org", "comic": False}
 FIXTURE = {"slug": SLUG, "name": TITLE, "altNames": [{"name": "Step Aside, I'm the One Becoming the Magical Girl"}],
-           "cover": "https://covers.example/magical.webp", "stats": {"chaptersCount": 65}}
+           "cover": "https://covers.example/magical.webp", "stats": {"chaptersCount": 65}, "genres": [{"name": "Fantasy"}]}
 
 
-def mangak_html(rows):
-    data = {"props": {"pageProps": {"ssrItems": rows}}}
+def mangak_html(rows, key="ssrItems"):
+    data = {"props": {"pageProps": {key: rows}}}
     return '<script type="application/json" id="__NEXT_DATA__">' + json.dumps(data) + '</script>'
 
 
@@ -51,7 +53,31 @@ def test_selected_catalog_retries_a_misremembered_title_with_fewer_words(query, 
     emitted = []
     engine.run(query, "name", emitted.extend, threading.Event(), deadline=5)
     assert [(card["url"], card["title"], card["chapters"]) for card in emitted] == [(ADDRESS, TITLE, 65)]
+    assert emitted[0]["tags"] == ["Fantasy"]
     assert len(requests) == 2 and all(url.startswith("https://mangak.io/search?") for url in requests)
+
+
+def test_mangak_ranked_feed_preserves_genres_on_first_and_next_page():
+    home = "https://mangak.io/"
+    listing = home + "genres/manhwa?sort=views"
+    next_url = listing + "&page=2"
+    adult = dict(FIXTURE, isAdult=True, genres=[{"name": "Boys Love"}])
+    detail = dict(adult, tags=[{"name": "#yaoi/bl"}])
+    pages = {
+        listing: f'<link rel="next" href="{next_url}">' + mangak_html([adult], "items"),
+        next_url: mangak_html([dict(FIXTURE, slug="a-different-series")], "items"),
+    }
+
+    def fetch(url, **_kwargs):
+        return response(url, pages[url])
+
+    site = dict(MANGAK, popular_url=listing)
+    engine = generic_search.GenericSearch(fetch=fetch, sites=[site], site_search=SiteSearch(fetch))
+    cards = []
+    engine.popular([site], cards.extend, threading.Event())
+    engine.popular_more([site], cards.extend, threading.Event())
+    assert [card["tags"] for card in cards] == [["18+", "Boys Love"], ["Fantasy"]]
+    assert extract_metadata(mangak_html(detail, "initialManga"), ADDRESS)["tags"] == ["18+", "Boys Love", "yaoi/bl"]
 
 
 def test_mangadex_matches_an_alternate_title_and_returns_the_series_address():
@@ -174,6 +200,8 @@ def test_mobile_catalog_shows_a_direct_match_while_web_search_waits(platform, qu
                 name = urlsplit(route.request.url).path.rsplit("/", 1)[-1]
                 if name == "generic_sites.json":
                     route.fulfill(json={"sites": [MANGAK, DEX]})
+                elif name == "search_profile.json":
+                    route.fulfill(path=assets / name)
                 elif name in ("index.html", "catalog-start.js", "generic.js", "catalog-app.js", "generic-lib.js"):
                     route.fulfill(path=assets / name)
                 elif name.endswith(".json"):
@@ -184,6 +212,11 @@ def test_mobile_catalog_shows_a_direct_match_while_web_search_waits(platform, qu
             page.route("**/*", serve)
             first = json.dumps(mangak_html([]))
             found = json.dumps(mangak_html([FIXTURE]))
+            banned = dict(FIXTURE, slug="blocked-title", name="Blocked Comic", genres=[{"name": "Boys Love"}])
+            manhwa = dict(FIXTURE, slug="ranked-manhwa", name="Ranked Manhwa", genres=[{"name": "Manhwa"}, {"name": "Action"}])
+            manhua = dict(FIXTURE, slug="ranked-manhua", name="Ranked Manhua", genres=[{"name": "Manhua"}, {"name": "Adventure"}])
+            manhwa_html = json.dumps(mangak_html([banned, manhwa], "items"))
+            manhua_html = json.dumps(mangak_html([banned, manhua], "items"))
             page.add_init_script(rf"""
                 window.requests = [];
                 window.NovelDBTransport = function (request) {{
@@ -194,6 +227,10 @@ def test_mobile_catalog_shows_a_direct_match_while_web_search_waits(platform, qu
                         return Promise.resolve({{status: 200, finalUrl: url.href,
                             responseText: /^(move|step) aside magical girl$/.test(q) ? {found} : {first}}});
                     }}
+                    if (url.hostname === 'mangak.io' && url.pathname.startsWith('/genres/')) {{
+                        return Promise.resolve({{status: 200, finalUrl: url.href,
+                            responseText: url.pathname.endsWith('manhwa') ? {manhwa_html} : {manhua_html}}});
+                    }}
                     if (/duckduckgo|bing\.com/.test(url.hostname)) return new Promise(() => {{}});
                     return Promise.resolve({{status: 403, finalUrl: url.href}});
                 }};
@@ -202,5 +239,16 @@ def test_mobile_catalog_shows_a_direct_match_while_web_search_waits(platform, qu
             page.locator("#query").fill(query)
             page.locator("#query").press("Enter")
             playwright.expect(page.locator("#grid .card")).to_contain_text(TITLE, timeout=5000)
+            playwright.expect(page.locator("#grid .card .tags")).to_contain_text("Fantasy")
             assert page.evaluate("requests.some(url => url.startsWith('https://www.google.com/search?'))")
             assert page.evaluate("requests.filter(url => url.startsWith('https://mangak.io/search?')).length") == 2
+            page.locator("#backTop").click()
+            page.select_option("#kind", "manhwa")
+            page.wait_for_function("requests.some(url => url.includes('/genres/manhwa?'))")
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event('scroll'))")
+            playwright.expect(page.get_by_text("Ranked Manhwa", exact=True)).to_be_visible()
+            page.select_option("#kind", "comic")
+            page.wait_for_function("requests.some(url => url.includes('/genres/manhua?'))")
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event('scroll'))")
+            playwright.expect(page.get_by_text("Ranked Manhua", exact=True)).to_be_visible()
+            assert page.get_by_text("Blocked Comic", exact=True).count() == 0

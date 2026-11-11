@@ -151,14 +151,16 @@ def test_the_reader_translates_its_chapter_and_back(page):
 
 def test_the_sort_menu_orders_the_shown_cards(page):
     page.evaluate("cards => window.NovelDBGeneric.add(cards)", [
-        noveldb_card(url="https://a.test/1", title="Old", originalTitle="옛", noveldb={"source": "npia", "id": "1"}, also=[], published="2020-01-01", likes="5"),
-        noveldb_card(url="https://a.test/2", title="New", originalTitle="새", noveldb={"source": "npia", "id": "2"}, also=[], published="2026-01-01", likes="9")])
+        noveldb_card(url="https://a.test/1", title="Old", originalTitle="옛", noveldb={"source": "npia", "id": "1"}, also=[], published="2020-01-01", chapters="100", likes="5"),
+        noveldb_card(url="https://a.test/2", title="New", originalTitle="새", noveldb={"source": "npia", "id": "2"}, also=[], published="2026-01-01", chapters="10", likes="9")])
     page.wait_for_timeout(300)
     page.select_option("#sort", "new")
     page.wait_for_timeout(300)
     ordered = page.evaluate("""() => [...document.querySelectorAll('#grid .card')].filter(c => c.style.display !== 'none')
         .sort((a, b) => Number(a.style.order) - Number(b.style.order)).map(c => c.querySelector('.title').textContent)""")
     assert ordered == ["New", "Old"]
+    page.select_option("#sort", "chapters")
+    assert shown_order(page) == ["Old", "New"]
 
 
 def shown_order(page):

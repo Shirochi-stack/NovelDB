@@ -49,6 +49,9 @@
     #progressbar { height: 3px; margin-top: 6px; background: var(--line); border-radius: 2px; overflow: hidden; visibility: hidden; }
     #progressbar.on { visibility: visible; }
     #progressbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+    #progressbar.indeterminate i { width: 35% !important; animation: catalogue-progress 1.2s ease-in-out infinite; }
+    @keyframes catalogue-progress { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
+    @media (prefers-reduced-motion: reduce) { #progressbar.indeterminate i { animation: none; } }
     .popover { position: absolute; right: 16px; top: 100%; margin-top: 4px; width: min(440px, calc(100% - 32px)); max-height: min(70vh, 560px);
                overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
                box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: 12px 14px; display: none; z-index: 4; }
@@ -251,6 +254,8 @@
         .details .info { display: contents; }
         .details .head { min-width: 0; }
         .details .chips, .details .desc, .details .loading, .details .sources { grid-column: 1 / -1; }
+        .sources div { flex-wrap: wrap; }
+        .sources div > span { flex-basis: 100%; }
         .details h2 { font-size: 16px; }
         .details .rawtitle { font-size: 12px; }
         .facts { grid-template-columns: 1fr 1fr; gap: 4px 10px; margin: 8px 0 6px; font-size: 12px; }
@@ -370,12 +375,12 @@
             <option value="lightnovel">Light Novels</option>
             <option value="manga">Manga</option>
             <option value="manhwa">Manhwa</option>
-            <option value="comic">Comics</option>
+            <option value="comic">Comics &amp; webtoons</option>
         </select>
         <!-- NovelDB's sorts (the site's): the results in that order; NovelDB's R19 and R15 lists are read in it. -->
         <select id="sort" title="Sort by" aria-label="Sort by">
             <option value="">Popular</option>
-            <option value="new" title="Original publication date, not the latest update">New</option>
+            <option value="new" title="Publisher new releases when browsing; original publication date when searching">New</option>
             <option value="updated">Updated</option>
             <option value="likes">Likes</option>
             <option value="views">Views</option>
@@ -388,7 +393,7 @@
     </form>
     <div class="statusline"><span id="spinner" class="spinner"></span><span id="status">Searches each site's own search and its genre and tag pages, then reads each book's page for its details.</span>
         <a id="sitesButton" style="display:none">Sites</a></div>
-    <div id="progressbar"><i></i></div>
+    <div id="progressbar" role="progressbar" aria-label="Catalogue loading progress"><i></i></div>
     <div id="sitespanel" class="popover"></div>
     <div id="settingspanel" class="popover">
         <h3>Top lists</h3>
@@ -400,14 +405,14 @@
             <option value="fr">Français</option><option value="id">Bahasa Indonesia</option><option value="th">ไทย</option>
             <option value="vi">Tiếng Việt</option><option value="de">Deutsch</option><option value="tr">Türkçe</option>
             <option value="ar">العربية</option></select></label>
-        <p>NU/MU discovery with reading-source matches. Native-language lists use NovelDB.</p>
+        <p>Choose the language for the Top lists.</p>
         <label class="range">Site <select id="preferredSite"><option value="">Automatic</option></select></label>
-        <p>Pick a site's own list. Josei/BL stays available through explicit searches.</p>
+        <p>Pick a site for the Top list.</p>
         <h3>Searches</h3>
         <div class="checks">
             <label class="check" title="Match titles against NovelDB"><input type="checkbox" id="useNovelDB"> Index</label>
             <label class="check" title="Query native sources by tag and author"><input type="checkbox" id="useDeep"> Native</label>
-            <label class="check" title="Query all 100 correlation sources. Takes longer."><input type="checkbox" id="useFull"> Full search</label>
+            <label class="check" title="Search more sites. Takes longer."><input type="checkbox" id="useFull"> Full search</label>
         </div>
         <h3>Translation</h3>
         <label class="range">Into <select id="translateTo">

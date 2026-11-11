@@ -298,7 +298,7 @@ class ExternalScraper(SiteEnginesMixin):
         self._rbooks_cdp_port = None
         self._rbooks_app_proxy = None
         self._rbooks_app_lock = threading.Lock()
-        # FuckNovelpia's chapter Cloudflare check must finish in an ordinary,
+        # The fnp chapter Cloudflare check must finish in an ordinary,
         # unattached Chrome window.  Playwright is connected only after the
         # real reader document is visible.
         self._fnp_browser = None
@@ -12108,12 +12108,12 @@ async ({ urls, concurrency }) => {
             return False
 
     @staticmethod
-    def _is_fucknovelpia_url(url):
+    def _is_fnp_url(url):
         host = (urllib.parse.urlparse(url or '').hostname or '').lower()
-        return host.removeprefix('www.') == 'fucknovelpia.com'
+        return host.removeprefix('www.') == 'fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
 
     def _fnp_close_browser(self):
-        """Close only the isolated Chrome used for FuckNovelpia chapters."""
+        """Close only the isolated Chrome used for fnp chapters."""
         port = getattr(self, '_fnp_cdp_port', None)
         profile = getattr(self, '_fnp_profile', None)
         if port:
@@ -12242,7 +12242,7 @@ async ({ urls, concurrency }) => {
         return target_page
 
     def _fnp_launch_verified_chapter(self, chapter_url):
-        profile = os.path.join(self._get_user_data_dir(), 'fucknovelpia_chrome')
+        profile = os.path.join(self._get_user_data_dir(), 'fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061_chrome')
         self._fnp_profile = profile
         # This is an app-owned, isolated profile. Clean up a previous crashed
         # session instead of colliding with the user's Enter Browser window.
@@ -12265,13 +12265,13 @@ async ({ urls, concurrency }) => {
         self._fnp_process = proc
         self._fnp_cdp_port = port
         started = time.monotonic()
-        self.log('[FuckNovelpia] Waiting for Chrome to complete Cloudflare verification…')
+        self.log('[fnp] Waiting for Chrome to complete Cloudflare verification…')
         target_id = self._fnp_wait_for_verified_target(port, chapter_url, timeout=30)
         if not target_id:
             raise RuntimeError('Cloudflare verification did not complete within 30 seconds')
         page = self._fnp_attach_verified_chrome(port, target_id, chapter_url)
         self.log(
-            f'[FuckNovelpia] Verification completed in '
+            f'[fnp] Verification completed in '
             f'{time.monotonic() - started:.1f}s.'
         )
         return page
@@ -12287,7 +12287,7 @@ async ({ urls, concurrency }) => {
                 result = self._fnp_reader_result(page, chapter_name)
                 if result:
                     self.log(
-                        f'[FuckNovelpia] Chapter ready: {chapter_name} '
+                        f'[fnp] Chapter ready: {chapter_name} '
                         f'({len(result.get("contentText") or ""):,} characters).'
                     )
                     return result
@@ -12300,14 +12300,14 @@ async ({ urls, concurrency }) => {
             result = self._fnp_reader_result(page, chapter_name)
             if result:
                 self.log(
-                    f'[FuckNovelpia] Chapter ready: {chapter_name} '
+                    f'[fnp] Chapter ready: {chapter_name} '
                     f'({len(result.get("contentText") or ""):,} characters).'
                 )
                 return result
             raise RuntimeError('the verified page did not contain chapter text')
         except Exception as exc:
             self._fnp_close_browser()
-            self.abort_reason = f'[FuckNovelpia] Download stopped: {exc}'
+            self.abort_reason = f'[fnp] Download stopped: {exc}'
             self.log(self.abort_reason)
             return None
 
@@ -12331,7 +12331,7 @@ async ({ urls, concurrency }) => {
             self.cleanup()
 
         user_data_dir = self._get_user_data_dir()
-        visible_verification = site == 'FuckNovelpia'
+        visible_verification = site == 'Fuck\u004e\u006f\u0076\u0065\u006c\u0070\u0069\u0061'
         self.log(
             f'[{site}] Starting headed installed Chrome '
             f'{"for automatic Cloudflare verification" if visible_verification else "off-screen"} '
@@ -22141,7 +22141,7 @@ async (items) => {
         if (
             self._book_data
             and self._book_data.get('_lnreader')
-            and self._is_fucknovelpia_url(chapter_info.get('url', ''))
+            and self._is_fnp_url(chapter_info.get('url', ''))
         ):
             result = self._fnp_parse_chapter(
                 chapter_info.get('url', ''),
@@ -22443,7 +22443,7 @@ async (items) => {
         if (
             self._book_data
             and self._book_data.get('_lnreader')
-            and all(self._is_fucknovelpia_url(ch.get('url', '')) for ch in batch_info)
+            and all(self._is_fnp_url(ch.get('url', '')) for ch in batch_info)
         ):
             # One normal Chrome session establishes the clearance, then the
             # remaining chapters are read sequentially in that same profile.

@@ -26,6 +26,7 @@ from downloader_core import (
     validate_chapter_payload,
 )
 from epub_generator import EpubGenerator
+from noveldb.core.chapter_cache import ChapterCache
 from noveldb.core.images import (
     Image,
     _detect_source_ext,
@@ -424,7 +425,8 @@ class NpiaPipelineMixin:
         use_cache = self.var_use_cache.get()
         cache_images = use_cache and self.var_cache_images.get()
         cache_data = {}
-        cache_path = None
+        checkpoint = None
+        cache_write_failed = False
         # Compute a fingerprint of every setting that influences processed
         # chapter HTML, image bytes, or image filenames. If it doesn't match
         # what the cache was written with, invalidate the processed
@@ -443,6 +445,8 @@ class NpiaPipelineMixin:
                 cache_images = False
             else:
                 cache_path = os.path.join(cache_dir, f'{novel_id}.json')
+                checkpoint = ChapterCache(cache_path)
+                reserved = {'_meta', '_image_fingerprint', '_cover_image'}
                 if os.path.exists(cache_path):
                     try:
                         with open(cache_path, 'r', encoding='utf-8') as f:
@@ -462,11 +466,33 @@ class NpiaPipelineMixin:
                                 "\u26a0 Legacy image cache has no settings fingerprint; "
                                 "dropping cached images and re-processing from cached JSON."
                             )
-                        reserved = {'_meta', '_image_fingerprint', '_cover_image'}
-                        chapter_count = sum(1 for k in cache_data if k not in reserved)
-                        self.log_message(f"Cache loaded ({chapter_count} chapters cached).")
-                    except Exception:
+                    except Exception as exc:
+                        self.log_message(f"Legacy cache could not be loaded: {exc}")
                         cache_data = {}
+                try:
+                    for key, saved in checkpoint.entries().items():
+                        value = saved['value']
+                        if value is None:
+                            cache_data.pop(key, None)
+                        elif key not in reserved and isinstance(value, dict) and saved.get('fingerprint') != current_fp:
+                            cache_data[key] = value.get('json', '')
+                        else:
+                            cache_data[key] = value
+                except Exception as exc:
+                    self.log_message(f"Chapter checkpoints could not be loaded: {exc}")
+                if cache_data:
+                    chapter_count = sum(1 for k in cache_data if k not in reserved)
+                    self.log_message(f"Cache loaded ({chapter_count} chapters cached).")
+
+        def save_checkpoint(key, value):
+            nonlocal cache_write_failed
+            if checkpoint is not None:
+                try:
+                    checkpoint.put(key, {'fingerprint': current_fp, 'value': value})
+                except Exception as exc:
+                    if not cache_write_failed:
+                        self.log_message(f"Chapter checkpoint could not be saved: {exc}")
+                        cache_write_failed = True
 
         # Metadata (use cache if available)
         if use_cache and '_meta' in cache_data:
@@ -483,7 +509,7 @@ class NpiaPipelineMixin:
                     "error": "Failed to fetch metadata",
                 }
             if use_cache:
-                cache_data['_meta'] = meta
+                save_checkpoint('_meta', meta)
 
         # Determine output paths. For multiple formats the save dialog picks
         # one shared base name, then sibling files receive their normal
@@ -756,12 +782,12 @@ table, th, td {
                         )
                         cover_image = {"filename": f"cover.{cover_ext}", "data": data}
                         if use_cache and cache_images:
-                            cache_data['_cover_image'] = {
+                            save_checkpoint('_cover_image', {
                                 'url': meta.get('cover_url', ''),
                                 'fingerprint': cover_fp,
                                 'filename': cover_image['filename'],
                                 'data': base64.b64encode(cover_image['data']).decode('ascii'),
-                            }
+                            })
                     else:
                         self.log_message("\u26a0 Cover fetch failed; continuing without EPUB cover.")
                 except Exception as e:
@@ -926,6 +952,7 @@ table, th, td {
                             validate_chapter_payload(content_json)
                         except InvalidChapterPayloadError as cache_error:
                             cache_data.pop(chap_id, None)
+                            save_checkpoint(chap_id, None)
                             uncached_indices.append(idx)
                             self.log_message(
                                 f"Rejected invalid cached chapter [{chap_id}]: "
@@ -1014,6 +1041,12 @@ table, th, td {
             chap = selected_total[idx]
             try:
                 _idx, content_json, hb, imgs, img_fails = future.result()
+                if cache_images and img_fails == 0:
+                    save_checkpoint(chap['id'], {
+                        'json': content_json,
+                        'html': hb,
+                        'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
+                    })
                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                 if live is not None:
                     live.live_chapter(idx, hb, imgs)
@@ -1038,24 +1071,13 @@ table, th, td {
                     self._img_downloaded_count += image_count
                     self._ui_images(self._img_downloaded_count)
 
-                if use_cache:
-                    if cache_images and img_fails == 0:
-                        cache_data[chap['id']] = {
-                            'json': content_json,
-                            'html': hb,
-                            'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
-                        }
-                    else:
-                        cache_data[chap['id']] = content_json
-                        if cache_images and img_fails:
-                            self.log_message(
-                                f"\u26a0 {chap['title']}: {img_fails} image(s) failed; "
-                                f"storing JSON-only cache so images will be retried next run."
-                            )
+                if cache_images and img_fails:
+                    self.log_message(
+                        f"\u26a0 {chap['title']}: {img_fails} image(s) failed; "
+                        f"keeping the text checkpoint so images will be retried next run."
+                    )
             except Exception as e:
                 dl_stats.add_failed(chap['id'], chap.get('title', '?'))
-                if use_cache and content_json:
-                    cache_data[chap['id']] = content_json
                 self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error processing images for {chap.get('title','?')}: {e}{timing_suffix(idx)}")
             finally:
                 self._update_progress(value=self.progress_value + 1)
@@ -1092,6 +1114,8 @@ table, th, td {
                                 try:
                                     content_json = future.result()
                                     if content_json:
+                                        if use_cache:
+                                            save_checkpoint(chap['id'], content_json)
                                         _queue_image_job(image_executor, idx, content_json, "Downloaded")
                                     else:
                                         dl_stats.add_failed(chap['id'], chap.get('title', '?'))
@@ -1124,17 +1148,6 @@ table, th, td {
 
                 _drain_finished_image_futures(wait_for_all=True)
 
-
-        # Save cache
-        if use_cache and cache_path:
-            try:
-                # Stamp the fingerprint so the next run knows which image
-                # settings the cached images/html were encoded with.
-                cache_data['_image_fingerprint'] = current_fp
-                with open(cache_path, 'w', encoding='utf-8') as f:
-                    json.dump(cache_data, f, ensure_ascii=False)
-            except Exception as e:
-                self.log_message(f"Cache save error: {e}")
 
         # Generate every requested output from the same downloaded results.
         # Recompression receives the original results for each rich format, so

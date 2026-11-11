@@ -347,6 +347,22 @@ function main() {
             (lists[source] || (lists[source] = [])).push(number);
         }
     });
+    // New releases are ordered by publication date across the requested sources.
+    const newest = books.map((book, number) => book.published ? number : -1)
+        .filter(number => number >= 0)
+        .sort((a, b) => books[b].published.localeCompare(books[a].published) || a - b);
+    const bySource = new Map(Object.keys(SOURCES).map(source => [source, []]));
+    for (const number of newest) {
+        const book = books[number];
+        for (const source of new Set([book.source, ...(book.also || []).map(other => other[0])])) {
+            bySource.get(source)?.push(number);
+        }
+    }
+    const korean = newest.filter(number => [books[number].source, ...(books[number].also || []).map(other => other[0])]
+        .some(source => source !== "sfc"));
+    const newestLists = [["!new", {"*": newest}], ["!new|ko", {"*": korean}]];
+    for (const [source, numbers] of bySource) newestLists.push(["!new|" + source, {[source]: numbers}]);
+    for (const [token, lists] of newestLists) buckets[bucketOf(token)].set(token, lists);
     // The age ratings' books in the site's other orders ("#r19|new": the newest adults-only books first),
     // every source in one list ("*"), so a catalogue sorted by date or a figure reads them in that order.
     for (const [token, rated] of [[tagToken("R19"), 19], [tagToken("R15"), 15]]) {
@@ -452,13 +468,13 @@ function main() {
     console.log(`${tagList.length} tags listed`);
     fs.closeSync(out);
     const manifest = {
-        format: 2, built, books: books.length, buckets: BUCKETS, block: BLOCK,
+        format: 2, newest: true, built, books: books.length, buckets: BUCKETS, block: BLOCK,
         page: PAGE, bin: binName, binSize: offset, bucketAt, blockAt, tagsAt, sources,
     };
     fs.writeFileSync(path.join(OUT, "noveldb-search.json"), JSON.stringify(manifest));
     // The split copy's table: no offsets, a file per piece.
     fs.writeFileSync(path.join(split, "manifest.json"), JSON.stringify({
-        format: 2, built, books: books.length, buckets: BUCKETS, block: BLOCK, page: PAGE, blocks: blockAt.length, pages, sources,
+        format: 2, newest: true, built, books: books.length, buckets: BUCKETS, block: BLOCK, page: PAGE, blocks: blockAt.length, pages, sources,
         same: merged.length,
     }));
     console.log(`${books.length} books, ${pages} further pages, ${(offset / 1048576).toFixed(1)} MB in ${Math.round((Date.now() - started) / 1000)} s`);

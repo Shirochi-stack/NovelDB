@@ -36,7 +36,7 @@ if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobil
     for part in range(2):
         datas.append((here("assets", f"instant-catalog-{part}.zip"), "assets"))
     datas.append((here("noveldb", "qt", "catalog", "catalog-bridge.js"), os.path.join("noveldb", "qt", "catalog")))
-    for name in ("index.html", "generic.js", "references.js", "instant-boot.js", "instant.js", "halgakos-loading.webp", "icon-cart.webp", "icon-mining.webp"):
+    for name in ("index.html", "generic.js", "top-start.js", "instant-boot.js", "instant.js", "halgakos-loading.webp", "icon-cart.webp", "icon-mining.webp"):
         datas.append((here("noveldb", "qt", "catalog", "generic", name), os.path.join("noveldb", "qt", "catalog", "generic")))
 datas.append((here("noveldb", "core", "catalog", "generic_sites.json"), os.path.join("noveldb", "core", "catalog")))
 datas.append((here("noveldb", "core", "catalog", "search_profile.json"), os.path.join("noveldb", "core", "catalog")))

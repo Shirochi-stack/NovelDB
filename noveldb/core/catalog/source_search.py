@@ -24,7 +24,7 @@ import logging
 import re
 import threading
 from typing import Callable, Dict, List, Optional, Tuple
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urljoin
 
 log = logging.getLogger(__name__)
 
@@ -463,6 +463,17 @@ def _jara_public(fetch: Fetch) -> Dict[str, str]:
     return _jara_params
 
 
+def _jara_card(row: dict) -> dict:
+    tags = [str(t) for t in row.get("keyword") or [] if str(t).strip()]
+    cover = str(row.get("cover") or "")
+    return card("jara", f"{JARA}/book/{row['book_code']}", row.get("subject") or "", row.get("member_name") or "",
+                "https:" + cover if cover.startswith("//") else cover,
+                ([row["category_name"]] if row.get("category_name") else []) + tags, row.get("intro") or "",
+                views=row.get("page_read"), likes=row.get("recommend_count"), chapters=row.get("total_chapter_count"),
+                status="Completed" if str(row.get("chkfinish")) in ("Y", "1", "True", "true") else "Ongoing",
+                updated=row.get("last_regist_datetime"), published=row.get("first_regist_datetime"))
+
+
 @searcher("jara")
 def _jara(mode: str, query: str, page: int, fetch: Fetch) -> Result:
     public = _jara_public(fetch)
@@ -482,14 +493,7 @@ def _jara(mode: str, query: str, page: int, fetch: Fetch) -> Result:
         if (mode == "tag" and want not in [t.lower() for t in tags]) or \
                 (mode == "author" and str(row.get("member_name") or "").strip().lower() != want):
             continue
-        cover = str(row.get("cover") or "")
-        cards.append(card("jara", f"{JARA}/book/{row['book_code']}", row.get("subject") or "", row.get("member_name") or "",
-                          "https:" + cover if cover.startswith("//") else cover,
-                          ([row["category_name"]] if row.get("category_name") else []) + tags, row.get("intro") or "",
-                          views=row.get("page_read"), likes=row.get("recommend_count"),
-                          chapters=row.get("total_chapter_count"),
-                          status="Completed" if str(row.get("chkfinish")) in ("Y", "1", "True", "true") else "Ongoing",
-                          updated=row.get("last_regist_datetime"), published=row.get("first_regist_datetime")))
+        cards.append(_jara_card(row))
     total = int(data.get("total_cnt") or 0)
     return cards, len(rows) >= 100 and (page + 1) * 100 < total
 
@@ -509,6 +513,84 @@ _sfc_tags: Dict[str, int] = {}
 def _sfc_data(fetch: Fetch, url: str):
     data = _json(fetch(url, headers=SFC_HEADERS))
     return data.get("data") if isinstance(data, dict) else None
+
+
+def newest_page(source: str, page: int, fetch: Fetch) -> Result:
+    """Read the publisher's New list in its own order."""
+    if source == "npia":
+        soup = _soup(fetch(f"{NPIA}/plus/entry/new/{page + 1}/?main_genre="))
+        cards, seen = [], set()
+        for tile in soup.select(".plus-novel-wrapper .novelbox [onclick]") if soup else []:
+            found = re.search(r"/novel/(\d+)\b", tile["onclick"])
+            title = _text(tile.select_one("b.cut_line_one"))
+            if not found or not title or found[1] in seen:
+                continue
+            seen.add(found[1])
+            image = tile.select_one("img.scale[src]")
+            chapters = re.search(r"\d+", _text(tile.select_one(".thumb_s2")))
+            cards.append(card("npia", f"{NPIA}/novel/{found[1]}", title, _text(tile.select_one("font")),
+                              urljoin(NPIA, image["src"]) if image else "", chapters=chapters[0] if chapters else None))
+        return cards, len(cards) >= 300
+    if source == "jara":
+        params = _jara_public(fetch)
+        if not params:
+            return [], False
+        url = f"{JARA_API}/v2/book/latest_book?" + urlencode(dict(
+            params, category=0, store="all", orderby="wdate", page=page + 1, offset=40))
+        data = _json(fetch(url)) or {}
+        rows = (data.get("data") or {}).get("list") or []
+        return [_jara_card(row) for row in rows if row.get("book_code") and row.get("subject")], \
+            len(rows) >= 40 and (page + 1) * 40 < int(data.get("total_cnt") or 0)
+    if source == "kpage" and page == 0:
+        result = (_json(fetch(f"{KPAGE_API}/view/v1/landing/today_new?category_uid=11&screen_uid=101",
+                              headers={"Accept": "application/json", "Origin": KPAGE, "Referer": KPAGE + "/"}))
+                  or {}).get("result") or {}
+        return [_kpage_card(row) for day in result.get("list") or [] for row in day.get("series_list") or []
+                if row.get("series_id") and row.get("title")], False
+    if source == "nseries":
+        return _nseries_cards(fetch(f"{NSERIES}/novel/recentList.series?OSType=pc&orderTypeCode=new&page={page + 1}"))
+    if source == "mpia":
+        url = f"{MPIA}/api/v1/pc/remocon/novels?" + urlencode({
+            "novelType": "ALL", "gradeType": "", "serialStatus": "", "genreCode": "ALL",
+            "contestOnly": "false", "adultOnly": "false", "keyword": "", "order": "CREATED_AT",
+            "adultMode": "false", "page": page, "size": 40, "sort": "",
+        })
+        result = (_json(fetch(url, headers={"Accept": "application/json"})) or {}).get("result") or {}
+        return [
+            card("mpia", f"{MPIA}/novel/detail/{row['novelId']}", row["novelTitle"], row.get("authorName") or "",
+                 tags=[row["groupTitle"]] if row.get("groupTitle") else [])
+            for row in result.get("items") or [] if row.get("novelId") and row.get("novelTitle")
+        ], bool(result.get("hasNext"))
+    if source == "sfc" and page == 0:
+        origin = "https://m.\u0073\u0066\u0061\u0063\u0067.com"
+        soup = _soup(fetch(origin + "/rank/new.html", headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15",
+        }))
+        cards, seen = [], set()
+        for link in soup.select("a[href^='/b/']") if soup else []:
+            found = re.fullmatch(r"/b/(\d+)/?", link["href"])
+            title = _text(link.select_one("#listtitle, .title, h3, h4, .name"))
+            if not found or not title or found[1] in seen:
+                continue
+            seen.add(found[1])
+            image = link.select_one("img")
+            cards.append(card("sfc", f"{SFC_BOOK}/Novel/{found[1]}/", title,
+                              _text(link.select_one(".author")), urljoin(origin, image["src"]) if image and image.get("src") else ""))
+        return cards, False
+    if source == "rbooks":
+        lists = []
+        more = False
+        for genre in ("fantasy_serial", "romance_serial", "romance_fantasy_serial"):
+            props = _rbooks_props(fetch, f"{RBOOKS}/new-releases/{genre}?order=recent&type=serial&page={page + 1}")
+            result = _rbooks_query(props, "NewReleases").get("newReleases") or {}
+            more = more or bool((result.get("pagination") or {}).get("hasMore"))
+            books = [(item.get("bookShell") or {}).get("book") or {} for item in result.get("items") or []]
+            lists.append([_rbooks_card(book, [c["name"] for c in book.get("categories") or [] if c.get("name")])
+                          for book in books if book.get("id") and not book.get("isAdultOnly")])
+        # Give each genre a turn, keeping each feed's order.
+        cards = [cards[i] for i in range(max(map(len, lists), default=0)) for cards in lists if i < len(cards)]
+        return cards, more
+    return [], False
 
 
 def _sfc_card(row: dict) -> dict:

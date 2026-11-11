@@ -23,19 +23,19 @@ TARGETS = [
     ROOT / "ios" / "NpiaKit" / "Sources" / "NpiaWebEngine" / "Resources" / "catalog",
 ]
 COMIX_SCRIPT = ROOT / "noveldb" / "core" / "engines" / "comix-reader.js"
-COMIX_TARGETS = [
+READER_TARGETS = [
     ROOT / "android" / "sources" / "src" / "main" / "resources" / "com" / "shirochi" / "npia" / "sources" / "reader",
     ROOT / "ios" / "NpiaKit" / "Sources" / "NpiaSources" / "Reader" / "Resources",
 ]
 # Scripts in the order the page runs them: the link to the app, the app's download artwork, the
 # engine's helpers, the app side and the small title index, then
 # the page's own script. Plugins are requested after initial interaction.
-SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "references.js", "instant-boot.js", "instant.js", "generic.js"]
+SCRIPTS = ["catalog-host.js", "download-icon.js", "generic-lib.js", "catalog-app.js", "instant-boot.js", "top-start.js", "instant.js", "generic.js"]
 FILES = {
     "generic.js": PAGE / "generic.js",
-    "references.js": PAGE / "references.js",
     "instant.js": PAGE / "instant.js",
     "instant-boot.js": PAGE / "instant-boot.js",
+    "top-start.js": PAGE / "top-start.js",
     "halgakos-loading.webp": PAGE / "halgakos-loading.webp",
     "icon-cart.webp": PAGE / "icon-cart.webp",
     "icon-mining.webp": PAGE / "icon-mining.webp",
@@ -123,7 +123,9 @@ def main() -> int:
     stale = []
     outputs = {target / name: data for target in TARGETS for name, data in files.items()}
     comix = COMIX_SCRIPT.read_bytes().replace(b"\r\n", b"\n")
-    outputs.update({target / "comix" / COMIX_SCRIPT.name: comix for target in COMIX_TARGETS})
+    for target in READER_TARGETS:
+        outputs[target / "comix" / COMIX_SCRIPT.name] = comix
+        outputs[target / "generic" / "generic-lib.js"] = files["generic-lib.js"]
     for path, data in outputs.items():
         if path.exists() and path.read_bytes() == data:
             continue

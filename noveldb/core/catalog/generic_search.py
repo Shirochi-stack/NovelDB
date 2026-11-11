@@ -304,10 +304,10 @@ def web_search(query: str, fetch: Callable) -> Iterable[dict]:
     yield from google_results(query, fetch)
 
 
-def google_dorks(text: str, mode: str, sites: List[dict]) -> List[str]:
+def google_dorks(text: str, mode: str, sites: List[dict], quick_hosts=None) -> List[str]:
     phrase = '"' + text.replace('"', " ").strip() + '"'
     exclusions = ' -inurl:chapter -inurl:profile -inurl:login -inurl:search -intitle:"Chapter"'
-    hosts = list(dict.fromkeys(site["host"] for site in search_ranking.ranked(sites, automatic=True)))[:8]
+    hosts = list(quick_hosts or dict.fromkeys(site["host"] for site in search_ranking.ranked(sites, automatic=True)))[:8]
     scoped = phrase + " (" + " OR ".join("site:" + host for host in hosts) + ")" if hosts else ""
     broad = phrase + " (novel OR manga OR webtoon OR manhwa)"
     return [query + exclusions for query in (scoped, broad) if query]
@@ -389,6 +389,7 @@ class GenericSearch:
         self.only: set = set()
         self.deep = True  # the deep search: NovelDB's own sites asked directly (source_search)
         self.full = False
+        self.kind = ""
         self.sort = ""  # the page's sort ("new", "updated", "likes", ...): NovelDB's lists in that order where kept
         self._site_hosts = {host: site for site in self._known for host in site.get("hosts", [site["host"]])}
 
@@ -406,6 +407,13 @@ class GenericSearch:
                 "description": re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", snippet or "")).strip()[:600], "tags": [],
                 "site": (site or {}).get("site") or site_of(_host(url)), "comic": bool((site or {}).get("comic")),
                 "source": source, "complete": False}
+
+    def site_card(self, hit: dict) -> dict:
+        card = self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", ""))
+        for field in ("tags", "chapters", "views", "likes", "status"):
+            if hit.get(field) is not None:
+                card[field] = hit[field]
+        return card
 
     def details(self, card: dict) -> dict:
         """The card with what the book's page says: title, author, cover, description, tags. A NovelDB
@@ -597,7 +605,7 @@ class GenericSearch:
                 if stop.is_set():
                     break
                 url = hit["url"]
-                if not url.startswith(("http://", "https://")) or not looks_like_book(url, hit["title"]):
+                if not url.startswith(("http://", "https://")) or not self.picked(_host(url)) or not looks_like_book(url, hit["title"]):
                     continue
                 site = self.site_for(url)
                 listed = bool(site and any(_host(url) in (host, "m." + host) for host in site.get("hosts", [site["host"]])))
@@ -675,7 +683,7 @@ class GenericSearch:
                 report(site["site"], started, 0, "failed")
                 return
             ms = int((time.monotonic() - started) * 1000)
-            cards = [dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")), ms=ms,
+            cards = [dict(self.site_card(hit), ms=ms,
                           verified=bool(hit.get("verified")))
                      for hit in hits]
             summary["site"] = summary.get("site", 0) + len(cards)
@@ -773,15 +781,19 @@ class GenericSearch:
             pool.shutdown(wait=False, cancel_futures=True)
             done(dict(summary, results=len(seen), stopped=outer.is_set(), timed_out=bool(summary.get("late"))))
             return
+        quick_hosts = search_ranking.profile()["quickSearch"].get(self.kind, []) if self.automatic and not self.only and not self.full else []
+        quick_sites = [self.site_for("https://" + host + "/") for host in quick_hosts]
+        candidates = [site for site in quick_sites if site] if quick_hosts else self.sites
         title_sites = {host for host in DIRECT_SITES if mode == "name" and host in self._site_hosts and self.picked(host)
+                       and (not quick_hosts or host in quick_hosts)
                        and (host != "comix.to" or self.render is not None)}
         futures.extend(pool.submit(from_title_site, host) for host in sorted(title_sites))
         if self.noveldb is not None:
             ndb_done.wait(2.0)  # the sites start once NovelDB has answered, or after 2 s at most
         with lock:
-            queue[:] = search_ranking.ranked([site for site in self.sites
+            queue[:] = search_ranking.ranked([site for site in candidates
                         if site["host"] not in title_sites and not (self.skip_lnreader and site.get("lnreader"))
-                        and self.picked(site["host"])], automatic=self.automatic and not self.only and not self.full)
+                        and self.picked(site["host"])], automatic=self.automatic and not self.only and not self.full and not quick_hosts)
             if self.full:
                 queue[:] = queue[:100]
         staging = not self.only and mode != "author" and not self.full
@@ -811,7 +823,7 @@ class GenericSearch:
         # The web search beside them (half the pool is free for it): the sites it found books on move to the front
         # of the queue as it answers. Then lightnovel-crawler's sources, after the sites.
         if not self.only:  # the web search finds books on every site
-            web_jobs = [pool.submit(from_web, query, True, mode == "name") for query in google_dorks(text, mode, self.sites)]
+            web_jobs = [pool.submit(from_web, query, True, mode == "name") for query in google_dorks(text, mode, candidates, quick_hosts)]
             futures.extend(web_jobs)
             wait(web_jobs, timeout=2.0)
         site_workers = [pool.submit(sites_worker) for _ in range(max(1, min(stage, 3)))]
@@ -863,7 +875,8 @@ class GenericSearch:
         """Whether a site (its host) is one the search asks: every one, or one of the picked sites."""
         from noveldb.core.engines.generic import site_of
 
-        return not self.only or site_of(host) in self.only
+        root = site_of(host)
+        return root not in {"novelupdates.com", "mangaupdates.com"} and (not self.only or root in self.only)
 
     def noveldb_sources(self) -> Optional[List[str]]:
         """NovelDB's sources of the picked sites (None: all of them, as when a picked site is none of NovelDB's)."""
@@ -941,7 +954,7 @@ class GenericSearch:
             if stop.is_set():
                 return
             hits = self.site_search.more(home, kind, text)
-            offer([dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")),
+            offer([dict(self.site_card(hit),
                         verified=bool(hit.get("verified"))) for hit in hits])
             if self.site_search.has_more(home, kind, text):
                 state["more"] = True
@@ -981,7 +994,7 @@ class GenericSearch:
                 hits = self.site_search.search(home, text) if mode == "name" else self.site_search.tag(home, text)
             except Exception:
                 return
-            offer([dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")),
+            offer([dict(self.site_card(hit),
                         verified=bool(hit.get("verified"))) for hit in hits])
             if self.site_search.has_more(home, kind, text):
                 state["more"] = True
@@ -1006,16 +1019,19 @@ class GenericSearch:
         lock = threading.Lock()
 
         def one(index: int, site: dict):
-            home = f"https://{site['host']}/"
-            if stop.is_set() or not self.site_search.has_more(home, "popular", ""):
+            listing = site.get("popular_url") or f"https://{site['host']}/"
+            if stop.is_set() or not self.site_search.has_more(listing, "popular", ""):
                 return
-            hits = self.site_search.more(home, "popular", "")
-            cards = [dict(self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", "")),
+            hits = self.site_search.more(listing, "popular", "", quick=True) if site.get("popular_url") else self.site_search.more(listing, "popular", "")
+            cards = [dict(self.site_card(hit),
                           siteRank=index, position=position, listLength=len(hits))
                      for position, hit in enumerate(hits) if looks_like_book(hit["url"], hit["title"])]
+            if site.get("popular_url") and "comic" in site:
+                for card in cards:
+                    card["comic"] = site["comic"]
             with lock:
                 state["results"] += len(cards)
-                if self.site_search.has_more(home, "popular", ""):
+                if self.site_search.has_more(listing, "popular", ""):
                     state["more"] = True
             if cards and not stop.is_set():
                 emit(cards)
@@ -1129,7 +1145,9 @@ class GenericSearch:
                 return
             started = time.monotonic()
             try:
-                hits = self.site_search.popular(f"https://{site['host']}/")
+                home = f"https://{site['host']}/"
+                listing = site.get("popular_url")
+                hits = self.site_search.popular(home, listing=listing) if listing else self.site_search.popular(home)
             except Exception:
                 hits = []
             ms = int((time.monotonic() - started) * 1000)
@@ -1140,9 +1158,12 @@ class GenericSearch:
                     if url in seen or is_no_results(hit["title"]) or not looks_like_book(hit["url"], hit["title"]):
                         continue
                     seen.add(url)
-                    card = self.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", ""))
+                    card = self.site_card(hit)
+                    if listing and "comic" in site:
+                        card["comic"] = site["comic"]
                     cards.append(dict(card, ms=ms, siteRank=index, position=position, listLength=len(hits)))
-            progress({"site": site["site"], "ms": ms, "found": len(cards), "state": "ok" if cards else "failed"})
+            progress({"site": site["site"], "ms": ms, "found": len(cards), "state": "ok" if cards else "failed",
+                      "more": self.site_search.has_more(listing or home, "popular", "")})
             if cards and not stop.is_set():
                 emit(cards)
 

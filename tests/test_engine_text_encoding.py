@@ -82,6 +82,7 @@ def test_mobile_python_transport_uses_the_same_charset_decoder(monkeypatch, enco
 @pytest.mark.parametrize("source,version,refresh", [("_lncrawl", 1, True), ("_lncrawl", 2, False), ("_jara", 1, False)])
 def test_old_crawler_cache_refreshes_once_without_discarding_other_sources(tmp_path, source, version, refresh):
     from scripts.source_names import dumps
+    from noveldb.core.chapter_cache import ChapterCache
     from noveldb.core.external.pipeline import ExternalPipelineMixin
     from noveldb.core.settings.legacy_vars import Value
     path = tmp_path / "cache.json"
@@ -93,6 +94,6 @@ def test_old_crawler_cache_refreshes_once_without_discarding_other_sources(tmp_p
     cached, target = ExternalPipelineMixin._load_external_cache(job)
     assert cached == ({} if refresh else entries)
     assert target == str(path)
-    ExternalPipelineMixin._save_external_cache(job, {"chapter1": {"chapterName": TITLE}}, target)
+    ChapterCache(target).put("chapter1", {"chapterName": TITLE})
     cached, _ = ExternalPipelineMixin._load_external_cache(job)
     assert cached["chapter1"]["chapterName"] == TITLE

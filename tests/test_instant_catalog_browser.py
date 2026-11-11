@@ -14,13 +14,18 @@ PAGE = ROOT / "noveldb/qt/catalog/generic"
 TARGETS = [PAGE, ROOT / "android/app/src/main/assets/catalog", ROOT / "ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog"]
 
 
-def open_catalogue(browser, target, rate=6):
-    context = browser.new_context(viewport={"width": 390, "height": 844})
+def open_catalogue(browser, target, rate=6, hold_configuration=False, saved_top=None, transport=None, viewport=None):
+    context = browser.new_context(viewport=viewport or {"width": 390, "height": 844})
     page = context.new_page()
     context.new_cdp_session(page).send("Emulation.setCPUThrottlingRate", {"rate": rate})
 
+    pending = []
+
     def serve(route):
         relative = urlsplit(route.request.url).path.lstrip("/") or "index.html"
+        if hold_configuration and relative == "generic_sites.json":
+            pending.append(route)
+            return
         path = target / relative
         if path.is_file() and path.is_relative_to(target):
             route.fulfill(path=path, content_type="application/octet-stream" if relative.endswith((".gz", ".bin")) else None)
@@ -29,17 +34,21 @@ def open_catalogue(browser, target, rate=6):
 
     page.route("http://instant.test/**", serve)
     page.route("https://**/*", lambda route: route.fulfill(status=503, body=""))
-    page.add_init_script("window.NovelDBTransport=()=>new Promise(()=>{});")
+    page.add_init_script(transport or "window.NovelDBTransport=()=>new Promise(()=>{});")
+    page.add_init_script(f"window.holdConfiguration={str(hold_configuration).lower()};")
+    if saved_top is not None:
+        page.add_init_script(f"""localStorage.setItem('noveldb.generic.top.v9.webnovel.en',
+            JSON.stringify({{how:'sites-v2', time:Date.now(), items:{json.dumps(saved_top)}}}));""")
     if target == PAGE:
         page.expose_function("localPiece", lambda message: read_piece(message["key"], message.get("token"), message.get("prefix", False), message.get("rows")))
         page.add_init_script("""window.NovelDBQt={postMessage:raw=>{
             const message=JSON.parse(raw);
             if(message.type==='genericInstant')window.localPiece(message).then(data=>window.NovelDBGeneric.fetched(message.id,{data}));
-            if(message.type==='genericReady')window.NovelDBGeneric.init({sites:[],comic:[],lnreader:[]});
+            if(message.type==='genericReady'&&!window.holdConfiguration)window.NovelDBGeneric.init({sites:[],comic:[],lnreader:[]});
         }};""")
     page.goto("http://instant.test/index.html")
     if target == PAGE:
-        for name in ("references.js", "instant-boot.js", "instant.js", "generic.js"):
+        for name in ("instant-boot.js", "top-start.js", "instant.js", "generic.js"):
             page.add_script_tag(path=target / name)
     page.wait_for_function("!!window.NovelDBGeneric")
     return context, page
@@ -72,11 +81,99 @@ def test_real_mesugaki_results_within_one_second_and_canonical_tank_first(browse
 
 @pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])
 def test_top_100_appears_while_all_online_services_are_stalled(browser, target):
-    context, page = open_catalogue(browser, target)
-    page.wait_for_function("document.querySelectorAll('#grid .card .title').length>=12", timeout=3000)
+    context, page = open_catalogue(browser, target, hold_configuration=True)
+    assert page.locator("#grid .card .title").count() == 12
+    assert page.locator("#status").inner_text() == "Showing saved titles"
+    for kind in ("manga", "manhwa", "comic"):
+        page.select_option("#kind", kind)
+        assert page.locator("#grid .card .title").count() == 12
+        assert page.locator("#status").inner_text() == "Showing saved titles"
+    assert page.evaluate("typeof window.NovelDBReferences") == "undefined"
+    context.close()
+
+
+@pytest.mark.parametrize("target", TARGETS, ids=["desktop", "android", "ios"])
+def test_short_saved_english_top_fills_immediately_and_excludes_old_index_cards(browser, target):
+    saved = [dict(url="https://books.test/book/1", site="books.test", source="site", title="Saved English title"),
+             dict(url="https://books.test/book/2", site="books.test", source="noveldb", title="Old index title",
+                  noveldb={"source": "sfc", "id": "2"})]
+    context, page = open_catalogue(browser, target, rate=1, hold_configuration=True, saved_top=saved)
     titles = page.locator("#grid .card .title").all_text_contents()
     assert len(titles) == 12
-    assert "Nothing in the top lists" not in page.locator("#empty").inner_text()
+    assert titles[0] == "Saved English title"
+    assert "Old index title" not in titles
+    context.close()
+
+
+def test_wide_catalogue_fills_the_viewport_and_scrolls_with_all_sources_stalled(browser):
+    context, page = open_catalogue(browser, PAGE, rate=1, hold_configuration=True,
+                                  viewport={"width": 1760, "height": 1430})
+    visible_cards = page.locator("#grid .card:visible")
+    page.wait_for_function("""() => document.querySelectorAll('#grid .card').length > 12
+        && document.scrollingElement.scrollHeight > innerHeight""")
+    first = visible_cards.count()
+    assert first == page.locator("#grid .card").count()
+    lead = visible_cards.first.locator(".title").inner_text()
+    page.mouse.move(600, 700)
+    page.mouse.wheel(0, 20000)
+    page.wait_for_function("(first) => document.querySelectorAll('#grid .card').length > first", arg=first)
+    assert visible_cards.count() >= 48
+    assert visible_cards.first.locator(".title").inner_text() == lead
+    context.close()
+
+
+@pytest.mark.parametrize("target", TARGETS[1:], ids=["android", "ios"])
+def test_scrolling_fetches_a_live_source_next_page(browser, target):
+    context, page = open_catalogue(browser, target, rate=1, transport=r"""
+        window.popularCalls = [];
+        window.slowSourceRequested = false;
+        window.NovelDBTransport = async request => {
+            if (request.url === 'https://novelfire.net/ranking/most-read') {
+                slowSourceRequested = true;
+                return new Promise(() => {});
+            }
+            if (!request.url.startsWith('https://novelbuddy.me/popular')) return {status: 404};
+            popularCalls.push(request.url);
+            const next = request.url.includes('page=2');
+            const titles = ['The Test Hero', 'The Test Mage', 'The Test Swordsman'];
+            const cards = titles.map((title, index) => {
+                const name = title + (next ? ' Returns' : ' Begins');
+                return '<article><a href="/novel/catalogue-fixture-' + (next ? 'next-' : 'first-') + index
+                    + '"><img src="/cover.jpg" alt="' + name + '">' + name + '</a></article>';
+            }).join('');
+            const link = '<a rel="next" href="/popular?page=2">Next</a>';
+            return {status: 200, responseText: '<main>' + cards + '</main>' + link};
+        };
+    """)
+    page.wait_for_function("slowSourceRequested && popularCalls.length === 1")
+    page.mouse.move(190, 650)
+    for _ in range(4):
+        page.mouse.wheel(0, 100000)
+        page.wait_for_timeout(350)
+    page.wait_for_function("popularCalls.some(url => url.includes('page=2'))")
+    next_title = page.locator("#grid .title").get_by_text("The Test Hero Returns", exact=True)
+    next_title.wait_for()
+    assert next_title.count() == 1
+    context.close()
+
+
+@pytest.mark.parametrize("target", TARGETS[1:], ids=["android", "ios"])
+def test_mobile_new_uses_the_publisher_transport(browser, target):
+    context, page = open_catalogue(browser, target, rate=1, transport=r"""
+        window.newFeedCalls = [];
+        window.NovelDBTransport = async request => {
+            newFeedCalls.push(request.url);
+            if (!request.url.includes('/rank/new.html')) return {status:503};
+            return {status:200, responseText:'<ul><a href="/b/123/"><li><div id="listtitle">First new novel</div></li></a>'
+                + '<a href="/b/124/"><li><div id="listtitle">Second new novel</div></li></a></ul>'};
+        };
+    """)
+    page.click("#settingsButton")
+    page.select_option("#language", "zh")
+    page.select_option("#sort", "new")
+    page.wait_for_function("document.querySelectorAll('#grid .card .title').length===2")
+    assert page.locator("#grid .card .title").all_text_contents() == ["First new novel", "Second new novel"]
+    assert page.evaluate(r"newFeedCalls.some(url => url === 'https://m.\u0073\u0066\u0061\u0063\u0067.com/rank/new.html')")
     context.close()
 
 

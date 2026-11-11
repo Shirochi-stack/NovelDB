@@ -34,7 +34,7 @@ def test_the_apps_ship_the_current_generic_search_page():
     build = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(build)
     files = build.expected()
-    for name in ("index.html", "catalog-start.js", "instant-boot.js", "generic.js", "references.js", "instant.js", "generic-lib.js", "catalog-app.js", "catalog-host.js", "download-icon.js"):
+    for name in ("index.html", "catalog-start.js", "instant-boot.js", "generic.js", "top-start.js", "instant.js", "generic-lib.js", "catalog-app.js", "catalog-host.js", "download-icon.js"):
         for target in build.TARGETS:
             assert (target / name).read_bytes() == files[name],                 f"{target / name} is out of date; run python scripts/build_mobile_catalog.py"
 

@@ -135,11 +135,7 @@ def test_page_messages_are_checked():
     assert generic.parse_message({"type": "genericInstant", "id": 1, "key": "b/0", "token": "mesugaki", "prefix": True})
     assert generic.parse_message({"type": "genericInstant", "id": 1, "key": "../../config"}) is None
     assert generic.parse_message({"type": "genericInstant", "id": 1, "key": "c/2", "rows": [-1]}) is None
-    assert generic.parse_message({"type": "genericSiteQuery", "id": 1, "web": True, "query": '"Dragon" site:novels.test'})
-    assert generic.parse_message({"type": "genericSiteQuery", "id": 2, "host": "novels.test", "query": "Dragon"})
-    assert generic.parse_message({"type": "genericSiteQuery", "id": 3, "url": "https://novels.test/book/dragon"})
-    assert generic.parse_message({"type": "genericSiteQuery", "id": 4, "url": "file:///book"}) is None
-    assert generic.parse_message({"type": "genericSiteQuery", "id": 5, "host": "novels.test", "query": ""}) is None
+    assert generic.parse_message({"type": "genericSiteQuery", "id": 1, "host": "novels.test", "query": "Dragon"}) is None
     assert generic.parse_message({"type": "genericSearch", "queries": [{"query": "Dragon", "full": True}]})["queries"][0]["full"]
 
 
@@ -307,6 +303,27 @@ def test_more_reads_the_next_results_page_of_a_search():
     # No next link on page 2: page 3 is guessed from its address, finds nothing, and the list ends there.
     assert search.more(home, "search", "dragon") == []
     assert not search.has_more(home, "search", "dragon")
+
+
+def test_popular_keeps_every_card_and_stops_when_the_source_repeats_a_page():
+    home = "https://books.example/"
+    listing = home + "popular"
+
+    def cards(numbers, next_page):
+        links = "".join(
+            f'<article><a href="/novel/book-{n}"><img src="/covers/{n}.jpg" alt="Fantasy Book {n}">Fantasy Book {n}</a></article>'
+            for n in numbers
+        )
+        return f'<link rel="next" href="/popular?page={next_page}"><main>{links}</main>'
+
+    pages = {listing: cards(range(51), 2), listing + "?page=2": cards(range(49, 100), 3),
+             listing + "?page=3": cards(range(49, 100), 4)}
+    search = SiteSearch(lambda url, **_opts: page(pages[url], url))
+    assert len(search.popular(home, listing=listing)) == 51
+    assert search.has_more(listing, "popular", "")
+    assert len(search.more(listing, "popular", "", quick=True)) == 49
+    assert search.more(listing, "popular", "", quick=True) == []
+    assert not search.has_more(listing, "popular", "")
 
 
 def test_more_messages_are_checked():

@@ -816,6 +816,25 @@ function headedSynopsis(doc) {
     return out;
 }
 
+function mangakProps(doc) {
+    try {
+        return JSON.parse(doc.querySelector("script#__NEXT_DATA__")?.textContent || "{}").props?.pageProps || {};
+    } catch (error) {
+        return {};
+    }
+}
+
+function mangakTags(row) {
+    let tags = row.isAdult === true ? ["18+"] : [];
+    for (let items of [row.genres, row.tags]) {
+        if (!Array.isArray(items)) continue;
+        for (let item of items) {
+            if (typeof item?.name === "string" && item.name.trim()) tags.push(item.name.trim().replace(/^#+/, ""));
+        }
+    }
+    return Array.from(new Set(tags));
+}
+
 /** {title, author, cover, description, tags, status, figures...} of any book page. */
 function metadata(doc, url) {
     let book = {};
@@ -974,12 +993,14 @@ function metadata(doc, url) {
         let match = found ? /(ongoing|completed|complete|hiatus)/i.exec(found.nodeValue) : null;
         status = match ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase() : "";
     }
+    let row = hostOf(url).replace(/^www\./, "") === "mangak.io" ? mangakProps(doc).initialManga : null;
+    let structuredTags = row ? mangakTags(row) : [];
     return Object.assign(figures(doc, book), {
         title: stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url).slice(0, 300),
         author: String(author || "").replace(/\s+/g, " ").trim().slice(0, 200),
         cover: cover,
         description: cleanSynopsis(htmlText(String(description || "")).replace(/[ \t]+/g, " ").trim()).slice(0, 4000),
-        tags: cleanTags(tags.length ? tags : (labelledTags(doc).length ? labelledTags(doc) : chipTags(doc)), stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url)).slice(0, 30),
+        tags: (structuredTags.length ? structuredTags : cleanTags(tags.length ? tags : (labelledTags(doc).length ? labelledTags(doc) : chipTags(doc)), stripSiteName(String(title || "").replace(/\s+/g, " ").trim(), siteName, url))).slice(0, 30),
         status: status,
         site: siteName
     });
@@ -2472,7 +2493,7 @@ window.__GEN_parseChapter = async function (itemJson, listedOnly) {
 
 // The helpers the mobile Catalog's search (scripts/generic/catalog-app.js) shares with this engine.
 window.__GEN_lib = {
-    shape, cleanName, chapterNumber, readingOrder, numberedPages, findChapters, metadata, extractContent,
+    shape, cleanName, chapterNumber, readingOrder, numberedPages, findChapters, metadata, extractContent, mangakProps, mangakTags,
     repair, siteOf, hostOf, cleanUrl, textOf, parse, cleanPageTitle, parentAddresses, isChapterAddress, decode,
     CHAPTER_WORDS, unpackJs, asuraAddress, asuraPages, dm5Chapter, dm5Images, dm5Chapters, dm5Desktop, imageSize,
     webtoonsTitle, webtoonsDesktop, webtoonsSeries, webtoonsEpisodesApi, webtoonsChapters, webtoonsImages

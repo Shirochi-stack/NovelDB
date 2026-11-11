@@ -16,6 +16,8 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlsplit
@@ -31,20 +33,21 @@ from noveldb.core.catalog.logins import SavedLogins
 from noveldb.core.catalog.noveldb_index import NovelDBIndex
 from noveldb.core.catalog.offline_cache import OfflineCache
 from noveldb.core.catalog.site_search import SiteSearch
+from noveldb.core.catalog.source_search import newest_page
 from noveldb.qt.catalog.reader_media import ReaderSession
 
 log = logging.getLogger(__name__)
 PAGE_DIR = Path(__file__).with_name("generic")
 PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
-REFERENCE_SCRIPT = PAGE_DIR / "references.js"
 BOOT_SCRIPT = PAGE_DIR / "instant-boot.js"
+TOP_SCRIPT = PAGE_DIR / "top-start.js"
 INSTANT_SCRIPT = PAGE_DIR / "instant.js"
 SORTS = ("likes", "views", "chapters", "new", "updated", "title")  # noveldb_index.INDEX_SORTS
 MESSAGE_TYPES = ("genericReady", "genericReaderStop", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
                  "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
                  "genericCover", "genericCoverPut", "genericMore", "genericTopMore", "genericFullscreen", "genericNdbTop",
-                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive", "genericIndexSort", "genericSiteQuery", "genericInstant", "genericPlugins")
+                 "genericNdbTags", "genericReaderClosed", "genericReaderOpened", "genericLocalPlace", "genericLibraryLive", "genericIndexSort", "genericInstant", "genericPlugins")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
@@ -237,6 +240,8 @@ def parse_message(data: dict) -> Optional[dict]:
                            "mode": item.get("mode") if item.get("mode") in ("name", "tag", "id", "author") else "name"}
                 if item.get("sort") in SORTS:
                     checked["sort"] = item["sort"]  # the page's sort (noveldb_index.INDEX_SORTS); else the default order
+                if item.get("kind") in ("all", "webnovel", "lightnovel", "manga", "manhwa", "comic"):
+                    checked["kind"] = item["kind"]
                 only = item.get("only")  # the sites picked in the Sites panel: the search asks only them
                 if isinstance(only, list):
                     picked = [site.strip().lower() for site in only[:40] if isinstance(site, str) and 0 < len(site.strip()) <= 100]
@@ -252,7 +257,7 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
         data["queries"] = queries
         data["query"], data["mode"] = queries[0]["query"], queries[0]["mode"]
-    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort", "genericSiteQuery", "genericInstant", "genericPlugins") and not isinstance(data.get("id"), int):
+    if kind in ("genericFetch", "genericImage", "genericBook", "genericChapter", "genericLibraryLive", "genericIndexSort", "genericInstant", "genericPlugins") and not isinstance(data.get("id"), int):
         return None
     if kind == "genericInstant" and not re.fullmatch(r"manifest|top|[bc]/[0-9]{1,6}", str(data.get("key", ""))):
         return None
@@ -261,19 +266,6 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
         if "rows" in data and (not isinstance(data["rows"], list) or len(data["rows"]) > 120
                                or any(type(number) is not int or not 0 <= number < 128 for number in data["rows"])):
-            return None
-    if kind == "genericSiteQuery":
-        host = data.get("host")
-        query = data.get("query")
-        url = data.get("url")
-        if data.get("web") is True:
-            if not isinstance(query, str) or not 0 < len(query) <= 2000:
-                return None
-        elif url:
-            if not isinstance(url, str) or len(url) > 2000 or urlsplit(url).scheme not in ("http", "https"):
-                return None
-        elif (not isinstance(host, str) or not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", host)
-              or not isinstance(query, str) or not 0 < len(query) <= 300):
             return None
     if kind == "genericFetch":
         request = data.get("request")
@@ -309,6 +301,7 @@ def parse_message(data: dict) -> Optional[dict]:
     if kind == "genericNdbTop" and not (
             isinstance(data.get("sources"), list) and 0 < len(data["sources"]) <= 12
             and all(isinstance(s, str) and re.fullmatch(r"[a-z0-9_]{1,20}", s) for s in data["sources"])
+            and data.get("sort", "") in ("", "new", "index-new")
             and isinstance(data.get("page", 0), int) and 0 <= data.get("page", 0) <= 10000):
         return None
     if kind == "genericDownload" and not str(data.get("url", "")).startswith(("http://", "https://")):
@@ -584,8 +577,6 @@ class GenericCatalog(QObject):
             self.search(int(data.get("id") or 0), data["queries"])
         elif kind == "genericIndexSort":
             self._background(self._index_sort, data)
-        elif kind == "genericSiteQuery":
-            self._background(self._site_query, data)
         elif kind == "genericInstant":
             self._background(self._instant_reply, data, workers=_LOCAL_CATALOG_WORKERS)
         elif kind == "genericMore":
@@ -595,7 +586,7 @@ class GenericCatalog(QObject):
         elif kind == "genericNdbTags":
             self._background(self.ndb_tags)
         elif kind == "genericNdbTop":
-            self._background(self.ndb_top, int(data.get("id") or 0), data["sources"], int(data.get("page") or 0))
+            self._background(self.ndb_top, int(data.get("id") or 0), data["sources"], int(data.get("page") or 0), data.get("sort", ""))
         elif kind == "genericStop":
             self._stop.set()
         elif kind == "genericReaderStop":
@@ -706,6 +697,7 @@ class GenericCatalog(QObject):
         engine.deep = item.get("deep", True) is not False
         engine.full = item.get("full", False) is True
         engine.only = set(item.get("only") or [])
+        engine.kind = item.get("kind", "")
         return engine
 
     def _index_sort(self, data):
@@ -731,51 +723,6 @@ class GenericCatalog(QObject):
         except (OSError, ValueError, KeyError):
             self._fetched.emit(data["id"], {"data": None})
 
-    def _site_query(self, data):
-        from noveldb.core.catalog.generic_search import looks_like_book, is_no_results, web_search, GoogleUnavailable
-        from noveldb.core.engines.generic import decode, extract_metadata
-
-        cards = []
-        try:
-            engine = self._engine({})
-            if data.get("web"):
-                def google_fetch(url, **kwargs):
-                    result = self.fetch(url, **kwargs)
-                    if result and "/httpservice/retry/enablejs" in decode(result):
-                        rendered = self._render(url, timeout=15)
-                        if rendered:
-                            return {"status": 200, "url": url, "text": rendered, "content": rendered.encode("utf-8")}
-                    return result
-
-                try:
-                    cards = list(web_search(data["query"], google_fetch))
-                except GoogleUnavailable:
-                    self._fetched.emit(data["id"], {"cards": [], "googleBlocked": True})
-                    return
-            elif data.get("url"):
-                result = self.fetch(data["url"], quick=True)
-                if result and result.get("status") == 200:
-                    url = result.get("url") or data["url"]
-                    metadata = extract_metadata(decode(result), url)
-                    if (looks_like_book(url, metadata.get("title", "")) and metadata.get("title")
-                            and not is_no_results(metadata["title"], metadata.get("description", ""))):
-                        card = dict(engine.card(url), **metadata, complete=True)
-                        if engine.site_for(url) is None:
-                            card["comic"] = None
-                        cards.append(card)
-            else:
-                site = engine.site_for("https://" + data["host"] + "/")
-                home = "https://" + (site or {}).get("host", data["host"]) + "/"
-                for hit in self.site_search.search(home, data["query"])[:20]:
-                    if looks_like_book(hit["url"], hit["title"]):
-                        card = engine.card(hit["url"], hit["title"], hit.get("snippet", ""), "site", hit.get("cover", ""))
-                        if site is None:
-                            card["comic"] = None
-                        cards.append(card)
-            self._fetched.emit(data["id"], {"cards": cards})
-        except Exception:
-            self._fetched.emit(data["id"], {"cards": []})
-
     def top(self, search_id: int, kind: str, language: str = "all", only: Optional[list] = None) -> None:
         """The popular lists of the top sites of one kind (comics: the comic sites; novels: the rest), the
         sites of the preferred language first (a country's domain tells a site's language; .com and the
@@ -783,8 +730,9 @@ class GenericCatalog(QObject):
         self._stop.set()
         self._stop = stop = threading.Event()
         comic = kind in ("manga", "manhwa", "comic")
-        sites = [site for site in top_sites() if bool(site.get("comic")) == comic and not site.get("lnreader")
-                 or comic and COMIC_SITE.search(site["site"])]
+        sites = [site for site in top_sites() if site["site"] not in {"novelupdates.com", "mangaupdates.com"}
+                 and ((bool(site.get("comic")) == comic and not site.get("lnreader"))
+                      or (comic and COMIC_SITE.search(site["site"])))]
         if only:
             known = {site["site"]: site for site in top_sites()}
             sites = [known.get(name) or {"site": name, "host": name} for name in only]
@@ -793,14 +741,24 @@ class GenericCatalog(QObject):
             # and the other comic sites for comics.
             manga = [s for s in sites if MANGA_SITE.search(s["site"])]
             manhwa = [s for s in sites if MANHWA_SITE.search(s["site"]) and s not in manga]
-            sites = {"manga": manga, "manhwa": manhwa}.get(kind) or [s for s in sites if s not in manga and s not in manhwa] or sites
+            sites = {"manga": manga, "manhwa": manhwa}.get(kind) or sites
         if language != "all" and not only:
             def fits(site: dict) -> bool:
                 country = TLD_LANG.get(site["site"].rsplit(".", 1)[-1])
                 return (country or "en") == language
             sites = [site for site in sites if fits(site)] + [site for site in sites if not fits(site)]
-        from noveldb.core.catalog.search_ranking import ranked
-        sites = ranked(sites, automatic=not only)[:50 if only else 12]
+        from noveldb.core.catalog.search_ranking import profile, ranked
+        sources = profile()["freeTop"]
+        curated = {name: {"site": name, "host": name, "comic": comic, "popular_url": listings[kind]}
+                   for name, listings in sources.items() if kind in listings}
+        if only:
+            sites = [curated.get(site["site"], site) for site in sites[:50]]
+        else:
+            first = list(curated.values()) if language in ("en", "all") else []
+            ranked_sites = ranked(sites, automatic=True)
+            if first:
+                ranked_sites = [site for site in ranked_sites if site["site"] not in curated]
+            sites = (first + ranked_sites)[:12]
         self._top_sites = sites
         engine = GenericSearch(fetch=self.fetch, known_site=self.known_site, site_search=self.site_search)
 
@@ -859,11 +817,32 @@ class GenericCatalog(QObject):
             names = []
         self._ndb_tags.emit(names)
 
-    def ndb_top(self, search_id: int, sources: list, page: int) -> None:
-        """A Top list of NovelDB's sources: page `page` of their books, the most read first, from the
-        index. The page hears the cards, then `ndbTopDone` with {"more"}."""
+    def ndb_top(self, search_id: int, sources: list, page: int, sort: str = "") -> None:
+        """Read an index Top page or stream the publishers' own New pages."""
+        if sort == "new":
+            more, unavailable = False, []
+            fetch = partial(self.fetch, timeout=8, quick=True)
+            with ThreadPoolExecutor(max_workers=min(8, len(sources))) as workers:
+                pending = {workers.submit(newest_page, source, page, fetch): (source, rank)
+                           for rank, source in enumerate(dict.fromkeys(sources))}
+                for future in as_completed(pending):
+                    source, rank = pending[future]
+                    try:
+                        cards, has_more = future.result()
+                    except Exception as exc:
+                        log.warning("%s new releases failed: %s", source, exc)
+                        cards, has_more = [], False
+                    if cards:
+                        self._cards.emit(search_id, [dict(card, via="top", siteRank=rank, position=i, listLength=len(cards))
+                                                     for i, card in enumerate(cards)])
+                    elif page == 0:
+                        unavailable.append(source)
+                    more = more or has_more
+            self._ndb_top_done.emit(search_id, {"more": more, "unavailable": sorted(unavailable)})
+            return
         try:
-            cards, more = self.noveldb.search_page(",".join(sources), "source", page, 40)
+            cards, more = self.noveldb.search_page(",".join(sources), "source", page, 40,
+                                                   sort="new" if sort == "index-new" else "")
         except Exception as e:
             log.warning("NovelDB top list failed: %s", e)
             cards, more = [], False
@@ -1437,7 +1416,9 @@ class GenericCatalog(QObject):
 
     def _details(self, card: dict) -> None:
         """A book's details: from the offline cache when read in the last few days, else its page."""
-        cached = self.cache.get_json(self.DETAILS, card["url"], max_age=self.DETAILS_DAYS * 86400)
+        host = (urlsplit(card["url"]).hostname or "").removeprefix("www.")
+        bucket = self.DETAILS + "-mangak" if host == "mangak.io" else self.DETAILS
+        cached = self.cache.get_json(bucket, card["url"], max_age=self.DETAILS_DAYS * 86400)
         if cached:
             self._detailed.emit(dict(card, **cached, complete=True))
             return
@@ -1449,7 +1430,7 @@ class GenericCatalog(QObject):
             return
         keep = {k: v for k, v in found.items() if k not in ("url", "site", "source", "via", "complete", "ms") and v}
         if keep:
-            self.cache.put_json(self.DETAILS, card["url"], keep)
+            self.cache.put_json(bucket, card["url"], keep)
         self._detailed.emit(found)
 
     def _cover(self, fetch_id: int, key: str) -> None:

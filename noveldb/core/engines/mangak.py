@@ -32,9 +32,24 @@ def knows(url):
     return route(url) is not None
 
 
-def page_props(html):
-    node = soup_of(html).find("script", id="__NEXT_DATA__")
+def page_props(html, soup=None):
+    node = (soup if soup is not None else soup_of(html)).find("script", id="__NEXT_DATA__")
     return json.loads(node.string or "{}").get("props", {}).get("pageProps", {}) if node else {}
+
+
+def catalogue_tags(row):
+    tags = ["18+"] if row.get("isAdult") is True else []
+    for field in ("genres", "tags"):
+        items = row.get(field)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            name = item.get("name") if isinstance(item, dict) else None
+            if isinstance(name, str) and name.strip():
+                tag = name.strip().lstrip("#")
+                if tag:
+                    tags.append(tag)
+    return list(dict.fromkeys(tags))
 
 
 def _image_url(value):

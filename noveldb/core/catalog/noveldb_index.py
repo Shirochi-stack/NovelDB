@@ -390,7 +390,20 @@ class NovelDBIndex:
             names = [name for name in text.split(",") if name]
             if not names or self.manifest() is None:
                 return [], False
-            streams = {name: lst for name in names for source, lst in self._lists("!" + name).items() if source == name}
+            if sort == "new":
+                if not self.manifest().get("newest"):
+                    self._forget()
+                    if not (self.manifest() or {}).get("newest"):
+                        return [], False
+                unique = set(names)
+                if len(unique) == 8:
+                    streams = self._lists("!new")
+                elif len(unique) == 7 and "sfc" not in unique:
+                    streams = self._lists("!new|ko")
+                else:
+                    streams = {name: lst for name in names for source, lst in self._lists("!new|" + name).items() if source == name}
+            else:
+                streams = {name: lst for name in names for source, lst in self._lists("!" + name).items() if source == name}
         else:
             wanted = ([tag_token(text)] if mode == "tag" else ["@" + re.sub(r"\s+", " ", normal(text)).strip()]
                       if mode == "author" else tokens(text))

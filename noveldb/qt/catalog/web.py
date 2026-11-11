@@ -510,7 +510,7 @@ class CatalogPage(QWidget):
 
     def _start_generic_page(self) -> None:
         """Load the local catalogue scripts into the bridge's world."""
-        scripts = (generic_page.REFERENCE_SCRIPT, generic_page.BOOT_SCRIPT, generic_page.INSTANT_SCRIPT, generic_page.SCRIPT)
+        scripts = (generic_page.BOOT_SCRIPT, generic_page.TOP_SCRIPT, generic_page.INSTANT_SCRIPT, generic_page.SCRIPT)
         self.page.runJavaScript("\n".join(path.read_text(encoding="utf-8") for path in scripts), WORLD)
 
     def _retry(self) -> None:

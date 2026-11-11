@@ -17,6 +17,28 @@
     "mangak.io",
     "comix.to"
   ],
+  "quickSearch": {
+    "all": ["novelbuddy.me", "novelbin.com", "novelfull.net", "fanfiction.net", "lightnovelworld.com", "freewebnovel.com", "mangatown.com", "mangafire.to", "comix.to", "mangadex.org", "mangak.io", "webtoons.com"],
+    "webnovel": ["novelbuddy.me", "novelbin.com", "novelfull.net", "fanfiction.net", "freewebnovel.com", "royalroad.com", "scribblehub.com"],
+    "lightnovel": ["lightnovelworld.com", "novelfull.net", "novelbin.com", "novelbuddy.me", "novelfull.com"],
+    "manga": ["mangatown.com", "mangafire.to", "comix.to", "mangadex.org", "mangak.io"],
+    "manhwa": ["mangak.io", "webtoons.com", "comix.to", "mangafire.to", "asurascans.com", "mangatown.com"],
+    "comic": ["webtoons.com", "comix.to", "mangafire.to", "mangatown.com", "mangadex.org", "mangak.io", "asurascans.com"]
+  },
+  "freeTop": {
+    "novelbuddy.me": {"webnovel": "https://novelbuddy.me/popular", "lightnovel": "https://novelbuddy.me/popular"},
+    "novelbin.com": {"webnovel": "https://novelbin.com/sort/top-view-novel", "lightnovel": "https://novelbin.com/sort/top-view-novel"},
+    "novelfull.net": {"webnovel": "https://novelfull.net/most-popular", "lightnovel": "https://novelfull.net/most-popular"},
+    "scribblehub.com": {"webnovel": "https://www.scribblehub.com/series-ranking/?order=1&sort=5"},
+    "royalroad.com": {"webnovel": "https://www.royalroad.com/fictions/weekly-popular"},
+    "asurascans.com": {"webnovel": "https://asurascans.com/novels", "manhwa": "https://asurascans.com/comics", "comic": "https://asurascans.com/comics"},
+    "freewebnovel.com": {"webnovel": "https://freewebnovel.com/sort/most-popular"},
+    "novelfull.com": {"webnovel": "https://novelfull.com/most-popular", "lightnovel": "https://novelfull.com/most-popular"},
+    "novelfire.net": {"webnovel": "https://novelfire.net/ranking/most-read"},
+    "mangak.io": {"manga": "https://mangak.io/genres/manga?sort=views", "manhwa": "https://mangak.io/genres/manhwa?sort=views", "comic": "https://mangak.io/genres/manhua?sort=views"},
+    "webtoons.com": {"manhwa": "https://www.webtoons.com/en/ranking/trending", "comic": "https://www.webtoons.com/en/ranking/trending"},
+    "mangatown.com": {"manga": "https://www.mangatown.com/hot/", "comic": "https://www.mangatown.com/hot/"}
+  },
   "measurements": {
     "novelbuddy.com": {
       "ms": 1430,

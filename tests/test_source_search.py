@@ -80,6 +80,29 @@ def test_a_site_whose_books_have_only_genres_is_asked_only_for_a_genre():
     assert params["subcategory_uid"] == ["120"] and params["page"] == ["2"]
 
 
+def test_new_uses_the_publishers_release_order_and_pagination():
+    fetch, asked = recording({"result": {"items": [
+        {"novelId": 10, "novelTitle": "First"},
+        {"novelId": 90, "novelTitle": "Second"},
+    ], "hasNext": True}})
+    cards, more = source_search.newest_page("mpia", 1, fetch)
+    assert [card["title"] for card in cards] == ["First", "Second"] and more
+    endpoint = urlsplit(asked[0][0])
+    assert endpoint.path == "/api/v1/pc/remocon/novels"
+    assert parse_qs(endpoint.query)["order"] == ["CREATED_AT"]
+    assert parse_qs(endpoint.query)["page"] == ["1"]
+
+    fetch, asked = recording({"result": {"list": [
+        {"series_list": [{"series_id": 7, "title": "Today", "start_sale_dt": "2025-09-01"}]},
+        {"series_list": [{"series_id": 8, "title": "Yesterday", "start_sale_dt": "2026-11-10"}]},
+    ]}})
+    cards, more = source_search.newest_page("kpage", 0, fetch)
+    assert [card["title"] for card in cards] == ["Today", "Yesterday"] and not more
+    assert urlsplit(asked[0][0]).path.endswith("/landing/today_new")
+    assert source_search.newest_page("nweb", 0, fetch) == ([], False)
+    assert len(asked) == 1
+
+
 NWEB_PAGE = """<ul class="default_list"><li class="item">
 <a class="link" href="/best/list?novelId=77"><div class="thumbnail"><img src="https://img.test/c.jpg"></div>
 <span class="title">The Book</span></a><div class="info_group"><span class="author">Writer</span></div>

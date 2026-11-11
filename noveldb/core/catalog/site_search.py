@@ -209,6 +209,7 @@ class SiteSearch:
         self._plans: Dict[str, dict] = {}
         # (home, kind, query) -> the next page of the list the last search, tag or popular list read.
         self.next_pages: Dict[tuple, str] = {}
+        self._popular_seen: Dict[str, set] = {}
         if cache_file is not None:
             try:
                 self._plans = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -271,22 +272,39 @@ class SiteSearch:
     def has_more(self, home: str, kind: str, query: str) -> bool:
         return (home, kind, query) in self.next_pages
 
-    def more(self, home: str, kind: str, query: str = "", limit: int = 40) -> List[dict]:
+    def _remember_popular(self, home: str, result: dict, url: str, cards: List[dict], *, first=False) -> List[dict]:
+        with _lock:
+            if first:
+                self._popular_seen[home] = set()
+            seen = self._popular_seen.setdefault(home, set())
+            fresh = []
+            for card in cards:
+                key = card["url"].rstrip("/")
+                if key not in seen:
+                    seen.add(key)
+                    fresh.append(card)
+        # Some sites redirect out-of-range pages to page one or repeat their last page.
+        self._remember_next(home, "popular", "", result if fresh else None, url)
+        return fresh
+
+    def more(self, home: str, kind: str, query: str = "", limit: Optional[int] = None, *, quick=False) -> List[dict]:
         """The next page of the list a search ("search"), tag ("tag") or popular list ("popular") of
         `home` read last: its cards (relevant ones, for a search); its own next page is remembered."""
         with _lock:
             url = self.next_pages.pop((home, kind, query), "")
         if not url:
             return []
-        result = self.fetch(url)
+        result = self.fetch(url, quick=True) if quick else self.fetch(url)
         if not result or result["status"] >= 400:
             return []
         cards = extract_cards(decode(result), result.get("url") or url)
+        if kind == "popular":
+            return self._remember_popular(home, result, url, cards)[:limit]
         if kind == "search":
             cards = [card for card in cards if relevant(card["title"], query)]
         if cards:
             self._remember_next(home, kind, query, result, url)
-        return [dict(card, verified=True) if kind == "tag" else card for card in cards[:limit]]
+        return [dict(card, verified=True) if kind == "tag" else card for card in cards[:40 if limit is None else limit]]
 
     def _request(self, way: dict, query: str):
         if way["kind"] == "get" and "template" in way:
@@ -339,9 +357,16 @@ class SiteSearch:
                         if relevant(card["title"], query)][:limit]
         return []
 
-    def popular(self, home: str, limit: int = 30) -> List[dict]:
+    def popular(self, home: str, limit: Optional[int] = None, listing: str = "") -> List[dict]:
         """Cards from the site's popular or ranking list (the first common address that has one, else the
         home page's biggest list); the address that worked is remembered."""
+        if listing:
+            result = self.fetch(listing, quick=True)
+            if not result or result["status"] >= 400:
+                self._remember_next(listing, "popular", "", None)
+                return []
+            cards = extract_cards(decode(result), result.get("url") or listing)
+            return self._remember_popular(listing, result, listing, cards, first=True)[:limit]
         plan = self.plan(home)
         if not plan.get("reachable", True):
             return []
@@ -358,12 +383,11 @@ class SiteSearch:
                 if plan.get("popular") != url:
                     plan["popular"] = url
                     self._save()
-                self._remember_next(home, "popular", "", result, url)
-                return cards[:limit]
+                return self._remember_popular(home, result, url, cards, first=True)[:limit]
         result = self.fetch(plan["home"])
         if result and result["status"] < 400:
-            self._remember_next(home, "popular", "", result, plan["home"])
-            return extract_cards(decode(result), result.get("url") or plan["home"])[:limit]
+            cards = extract_cards(decode(result), result.get("url") or plan["home"])
+            return self._remember_popular(home, result, plan["home"], cards, first=True)[:limit]
         return []
 
     def tag(self, home: str, tag: str, limit: int = 24) -> List[dict]:
@@ -448,6 +472,15 @@ def _in_chrome(anchor, depth: int = 6) -> bool:
 def extract_cards(page: str, base: str) -> List[dict]:
     """Book cards on a search, tag or list page: [{url, title, cover, snippet}]. The page's app data when
     it lists more books than the page draws (bookkor draws 9 of its 40)."""
+    if (urlsplit(base).hostname or "").removeprefix("www.") == "mangak.io":
+        from noveldb.core.catalog.title_search import mangak_catalogue_rows
+
+        try:
+            cards = [dict(card, snippet=card.get("description") or "") for card in mangak_catalogue_rows(page)]
+        except (ValueError, TypeError, AttributeError):
+            cards = []
+        if cards:
+            return cards
     drawn = _drawn_cards(page, base)
     listed = _app_data_cards(page, base)
     return listed if len(listed) > len(drawn) else drawn
@@ -539,6 +572,8 @@ def _drawn_cards(page: str, base: str) -> List[dict]:
             if card["title"] and snippet.startswith(card["title"]):
                 snippet = snippet[len(card["title"]):].strip()
             card["snippet"] = snippet[:300]
+            card["tags"] = list(dict.fromkeys(text_of(a) for a in box.find_all("a", href=TAG_LINK)
+                                             if 1 < len(text_of(a)) <= 40))
         card["title"] = _best_title(card, [m[2] for m in best if m[0] == card["url"]])
     return [card for card in cards.values() if card["title"]]
 

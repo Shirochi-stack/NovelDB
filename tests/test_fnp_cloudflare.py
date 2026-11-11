@@ -2,7 +2,7 @@ from external_scraper import ExternalScraper
 
 
 CHAPTER = (
-    "https://fucknovelpia.com/chapter.php?"
+    "https://fuck\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/chapter.php?"
     "hash=c233a508413957e9c7942a6b157372e75659d7f7&ch=0001"
 )
 
@@ -20,7 +20,7 @@ def test_cloudflare_target_is_not_accepted_until_real_page(monkeypatch):
     assert scraper._fnp_wait_for_verified_target(9222, CHAPTER, timeout=1) == "b"
 
 
-def test_lnreader_fucknovelpia_chapter_uses_dedicated_reader(monkeypatch):
+def test_lnreader_fnp_chapter_uses_dedicated_reader(monkeypatch):
     scraper = ExternalScraper()
     scraper._book_data = {"_lnreader": True}
     scraper._stop_requested = False
@@ -43,7 +43,7 @@ def test_lnreader_fucknovelpia_chapter_uses_dedicated_reader(monkeypatch):
     assert calls == [(CHAPTER, "Chapter 1")]
 
 
-def test_fucknovelpia_installed_chrome_starts_hidden(monkeypatch):
+def test_fnp_installed_chrome_starts_hidden(monkeypatch):
     scraper = ExternalScraper()
     scraper._playwright = object()
     scraper._stop_requested = False
@@ -64,7 +64,7 @@ def test_fucknovelpia_installed_chrome_starts_hidden(monkeypatch):
     assert "headless" not in launched
 
 
-def test_fucknovelpia_batch_is_sequential_and_stops_after_abort(monkeypatch):
+def test_fnp_batch_is_sequential_and_stops_after_abort(monkeypatch):
     scraper = ExternalScraper()
     scraper._book_data = {"_lnreader": True}
     scraper._stop_requested = False

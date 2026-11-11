@@ -327,3 +327,27 @@ def test_a_sorted_r19_search_reads_the_indexs_list_in_that_order():
     assert [c["title"] for c in index.search("R19", "tag", sort="new")][0] == "Another Reader"
     # A sort the index has no list for, or none: the index's own order.
     assert {c["title"] for c in index.search("R19", "tag", sort="nonsense")} == {"Another Reader", "Omniscient Reader's Viewpoint"}
+
+
+def test_new_source_fallback_reads_the_publication_order(monkeypatch):
+    from noveldb.core.catalog.noveldb_index import _List
+
+    index = NovelDBIndex(lambda *_a, **_k: None)
+    asked = []
+    monkeypatch.setattr(index, "manifest", lambda: {"version": 3, "newest": True})
+    monkeypatch.setattr(index, "_prefetch_blocks", lambda _numbers: None)
+    monkeypatch.setattr(index, "_card", lambda number: {"title": str(number)})
+
+    def lists(token):
+        asked.append(token)
+        return {"*": _List.of([9, 2, 7])} if token == "!new" else {"npia": _List.of([8, 1])}
+
+    monkeypatch.setattr(index, "_lists", lists)
+    sources = "npia,kpage,sfc,nweb,mpia,jara,rbooks,nseries"
+    cards, more = index.search_page(sources, "source", limit=2, sort="new")
+    assert [card["title"] for card in cards] == ["9", "2"] and more
+    assert asked == ["!new"]
+    asked.clear()
+    cards, _ = index.search_page("npia", "source", sort="new")
+    assert [card["title"] for card in cards] == ["8", "1"]
+    assert asked == ["!new|npia"]
