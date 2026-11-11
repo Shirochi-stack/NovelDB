@@ -265,6 +265,16 @@ def test_dynamic_priority_skips_the_engines_that_do_not_list_the_site():
     assert EngineSettings().dynamic_priority
 
 
+def test_scribblehub_prefers_its_complete_list_parser_with_dynamic_priority():
+    s = Recorder({"webtoepub": BOOK, "lnreader": BOOK}, native=False, knows=("webtoepub", "lnreader"))
+    assert s.parse_book("https://www.scribblehub.com/series/123/example/") is BOOK
+    assert s.calls == ["open", "lnreader"]
+    s.calls.clear()
+    s.dynamic_priority = False
+    assert s.parse_book("https://www.scribblehub.com/series/123/example/") is BOOK
+    assert s.calls == ["open", "novel_downloader", "webtoepub"]
+
+
 def test_a_chapter_link_reads_the_book_above_it():
     # ncode-style /n1234ab/1/: the engine reads the chapter as a book of one; the page above it is the book.
     chapter, book = "https://site.test/n1234ab/1/", "https://site.test/n1234ab/"

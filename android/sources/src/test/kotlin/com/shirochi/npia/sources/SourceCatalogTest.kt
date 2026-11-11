@@ -30,6 +30,16 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class SourceCatalogTest {
     @Test
+    fun scribblehubPrefersItsCompleteListParserWhenDynamicPriorityIsEnabled() {
+        val url = "https://www.scribblehub.com/series/123/example/"
+        assertEquals(SiteEngine.LNREADER, (SourceCatalog.resolve(url) as SiteEngineChain).steps.first())
+        val manual = EngineSettings(dynamicPriority = false)
+        assertEquals(SiteEngine.NOVEL_DOWNLOADER, (SourceCatalog.resolve(url, manual) as SiteEngineChain).steps.first())
+        assertTrue(SiteEngine.LNREADER !in (SourceCatalog.resolve(url,
+            EngineSettings(disabled = listOf(SiteEngine.LNREADER.raw))) as SiteEngineChain).steps)
+    }
+
+    @Test
     fun mobileAndDesktopQdnLinksAreTheSameSourceAndTheSameBook() {
         val desktop = "https://www.${QdnSite.DOMAIN}/book/42/"
         val mobile = "https://m.${QdnSite.DOMAIN}/book/42/?source=m_jump"

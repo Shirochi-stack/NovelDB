@@ -86,6 +86,10 @@ object SourceCatalog {
         }
         if (steps.isEmpty()) return null
         if (native != null && steps == listOf(SiteEngine.NATIVE)) return native
+        if (engines.dynamicPriority && SiteEngine.LNREADER in steps &&
+            runCatching { URI(url).host?.lowercase()?.removePrefix("www.") }.getOrNull() == "scribblehub.com") {
+            return SiteEngineChain(native, listOf(SiteEngine.LNREADER) + steps.filter { it != SiteEngine.LNREADER })
+        }
         // The Settings' order as it is, as on the desktop (gallery-dl was put before HaruNeko on manga sites
         // here only, and books it lists without pages, such as fanfox's One Piece, could not be read), except
         // on the sites the generic fallback reads best (`genericFirst`).

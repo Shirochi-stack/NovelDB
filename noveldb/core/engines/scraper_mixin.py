@@ -24,6 +24,7 @@ import time
 from noveldb.core.chapter_timing import timed_chapter, browser_chapter_timing
 from dataclasses import dataclass
 from typing import Callable, Optional
+from urllib.parse import urlsplit
 
 from noveldb.core.settings.model import (ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC,
                                         ENGINE_LNR, ENGINE_MANGAPEAK, ENGINE_TAKO)
@@ -246,6 +247,8 @@ class SiteEnginesMixin:
     def _engine_transport(self, source, details):
         """The engines' requests: the app's client first, then the browser when the site refuses it."""
         details = dict(details or {})
+        if details.get("op") == "window":
+            return self._window_binding(source, details) if source is not None else self._window_script(details)
         reader_get = self.__dict__.get("on_image") is not None and str(details.get("method") or "GET").upper() == "GET"
         if reader_get:
             # Reader chapters run through _pump. Retry there so the binding never starts browser work.
@@ -342,11 +345,23 @@ class SiteEnginesMixin:
             # HaruNeko's warm-up visit: the app's tabs already carry the site's cookies.
             return {"value": None}
         page = None
+        session = None
+        temporary = True
         try:
-            page = context.new_page()
+            address = urlsplit(url)
+            if address.hostname in ("scribblehub.com", "www.scribblehub.com"):
+                # Keep its verified series document for the TOC POST and its existing reader document.
+                series = re.fullmatch(r"/series/\d+/", address.path)
+                page = next((opened for opened in context.pages
+                             if (opened.url.rstrip("/") == url.rstrip("/") or series and opened.url.startswith(url))
+                             and opened.locator(".fic_title, .chp_raw").count()), None)
+                temporary = page is None
+            if page is None:
+                page = context.new_page()
             if request.get("preload"):
                 page.add_init_script(request["preload"])
-            page.goto(url, wait_until="domcontentloaded", timeout=_BROWSER_FETCH_SECONDS * 1000)
+            if temporary:
+                page.goto(url, wait_until="domcontentloaded", timeout=_BROWSER_FETCH_SECONDS * 1000)
             deadline = time.monotonic() + _BROWSER_FETCH_SECONDS
             while time.monotonic() < deadline:
                 title = (page.title() or "").lower()
@@ -366,7 +381,12 @@ class SiteEnginesMixin:
         except Exception as e:
             return {"error": str(e).splitlines()[0][:300]}
         finally:
-            if page is not None:
+            if session is not None:
+                try:
+                    session.detach()
+                except Exception:
+                    pass
+            if page is not None and temporary:
                 try:
                     page.close()
                 except Exception:
@@ -645,6 +665,10 @@ class SiteEnginesMixin:
         page = self._page
         if page is None:
             return None
+        if (engine == "lnreader" and urlsplit(url).hostname in ("scribblehub.com", "www.scribblehub.com")
+                and page.context == self._context):
+            # Keep parser bindings in their own context so the site's documents retain their browser session.
+            self._page = page = self._browser.new_context().new_page()
         self.log(f"Injecting the {script.label} engine...")
         if not self._script_inject(page, script):
             return None

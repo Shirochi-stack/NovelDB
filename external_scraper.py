@@ -71,6 +71,7 @@ from noveldb.core.engines.scraper_mixin import PAGE_SCRIPTS, PYTHON_ENGINES, Sit
 from noveldb.core.settings.model import (
     ENGINE_GENERIC,
     ENGINE_LABELS,
+    ENGINE_LNR,
     ENGINE_NATIVE,
     ENGINE_ND,
     ENGINE_W2E,
@@ -15883,7 +15884,6 @@ async (ids) => {
         """
         if not self._page:
             self.start()
-
         self._stop_requested = False
         self.log(f"[Kpage] Navigating to: {url}")
 
@@ -21548,6 +21548,8 @@ async (items) => {
                 else native is None or (native_comic and e == ENGINE_GENERIC) or self._engine_knows_site(e, url))
         ]
         if native is None and self.dynamic_priority:
+            if ENGINE_LNR in order and urllib.parse.urlsplit(url).hostname in ('scribblehub.com', 'www.scribblehub.com'):
+                order = [ENGINE_LNR] + [engine for engine in order if engine != ENGINE_LNR]
             # Dynamic priority: skip the engines that don't list this site; the generic fallback stays.
             listed = [e for e in order if e == ENGINE_GENERIC or self._engine_knows_site(e, url)]
             skipped = [e for e in order if e not in listed]
@@ -21850,8 +21852,20 @@ async (items) => {
         headless browser can't pass is opened again in installed Chrome
         (off-screen, the downloader's profile), which usually passes it.
         """
+        scribble = urllib.parse.urlsplit(url).hostname in ('scribblehub.com', 'www.scribblehub.com')
+        # Its chapter documents and full TOC require an ordinary browser session.
+        if scribble and not self._rbooks_chrome:
+            if not self._start_rbooks_browser(url, site='ScribbleHub'):
+                return False
+            if self._page.url.rstrip('/') == url.rstrip('/') and self._page.locator('.fic_title').count():
+                return True
         if not self._page:
             self.start()
+        if self._page.context != self._context:
+            if scribble:
+                return True  # the isolated parser reads documents in the saved browser context
+            self._page.context.close()
+            self._page = self._context.new_page()
         from noveldb.core.engines.scraper_mixin import give_age_cookies
 
         give_age_cookies(self._context, url)  # an adult site's age check, answered (syosetu's novel18)

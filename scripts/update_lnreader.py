@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import secret_guard  # noqa: E402  (keeps credentials out of the bundle)
+from source_names import dumps  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIM_DIR = ROOT / "scripts" / "lnreader"
@@ -140,7 +141,7 @@ def build(sha: str, date: str, ref: str, index: list[dict], code: dict[str, str]
           excluded: set[str]) -> tuple[str, dict]:
     meta = {"engine": "lnreader", "commit": sha, "date": date, "ref": ref, "shim": shim_key()}
     prefix = (SHIM_DIR / "prefix.js").read_text(encoding="utf-8")
-    prefix = prefix.replace("{{COMMIT}}", sha).replace("{{DATE}}", date).replace("{{META}}", json.dumps(meta))
+    prefix = prefix.replace("{{COMMIT}}", sha).replace("{{DATE}}", date).replace("{{META}}", dumps(meta))
     parts = [prefix, '\n__lnr_file = "libraries";\n', libraries, "\n"]
     kept = []
     for entry in index:
@@ -148,7 +149,7 @@ def build(sha: str, date: str, ref: str, index: list[dict], code: dict[str, str]
             continue
         info = {key: entry.get(key, "") for key in ("id", "name", "site", "lang", "version")}
         parts.append(f"\n__lnr_file = {json.dumps('plugin ' + entry['id'])};\n"
-                     f"__lnr_define({json.dumps(info, ensure_ascii=False)}, "
+                     f"__lnr_define({dumps(info, ensure_ascii=False)}, "
                      f"function (module, exports, require, fetch) {{\n{code[entry['id']]}\n}});\n")
         kept.append(entry)
     parts.append((SHIM_DIR / "bridge.js").read_text(encoding="utf-8"))
@@ -225,14 +226,14 @@ def main(argv: list[str] | None = None) -> int:
                  "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "lnreader-lib.js").write_bytes(data)
-    (args.out / "manifest.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (args.out / "manifest.json").write_text(dumps(meta, indent=2) + "\n", encoding="utf-8", newline="\n")
     (args.out / "LICENSE.md").write_text(license_text, encoding="utf-8", newline="\n")
     if args.release_dir:
         args.release_dir.mkdir(parents=True, exist_ok=True)
         name = f"lnreader-lib-{sha[:12]}-{meta['shim']}.js"
         shutil.copyfile(args.out / "lnreader-lib.js", args.release_dir / name)
         (args.release_dir / "lnreader-manifest.json").write_text(
-            json.dumps(dict(meta, file=name), indent=2) + "\n", encoding="utf-8", newline="\n")
+            dumps(dict(meta, file=name), indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"LNReader {sha[:12]} ({date}): {meta['plugins']} plugins, {len(meta['excluded'])} left out, "
           f"{len(data) / 1e6:.1f} MB -> {args.out}")
     return 0

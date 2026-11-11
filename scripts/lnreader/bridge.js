@@ -137,6 +137,20 @@ async function __lnr_chapterPages(instance, path, novel, append, active, streami
     }
 }
 
+async function __lnr_scribbleNovel(instance, path) {
+    let complete = null;
+    let reader = Object.create(instance);
+    reader.fetchAllChapters = async (...args) => {
+        complete = await instance.fetchAllChapters(...args);
+        return complete;
+    };
+    let novel = await reader.parseNovel(path);
+    if (!(complete && complete.length)) {
+        throw new Error("ScribbleHub returned no complete chapter list");
+    }
+    return novel;
+}
+
 async function __lnr_book(url, onChapters, active = () => true) {
     let candidates = __lnr_candidates(url);
     if (!candidates.length) {
@@ -156,7 +170,7 @@ async function __lnr_book(url, onChapters, active = () => true) {
             if (!active()) return __lnr_error("the reader was closed");
             let novel;
             try {
-                novel = await instance.parseNovel(path);
+                novel = id === "scribblehub" ? await __lnr_scribbleNovel(instance, path) : await instance.parseNovel(path);
             } catch (error) {
                 lastError = error;
                 continue;

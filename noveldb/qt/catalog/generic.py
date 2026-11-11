@@ -894,6 +894,27 @@ class GenericCatalog(QObject):
 
     def _transport(self, fetch_id: int, request: dict) -> None:
         """An LNReader plugin's request, answered in the transport's result shape."""
+        if request.get("op") == "window":
+            work = getattr(_reading, "work", None)
+
+            def run(scraper):
+                if work is not None and not work.wait():
+                    return {"error": "the reader was closed"}
+                if urlsplit(request["url"]).hostname in ("scribblehub.com", "www.scribblehub.com"):
+                    if not getattr(scraper, "_rbooks_chrome", False) and not scraper._start_rbooks_browser(request["url"], site="ScribbleHub"):
+                        return {"error": "ScribbleHub's browser could not start"}
+                return scraper._window_script(request)
+
+            if self.downloader is None:
+                self._reader_answer(fetch_id, {"error": "the browser is unavailable"})
+                return
+            try:
+                future = self.downloader(run)
+                result = work.result(future) if work else future.result(timeout=240)
+            except Exception as error:
+                result = {"error": str(error)}
+            self._reader_answer(fetch_id, result)
+            return
         body = request.get("data")
         if request.get("dataBase64"):
             try:

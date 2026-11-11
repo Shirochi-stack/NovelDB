@@ -81,6 +81,10 @@ public enum SiteEngineRouter {
         // here only, and books it lists without pages, such as fanfox's One Piece, could not be read), except
         // on the sites the generic fallback reads best (`genericFirst`).
         let planned = steps.filter { $0 == .native || isWebPage }
+        if engines.dynamicPriority, planned.contains(.lnreader),
+           ["scribblehub.com", "www.scribblehub.com"].contains(url.host?.lowercased() ?? "") {
+            return [.lnreader] + planned.filter { $0 != .lnreader }
+        }
         guard genericFirst(url), planned.contains(.generic) else { return planned }
         return planned.filter { $0 == .native } + [.generic] + planned.filter { $0 != .native && $0 != .generic }
     }

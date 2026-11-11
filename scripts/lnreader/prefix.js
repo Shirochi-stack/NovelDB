@@ -127,15 +127,63 @@ function __lnr_responseHeaders(raw) {
 // Headers the phone app sets that a browser refuses (or that only hurt here).
 const __lnr_dropHeaders = /^(connection|accept-encoding|host|content-length|sec-fetch-mode)$/i;
 
+function __lnr_scribblePage(url) {
+    let address = new URL(url);
+    return /^(www\.)?scribblehub\.com$/i.test(address.hostname)
+        && /^\/(series\/|read\/|wp-admin\/admin-ajax\.php$)/.test(address.pathname);
+}
+
+async function __lnr_scribbleWindow(request, transport) {
+    let address = new URL(request.url);
+    let pageUrl = request.url;
+    if (request.method === "POST") {
+        let id = new URLSearchParams(request.data).get("mypostid");
+        if (!/^\d+$/.test(id || "")) {
+            throw new Error("ScribbleHub chapter list has no series ID");
+        }
+        pageUrl = address.origin + "/series/" + id + "/";
+    }
+    // Open HTML as a document. The site's protection rejects plain HTTP and some fetch requests.
+    let script = async function (details) {
+        if (/just a moment|attention required|security check/i.test(document.title)) {
+            return {error: "ScribbleHub browser verification did not finish"};
+        }
+        if (details.method === "GET") {
+            return {status: 200, finalUrl: location.href, responseText: document.documentElement.outerHTML,
+                    responseHeaders: "Content-Type: text/html; charset=utf-8"};
+        }
+        let response = await window.fetch(details.url, {
+            method: "POST", credentials: "include", body: details.data,
+            headers: {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                      "X-Requested-With": "XMLHttpRequest"}
+        });
+        return {status: response.status, finalUrl: response.url, responseText: await response.text(),
+                responseHeaders: "Content-Type: text/html; charset=utf-8"};
+    };
+    let reply = await transport({op: "window", url: pageUrl, timeout: request.timeout,
+                                 script: "(" + script.toString() + ")(" + JSON.stringify(request) + ")"});
+    if (reply && reply.pending && window.__noveldb_async) {
+        reply = await window.__noveldb_async.wait(reply.pending);
+    }
+    return reply && reply.value != null ? reply.value : reply;
+}
+
 async function fetch(input, init) {
     init = Object.assign({}, init || {});
     let url = (typeof input === "string") ? input : ((input && input.url) || String(input));
     url = new URL(url, location.href).href;
     let headers = __lnr_headerObject(init.headers);
     Object.keys(headers).forEach(name => { if (__lnr_dropHeaders.test(name)) { delete headers[name]; } });
+    let scribble = __lnr_scribblePage(url);
+    if (scribble && new URL(url).pathname === "/wp-admin/admin-ajax.php" && init.body instanceof FormData) {
+        // Match the site's own TOC request. Multipart form uploads are refused by its protection.
+        init.body = new URLSearchParams(Array.from(init.body.entries()));
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8";
+        headers["X-Requested-With"] = "XMLHttpRequest";
+    }
     let transport = __lnr_transport();
     let sameSite = location.protocol.startsWith("http") && new URL(url).origin === location.origin;
-    let browserOnly = transport == null || (sameSite && !__lnr_hasHeader(headers, "referer")
+    let browserOnly = transport == null || (!scribble && sameSite && !__lnr_hasHeader(headers, "referer")
         && !__lnr_hasHeader(headers, "user-agent") && !__lnr_hasHeader(headers, "origin"));
     if (browserOnly) {
         try {
@@ -163,7 +211,7 @@ async function fetch(input, init) {
         responseType: "arraybuffer",
         timeout: 60000
     }, await __lnr_body(init.body, headers));
-    let result = await transport(request);
+    let result = scribble ? await __lnr_scribbleWindow(request, transport) : await transport(request);
     if (result && result.pending && window.__noveldb_async) {
         // The app makes this one from a browser tab on the site; it hands the answer back later.
         result = await window.__noveldb_async.wait(result.pending);
@@ -172,6 +220,9 @@ async function fetch(input, init) {
         throw new TypeError("Failed to fetch " + url + ((result && result.error) ? ": " + result.error : ""));
     }
     let status = Number(result.status) || 0;
+    if (scribble && (status < 200 || status >= 400)) {
+        throw new Error("ScribbleHub refused the browser request (HTTP " + status + ")");
+    }
     let bytes = (result.responseBase64 != null && result.responseBase64 !== "")
         ? __lnr_base64ToBytes(result.responseBase64)
         : new TextEncoder().encode(result.responseText || "");

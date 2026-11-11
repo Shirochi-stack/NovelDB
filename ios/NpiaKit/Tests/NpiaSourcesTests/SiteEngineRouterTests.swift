@@ -3,6 +3,17 @@ import NpiaCore
 @testable import NpiaSources
 
 final class SiteEngineRouterTests: XCTestCase {
+    func testScribblehubPrefersItsCompleteListParserWhenDynamicPriorityIsEnabled() {
+        let url = URL(string: "https://www.scribblehub.com/series/123/example/")!
+        var engines = EngineSettings()
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: engines).first, .lnreader)
+        engines.dynamicPriority = false
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: engines).first, .novelDownloader)
+        engines.dynamicPriority = true
+        engines.disabled = [.lnreader]
+        XCTAssertFalse(SiteEngineRouter.plan(for: url, engines: engines).contains(.lnreader))
+    }
+
     private let all: [SiteEngine] = [.native, .novelDownloader, .webtoepub]
 
     func testAppReaderUsesTheGenericEngineFirst() {

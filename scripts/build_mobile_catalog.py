@@ -119,6 +119,8 @@ def main() -> int:
     for target in READER_TARGETS:
         outputs[target / "comix" / COMIX_SCRIPT.name] = comix
         outputs[target / "generic" / "generic-lib.js"] = files["generic-lib.js"]
+        for name in ("lnreader-lib.js", "manifest.json", "LICENSE.md"):
+            outputs[target / "lnreader" / name] = (ROOT / "lnreader" / name).read_bytes().replace(b"\r\n", b"\n")
     for path, data in outputs.items():
         if path.exists() and path.read_bytes() == data:
             continue
