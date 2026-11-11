@@ -76,6 +76,8 @@ def _download():
         pending = root() / "installed.tmp"
         pending.write_text(json.dumps(manifest), encoding="utf-8")
         pending.replace(root() / "installed.json")
+        from .instant import archive
+        archive.cache_clear()
         for old in root().iterdir():
             if old.is_dir() and old.name not in (revision, previous) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", old.name):
                 shutil.rmtree(old, ignore_errors=True)
@@ -96,6 +98,8 @@ def handle(action):
     elif action == "remove":
         with _lock:
             if not _state["busy"]:
+                from .instant import archive
+                archive.cache_clear()
                 shutil.rmtree(root(), ignore_errors=True)
                 _state.update(progress=0, error="")
     return status()

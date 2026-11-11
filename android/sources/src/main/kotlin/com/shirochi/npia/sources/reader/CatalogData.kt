@@ -21,6 +21,7 @@ object CatalogData {
     private var busy = false
     private var progress = 0.0
     private var failure = ""
+    private val archives = mutableMapOf<String, ZipFile>()
     private val revisionPattern = Regex("[A-Za-z0-9_-]{1,64}")
 
     private fun installed(): JsonObject = runCatching {
@@ -49,6 +50,8 @@ object CatalogData {
                 scope.launch { download(root) }
             }
             "remove" -> if (!busy) {
+                archives.values.forEach { it.close() }
+                archives.clear()
                 root.deleteRecursively()
                 progress = 0.0
                 failure = ""
@@ -59,7 +62,8 @@ object CatalogData {
                 require(revisionPattern.matches(revision) && Regex("manifest|top|[bc]/[0-9]{1,6}").matches(key))
                 val part = key.substringAfter('/', "0").toInt() % 2
                 val archive = File(File(root, revision), "instant-catalog-$part.zip")
-                val bytes = ZipFile(archive).use { zip -> zip.getInputStream(zip.getEntry("$key.json.gz")).use { it.readBytes() } }
+                val zip = archives.getOrPut("$revision/$part") { ZipFile(archive) }
+                val bytes = zip.getInputStream(zip.getEntry("$key.json.gz")).use { it.readBytes() }
                 buildJsonObject { put("base64", Base64.getEncoder().encodeToString(bytes)) }.toString()
             }.getOrElse { "{}" }
         }
@@ -110,6 +114,10 @@ object CatalogData {
             }
             val pending = File(root, "installed.tmp").apply { writeText(manifest.toString()) }
             Files.move(pending.toPath(), File(root, "installed.json").toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            synchronized(this) {
+                val expired = archives.keys.filter { !it.startsWith("$revision/") && (previous == null || !it.startsWith("$previous/")) }
+                expired.forEach { archives.remove(it)?.close() }
+            }
             root.listFiles()?.filter { it.isDirectory && it.name != revision && it.name != previous && revisionPattern.matches(it.name) }
                 ?.forEach { it.deleteRecursively() }
         } catch (error: Exception) {

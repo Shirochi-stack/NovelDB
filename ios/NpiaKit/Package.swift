@@ -49,7 +49,7 @@ let package = Package(
         .testTarget(name: "NpiaSourcesTests", dependencies: ["NpiaSources", "NpiaCore", "NpiaWebEngine"]),
         .testTarget(name: "NpiaOutputTests", dependencies: ["NpiaOutput", "NpiaCore", "ZIPFoundation"]),
         .testTarget(name: "NpiaUploadTests", dependencies: ["NpiaUpload", "NpiaCore", "ZIPFoundation"]),
-        .testTarget(name: "NpiaWebEngineTests", dependencies: ["NpiaWebEngine", "NpiaCore", "ZIPFoundation"]),
+        .testTarget(name: "NpiaWebEngineTests", dependencies: ["NpiaWebEngine", "NpiaCore", "NpiaSources"]),
         .testTarget(name: "NpiaImagesTests", dependencies: ["NpiaImages", "NpiaCore"]),
         .testTarget(name: "NpiaPipelineTests", dependencies: ["NpiaPipeline", "NpiaImages", "NpiaCore"]),
         .testTarget(name: "NpiaUpdateTests", dependencies: ["NpiaUpdate"]),

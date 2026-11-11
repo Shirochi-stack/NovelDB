@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 import NpiaCore
-import ZIPFoundation
+@testable import NpiaSources
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -34,25 +34,30 @@ final class InstantCatalogTests: XCTestCase {
         await page.addInitScript("""
             window.NovelDBTransport=async details=>{
                 if(details.op!=='catalogData')return new Promise(()=>{});
-                if(details.action!=='read')return {version:'fixture',books:100,built:'2026-11-11'};
-                const response=await fetch('noveldb-local://app/downloaded/'+details.key);
-                const bytes=new Uint8Array(await response.arrayBuffer());
-                let text='';for(let i=0;i<bytes.length;i+=0x8000)text+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));
-                return {base64:btoa(text)};
+                const response=await fetch('noveldb-local://app/catalog-data?request='+encodeURIComponent(JSON.stringify(details)));
+                return response.json();
             };
             """)
         var checkout = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { checkout.deleteLastPathComponent() }
         let archiveFolder = checkout.appendingPathComponent("assets")
-        await page.serveLocal { path, _ in
-            if path.hasPrefix("downloaded/") {
-                let key = String(path.dropFirst("downloaded/".count))
-                let part = (Int(key.split(separator: "/").last ?? "0") ?? 0) % 2
-                let archive = try? Archive(url: archiveFolder.appendingPathComponent("instant-catalog-\(part).zip"), accessMode: .read, pathEncoding: nil)
-                guard let archive, let entry = archive[key + ".json.gz"] else { return nil }
-                var bytes = Data()
-                guard (try? archive.extract(entry, consumer: { bytes.append($0) })) != nil else { return nil }
-                return LocalResponse(mimeType: "application/octet-stream", body: bytes)
+        let installed = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: installed) }
+        let versionFolder = installed.appendingPathComponent("fixture")
+        try FileManager.default.createDirectory(at: versionFolder, withIntermediateDirectories: true)
+        for part in 0..<2 {
+            try FileManager.default.createSymbolicLink(at: versionFolder.appendingPathComponent("instant-catalog-\(part).zip"),
+                withDestinationURL: archiveFolder.appendingPathComponent("instant-catalog-\(part).zip"))
+        }
+        try Data("{\"revision\":\"fixture\",\"books\":100,\"built\":\"2026-11-11\"}".utf8)
+            .write(to: installed.appendingPathComponent("installed.json"))
+        let store = CatalogData(directory: installed)
+        await page.serveLocal { path, query in
+            if path == "catalog-data",
+               let encoded = URLComponents(string: "?" + query)?.queryItems?.first(where: { $0.name == "request" })?.value,
+               let data = encoded.data(using: .utf8), let details = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let reply = await store.handle(details)
+                return LocalResponse(mimeType: "application/json", body: Data(reply.utf8))
             }
             guard let file = CatalogPage.file(path), let data = try? Data(contentsOf: file) else { return nil }
             return LocalResponse(mimeType: CatalogPage.mimeType(file.pathExtension), body: data)

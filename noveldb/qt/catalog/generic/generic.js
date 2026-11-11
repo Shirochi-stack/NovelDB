@@ -2491,7 +2491,9 @@
             return !top.only.length || top.only.indexOf(hostOf(row[11])) >= 0;
         }
         var sources = top.indexSources;
-        var local = indexed ? instant.top(sources).filter(matching).map(instant.card) : [];
+        var local = indexed ? instant.top(sources).filter(matching).map(function (row) {
+            return Object.assign(instant.card(row), {provisional: true});
+        }) : [];
         var indexLead = Math.max(0, TOP_INITIAL - snapshot.length);
         restoreTopItems(local.slice(0, indexLead).concat(snapshot, local.slice(indexLead)), true, TOP_INITIAL);
         top.startItems = snapshot.filter(function (item) { return !byUrl.has(key(item.url)); });

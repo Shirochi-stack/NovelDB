@@ -10,6 +10,7 @@ actor CatalogData {
     private var busy = false
     private var progress = 0.0
     private var failure = ""
+    private var archives: [String: Archive] = [:]
 
     init(directory: URL? = nil) {
         root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -46,6 +47,7 @@ actor CatalogData {
         case "remove":
             if !busy {
                 do {
+                    archives.removeAll()
                     if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
                     progress = 0
                     failure = ""
@@ -59,7 +61,9 @@ actor CatalogData {
                key.range(of: "^(manifest|top|[bc]/[0-9]{1,6})$", options: .regularExpression) != nil {
                 let part = (Int(key.split(separator: "/").last ?? "0") ?? 0) % 2
                 let file = root.appendingPathComponent(revision).appendingPathComponent("instant-catalog-\(part).zip")
-                if let archive = try? Archive(url: file, accessMode: .read, pathEncoding: nil),
+                let archiveKey = revision + "/" + String(part)
+                if archives[archiveKey] == nil { archives[archiveKey] = try? Archive(url: file, accessMode: .read, pathEncoding: nil) }
+                if let archive = archives[archiveKey],
                    let entry = archive[key + ".json.gz"] {
                     var data = Data()
                     if (try? archive.extract(entry, consumer: { data.append($0) })) != nil {
@@ -113,6 +117,7 @@ actor CatalogData {
                 progress = Double(part + 1) / 2
             }
             try data.write(to: root.appendingPathComponent("installed.json"), options: .atomic)
+            archives = archives.filter { key, _ in key.hasPrefix(revision + "/") || (previous.map { key.hasPrefix($0 + "/") } ?? false) }
             for old in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
                 if validRevision(old.lastPathComponent), old.lastPathComponent != revision, old.lastPathComponent != previous,
                    (try? old.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
