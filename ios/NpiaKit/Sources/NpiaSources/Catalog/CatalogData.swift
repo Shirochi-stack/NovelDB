@@ -10,7 +10,7 @@ actor CatalogData {
     private var busy = false
     private var progress = 0.0
     private var failure = ""
-    private var archives: [String: Archive] = [:]
+    private var archives: [String: (archive: Archive, entries: [String: Entry])] = [:]
 
     init(directory: URL? = nil) {
         root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -62,11 +62,13 @@ actor CatalogData {
                 let part = (Int(key.split(separator: "/").last ?? "0") ?? 0) % 2
                 let file = root.appendingPathComponent(revision).appendingPathComponent("instant-catalog-\(part).zip")
                 let archiveKey = revision + "/" + String(part)
-                if archives[archiveKey] == nil { archives[archiveKey] = try? Archive(url: file, accessMode: .read, pathEncoding: nil) }
-                if let archive = archives[archiveKey],
-                   let entry = archive[key + ".json.gz"] {
+                if archives[archiveKey] == nil, let archive = try? Archive(url: file, accessMode: .read, pathEncoding: nil) {
+                    archives[archiveKey] = (archive, Dictionary(archive.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first }))
+                }
+                if let cached = archives[archiveKey],
+                   let entry = cached.entries[key + ".json.gz"] {
                     var data = Data()
-                    if (try? archive.extract(entry, consumer: { data.append($0) })) != nil {
+                    if (try? cached.archive.extract(entry, consumer: { data.append($0) })) != nil {
                         reply = ["base64": data.base64EncodedString()]
                     }
                 }
