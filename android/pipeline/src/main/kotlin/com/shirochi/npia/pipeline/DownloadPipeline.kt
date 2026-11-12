@@ -17,6 +17,7 @@ import com.shirochi.npia.core.PassthroughImages
 import com.shirochi.npia.core.ProcessedImage
 import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SharedSettings
+import com.shirochi.npia.core.SiteOptOuts
 import com.shirochi.npia.core.SourceAdapter
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
@@ -108,6 +109,10 @@ class DownloadPipeline(
 
     private suspend fun download(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit, store: ImageStore): JobOutcome {
         val started = System.nanoTime()
+        if (SiteOptOuts.matches(url)) {
+            logger.log(LogLevel.ERROR, SiteOptOuts.MESSAGE)
+            throw SourceException.SiteDisabled(url)
+        }
         val adapter = SourceCatalog.require(url, settings.engines)
         val requested = settings.effective(SourceCatalog.adapterFor(url)?.id ?: adapter.id)
         val http = httpFactory(settings.effective(adapter.id))

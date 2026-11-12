@@ -160,6 +160,10 @@ def default_fetch(url: str, method: str = "GET", data=None, headers: Optional[di
                   binary: bool = False, referer: str = "", timeout: float = 15.0, quick: bool = False,
                   checkpoint=None) -> Optional[dict]:
     """A plain request: {status, url, content, text, headers}. `quick`: a short timeout, for guesses."""
+    from noveldb.core import site_optouts
+
+    if site_optouts.opted_out(url):
+        return None  # its owner asked: searches and readers ask it nothing
     if quick:
         timeout = min(timeout, 8.0)
     import requests

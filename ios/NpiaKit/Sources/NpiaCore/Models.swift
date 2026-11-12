@@ -134,9 +134,12 @@ public enum SourceError: Error, Equatable, LocalizedError {
     case loginRequired(SourceID)
     case blocked(String)
     case parse(String)
+    /// The site's owner asked the app to leave it alone (see `SiteOptOuts`).
+    case siteDisabled
 
     public var errorDescription: String? {
         switch self {
+        case .siteDisabled: return SiteOptOuts.message
         case .notImplemented(let id): return "\(id.rawValue) is not available in this build yet."
         case .unsupportedURL(let url): return "No source recognises \(url.absoluteString)."
         case .loginRequired(let id): return "Sign in to \(id.rawValue) first."

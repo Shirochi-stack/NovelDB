@@ -30,6 +30,14 @@ public enum CatalogTransport {
     }
 
     public static func handle(_ json: String, context: SourceContext) async -> String {
+        // A site whose owner opted out: no reader, search or page request reaches it.
+        if let data = json.data(using: .utf8),
+           let details = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let address = details["url"] as? String, SiteOptOuts.matches(address) {
+            context.logger.log(.error, SiteOptOuts.message)
+            let reply = (try? JSONSerialization.data(withJSONObject: ["error": SiteOptOuts.message])) ?? Data()
+            return String(decoding: reply, as: UTF8.self)
+        }
         if let data = json.data(using: .utf8),
            let details = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
            details["op"] as? String == "catalogData" { return await CatalogData.shared.handle(details) }

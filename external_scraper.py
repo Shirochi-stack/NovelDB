@@ -21498,6 +21498,11 @@ async (items) => {
         a book of one chapter or none: the addresses above it are tried, and
         the first with a longer list is the book.
         """
+        from noveldb.core import site_optouts
+
+        if site_optouts.opted_out(url):
+            self.log(site_optouts.MESSAGE)
+            raise site_optouts.SiteOptedOut()
         data = self._parse_book_engines(url)
         if len((data or {}).get('chapters') or []) > 1 or self._stop_requested or self.abort_reason:
             return data
@@ -22146,6 +22151,15 @@ async (items) => {
         if self._stop_requested:
             return None
 
+        from noveldb.core import site_optouts
+
+        if site_optouts.opted_out(chapter_info.get('url', '')):
+            # A chapter another site's list points to: said once per book, and nothing is read.
+            if not self.abort_reason:
+                self.log(site_optouts.MESSAGE)
+            self.abort_reason = site_optouts.MESSAGE
+            return None
+
         if self._book_data and self._book_data.get('_kobo'):
             return self._kobo_parse_chapter(
                 chapter_info.get('url', ''),
@@ -22440,6 +22454,14 @@ async (items) => {
         The browser fires all HTTP requests in parallel.
         """
         if self._stop_requested or not batch_info:
+            return [None] * len(batch_info)
+
+        from noveldb.core import site_optouts
+
+        if any(site_optouts.opted_out(ch.get('url', '')) for ch in batch_info):
+            if not self.abort_reason:
+                self.log(site_optouts.MESSAGE)
+            self.abort_reason = site_optouts.MESSAGE
             return [None] * len(batch_info)
 
         def report_success(index, result):

@@ -214,7 +214,8 @@ struct AddURLView: View {
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(urls.filter { !supported.contains($0) }, id: \.self) { url in
-                    Label("Not supported: \(url.host ?? url.absoluteString)", systemImage: "xmark.circle")
+                    Label(SiteOptOuts.matches(url) ? SiteOptOuts.message : "Not supported: \(url.host ?? url.absoluteString)",
+                          systemImage: "xmark.circle")
                         .foregroundStyle(.red)
                 }
                 // No site list names these, so only the script engines will try them.

@@ -106,4 +106,7 @@ sealed class SourceException(message: String) : Exception(message) {
     class LoginRequired(val source: SourceId) : SourceException("Sign in to ${source.raw} first.")
     class Blocked(detail: String) : SourceException("Blocked: $detail")
     class Parse(detail: String) : SourceException("Could not read the page: $detail")
+
+    /** The site's owner asked the app to leave it alone (see `SiteOptOuts`). */
+    class SiteDisabled(val url: String) : SourceException(SiteOptOuts.MESSAGE)
 }

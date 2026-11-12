@@ -158,6 +158,10 @@ public struct DownloadPipeline: Sendable {
     }
 
     public func run(url: URL, settings: AppSettings, http: (any HTTPFetching)? = nil, onPhase: @escaping @Sendable (JobPhase) -> Void = { _ in }) async throws -> JobOutcome {
+        if SiteOptOuts.matches(url) {
+            logger.log(.error, SiteOptOuts.message)
+            throw SourceError.siteDisabled
+        }
         guard SiteEngineRouter.canTry(url, engines: settings.engines) else { throw SourceError.unsupportedURL(url) }
         // The retry count is the same for every source, so the client does not depend on which engine reads the book.
         let client = http ?? URLSessionHTTPClient(settings: settings.shared, logger: logger)

@@ -46,7 +46,7 @@ public enum SourceCatalog {
     /// the Catalog tab then leaves its links alone and offers a Download button on pages it can take.
     /// A built-in scraper's site counts even while the built-in scrapers are switched off.
     public static func supportedSite(_ url: URL, engines: EngineSettings = EngineSettings(), store: EngineStore = .shared) -> Bool {
-        guard let host = webHost(url) else { return false }
+        guard let host = webHost(url), !SiteOptOuts.matches(url) else { return false }
         if adapters.contains(where: { $0.id != .reader && $0.ownsSite(host) }) { return true }
         return engines.enabled().contains { engine in
             guard let rules = engine.ruleEngine else { return false }
@@ -62,7 +62,7 @@ public enum SourceCatalog {
     /// The Add screen still accepts any web link (`SiteEngineRouter.canTry`); this decides where to
     /// offer the shortcut.
     public static func downloadablePage(_ url: URL, engines: EngineSettings = EngineSettings(), store: EngineStore = .shared) -> Bool {
-        guard webHost(url) != nil else { return false }
+        guard webHost(url) != nil, !SiteOptOuts.matches(url) else { return false }
         let order = engines.enabled()
         if order.contains(.native), nativeAdapterType(for: url) != nil { return true }
         return order.contains { engine in

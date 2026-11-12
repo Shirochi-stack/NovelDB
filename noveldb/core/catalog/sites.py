@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 from urllib.parse import urlsplit
 
-from noveldb.core import engine_updates
+from noveldb.core import engine_updates, site_optouts
 from noveldb.core.catalog.urls import is_noveldb_site
 from noveldb.core.settings.model import ENGINE_NATIVE, SITE_ENGINES
 
@@ -96,7 +96,7 @@ def _bundles(enabled: Iterable[str]):
 def supported_site(url: str, enabled: Iterable[str] = SITE_ENGINES) -> bool:
     """A built-in scraper handles the URL's site, or a switched-on script engine lists it."""
     found = _web_url(url)
-    if found is None:
+    if found is None or site_optouts.opted_out(url):
         return False
     if _builtin_site(found[0]):
         return True
@@ -112,7 +112,7 @@ def downloadable_page(url: str, enabled: Iterable[str] = SITE_ENGINES) -> bool:
       their header, WebToEpub by host with any path but the home page.
     The Download tab still accepts any web link; this decides where to offer the shortcut.
     """
-    if _web_url(url) is None:
+    if _web_url(url) is None or site_optouts.opted_out(url):
         return False
     enabled = tuple(enabled)
     if ENGINE_NATIVE in enabled:

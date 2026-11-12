@@ -58,6 +58,7 @@ import com.shirochi.npia.core.EngineSettings
 import com.shirochi.npia.core.ImageFormat
 import com.shirochi.npia.core.OutputFormat
 import com.shirochi.npia.core.SharedSettings
+import com.shirochi.npia.core.SiteOptOuts
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.sources.SourceCatalog
 
@@ -302,7 +303,8 @@ private fun DetectionSummary(urls: List<String>, engines: EngineSettings) {
     Column(Modifier.padding(horizontal = 16.dp)) {
         unsupported.forEach { url ->
             Text(
-                "\u2717 Not supported: ${com.shirochi.npia.core.bareHost(url).ifEmpty { url }}",
+                if (SiteOptOuts.matches(url)) "\u2717 ${SiteOptOuts.MESSAGE}"
+                else "\u2717 Not supported: ${com.shirochi.npia.core.bareHost(url).ifEmpty { url }}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )

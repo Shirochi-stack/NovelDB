@@ -2,6 +2,7 @@ package com.shirochi.npia.sources
 
 import com.shirochi.npia.core.EngineSettings
 import com.shirochi.npia.core.SiteEngine
+import com.shirochi.npia.core.SiteOptOuts
 import com.shirochi.npia.core.SourceAdapter
 import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
@@ -57,8 +58,10 @@ object SourceCatalog {
     /** The adapter for a URL, for telling supported links from unsupported ones; see `resolve` for downloads. */
     fun adapterFor(url: String): SourceAdapter? = adapters.firstOrNull { it.matches(url) }
 
-    fun require(url: String, engines: EngineSettings = EngineSettings()): SourceAdapter =
-        resolve(url, engines) ?: throw SourceException.UnsupportedUrl(url)
+    fun require(url: String, engines: EngineSettings = EngineSettings()): SourceAdapter {
+        if (SiteOptOuts.matches(url)) throw SourceException.SiteDisabled(url)
+        return resolve(url, engines) ?: throw SourceException.UnsupportedUrl(url)
+    }
 
     /**
      * The adapter that downloads `url` with the site engines of Settings > Site engines, tried in the
@@ -70,8 +73,10 @@ object SourceCatalog {
      * - A URL no built-in scraper owns (or with the scrapers switched off) tries every enabled script
      *   engine, since WebToEpub also matches some sites by their page; with dynamic priority on (the
      *   default), only the engines that list its site, then the generic fallback.
+     * - A site whose owner opted out (`SiteOptOuts`) has no adapter; `require` says why.
      */
     fun resolve(url: String, engines: EngineSettings = EngineSettings()): SourceAdapter? {
+        if (SiteOptOuts.matches(url)) return null
         val order = engines.enabled()
         val native = adapters.firstOrNull { it.id != SourceId.READER && it.matches(url) }
             ?.takeIf { SiteEngine.NATIVE in order }
@@ -142,7 +147,7 @@ object SourceCatalog {
      */
     fun supportedSite(url: String, engines: EngineSettings = EngineSettings()): Boolean {
         val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
-        if (!isWebUrl(url)) return false
+        if (!isWebUrl(url) || SiteOptOuts.matches(url)) return false
         if (adapters.any { it.id != SourceId.READER && it.ownsSite(host) }) return true
         return engines.enabled().any { it.runsScripts && lists(it, url) }
     }
@@ -156,7 +161,7 @@ object SourceCatalog {
      * The Add screen still accepts any web link (`resolve`); this decides where to offer the shortcut.
      */
     fun downloadablePage(url: String, engines: EngineSettings = EngineSettings()): Boolean {
-        if (!isWebUrl(url)) return false
+        if (!isWebUrl(url) || SiteOptOuts.matches(url)) return false
         val order = engines.enabled()
         if (SiteEngine.NATIVE in order && adapters.any { it.id != SourceId.READER && it.matches(url) }) return true
         return order.any { it.runsScripts && listsPage(it, url) }

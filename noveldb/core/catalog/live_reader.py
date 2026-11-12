@@ -121,6 +121,10 @@ class LiveReader:
             self._remember(url, "local", contents)
             return {"title": contents["title"], "author": contents["author"], "engine": local.suffix[1:].upper(),
                     "chapters": [{"name": c["name"], "section": ""} for c in contents["chapters"]]}
+        from noveldb.core import site_optouts
+
+        if site_optouts.opted_out(url):
+            raise site_optouts.SiteOptedOut()
         errors = []
         for name in self._candidates(url):
             if not active():
@@ -174,6 +178,11 @@ class LiveReader:
         if not 0 <= index < len(chapters):
             raise IndexError("no such chapter")
         info = chapters[index]
+        if name != "local":
+            from noveldb.core import site_optouts
+
+            if site_optouts.opted_out(info.get("url") or ""):
+                raise site_optouts.SiteOptedOut()
         if name == "local":
             from noveldb.core import library
 

@@ -5,6 +5,7 @@ import com.shirochi.npia.core.ChapterRef
 import com.shirochi.npia.core.ChapterResult
 import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.SiteEngine
+import com.shirochi.npia.core.SiteOptOuts
 import com.shirochi.npia.core.SourceAdapter
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceException
@@ -48,6 +49,10 @@ internal class SiteEngineChain(
     override fun matches(url: String): Boolean = native?.matches(url) ?: reader.matches(url)
 
     override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
+        if (SiteOptOuts.matches(url)) {
+            context.logger.log(LogLevel.ERROR, SiteOptOuts.MESSAGE)
+            throw SourceException.SiteDisabled(url)
+        }
         AgeChecks.answer(url)  // an adult site's age check, answered for every engine (syosetu's novel18)
         // A Python engine later in the list: started now, so it is ready if the ones before it fail.
         if (steps.drop(1).any { PythonEngines.name(it) != null }) PythonEngines.warm(context)

@@ -23,6 +23,10 @@ public enum SiteEngineRouter {
 
     /// `steps`: these engines instead of the planned ones (the Catalog reader's: the site's own engines).
     public static func open(_ url: URL, context: SourceContext, steps chosen: [SiteEngine]? = nil) async throws -> Opened {
+        if SiteOptOuts.matches(url) {
+            context.logger.log(.error, SiteOptOuts.message)
+            throw SourceError.siteDisabled
+        }
         let enabled = context.settings.engines.enabled()
         guard !enabled.isEmpty else {
             throw SourceError.parse("Every site engine is switched off in Settings > Site engines.")
@@ -64,8 +68,9 @@ public enum SiteEngineRouter {
     /// The engines `url` goes through with these settings, in order; empty when none can try it
     /// (Android's `SourceCatalog.resolve`). A web page no built-in scraper owns goes to every
     /// enabled JavaScript engine, even when no site list names it, because WebToEpub also
-    /// recognises some sites by their page.
+    /// recognises some sites by their page. A site whose owner opted out (`SiteOptOuts`) has none.
     public static func plan(for url: URL, engines: EngineSettings) -> [SiteEngine] {
+        if SiteOptOuts.matches(url) { return [] }
         let isWebPage = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         let enabled = engines.enabled().filter { $0 != .custom || !CustomEngines.list().isEmpty }
         let native = SourceCatalog.nativeAdapterType(for: url)
@@ -172,7 +177,7 @@ public enum SiteEngineRouter {
     /// Errors that end the fallback when a built-in scraper raises them.
     static func isAbort(_ error: Error) -> Bool {
         switch error as? SourceError {
-        case .loginRequired?, .blocked?: return true
+        case .loginRequired?, .blocked?, .siteDisabled?: return true
         default: return false
         }
     }

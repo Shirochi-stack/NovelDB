@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtWebEngineCore import QWebEnginePage
 
-from noveldb.core import paths
+from noveldb.core import paths, site_optouts
 from noveldb.core.catalog.generic_search import (USER_AGENT, GenericSearch, default_fetch, load_learned, save_learned,
                                                  top_sites)
 from noveldb.core.catalog.live_reader import LiveReader
@@ -354,7 +354,7 @@ class BrowserFetcher(QObject):
         self._request.connect(self._enqueue)
 
     def fetch(self, url: str, timeout: float = 45.0, scroll: bool = False) -> Optional[dict]:
-        if threading.current_thread() is threading.main_thread():
+        if threading.current_thread() is threading.main_thread() or site_optouts.opted_out(url):
             return None
         job = {"url": url, "event": threading.Event(), "result": None, "deadline": time.monotonic() + timeout - 5,
                "scroll": scroll}
@@ -536,6 +536,9 @@ class GenericCatalog(QObject):
               referer: str = "", quick: bool = False, checkpoint=None, timeout: float = 15.0) -> Optional[dict]:
         """Plain HTTP with the user's logins for the site; a page that refuses it is read in a hidden
         Catalog tab instead (not for `quick` guesses)."""
+        if site_optouts.opted_out(url):
+            self._note(site_optouts.MESSAGE)
+            return None
         self._note(f"Fetching {_short(url)}…")
         if not any(name.lower() == "cookie" for name in (headers or {})):
             try:
@@ -894,6 +897,9 @@ class GenericCatalog(QObject):
 
     def _transport(self, fetch_id: int, request: dict) -> None:
         """An LNReader plugin's request, answered in the transport's result shape."""
+        if site_optouts.opted_out(request.get("url") or ""):
+            self._reader_answer(fetch_id, {"error": site_optouts.MESSAGE})
+            return
         if request.get("op") == "window":
             work = getattr(_reading, "work", None)
 
@@ -1051,6 +1057,10 @@ class GenericCatalog(QObject):
             url = args[0]
             if url.startswith("file:"):
                 answer(function(*args))
+                return
+            if site_optouts.opted_out(url):
+                self._note(site_optouts.MESSAGE)
+                answer({"error": site_optouts.MESSAGE})
                 return
             if retry_images:
                 try:

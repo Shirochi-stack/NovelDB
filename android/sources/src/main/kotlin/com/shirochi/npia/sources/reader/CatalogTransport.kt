@@ -1,6 +1,8 @@
 package com.shirochi.npia.sources.reader
 
 import com.shirochi.npia.core.HttpFetching
+import com.shirochi.npia.core.LogLevel
+import com.shirochi.npia.core.SiteOptOuts
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.WebEngineProviding
 import kotlinx.serialization.json.Json
@@ -44,6 +46,11 @@ object CatalogTransport {
     suspend fun handle(requestJson: String, http: HttpFetching, web: WebEngineProviding, context: SourceContext? = null): String {
         val details = runCatching { Json.parseToJsonElement(requestJson) as? JsonObject }.getOrNull()
         val op = (details?.get("op") as? JsonPrimitive)?.contentOrNull
+        // A site whose owner opted out: no reader, search or page request reaches it.
+        if (SiteOptOuts.matches((details?.get("url") as? JsonPrimitive)?.contentOrNull.orEmpty())) {
+            context?.logger?.log(LogLevel.ERROR, SiteOptOuts.MESSAGE)
+            return error(SiteOptOuts.MESSAGE)
+        }
         if (details != null && op == "catalogData") return CatalogData.handle(details)
         if (details != null && op == "libraryLive") return LibraryLive.handle(details)
         if (details != null && context != null && (op == "book" || op == "chapter")) return BuiltInReader.handle(op, details, context)

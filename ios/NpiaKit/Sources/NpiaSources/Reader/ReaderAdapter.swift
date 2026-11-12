@@ -32,6 +32,10 @@ public struct ReaderAdapter: SourceAdapter {
     }
 
     public func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo {
+        if SiteOptOuts.matches(url) {
+            context.logger.log(.error, SiteOptOuts.message)
+            throw SourceError.siteDisabled
+        }
         await AgeChecks.answer(url, cookies: context.web.sessionCookies)
         return try await ReaderSessions.shared.open(url, context: context).book
     }
