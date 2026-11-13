@@ -145,6 +145,10 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
 
     /** The generic search page is on screen: only then does its transport answer. */
     @Volatile private var onGenericPage = isGenericPage(pageUrl)
+        set(value) { field = value; genericShown = value }
+    /** [onGenericPage] for the screen: that page can show the app's section menu (see [setSections]). */
+    var genericShown by mutableStateOf(isGenericPage(pageUrl))
+        private set
     private val transportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** The address and title the page's bridge last reported; the Download button is made for these. */
@@ -214,6 +218,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
                 this@CatalogWeb.canBack = view.canGoBack()
                 if (!documentStart) view.evaluateJavascript(bridge, null)
                 showTheme()
+                showSections()
                 showRead()
                 showBook()
             }
@@ -395,6 +400,18 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
         showTheme()
     }
 
+    /** The section menu the generic page shows beside Sites: `{on, cart}` (a wide screen has no switch row). */
+    private var sections = "{\"on\":false}"
+
+    fun setSections(on: Boolean, cart: Int) {
+        sections = buildJsonObject { put("on", on); put("cart", cart) }.toString()
+        showSections()
+    }
+
+    private fun showSections() {
+        view.evaluateJavascript("window.NovelDBGeneric && window.NovelDBGeneric.sections && window.NovelDBGeneric.sections($sections)", null)
+    }
+
     /** The generic page (only it has `NovelDBGeneric`) takes the app's theme. */
     private fun showTheme() {
         val colors = theme ?: return
@@ -458,6 +475,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
                         showMode()
                         showCart(model.cart.items.value)
                         showTheme()
+                        showSections()
                         showRead()
                         showBook()
                     }
@@ -474,6 +492,7 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
                         model.manager.message("Added to the queue: ${field("title").ifBlank { url }}")
                     }
                     "genericLogin" -> if (onGenericPage) field("url").takeIf { it.startsWith("http") }?.let { model.openInBrowser(it) }
+                    "genericSection" -> if (onGenericPage && field("section") == "add") model.select(com.shirochi.npia.app.Tab.ADD)
                     "genericFullscreen" -> readerFullScreen = onGenericPage && field("on") == "true"
                     "genericReaderClosed" -> { localFile = null; onReaderClosed?.invoke() }
                 }

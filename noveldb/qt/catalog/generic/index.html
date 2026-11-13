@@ -41,7 +41,29 @@
              color: var(--accent-ink); font-size: 11px; line-height: 18px; text-align: center; }
     .statusline { margin-top: 8px; color: var(--ink-2); font-size: 12px; min-height: 16px; display: flex; gap: 8px; align-items: center; }
     @media (max-width: 600px) { .statusline { font-size: 11px; margin-top: 6px; } }
-    .statusline a { color: var(--accent); cursor: pointer; margin-left: auto; }
+    #status { flex: 1 1 auto; min-width: 0; }
+    .statusbuttons { display: flex; gap: 8px; align-items: center; flex: none; margin-left: auto; }
+    /* Sites and the app's section menu: Halgakos on a tinted pill, tall enough for a finger. */
+    .pillbutton { display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 34px; padding: 3px 13px 3px 7px;
+                  border-radius: 999px; border: 1px solid var(--accent); background: var(--panel);
+                  background: color-mix(in srgb, var(--accent) 16%, var(--panel)); color: var(--ink); font-size: 13px; font-weight: 600; }
+    .pillbutton img { width: 24px; height: 24px; object-fit: contain; }
+    .pillbutton.open { background: var(--accent); color: var(--accent-ink); }
+    .pillbutton[hidden] { display: none; }
+    /* A menu the page draws itself: the app's section menu, and every drop-down inside the Android app
+       (its own pop-up draws broken divider lines). */
+    html.ownmenus select { pointer-events: none; }
+    .pickmenu { position: fixed; z-index: 30; min-width: 150px; max-width: calc(100vw - 16px); max-height: min(62vh, 440px); overflow: auto;
+                overscroll-behavior: contain; background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+                border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.3); padding: 6px; }
+    .pickmenu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 14px; border: none;
+                       border-radius: 10px; background: transparent; color: var(--ink); font-size: 15px; text-align: left; }
+    .pickmenu button + button { margin-top: 2px; }
+    .pickmenu button.on { background: var(--chip); color: var(--accent); font-weight: 600; }
+    .pickmenu button img { width: 28px; height: 28px; object-fit: contain; flex: none; }
+    .pickmenu button span { flex: 1; min-width: 0; }
+    .pickmenu button .badge { flex: none; margin-left: 0; }
+    .pickmenu button.on::after { content: "\2713"; flex: none; }
     .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
                animation: spin .8s linear infinite; display: none; flex: none; }
     .spinner.on { display: inline-block; }
@@ -380,7 +402,9 @@
         <button id="settingsButton" type="button" title="Catalogue settings">⚙</button>
     </form>
     <div class="statusline"><span id="spinner" class="spinner"></span><span id="status">Searches each site's own search and its genre and tag pages, then reads each book's page for its details.</span>
-        <a id="sitesButton" style="display:none">Sites</a></div>
+        <span class="statusbuttons"><button id="sitesButton" type="button" class="pillbutton" title="The sites searched" style="display:none"><img
+            src="icon-mining.webp" alt="">Sites</button><button id="sectionButton" type="button" class="pillbutton" title="Catalog or Add links"
+            aria-haspopup="menu" hidden><img src="icon-mining.webp" alt="">Catalog ▾</button></span></div>
     <div id="progressbar" role="progressbar" aria-label="Catalogue loading progress"><i></i></div>
     <div id="sitespanel" class="popover"></div>
     <div id="settingspanel" class="popover">

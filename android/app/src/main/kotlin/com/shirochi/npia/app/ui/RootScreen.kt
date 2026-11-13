@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.DisposableEffect
@@ -99,6 +103,11 @@ fun RootScreen(model: AppViewModel) {
     var lastDownloadTab by remember { mutableStateOf(Tab.CATALOG) }
     if (model.tab in DOWNLOAD_TABS) lastDownloadTab = model.tab
     val downloadHome = route == null && model.tab in DOWNLOAD_TABS
+    // Unfolded (or a tablet): the Catalog / Add links switch gives its row up and becomes a menu, in the
+    // Catalog page beside Sites and in Add links' own header.
+    val wide = LocalConfiguration.current.screenWidthDp >= WIDE_SCREEN_DP
+    val menuInPage = wide && downloadHome && model.tab == Tab.CATALOG && catalog.genericShown && catalog.error == null
+    LaunchedEffect(wide, cart.size) { catalog.setSections(wide, cart.size) }
 
     LaunchedEffect(Unit) {
         manager.messages.collect { snackbar.showSnackbar(it) }
@@ -133,6 +142,11 @@ fun RootScreen(model: AppViewModel) {
             // The Download tab's own header is its Catalog / Add links switch.
             if (readerFull) {
                 // none: the reader has the whole screen
+            } else if (menuInPage) {
+                // The page's own search bar is the header; its section menu sits beside Sites.
+                Surface(color = MaterialTheme.colorScheme.background) { Spacer(Modifier.fillMaxWidth().statusBarsPadding()) }
+            } else if (downloadHome && wide && model.tab == Tab.ADD) {
+                SectionMenuBar(model.tab, cart.size, onSelect = { model.select(it) })
             } else if (downloadHome) {
                 DownloadSwitch(model.tab, onSelect = { model.select(it) }, actions = if (model.tab == Tab.CATALOG) topBar.actions else null)
             } else TopAppBar(
@@ -238,6 +252,76 @@ fun RootScreen(model: AppViewModel) {
 
 private val DOWNLOAD_TABS = setOf(Tab.CATALOG, Tab.ADD)
 
+/** From this width the screen is an unfolded phone or a tablet (a folded phone and a bar phone are narrower). */
+private const val WIDE_SCREEN_DP = 600
+
+/** Halgakos mining for the Catalog, in her cart for links. */
+private val DOWNLOAD_SECTIONS = listOf(
+    Triple(Tab.CATALOG, "Catalog", R.drawable.halgakos_mining),
+    Triple(Tab.ADD, "Add links", R.drawable.halgakos_cart),
+)
+
+/**
+ * The Download tab's header on a wide screen: the section's name, and the Catalog / Add links menu as
+ * one pill at the right (the Catalog page draws the same pill beside its Sites button).
+ */
+@Composable
+private fun SectionMenuBar(tab: Tab, cart: Int, onSelect: (Tab) -> Unit) {
+    val current = DOWNLOAD_SECTIONS.first { it.first == tab }
+    var open by remember { mutableStateOf(false) }
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(current.second, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), maxLines = 1)
+            Box {
+                Row(
+                    Modifier.height(40.dp).clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(20.dp))
+                        .clickable(role = Role.Button, onClickLabel = "Catalog or Add links") { open = true }
+                        .padding(start = 8.dp, end = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Image(painterResource(current.third), contentDescription = null, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "${current.second} ▾",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                    )
+                }
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    DOWNLOAD_SECTIONS.forEach { (option, label, art) ->
+                        val on = option == tab
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    label,
+                                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                )
+                            },
+                            leadingIcon = { Image(painterResource(art), contentDescription = null, modifier = Modifier.size(28.dp)) },
+                            trailingIcon = {
+                                if (on) Text("✓", color = MaterialTheme.colorScheme.primary)
+                                else if (option == Tab.ADD && cart > 0) Badge { Text("$cart") }
+                            },
+                            onClick = {
+                                open = false
+                                if (!on) onSelect(option)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Material's "library books" (the core icon set the app ships has none). */
 private val LibraryIcon: ImageVector = materialIcon(name = "Filled.LibraryBooks") {
     materialPath {
@@ -281,11 +365,8 @@ private fun DownloadSwitch(tab: Tab, onSelect: (Tab) -> Unit, actions: (@Composa
             Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // A slim pill track; the chosen side is filled. Halgakos mining for the Catalog, in her cart for links.
-            val options = listOf(
-                Triple(Tab.CATALOG, "Catalog", R.drawable.halgakos_mining),
-                Triple(Tab.ADD, "Add links", R.drawable.halgakos_cart),
-            )
+            // A slim pill track; the chosen side is filled.
+            val options = DOWNLOAD_SECTIONS
             Row(
                 Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(20.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(3.dp),

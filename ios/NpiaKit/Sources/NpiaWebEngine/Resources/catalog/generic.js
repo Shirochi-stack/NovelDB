@@ -1477,6 +1477,110 @@
             }, 400);
         });
     }); });
+    // -- menus the page draws: the app's section menu and, in the Android app, every drop-down --
+    var menuNode = null, menuAnchor = null, menuSelect = null, menuAgain = null, menuKeepPanel = false;
+    function closeMenu() {
+        if (!menuNode) return false;
+        menuNode.remove();
+        if (menuAnchor) menuAnchor.classList.remove('open');
+        menuNode = menuAnchor = menuSelect = null;
+        return true;
+    }
+    // items: {label, on, icon, badge, pick()}; the menu hangs under `anchor`, inside the window.
+    function openMenu(anchor, items, select) {
+        closeMenu();
+        var node = document.createElement('div');
+        node.className = 'pickmenu';
+        node.setAttribute('role', 'menu');
+        items.forEach(function (item) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.setAttribute('role', 'menuitemradio');
+            button.setAttribute('aria-checked', item.on ? 'true' : 'false');
+            if (item.on) button.className = 'on';
+            button.innerHTML = (item.icon ? '<img src="' + esc(item.icon) + '" alt="">' : '') + '<span>' + esc(item.label) + '</span>'
+                + (item.badge ? '<b class="badge">' + esc(item.badge) + '</b>' : '');
+            button.addEventListener('click', function (event) {
+                event.stopPropagation();
+                closeMenu();
+                item.pick();
+            });
+            node.appendChild(button);
+        });
+        // Above a modal panel when the drop-down is in one (a dialog is drawn over the rest of the page).
+        (anchor.closest('dialog') || document.body).appendChild(node);
+        var box = anchor.getBoundingClientRect(), width = Math.max(node.offsetWidth, Math.min(box.width, window.innerWidth - 16));
+        node.style.minWidth = width + 'px';
+        var height = node.offsetHeight, below = window.innerHeight - box.bottom - 12;
+        node.style.left = Math.max(8, Math.min(box.left, window.innerWidth - width - 8)) + 'px';
+        if (height > below && box.top - 12 > below) node.style.top = Math.max(8, box.top - 4 - height) + 'px';
+        else { node.style.top = (box.bottom + 4) + 'px'; node.style.maxHeight = Math.max(120, below) + 'px'; }
+        menuNode = node; menuAnchor = anchor; menuSelect = select || null;
+        if (!select) anchor.classList.add('open');
+        var chosen = node.querySelector('.on');
+        if (chosen && chosen.scrollIntoView) chosen.scrollIntoView({block: 'nearest'});
+    }
+    document.addEventListener('pointerdown', function (event) {
+        if (!menuNode || event.target.closest('.pickmenu') || (!menuSelect && menuAnchor.contains(event.target))) return;
+        // The tap on a drop-down that closes its menu must not open it again.
+        var box = menuSelect && menuSelect.getBoundingClientRect();
+        if (box && event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) {
+            menuAgain = menuSelect;
+            setTimeout(function () { menuAgain = null; }, 600);
+        }
+        menuKeepPanel = !!(menuSelect && menuSelect.closest('.popover'));
+        closeMenu();
+    }, true);
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeMenu(); });
+    // Android's own pop-up for a drop-down draws its divider lines cut short: there the page shows the
+    // choices itself. The drop-down takes no touches (html.ownmenus); a tap that lands on one opens its menu.
+    if (window.NovelDBAndroid) {
+        document.documentElement.classList.add('ownmenus');
+        document.addEventListener('click', function (event) {
+            if (event.target.closest('.pickmenu')) return;
+            var x = event.clientX, y = event.clientY;
+            var select = Array.prototype.find.call(document.querySelectorAll('select'), function (node) {
+                if (node.disabled || !node.getClientRects().length || !event.target.contains(node)) return false;
+                var box = node.getBoundingClientRect();
+                return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+            });
+            if (!select) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (menuAgain === select) { menuAgain = null; return; }
+            openMenu(select, Array.prototype.filter.call(select.options, function (option) {
+                return !option.hidden && !option.disabled && option.style.display !== 'none';
+            }).map(function (option) {
+                return {label: option.textContent.trim(), on: option.selected, pick: function () {
+                    if (select.value === option.value) return;
+                    select.value = option.value;
+                    select.dispatchEvent(new Event('input', {bubbles: true}));
+                    select.dispatchEvent(new Event('change', {bubbles: true}));
+                }};
+            }), select);
+        }, true);
+    }
+    // The app's sections (Catalog, Add links) as a menu beside Sites: a wide screen has no row of its own for them.
+    var sectionCart = 0;
+    function showSections(state) {
+        var on = !!(state && state.on);
+        sectionCart = state && state.cart > 0 ? state.cart | 0 : 0;
+        $('sectionButton').hidden = !on;
+        if (!on && menuAnchor === $('sectionButton')) closeMenu();
+        return true;
+    }
+    $('sectionButton').addEventListener('click', function (event) {
+        event.stopPropagation();
+        if (menuAnchor === $('sectionButton')) { closeMenu(); return; }
+        $('sitespanel').classList.remove('open');
+        $('settingspanel').classList.remove('open');
+        openMenu($('sectionButton'), [
+            {label: 'Catalog', icon: 'icon-mining.webp', on: true, pick: function () {}},
+            {label: 'Add links', icon: 'icon-cart.webp', badge: sectionCart ? String(sectionCart) : '', on: false,
+                pick: function () { send({type: 'genericSection', section: 'add'}); }}
+        ]);
+    });
     $('settingsButton').addEventListener('click', function (event) {
         event.stopPropagation();
         $('sitespanel').classList.remove('open');
@@ -1488,7 +1592,8 @@
     // part of the page sends (a phone sends no click for a tap on plain text or an empty area). Their
     // own buttons toggle them on the click that follows.
     document.addEventListener('pointerdown', function (event) {
-        if (event.target.closest('.popover, #sitesButton, #settingsButton')) return;
+        if (event.target.closest('.popover, .pickmenu, #sitesButton, #settingsButton')) return;
+        if (menuKeepPanel) { menuKeepPanel = false; return; }  // the tap only closed a panel's own drop-down
         applyPicks();
         $('sitespanel').classList.remove('open');
         $('settingspanel').classList.remove('open');
@@ -4289,10 +4394,13 @@
         if (!more.timer) more.timer = setTimeout(function () { more.timer = 0; moreSoon(); }, 120);
     }, {passive: true});
     // The search bar slides away while the results scroll down (its tag menu closed with it) and comes
-    // back on any scroll up, or at the top; never while the search box has the focus.
+    // back at the top, or on a deliberate scroll up, as NovelDB's site does it (mobile-feed.js): 240 px
+    // of one upward gesture (a pause or a turn starts the count again). Never away while the search box
+    // has the focus.
     // Only a scroll the reader makes moves it: cards coming in above shift the page by themselves, and that
     // read as scrolling up (the bar bounced in and out while the finger scrolled down).
     var lastScroll = window.scrollY, lastInput = 0, touching = false;
+    var SCROLL_REVEAL = 240, SCROLL_HIDE = 12, scrollTravel = 0, scrollTravelAt = 0;
     ['wheel', 'keydown', 'touchmove'].forEach(function (name) {
         window.addEventListener(name, function () { lastInput = Date.now(); }, {passive: true});
     });
@@ -4301,15 +4409,22 @@
     window.addEventListener('scroll', function () {
         var y = window.scrollY, header = document.querySelector('header');
         if (!header) return;
-        var byReader = touching || Date.now() - lastInput < 800;
-        if (!byReader && y > header.offsetHeight) { lastScroll = y; return; }
-        var down = y > lastScroll + 4, up = y < lastScroll - 12;
-        if (down && y > header.offsetHeight && document.activeElement !== $('query')) {
-            if (!header.classList.contains('away')) { closeTags(); header.classList.add('away'); }
-        } else if (up || y <= header.offsetHeight) {
-            header.classList.remove('away');
+        var byReader = touching || Date.now() - lastInput < 800, delta = y - lastScroll;
+        if (y <= header.offsetHeight) { lastScroll = y; scrollTravel = 0; header.classList.remove('away'); return; }
+        if (!byReader) { lastScroll = y; scrollTravel = 0; return; }
+        if (Math.abs(delta) < 2) return;
+        lastScroll = y;
+        var now = Date.now();
+        // Small corrections separated by a pause are not one gesture.
+        if (now - scrollTravelAt > 400 || (delta < 0) !== (scrollTravel < 0)) scrollTravel = 0;
+        scrollTravelAt = now;
+        scrollTravel += delta;
+        if (scrollTravel < -SCROLL_REVEAL) header.classList.remove('away');
+        else if (scrollTravel > SCROLL_HIDE && document.activeElement !== $('query') && !header.classList.contains('away')) {
+            closeTags();
+            closeMenu();
+            header.classList.add('away');
         }
-        if (down || up) lastScroll = y;
     }, {passive: true});
 
     // Pulled down past the top (a finger, or the wheel turned on up at the top): the cards in the full order
@@ -4445,6 +4560,8 @@
         // The picked NovelDB sources' page of books is in (their cards came through add()).
         // The app's theme: {dark, bg, panel, ink, ink2, line, accent, accentInk, chip} as #rrggbb (null: the page's own).
         theme: function (colors) { setAppTheme(colors); },
+        // The app's section menu beside Sites: {on, cart} (the mobile apps, on a wide screen).
+        sections: function (state) { return showSections(state); },
         ndbTags: function (names) {
             ndbTagNames = Array.isArray(names) ? names.filter(function (n) { return typeof n === 'string' && n; }) : [];
             if ($('tagmenu').classList.contains('open')) drawTags();
@@ -4583,6 +4700,7 @@
         back: function () {
             var modal = Array.from(document.querySelectorAll('dialog[open]')).pop();
             if (modal) { modal.close(); return true; }
+            if (closeMenu()) return true;
             if ($('toc').classList.contains('open')) { $('toc').classList.remove('open'); return true; }
             if ($('reader').classList.contains('open')) {
                 if (R.full) setFull(false); else closeReader();
