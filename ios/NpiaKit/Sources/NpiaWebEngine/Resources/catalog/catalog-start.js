@@ -7588,26 +7588,53 @@ window.NovelDBTopStart = {
             }), select);
         }, true);
     }
-    // The app's sections (Catalog, Add links) as a menu beside Sites: a wide screen has no row of its own for them.
-    var sectionCart = 0;
+    // The app's Download panel (Add links and its options), opened beside the Catalog on a wide screen: the
+    // button sits right of Sites, {on, cart, open} from the app.
     function showSections(state) {
-        var on = !!(state && state.on);
-        sectionCart = state && state.cart > 0 ? state.cart | 0 : 0;
+        var on = !!(state && state.on), open = on && !!state.open;
         $('sectionButton').hidden = !on;
-        if (!on && menuAnchor === $('sectionButton')) closeMenu();
+        $('sectionButton').classList.toggle('open', open);
+        $('sectionButton').setAttribute('aria-pressed', open ? 'true' : 'false');
+        $('sectionCount').textContent = state && state.cart > 0 ? String(state.cart | 0) : '';
         return true;
     }
     $('sectionButton').addEventListener('click', function (event) {
         event.stopPropagation();
-        if (menuAnchor === $('sectionButton')) { closeMenu(); return; }
-        $('sitespanel').classList.remove('open');
-        $('settingspanel').classList.remove('open');
-        openMenu($('sectionButton'), [
-            {label: 'Catalog', icon: 'icon-mining.webp', on: true, pick: function () {}},
-            {label: 'Add links', icon: 'icon-cart.webp', badge: sectionCart ? String(sectionCart) : '', on: false,
-                pick: function () { send({type: 'genericSection', section: 'add'}); }}
-        ]);
+        send({type: 'genericSection', section: 'toggle'});
     });
+    // The pin, Sites and Download buttons sit right of the status text. A folded phone's second search row
+    // has room to spare, so there they end that row instead (the status line stays one line of text); a
+    // narrower phone's rows are full.
+    var narrowBar = window.matchMedia('(min-width: 521px) and (max-width: 600px)');
+    function placeBarButtons() {
+        var buttons = document.querySelector('.statusbuttons'), home = narrowBar.matches ? $('form') : document.querySelector('.statusline');
+        if (buttons.parentNode !== home) home.appendChild(buttons);
+    }
+    if (narrowBar.addEventListener) narrowBar.addEventListener('change', placeBarButtons); else narrowBar.addListener(placeBarButtons);
+    placeBarButtons();
+    // The pin: the search bar no longer slides away while the results scroll (kept between visits).
+    var PIN_KEY = 'noveldb.generic.pinBar', barPinned = store(PIN_KEY) === true;
+    function showPin() {
+        $('pinButton').classList.toggle('on', barPinned);
+        $('pinButton').setAttribute('aria-pressed', barPinned ? 'true' : 'false');
+        $('pinButton').title = barPinned ? 'The search bar stays while scrolling (tap to let it hide)' : 'Keep the search bar while scrolling';
+        if (barPinned) document.querySelector('header').classList.remove('away');
+    }
+    $('pinButton').addEventListener('click', function (event) {
+        event.stopPropagation();
+        barPinned = !barPinned;
+        store(PIN_KEY, barPinned);
+        showPin();
+    });
+    showPin();
+    // The search box holds the bar only while it is being used (tapped or typed in): the focus the page
+    // gives it when it opens does not.
+    var queryInUse = false;
+    ['pointerdown', 'keydown', 'input'].forEach(function (name) {
+        $('query').addEventListener(name, function () { queryInUse = true; });
+    });
+    $('query').addEventListener('blur', function () { queryInUse = false; });
+    $('form').addEventListener('submit', function () { queryInUse = false; });
     $('settingsButton').addEventListener('click', function (event) {
         event.stopPropagation();
         $('sitespanel').classList.remove('open');
@@ -10423,7 +10450,7 @@ window.NovelDBTopStart = {
     // The search bar slides away while the results scroll down (its tag menu closed with it) and comes
     // back at the top, or on a deliberate scroll up, as NovelDB's site does it (mobile-feed.js): 240 px
     // of one upward gesture (a pause or a turn starts the count again). Never away while the search box
-    // has the focus.
+    // is in use, or the bar is pinned.
     // Only a scroll the reader makes moves it: cards coming in above shift the page by themselves, and that
     // read as scrolling up (the bar bounced in and out while the finger scrolled down).
     var lastScroll = window.scrollY, lastInput = 0, touching = false;
@@ -10447,7 +10474,8 @@ window.NovelDBTopStart = {
         scrollTravelAt = now;
         scrollTravel += delta;
         if (scrollTravel < -SCROLL_REVEAL) header.classList.remove('away');
-        else if (scrollTravel > SCROLL_HIDE && document.activeElement !== $('query') && !header.classList.contains('away')) {
+        else if (scrollTravel > SCROLL_HIDE && !barPinned && !(queryInUse && document.activeElement === $('query'))
+                && !header.classList.contains('away')) {
             closeTags();
             closeMenu();
             header.classList.add('away');
@@ -10587,7 +10615,7 @@ window.NovelDBTopStart = {
         // The picked NovelDB sources' page of books is in (their cards came through add()).
         // The app's theme: {dark, bg, panel, ink, ink2, line, accent, accentInk, chip} as #rrggbb (null: the page's own).
         theme: function (colors) { setAppTheme(colors); },
-        // The app's section menu beside Sites: {on, cart} (the mobile apps, on a wide screen).
+        // The app's Download panel button beside Sites: {on, cart, open} (the mobile apps, on a wide screen).
         sections: function (state) { return showSections(state); },
         ndbTags: function (names) {
             ndbTagNames = Array.isArray(names) ? names.filter(function (n) { return typeof n === 'string' && n; }) : [];

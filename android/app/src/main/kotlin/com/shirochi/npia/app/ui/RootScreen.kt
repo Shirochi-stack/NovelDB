@@ -9,11 +9,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -34,17 +34,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -103,11 +104,13 @@ fun RootScreen(model: AppViewModel) {
     var lastDownloadTab by remember { mutableStateOf(Tab.CATALOG) }
     if (model.tab in DOWNLOAD_TABS) lastDownloadTab = model.tab
     val downloadHome = route == null && model.tab in DOWNLOAD_TABS
-    // Unfolded (or a tablet): the Catalog / Add links switch gives its row up and becomes a menu, in the
-    // Catalog page beside Sites and in Add links' own header.
-    val wide = LocalConfiguration.current.screenWidthDp >= WIDE_SCREEN_DP
-    val menuInPage = wide && downloadHome && model.tab == Tab.CATALOG && catalog.genericShown && catalog.error == null
-    LaunchedEffect(wide, cart.size) { catalog.setSections(wide, cart.size) }
+    // Unfolded (or a tablet): the Catalog / Add links switch gives its row up. The Catalog stays on screen and
+    // Add links opens beside it as a panel, from the Download button the Catalog page shows right of Sites.
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    val wide = screenWidth >= WIDE_SCREEN_DP
+    val split = wide && downloadHome && catalog.genericShown && catalog.error == null
+    val panelOpen = split && model.tab == Tab.ADD
+    LaunchedEffect(wide, cart.size, panelOpen) { catalog.setSections(wide, cart.size, panelOpen) }
 
     LaunchedEffect(Unit) {
         manager.messages.collect { snackbar.showSnackbar(it) }
@@ -142,11 +145,9 @@ fun RootScreen(model: AppViewModel) {
             // The Download tab's own header is its Catalog / Add links switch.
             if (readerFull) {
                 // none: the reader has the whole screen
-            } else if (menuInPage) {
-                // The page's own search bar is the header; its section menu sits beside Sites.
+            } else if (split) {
+                // The page's own search bar is the header; its Download button sits beside Sites.
                 Surface(color = MaterialTheme.colorScheme.background) { Spacer(Modifier.fillMaxWidth().statusBarsPadding()) }
-            } else if (downloadHome && wide && model.tab == Tab.ADD) {
-                SectionMenuBar(model.tab, cart.size, onSelect = { model.select(it) })
             } else if (downloadHome) {
                 DownloadSwitch(model.tab, onSelect = { model.select(it) }, actions = if (model.tab == Tab.CATALOG) topBar.actions else null)
             } else TopAppBar(
@@ -199,7 +200,21 @@ fun RootScreen(model: AppViewModel) {
                 .fillMaxSize()
                 .pointerInput(focusManager) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
         ) {
-            when (route) {
+            if (split) {
+                Row(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxHeight()) { CatalogScreen(catalog, model, topBar) }
+                    AnimatedVisibility(panelOpen, enter = fadeIn() + expandHorizontally(), exit = fadeOut() + shrinkHorizontally()) {
+                        DownloadPanel(
+                            width = (screenWidth * 0.42f).dp.coerceIn(320.dp, 460.dp),
+                            onClose = { model.select(Tab.CATALOG) },
+                        ) {
+                            saveableState.SaveableStateProvider("add") { AddScreen(model, onQueued = { model.openQueue() }) }
+                        }
+                    }
+                }
+                // Back closes the panel before it does anything in the Catalog.
+                BackHandler(enabled = panelOpen) { model.select(Tab.CATALOG) }
+            } else when (route) {
                 null -> when (model.tab) {
                     Tab.ADD -> saveableState.SaveableStateProvider("add") {
                         AddScreen(model, onQueued = { model.openQueue() })
@@ -262,62 +277,24 @@ private val DOWNLOAD_SECTIONS = listOf(
 )
 
 /**
- * The Download tab's header on a wide screen: the section's name, and the Catalog / Add links menu as
- * one pill at the right (the Catalog page draws the same pill beside its Sites button).
+ * Add links beside the Catalog on a wide screen: the Download panel the Catalog page's Download button
+ * opens and closes, in well under half of the screen.
  */
 @Composable
-private fun SectionMenuBar(tab: Tab, cart: Int, onSelect: (Tab) -> Unit) {
-    val current = DOWNLOAD_SECTIONS.first { it.first == tab }
-    var open by remember { mutableStateOf(false) }
-    Surface(color = MaterialTheme.colorScheme.surface) {
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(current.second, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), maxLines = 1)
-            Box {
-                Row(
-                    Modifier.height(40.dp).clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(20.dp))
-                        .clickable(role = Role.Button, onClickLabel = "Catalog or Add links") { open = true }
-                        .padding(start = 8.dp, end = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Image(painterResource(current.third), contentDescription = null, modifier = Modifier.size(28.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "${current.second} ▾",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        maxLines = 1,
-                    )
-                }
-                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                    DOWNLOAD_SECTIONS.forEach { (option, label, art) ->
-                        val on = option == tab
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    label,
-                                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                )
-                            },
-                            leadingIcon = { Image(painterResource(art), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                            trailingIcon = {
-                                if (on) Text("✓", color = MaterialTheme.colorScheme.primary)
-                                else if (option == Tab.ADD && cart > 0) Badge { Text("$cart") }
-                            },
-                            onClick = {
-                                open = false
-                                if (!on) onSelect(option)
-                            },
-                        )
-                    }
-                }
+private fun DownloadPanel(width: Dp, onClose: () -> Unit, content: @Composable () -> Unit) {
+    Row(Modifier.width(width).fillMaxHeight()) {
+        Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Image(painterResource(R.drawable.halgakos_cart), contentDescription = null, modifier = Modifier.size(30.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Download", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close the Download panel") }
             }
+            Box(Modifier.fillMaxSize()) { content() }
         }
     }
 }

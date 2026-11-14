@@ -400,11 +400,11 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
         showTheme()
     }
 
-    /** The section menu the generic page shows beside Sites: `{on, cart}` (a wide screen has no switch row). */
+    /** The Download panel's button the generic page shows beside Sites: `{on, cart, open}` (a wide screen has no switch row). */
     private var sections = "{\"on\":false}"
 
-    fun setSections(on: Boolean, cart: Int) {
-        sections = buildJsonObject { put("on", on); put("cart", cart) }.toString()
+    fun setSections(on: Boolean, cart: Int, open: Boolean) {
+        sections = buildJsonObject { put("on", on); put("cart", cart); put("open", open) }.toString()
         showSections()
     }
 
@@ -492,7 +492,11 @@ class CatalogWeb(private val context: Context, private val model: AppViewModel) 
                         model.manager.message("Added to the queue: ${field("title").ifBlank { url }}")
                     }
                     "genericLogin" -> if (onGenericPage) field("url").takeIf { it.startsWith("http") }?.let { model.openInBrowser(it) }
-                    "genericSection" -> if (onGenericPage && field("section") == "add") model.select(com.shirochi.npia.app.Tab.ADD)
+                    // The page's Download button: the Add links panel beside the Catalog, opened or closed.
+                    "genericSection" -> if (onGenericPage) {
+                        val add = com.shirochi.npia.app.Tab.ADD
+                        model.select(if (model.tab == add) com.shirochi.npia.app.Tab.CATALOG else add)
+                    }
                     "genericFullscreen" -> readerFullScreen = onGenericPage && field("on") == "true"
                     "genericReaderClosed" -> { localFile = null; onReaderClosed?.invoke() }
                 }

@@ -50,6 +50,24 @@
     .pillbutton img { width: 24px; height: 24px; object-fit: contain; }
     .pillbutton.open { background: var(--accent); color: var(--accent-ink); }
     .pillbutton[hidden] { display: none; }
+    .pillbutton .badge { margin-left: 0; }
+    .pillbutton .badge:empty { display: none; }
+    /* The pin: the search bar stays while the results scroll. */
+    .pinbutton { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 34px; height: 34px; padding: 0;
+                 border-radius: 50%; color: var(--ink-2); }
+    .pinbutton svg { display: block; transform: rotate(45deg); transition: transform .15s; }
+    .pinbutton.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .pinbutton.on svg { transform: none; }
+    /* A phone: the same buttons, lower, so the bar stays short. */
+    @media (max-width: 600px) {
+        .statusline { margin-top: 4px; }
+        .statusbuttons { gap: 6px; }
+        .pillbutton { min-height: 28px; padding: 1px 10px 1px 5px; font-size: 12px; gap: 4px; }
+        .pillbutton img { width: 20px; height: 20px; }
+        .pinbutton { width: 28px; height: 28px; }
+        .pinbutton svg { width: 15px; height: 15px; }
+        #progressbar { margin-top: 3px; }
+    }
     /* A menu the page draws itself: the app's section menu, and every drop-down inside the Android app
        (its own pop-up draws broken divider lines). */
     html.ownmenus select { pointer-events: none; }
@@ -414,9 +432,13 @@
         <button id="settingsButton" type="button" title="Catalogue settings">⚙</button>
     </form>
     <div class="statusline"><span id="spinner" class="spinner"></span><span id="status">Searches each site's own search and its genre and tag pages, then reads each book's page for its details.</span>
-        <span class="statusbuttons"><button id="sitesButton" type="button" class="pillbutton" title="The sites searched" style="display:none"><img
-            src="icon-mining.webp" alt="">Sites</button><button id="sectionButton" type="button" class="pillbutton" title="Catalog or Add links"
-            aria-haspopup="menu" hidden><img src="icon-mining.webp" alt="">Catalog ▾</button></span></div>
+        <span class="statusbuttons"><button id="pinButton" type="button" class="pinbutton" title="Keep the search bar while scrolling"
+            aria-label="Keep the search bar while scrolling" aria-pressed="false"><svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path
+            d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" /></svg></button><button
+            id="sitesButton" type="button" class="pillbutton" title="The sites searched"><img
+            src="icon-mining.webp" alt="">Sites</button><button id="sectionButton" type="button" class="pillbutton" title="Add links and download options"
+            aria-pressed="false" hidden><img src="icon-cart.webp" alt="">Download<b class="badge" id="sectionCount"></b></button></span></div>
     <div id="progressbar" role="progressbar" aria-label="Catalogue loading progress"><i></i></div>
     <div id="sitespanel" class="popover"></div>
     <div id="settingspanel" class="popover">
