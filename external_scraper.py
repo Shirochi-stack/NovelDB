@@ -1981,7 +1981,7 @@ class ExternalScraper(SiteEnginesMixin):
             self.log(f"[Android] Could not open {label}: {e}")
             return False
 
-    def _launch_sfc_after_android_boot_async(self, avd_name=None):
+    def _launch_sfc_after_android_boot_async(self, avd_name=None, package=None, label=None):
         def run():
             if self._android_wait_for_device(timeout=240):
                 serial = ""
@@ -1991,8 +1991,8 @@ class ExternalScraper(SiteEnginesMixin):
                             serial = item_serial
                             break
                 self._launch_android_package(
-                    "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
-                    "SFC",
+                    package or "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
+                    label if package else "SFC",
                     serial=serial or None,
                 )
 
@@ -2242,8 +2242,12 @@ class ExternalScraper(SiteEnginesMixin):
         except Exception:
             return []
 
-    def open_android_emulator(self, avd_name=None):
-        """Launch an Android emulator so the user can log in to the app."""
+    def open_android_emulator(self, avd_name=None, package=None, label=None):
+        """Launch an Android emulator so the user can log in to the app.
+
+        `package` (with its `label` for the log) is the app to open there once it has booted: sfc's by
+        default. With one given, NovelDB's own emulator is preferred, and it must be a rootable image: a
+        signed-in app's session is read from its private files."""
         self.log("[Android] Checking the Android emulator and AVDs...")
         emulator = self._emulator_path()
         if not emulator:
@@ -2284,6 +2288,9 @@ class ExternalScraper(SiteEnginesMixin):
         # Prefer an sfc/rootable AVD (its session can be imported), then a Play Store one, then any.
         avd_name = (
             avd_name
+            # Another app than sfc's: NovelDB's own emulator, when there is one.
+            or next((name for name in valid if package and any(hint in name.lower() for hint in ("noveldb", "npia"))
+                     and "play" not in name.lower()), "")
             or next((name for name in valid if any(hint in name.lower() for hint in ("sfc", "syfe", "poc"))), "")
             or next((name for name in valid if "play" in name.lower()), "")
             or (valid[0] if valid else "")
@@ -2308,7 +2315,7 @@ class ExternalScraper(SiteEnginesMixin):
                     "[Android] Then click Enter App > Open Android again."
                 )
                 return False
-        if "play" not in avd_name.lower():
+        if "play" not in avd_name.lower() and not package:
             self.log(
                 "[Android] Using rootable AVD for SFC import. "
                 "Facebook/SFC must be installed there."
@@ -2320,8 +2327,8 @@ class ExternalScraper(SiteEnginesMixin):
                 f"({running_serial}); reusing it."
             )
             self._launch_android_package(
-                "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
-                "SFC",
+                package or "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
+                label if package else "SFC",
                 serial=running_serial,
             )
             return True
@@ -2356,11 +2363,37 @@ class ExternalScraper(SiteEnginesMixin):
                 cwd=os.path.dirname(emulator),
                 env=launch_env,
             )
-            self._launch_sfc_after_android_boot_async(avd_name)
+            self._launch_sfc_after_android_boot_async(avd_name, package=package, label=label)
             return True
         except Exception as e:
             self.log(f"[Android] Could not launch emulator: {e}")
             return False
+
+    # The ac.qq comics app: chapters its site keeps for the app are read with the session of an account signed
+    # in to it on the emulator (as sfc's are).
+    ACQQ_ANDROID_PACKAGE = "com.qq.ac.android"
+    ACQQ_ANDROID_LABEL = "the ac.qq comics app"
+
+    def _android_has_package(self, package, serial):
+        try:
+            listed = self._adb("shell", "pm", "list", "packages", package, timeout=20, serial=serial)
+        except Exception:
+            return False
+        return f"package:{package}" in (listed.stdout or "").split()
+
+    def open_android_emulator_for_acqq(self):
+        """Opens the emulator with the ac.qq comics app, for the user to sign in to it there.
+
+        A running emulator that has the app is used as it is; otherwise NovelDB's own emulator is started
+        (a rootable one) and the app opened once it has booted. True when an emulator is up or starting;
+        the log says when the app is not installed there."""
+        package, label = self.ACQQ_ANDROID_PACKAGE, self.ACQQ_ANDROID_LABEL
+        for serial, name in self._android_devices():
+            if self._android_has_package(package, serial):
+                self.log(f"[Android] {name or serial} has {label}; opening it there.")
+                self._launch_android_package(package, label, serial=serial)
+                return True
+        return self.open_android_emulator(package=package, label=label)
 
     def restore_android_play_avd(self):
         """Restore a Play Store AVD ramdisk if rootAVD made it unbootable."""

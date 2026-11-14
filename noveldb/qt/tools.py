@@ -1,4 +1,4 @@
-"""Download page tools: tag search, batch files, Enter Browser, the sfc app session, folders."""
+"""Download page tools: tag search, batch files, Enter Browser, the sfc and ac.qq app emulator, folders."""
 
 from __future__ import annotations
 
@@ -37,6 +37,8 @@ TOOLS = (
     ("sfc_android_import", "Import the sfc session from the emulator"),
     ("sfc_copy", "Copy the sfc app cookie (to paste on the phone)"),
     ("-", ""),
+    ("acqq_android_open", "Open the Android emulator (ac.qq comics app)"),
+    ("-", ""),
     ("cache_folder", "Open the cache folder"),
     ("downloads_folder", "Open the downloads folder"),
 )
@@ -46,7 +48,7 @@ def available(tool: str) -> tuple[bool, str]:
     """(enabled, reason when not) for a tool in this build and OS."""
     if tool == "enter_browser" and not features.has_playwright():
         return False, "Enter Browser needs the Full build (bundled browser)."
-    if tool.startswith("sfc_android") and sys.platform != "win32":
+    if tool.startswith(("sfc_android", "acqq_android")) and sys.platform != "win32":
         return False, "The emulator tools are Windows only."
     return True, ""
 
@@ -203,6 +205,9 @@ class Tools(QObject):
     def _sfc_android_import(self) -> None:
         self._submit_android("sfc_android_import", lambda scraper: scraper.import_sfc_app_cookie_from_android())
 
+    def _acqq_android_open(self) -> None:
+        self._submit_android("acqq_android_open", lambda scraper: scraper.open_android_emulator_for_acqq())
+
     def _submit_android(self, tool: str, call) -> None:
         # Android emulator setup (sdkmanager downloads, a multi-GB image install, launching the
         # emulator) can run for minutes. Run it on its own thread, never the shared browser worker, so
@@ -249,6 +254,12 @@ class Tools(QObject):
         elif tool == "sfc_android_import":
             text = "sfc app session imported from the emulator." if result else \
                    "No sfc app session found in the emulator. Sign in to the sfc app there first."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
+        elif tool == "acqq_android_open":
+            text = ("Opening the Android emulator. Sign in to the ac.qq comics app there (install it from the "
+                    "site's download page first if the log says it is not installed).") if result else \
+                   "Could not open the Android emulator. See the log."
             self.context.hub.log("", text)
             self.context.hub.message.emit(text)
         elif tool.startswith("sfc"):
