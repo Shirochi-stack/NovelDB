@@ -41,6 +41,7 @@ datas.append((here("noveldb", "core", "catalog", "search_profile.json"), os.path
 for name in ("gm_stubs.js", "bridge.js", "rules-lib.js"):
     datas.append((here(name), "."))
 datas.append((here("noveldb", "core", "engines", "comix-reader.js"), os.path.join("noveldb", "core", "engines")))
+datas.append((here("noveldb", "core", "engines", "userscript-host.js"), os.path.join("noveldb", "core", "engines")))
 for name in ("webtoepub-lib.js", "manifest.json", "LICENSE.md"):  # the WebToEpub engine
     datas.append((here("webtoepub", name), "webtoepub"))
 for folder, names in (("lnreader", ("lnreader-lib.js", "manifest.json", "LICENSE.md")),  # the other rule sets

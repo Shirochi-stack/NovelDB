@@ -581,6 +581,56 @@ class SiteEnginesMixin:
                 return None
         return (result or {}).get("responseText") or None
 
+    def userscript_page(self, url: str, source: str, meta: dict) -> Optional[dict]:
+        """Reads `url` with a userscript running in it: {title, pressed, failed, files: [{name, mime, base64}]}.
+
+        A tab of its own in the downloader's browser (nobody sees it; its logins are the downloader's), the
+        script there from the start of the page with its GM_ functions. The page is scrolled or paged to its
+        end and the script's own buttons pressed (userscript-host.js); each image it saves comes back as it
+        is found. None when the browser could not open the page."""
+        import json as _json
+
+        from noveldb.core.engines import userscript_engine
+
+        lock = self.__dict__.setdefault("_browser_fetch_lock", threading.Lock())
+        with lock:
+            page = None
+            files = []
+            try:
+                context = getattr(self, "_context", None)
+                if context is None:
+                    self.start()
+                    context = getattr(self, "_context", None)
+                page = context.new_page()
+
+                def keep(text):
+                    try:
+                        files.append(_json.loads(text))
+                    except ValueError:
+                        pass
+
+                page.expose_function("__ndbUserscriptFile", keep)
+                install = getattr(self, "_install_bridge_bindings", None)
+                if install is not None:
+                    install(page)  # the script's cross-site requests go through the app
+                page.add_init_script(script=userscript_engine.page_script(source, meta))
+                give_age_cookies(context, url)
+                page.goto(url, wait_until="domcontentloaded", timeout=_BROWSER_FETCH_SECONDS * 1000)
+                result = page.evaluate("window.__NDB_USERSCRIPT ? window.__NDB_USERSCRIPT.run({}) : null") or {}
+                page.wait_for_timeout(300)  # the last image's call
+                files.sort(key=lambda item: item.get("index", 0))
+                return {"title": result.get("title") or "", "pressed": result.get("pressed") or [],
+                        "failed": result.get("failed") or "", "files": files}
+            except Exception as e:
+                self.log(f"  Could not read {url} with the script: {str(e).splitlines()[0][:200]}")
+                return {"files": files} if files else None
+            finally:
+                if page is not None:
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+
     def _browser_fetch(self, url: str) -> Optional[dict]:
         """GET `url` from a browser tab on its site, as a transport result."""
         return self._browser_request({"url": url, "method": "GET"}) if url else None
@@ -791,7 +841,7 @@ class SiteEnginesMixin:
             cached = engines.get(engine)
             if not cached or cached[0] != stamp:
                 engines[engine] = (stamp, custom_engines.load(engine, fetch=self.engine_fetch, log=self.log,
-                                                               render=self.render_html))
+                                                               render=self.render_html, browse=self.userscript_page))
             return engines[engine][1]
         if engine not in engines:
             if engine == ENGINE_LNC:

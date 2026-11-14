@@ -639,6 +639,10 @@ def engine_hint(name: str) -> str:
     found = custom_engines.info(name)
     if not found:
         return "Custom engine (its file is missing)."
+    if found.get("userscript"):
+        if found.get("everywhere"):
+            return "Your userscript, for any site: asked last, after the generic fallback. It reads a link in the hidden browser."
+        return "Your userscript for " + (", ".join(found["sites"]) or "its sites") + ". It reads a link in the hidden browser."
     return "Your engine for " + (", ".join(found["sites"]) if found["sites"] else "the sites it knows") + "."
 
 
@@ -687,16 +691,19 @@ def engines_form(context: AppContext) -> Form:
 
     # Custom engines: a Python file of the user's (noveldb.core.engines.custom_engines has the format).
     add_custom, remove_custom = QPushButton("Add custom engine…"), QPushButton("Remove")
-    add_custom.setToolTip("Import a Python engine, a ZIP with one Python engine, or the Tako Chrome ZIP.")
+    add_custom.setToolTip("Import a Python engine, a ZIP with one Python engine, a userscript (.user.js), or the Tako Chrome ZIP.")
     remove_custom.setToolTip("Remove the selected custom engine.")
 
     def add_engine():
-        path, _ = QFileDialog.getOpenFileName(engines, "Add a custom engine", "", "Engine files (*.py *.zip)")
+        path, _ = QFileDialog.getOpenFileName(engines, "Add a custom engine", "", "Engine files (*.py *.zip *.js)")
         if not path:
             return
         from noveldb.core.engines import custom_engines
         answer = QMessageBox.question(
             engines, "Add a custom engine",
+            ("A userscript runs in NovelDB's own browser on the pages you send it, signed in as you are there, and "
+             "may make requests through NovelDB. Only add one you wrote or trust.\n\nAdd it?")
+            if path.lower().endswith(".js") else
             "A custom engine is Python code that runs inside NovelDB, with NovelDB's access to your files "
             "and logins. Only add one you wrote or trust.\n\nAdd it?")
         if answer != QMessageBox.Yes:
@@ -715,9 +722,14 @@ def engines_form(context: AppContext) -> Form:
         show(context.settings)
         store()  # its place in the order (before the generic fallback) is saved
         found = custom_engines.info(name) or {}
+        note = ""
+        if found.get("everywhere"):
+            note = ("\n\nIt matches every site, so it is asked last, after the generic fallback. To have it read a "
+                    "site first, add a @match line for that site to its header and add it again, or put it "
+                    "above the others with dynamic priority off.")
         QMessageBox.information(engines, "Add a custom engine",
                                 f"Added {found.get('label', name)}"
-                                + (f" for {', '.join(found['sites'])}." if found.get("sites") else "."))
+                                + (f" for {', '.join(found['sites'])}." if found.get("sites") else ".") + note)
 
     def remove_engine():
         item = engines.currentItem()

@@ -28,6 +28,9 @@ browser tab when a site refuses plain requests). The same file runs on Android, 
 
 The engines are named ``custom:<id>`` in the engine order (``<id>`` is the file's name). The file is
 read for its label and sites without running it; it runs when a link asks for it.
+
+A userscript (``.user.js``, or a ``.js`` with a ``==UserScript==`` header) is a custom engine too: its name and
+sites come from its header, and it reads a link in the app's hidden browser (``userscript_engine`` has how).
 """
 
 from __future__ import annotations
@@ -103,7 +106,23 @@ def is_custom(name: str) -> bool:
 
 
 def _path(name: str) -> Path:
-    return folder() / f"{str(name)[len(PREFIX):]}.py"
+    """The engine's file: its Python file, or its userscript."""
+    from noveldb.core.engines import userscript_engine
+
+    stem = str(name)[len(PREFIX):]
+    script = folder() / f"{stem}{userscript_engine.SUFFIX}"
+    return script if script.is_file() else folder() / f"{stem}.py"
+
+
+def _describe_file(path: Path) -> dict:
+    """{label, sites, everywhere} of an engine file of either kind."""
+    from noveldb.core.engines import userscript_engine
+
+    text = path.read_text(encoding="utf-8-sig")
+    if path.name.lower().endswith(userscript_engine.SUFFIX):
+        found = userscript_engine.describe(text)
+        return {"label": found["label"], "sites": found["sites"], "everywhere": found["everywhere"], "userscript": True}
+    return {**describe(text), "everywhere": False, "userscript": False}
 
 
 def describe(source: str) -> dict:
@@ -139,19 +158,25 @@ def describe(source: str) -> dict:
 
 def installed() -> List[dict]:
     """The added engines: [{name, label, sites, path}], by file name; unreadable files are left out."""
-    found = []
+    from noveldb.core.engines import userscript_engine
+
+    found, seen = [], set()
     try:
-        files = sorted(folder().glob("*.py"))
+        files = sorted(folder().glob("*" + userscript_engine.SUFFIX)) + sorted(folder().glob("*.py"))
     except OSError:
         return []
     for path in files:
         try:
-            info = describe(path.read_text(encoding="utf-8"))
+            info = _describe_file(path)
         except (OSError, UnicodeDecodeError, ValueError):
             continue
-        name = PREFIX + path.stem
-        found.append({"name": name, "label": info["label"] or path.stem, "sites": info["sites"], "path": str(path)})
-    return found
+        stem = path.name[: -len(userscript_engine.SUFFIX)] if info["userscript"] else path.stem
+        if stem in seen:
+            continue  # a userscript and a Python file of one name: the userscript (see _path)
+        seen.add(stem)
+        found.append({"name": PREFIX + stem, "label": info["label"] or stem, "sites": info["sites"], "path": str(path),
+                      "everywhere": info["everywhere"], "userscript": info["userscript"]})
+    return sorted(found, key=lambda engine: engine["name"])
 
 
 def names() -> tuple:
@@ -170,6 +195,8 @@ def label(name: str) -> str:
 def add(source_path: str) -> str:
     """Copies an engine file into the custom engines folder; its name (``custom:<id>``). ValueError
     when it is not an engine file. A file of the same name replaces the one there."""
+    from noveldb.core.engines import userscript_engine
+
     path = Path(source_path)
     try:
         stem, text = _archive(path) if path.suffix.lower() == ".zip" else (path.stem, path.read_text(encoding="utf-8-sig"))
@@ -177,9 +204,18 @@ def add(source_path: str) -> str:
         raise ValueError(f"could not read it ({e})") from None
     if stem == "tako" and not text:
         return stem
-    describe(text)
+    script = path.suffix.lower() == ".js"
+    if script:
+        if len(text.encode("utf-8")) > _MAX_SOURCE:
+            raise ValueError("the script exceeds 2 MB")
+        userscript_engine.describe(text)
+        stem = re.sub(r"(?i)\.user$", "", stem)
+    else:
+        describe(text)
     ident = re.sub(r"[^a-z0-9_]+", "_", stem.lower()).strip("_") or "engine"
-    target = folder() / f"{ident}.py"
+    target = folder() / (f"{ident}{userscript_engine.SUFFIX}" if script else f"{ident}.py")
+    # One engine of a name: the other kind's file of the same name goes (its place in the order is this one's).
+    (folder() / (f"{ident}.py" if script else f"{ident}{userscript_engine.SUFFIX}")).unlink(missing_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = NamedTemporaryFile(dir=target.parent, encoding="utf-8", mode="w", delete=False)
     temp = Path(temporary.name)
@@ -207,6 +243,12 @@ def stamp(name: str) -> Optional[float]:
         return _path(name).stat().st_mtime
     except OSError:
         return None
+
+
+def reads_everything(name: str) -> bool:
+    """A userscript that matches every site: it names none, and is asked after the generic fallback."""
+    found = info(name) if is_custom(name) else None
+    return bool(found and found.get("everywhere"))
 
 
 def knows_site(name: str, url: str) -> bool:
@@ -256,9 +298,16 @@ class _Runner:
         return data
 
 
-def load(name: str, fetch: Callable, log: Callable[[str], None], render: Optional[Callable] = None) -> _Runner:
-    """The engine `name`, run from its file (loaded again when the file changes)."""
+def load(name: str, fetch: Callable, log: Callable[[str], None], render: Optional[Callable] = None,
+         browse: Optional[Callable] = None) -> _Runner:
+    """The engine `name`, run from its file (loaded again when the file changes). `browse` runs a userscript
+    in the app's hidden browser (see userscript_engine)."""
+    from noveldb.core.engines import userscript_engine
+
     path = _path(name)
+    if path.name.lower().endswith(userscript_engine.SUFFIX):
+        engine = userscript_engine.Engine(path.read_text(encoding="utf-8-sig"), fetch=fetch, log=log, browse=browse)
+        return _Runner(name, engine, engine.sites)
     mtime = path.stat().st_mtime
     cached = _loaded.get(name)
     if cached and cached[0] == mtime:
