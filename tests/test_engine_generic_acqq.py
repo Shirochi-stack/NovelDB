@@ -135,3 +135,16 @@ def test_a_sold_chapter_is_reported_as_locked_so_the_downloader_does_not_retry_i
     with pytest.raises(g.SoldChapter) as caught:
         g.acqq_images(g.acqq_page(page("chapter_paid.html")))
     assert caught.value.locked is True
+
+
+def test_folder_and_cbz_outputs_find_a_comics_pages_in_its_text():
+    from noveldb.core.external.pipeline import ExternalPipelineMixin
+
+    pages = ExternalPipelineMixin._chapter_images
+    comic = {"comic": True, "images": [], "contentText": "",
+             "contentHtml": '<p><img src="https://img.test/a.jpg/0" alt=""/></p><p><img src="https://img.test/b.png?x=1&amp;y=2" alt=""/></p>'}
+    assert pages(comic) == [{"url": "https://img.test/a.jpg/0"}, {"url": "https://img.test/b.png?x=1&y=2"}]
+    # A chapter with its own image list keeps it; a chapter of text with a picture in it stays text.
+    assert pages({"images": [{"url": "https://img.test/c.jpg"}], "contentHtml": '<img src="https://img.test/a.jpg">'}) == [
+        {"url": "https://img.test/c.jpg"}]
+    assert pages({"contentText": "Once upon a time", "contentHtml": '<p>Once upon a time</p><img src="https://img.test/a.jpg">'}) == []

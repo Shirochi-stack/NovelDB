@@ -1550,6 +1550,22 @@ class ExternalPipelineMixin:
                 else:
                     self._generate_epub(title, author)
 
+    @staticmethod
+    def _chapter_images(chapter):
+        """A chapter's images: its list, else a comic's pages as its text has them. The generic engine's comics
+        come as <img> tags only, which the Folder and CBZ outputs (they write the list) found no pages in."""
+        images = chapter.get("images") or []
+        if images or not (chapter.get("comic") or not (chapter.get("contentText") or "").strip()):
+            return images
+        pages = []
+        for source in re.findall(r'<img\b[^>]*\bsrc="([^"]+)"', chapter.get("contentHtml") or ""):
+            source = html.unescape(source).strip()
+            if source.startswith("data:"):
+                pages.append({"data": source})
+            elif source.startswith(("http://", "https://")):
+                pages.append({"url": source})
+        return pages
+
     def _folder_options(self):
         links = getattr(self, "_var_save_image_urls_only", None)
         links_only = bool(links and links.get())
@@ -1573,7 +1589,7 @@ class ExternalPipelineMixin:
         number = ExternalPipelineMixin._result_chapter_number(self, index, chapter)
         name = chapter.get("chapterName") or f"Chapter {number}"
         text = chapter_text(chapter.get("contentHtml") or "")
-        if not text and not chapter.get("images"):
+        if not text and not ExternalPipelineMixin._chapter_images(chapter):
             text = (chapter.get("contentText") or "").strip()
         action = "Stitching" if height is not None and len(pages) > 1 else "Writing"
         self._log(f"  {action} chapter {number}: {name} ({len(pages)} image(s) ready)")
@@ -1667,7 +1683,7 @@ class ExternalPipelineMixin:
                         continue
                     number = ExternalPipelineMixin._result_chapter_number(self, index, chapter)
                     name = chapter.get("chapterName") or f"Chapter {number}"
-                    images = chapter.get("images") or []
+                    images = ExternalPipelineMixin._chapter_images(chapter)
                     links = [html.unescape(img["url"]) for img in images if img.get("url")] if links_only else []
                     image_items = list(enumerate(images, 1))
                     missing = sum(1 for position, info in image_items
@@ -1934,7 +1950,7 @@ class ExternalPipelineMixin:
                         'chapterName', f'Chapter {chapter_number}'
                     )
                     safe_ch = _sanitize_filename(ch_name)
-                    images = ch_data.get('images') or []
+                    images = ExternalPipelineMixin._chapter_images(ch_data)
                     if not images:
                         self._log(
                             f"  Skipping CBZ chapter {chapter_number}: "
@@ -2565,7 +2581,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                                 f'../Images/{img_name}'
                             )
                     if (on_chapter_ready is not None and len(image_results) == len(image_items)
-                            and all(image_results.values())):
+                            and all(image_results.values())
+                            and (image_items or not ExternalPipelineMixin._chapter_images(ch_data))):
                         prepared = []
                         for position, result in sorted(image_results.items()):
                             page = result["panel"] or result["raw"]

@@ -315,3 +315,27 @@ def test_kpage_image_lookahead_reuses_saved_bytes():
     finally:
         release.set()
         lookahead.close()
+
+
+@pytest.mark.parametrize("initial_format", ["epub", "cbz", None])
+def test_a_comic_whose_pages_are_in_its_text_reaches_folder_and_zip(tmp_path, initial_format):
+    # The generic engine's comics: <img> tags in the chapter, no image list. Folder and CBZ wrote nothing.
+    settings = AppSettings()
+    job = ExternalJob("https://example.test/book", replace(settings, images=replace(settings.images, compress=False)),
+                      output_dir=str(tmp_path))
+    pages = {f"https://example.test/{name}.png/0": panel(name)[1] for name in ("red", "blue")}
+    job._book_data = {"bookname": "Book"}
+    job._chapter_results = [{"chapterName": "Episode", "comic": True, "images": [], "contentText": "", "imageCount": 2,
+                             "contentHtml": "".join(f'<p><img src="{url}" alt=""/></p>' for url in pages)}]
+    job._download_image_python = lambda address, *_args, **_kwargs: pages[address]
+    job._try_cover_from_images = lambda *_args: False
+    formats = (initial_format, "folder", "zip") if initial_format else ("folder", "zip")
+    job._generate_formats(job._book_data, formats, "Book", "Author")
+
+    files = sorted((tmp_path / "Book.folder").iterdir())
+    assert [file.read_bytes() for file in files] == list(pages.values())
+    with ZipFile(tmp_path / "Book.zip") as archive:
+        assert archive.namelist() == [file.name for file in files]
+    if initial_format == "cbz":
+        with ZipFile(tmp_path / "Book.cbz") as archive:
+            assert sum(name.endswith(".png") for name in archive.namelist()) == 2
