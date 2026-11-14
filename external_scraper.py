@@ -4585,6 +4585,25 @@ class ExternalScraper(SiteEnginesMixin):
         ))
 
     @staticmethod
+    def book_page_url(url):
+        """A book's own page for a link to its chapter list or to one chapter.
+
+        69shuba.com (and .cx) keep a book at ``/book/<id>.htm``, its chapter
+        list at ``/book/<id>/`` and chapters at ``/txt/<id>/<chapter>``. The
+        site's rules read the book page only: on the other two they found
+        nothing, and the fallbacks were refused by the site.
+        """
+        match = re.match(
+            r'^(https?://(?:www\.)?69shuba\.(?:com|cx))/'
+            r'(?:book/(\d+)(?:/(?:index\.html?)?)?|txt/(\d+)/\d+/?)'
+            r'(?:[?#].*)?$',
+            (url or '').strip(), re.I,
+        )
+        if not match:
+            return url
+        return f'{match.group(1)}/book/{match.group(2) or match.group(3)}.htm'
+
+    @staticmethod
     def is_1qxs(url):
         """Return True for supported 1qxs book, catalog, and reader URLs."""
         try:
@@ -21498,6 +21517,7 @@ async (items) => {
         a book of one chapter or none: the addresses above it are tried, and
         the first with a longer list is the book.
         """
+        url = self.book_page_url(url)
         from noveldb.core import site_optouts
 
         if site_optouts.opted_out(url):

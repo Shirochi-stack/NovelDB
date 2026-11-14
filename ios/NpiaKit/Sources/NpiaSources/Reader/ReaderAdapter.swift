@@ -36,8 +36,22 @@ public struct ReaderAdapter: SourceAdapter {
             context.logger.log(.error, SiteOptOuts.message)
             throw SourceError.siteDisabled
         }
+        let url = Self.bookPageURL(url)
         await AgeChecks.answer(url, cookies: context.web.sessionCookies)
         return try await ReaderSessions.shared.open(url, context: context).book
+    }
+
+    /// A book's own page for a link to its chapter list or to one chapter. 69shuba.com (and .cx) keep a book at
+    /// `/book/<id>.htm`, its list at `/book/<id>/` and chapters at `/txt/<id>/<chapter>`; the site's rules read
+    /// the book page only.
+    static func bookPageURL(_ url: URL) -> URL {
+        let text = url.absoluteString
+        let pattern = #"^(https?://(?:www\.)?69shuba\.(?:com|cx))/(?:book/(\d+)(?:/(?:index\.html?)?)?|txt/(\d+)/\d+/?)(?:[?#].*)?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let origin = Range(match.range(at: 1), in: text) else { return url }
+        let id = [2, 3].compactMap { Range(match.range(at: $0), in: text) }.map { String(text[$0]) }.first ?? ""
+        return URL(string: "\(text[origin])/book/\(id).htm") ?? url
     }
 
     public func parseChapter(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> ChapterResult {

@@ -54,6 +54,7 @@ class ReaderAdapter : SourceAdapter {
     override fun matches(url: String): Boolean = ReaderRules.supports(url) || webToEpubLists(url)
 
     override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
+        val url = bookPageUrl(url)
         // The custom engines only when some were added (their Python page is not started for nothing).
         val steps = context.settings.engines.enabled().filter { it.runsScripts && (it != SiteEngine.CUSTOM || CustomEngines.any()) }
         if (steps.isEmpty()) {
@@ -455,6 +456,22 @@ internal class ReaderBookSession(
 }
 
 /** `reference` resolved against `base`, like `URL(string:relativeTo:)`; `reference` itself when it cannot be resolved. */
+private val SHUBA_PAGE = Regex(
+    "^(https?://(?:www\\.)?69shuba\\.(?:com|cx))/(?:book/(\\d+)(?:/(?:index\\.html?)?)?|txt/(\\d+)/\\d+/?)(?:[?#].*)?$",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * A book's own page for a link to its chapter list or to one chapter. 69shuba.com (and .cx) keep a book at
+ * `/book/<id>.htm`, its list at `/book/<id>/` and chapters at `/txt/<id>/<chapter>`; the site's rules read
+ * the book page only.
+ */
+internal fun bookPageUrl(url: String): String {
+    val match = SHUBA_PAGE.find(url.trim()) ?: return url
+    val id = match.groupValues[2].ifEmpty { match.groupValues[3] }
+    return "${match.groupValues[1]}/book/$id.htm"
+}
+
 internal fun resolveUrl(base: String, reference: String): String =
     runCatching { URL(URL(base), reference).toString() }.getOrDefault(reference)
 

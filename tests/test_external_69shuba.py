@@ -133,3 +133,15 @@ def test_69shuba_missing_chapter_is_rejected():
         {"content": "", "contentMissing": True},
         "Missing",
     ) is None
+
+
+def test_69shuba_com_list_and_chapter_links_become_the_book_page():
+    page = "https://www.69shuba.com/book/37539.htm"
+    for link in ("https://www.69shuba.com/book/37539/", "https://www.69shuba.com/book/37539",
+                 "https://www.69shuba.com/book/37539/index.html", "https://www.69shuba.com/txt/37539/26001730",
+                 page):
+        assert ExternalScraper.book_page_url(link) == page
+    assert ExternalScraper.book_page_url("https://69shuba.cx/book/5/") == "https://69shuba.cx/book/5.htm"
+    # The other 69shuba (.tw) has a scraper of its own, and other sites are left alone.
+    for other in ("https://69shuba.tw/book/380314/", "https://example.com/book/37539/"):
+        assert ExternalScraper.book_page_url(other) == other
