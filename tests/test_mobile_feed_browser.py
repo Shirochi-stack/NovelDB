@@ -136,7 +136,7 @@ def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_p
             assert await page.locator('#sourcePickerMenu').evaluate('menu=>{const r=menu.getBoundingClientRect();return menu.contains(document.elementFromPoint(r.left+15,r.bottom-10));}')
             await page.keyboard.press('Escape')
             await page.screenshot(path='artifacts/mobile-feed-upward-controls.png')
-            await page.evaluate('scrollBy({top:200,behavior:"instant"})')
+            await page.evaluate('scrollBy({top:300,behavior:"instant"})')
             await page.wait_for_function('!document.querySelector(".controls").classList.contains("mobile-controls-floating")')
             # Returning to the beginning restores the original order from disk.
             await page.evaluate('scrollTo({top:0,behavior:"instant"})')

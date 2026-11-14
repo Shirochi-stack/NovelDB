@@ -4422,12 +4422,13 @@
     }, {passive: true});
     // The search bar slides away while the results scroll down (its tag menu closed with it) and comes
     // back at the top, or on a deliberate scroll up, as NovelDB's site does it (mobile-feed.js): 240 px
-    // of one upward gesture (a pause or a turn starts the count again). Never away while the search box
+    // of one upward gesture (a pause or a turn starts the count again). It leaves as deliberately: 240 px of
+    // one downward gesture, not the first few (the site's 12 px took it away on any nudge). Never away while the search box
     // is in use, or the bar is pinned.
     // Only a scroll the reader makes moves it: cards coming in above shift the page by themselves, and that
     // read as scrolling up (the bar bounced in and out while the finger scrolled down).
     var lastScroll = window.scrollY, lastInput = 0, touching = false;
-    var SCROLL_REVEAL = 240, SCROLL_HIDE = 12, scrollTravel = 0, scrollTravelAt = 0;
+    var SCROLL_REVEAL = 240, SCROLL_HIDE = 240, scrollTravel = 0, scrollTravelAt = 0;
     ['wheel', 'keydown', 'touchmove'].forEach(function (name) {
         window.addEventListener(name, function () { lastInput = Date.now(); }, {passive: true});
     });
