@@ -257,8 +257,8 @@ class Tools(QObject):
             self.context.hub.log("", text)
             self.context.hub.message.emit(text)
         elif tool == "acqq_android_open":
-            text = ("Opening the Android emulator. Sign in to the ac.qq comics app there (install it from the "
-                    "site's download page first if the log says it is not installed).") if result else \
+            text = ("Opening the Android emulator with the ac.qq comics app (it is installed there by itself "
+                    "when it is missing). Sign in to the app there.") if result else \
                    "Could not open the Android emulator. See the log."
             self.context.hub.log("", text)
             self.context.hub.message.emit(text)

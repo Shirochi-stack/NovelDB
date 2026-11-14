@@ -1990,7 +1990,7 @@ class ExternalScraper(SiteEnginesMixin):
                         if item_name == avd_name:
                             serial = item_serial
                             break
-                self._launch_android_package(
+                self._android_open_app(
                     package or "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
                     label if package else "SFC",
                     serial=serial or None,
@@ -2326,7 +2326,7 @@ class ExternalScraper(SiteEnginesMixin):
                 f"[Android] {avd_name} is already running "
                 f"({running_serial}); reusing it."
             )
-            self._launch_android_package(
+            self._android_open_app(
                 package or "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
                 label if package else "SFC",
                 serial=running_serial,
@@ -2381,12 +2381,96 @@ class ExternalScraper(SiteEnginesMixin):
             return False
         return f"package:{package}" in (listed.stdout or "").split()
 
+    # Where the comics app comes from when the emulator does not have it: the address the site's own download
+    # page gives an Android phone, on the publisher's hosts only.
+    ACQQ_ANDROID_APK = "http://m.ac.qq.com/apkSet/qqcomic_android_dm2309.apk"
+    ACQQ_ANDROID_HOSTS = (".qq.com",)
+
+    def _android_open_app(self, package, label=None, serial=None):
+        """Opens `package` on the emulator; the ac.qq comics app is installed there first when it is missing."""
+        if package == self.ACQQ_ANDROID_PACKAGE and not self._android_has_package(package, serial):
+            if not self._android_install_acqq(serial):
+                return False
+        return self._launch_android_package(package, label, serial=serial)
+
+    def _acqq_android_apk(self):
+        """The comics app's APK, downloaded once into the cache (None when it could not be fetched)."""
+        import requests
+        from urllib.parse import urlsplit
+
+        from noveldb.core import paths
+
+        folder = paths.cache_dir() / "android"
+        target = folder / "acqq-comics.apk"
+        if target.is_file() and target.stat().st_size > 10_000_000:
+            return target
+        self.log("[Android] Downloading the ac.qq comics app from its site (about 90 MB)...")
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            with requests.get(self.ACQQ_ANDROID_APK, stream=True, timeout=_req_s(60),
+                              headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14) Mobile"}) as answer:
+                answer.raise_for_status()
+                host = (urlsplit(answer.url).hostname or "").lower()
+                if urlsplit(answer.url).scheme != "https" or not host.endswith(self.ACQQ_ANDROID_HOSTS):
+                    self.log(f"[Android] The download was sent to another site ({host}); not installing it.")
+                    return None
+                expected = int(answer.headers.get("Content-Length") or 0)
+                partial = target.with_suffix(".part")
+                size = 0
+                with open(partial, "wb") as out:
+                    for chunk in answer.iter_content(1 << 20):
+                        if self._stop_requested:
+                            return None
+                        out.write(chunk)
+                        size += len(chunk)
+            with open(partial, "rb") as check:
+                signature = check.read(4)
+            if signature != b"PK\x03\x04" or size < 10_000_000 or (expected and size != expected):
+                self.log("[Android] The download is not a complete app file; not installing it.")
+                partial.unlink(missing_ok=True)
+                return None
+            partial.replace(target)
+            return target
+        except Exception as e:
+            self.log(f"[Android] Could not download the ac.qq comics app: {str(e).splitlines()[0][:200]}")
+            return None
+
+    def _android_install_acqq(self, serial):
+        """Installs the comics app on the emulator (kept data stays: it is installed over an older copy)."""
+        try:
+            abis = (self._adb("shell", "getprop", "ro.product.cpu.abilist", timeout=20, serial=serial).stdout or "")
+        except Exception:
+            abis = ""
+        if "arm64-v8a" not in abis:
+            self.log("[Android] This emulator cannot run the ac.qq comics app (it is built for ARM, and this "
+                     "image has no ARM support). Use an Android 11 or later Google APIs image.")
+            return False
+        apk = self._acqq_android_apk()
+        if apk is None:
+            return False
+        self.log("[Android] Installing the ac.qq comics app on the emulator...")
+        try:
+            done = self._adb("install", "-r", str(apk), timeout=600, serial=serial)
+        except Exception as e:
+            self.log(f"[Android] Could not install the ac.qq comics app: {e}")
+            return False
+        if not self._android_has_package(self.ACQQ_ANDROID_PACKAGE, serial):
+            reason = ((done.stdout or "") + (done.stderr or "")).strip().splitlines()
+            self.log("[Android] The ac.qq comics app did not install" + (f": {reason[-1][:200]}" if reason else "."))
+            try:
+                apk.unlink()  # a file the emulator refused is fetched again next time
+            except OSError:
+                pass
+            return False
+        self.log("[Android] The ac.qq comics app is installed.")
+        return True
+
     def open_android_emulator_for_acqq(self):
         """Opens the emulator with the ac.qq comics app, for the user to sign in to it there.
 
         A running emulator that has the app is used as it is; otherwise NovelDB's own emulator is started
-        (a rootable one) and the app opened once it has booted. True when an emulator is up or starting;
-        the log says when the app is not installed there."""
+        (a rootable one), the app installed there when it is missing, and opened once it has booted. True
+        when an emulator is up or starting."""
         package, label = self.ACQQ_ANDROID_PACKAGE, self.ACQQ_ANDROID_LABEL
         for serial, name in self._android_devices():
             if self._android_has_package(package, serial):
