@@ -1703,7 +1703,16 @@ class ExternalPipelineMixin:
                         self._log(f"    {len(pages) - len(available)} image(s) could not be downloaded.")
                     writer.submit(index, self._write_export_chapter, chapter, available, links,
                                   height if len(available) == len(images) else None, subfolders, stitch_compression)
+                # Chapters handed over while an earlier output was prepared may still be in the works: say so
+                # (the log went quiet after "Saved", with the stitching still running).
+                waiting = sum(1 for write in writer.pending if not write.done())
+                if waiting:
+                    self._log(f"  Still {'stitching' if height is not None else 'writing'} "
+                              f"{waiting} chapter{'' if waiting == 1 else 's'} for the "
+                              f"{'Folder and ZIP' if also_zip else output_format.upper() if output_format == 'zip' else 'Folder'} output…")
                 writer.finish()
+                if waiting:
+                    self._log(f"  Chapters {'stitched' if height is not None else 'written'}.")
                 if ExternalPipelineMixin._generation_stopped(self):
                     raise _OutputStopped()
                 if output_format == "zip" or also_zip:

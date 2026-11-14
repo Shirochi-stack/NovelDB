@@ -117,7 +117,7 @@ internal object PythonEngines {
     suspend fun openBook(engine: SiteEngine, module: Module, url: String, context: SourceContext): ReaderBookPayload {
         val version = if (engine == SiteEngine.CUSTOM) {
             // The user's engines: each one decides in the page whether it reads the link.
-            val added = CustomEngines.list()
+            val added = CustomEngines.python()
             if (added.isEmpty()) throw EngineMissException("No custom engines are added.")
             added.joinToString(", ") { it.label }
         } else if (engine in bundled) {
@@ -232,7 +232,7 @@ internal object PythonEngines {
 
     /** The custom engines with their source: the page runs them (and loads one again when its source changes). */
     private fun customEnginesReply(): String = buildJsonObject {
-        put("engines", JsonArray(CustomEngines.list().map { engine ->
+        put("engines", JsonArray(CustomEngines.python().map { engine ->
             buildJsonObject {
                 put("id", engine.id)
                 put("label", engine.label)

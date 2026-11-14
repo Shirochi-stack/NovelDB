@@ -21576,10 +21576,10 @@ async (items) => {
             if ENGINE_LNR in order and urllib.parse.urlsplit(url).hostname in ('scribblehub.com', 'www.scribblehub.com'):
                 order = [ENGINE_LNR] + [engine for engine in order if engine != ENGINE_LNR]
             # Dynamic priority: skip the engines that don't list this site; the generic fallback stays.
-            listed = [e for e in order if e == ENGINE_GENERIC or self._engine_knows_site(e, url)]
-            # A userscript that matches every site names none: it is asked last, after the generic fallback.
-            last = [e for e in order if e not in listed and custom_engines.reads_everything(e)]
-            listed += last
+            # A userscript that matches every site names none, like the generic fallback: it is asked where it
+            # stands in the order (it is added below the fallback; above it, it reads a link before the fallback).
+            listed = [e for e in order if e == ENGINE_GENERIC or self._engine_knows_site(e, url)
+                      or custom_engines.reads_everything(e)]
             skipped = [e for e in order if e not in listed]
             if skipped and listed:
                 self.log("Dynamic priority: trying " + ", ".join(engine_label(e) for e in listed)

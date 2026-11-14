@@ -59,9 +59,18 @@ def _custom_engines() -> tuple[str, ...]:
         return ()
 
 
+def _reads_everything(name: str) -> bool:
+    try:
+        from noveldb.core.engines import custom_engines
+        return custom_engines.reads_everything(name)
+    except Exception:
+        return False
+
+
 def engine_order(order, disabled=()) -> tuple[str, ...]:
     """Known engines in the given order (missing ones appended; a custom engine not placed yet goes just
-    before the generic fallback), minus the switched-off ones."""
+    before the generic fallback, and a userscript that matches every site after it: it would read every
+    link before the fallback otherwise), minus the switched-off ones."""
     custom = _custom_engines()
     known = set(SITE_ENGINES) | set(custom)
     seen = []
@@ -74,7 +83,7 @@ def engine_order(order, disabled=()) -> tuple[str, ...]:
             seen.insert(seen.index(ENGINE_HN), engine)
     for name in custom:
         if name not in seen:
-            seen.insert(seen.index(ENGINE_GENERIC) if ENGINE_GENERIC in seen else len(seen), name)
+            seen.insert(seen.index(ENGINE_GENERIC) if ENGINE_GENERIC in seen and not _reads_everything(name) else len(seen), name)
     return tuple(name for name in seen if name not in set(disabled or ()))
 
 

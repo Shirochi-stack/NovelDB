@@ -641,7 +641,8 @@ def engine_hint(name: str) -> str:
         return "Custom engine (its file is missing)."
     if found.get("userscript"):
         if found.get("everywhere"):
-            return "Your userscript, for any site: asked last, after the generic fallback. It reads a link in the hidden browser."
+            return ("Your userscript, for any site: it reads a link in the hidden browser when its turn comes. "
+                    "Above the generic fallback, it reads links before the fallback does.")
         return "Your userscript for " + (", ".join(found["sites"]) or "its sites") + ". It reads a link in the hidden browser."
     return "Your engine for " + (", ".join(found["sites"]) if found["sites"] else "the sites it knows") + "."
 
@@ -724,9 +725,8 @@ def engines_form(context: AppContext) -> Form:
         found = custom_engines.info(name) or {}
         note = ""
         if found.get("everywhere"):
-            note = ("\n\nIt matches every site, so it is asked last, after the generic fallback. To have it read a "
-                    "site first, add a @match line for that site to its header and add it again, or put it "
-                    "above the others with dynamic priority off.")
+            note = ("\n\nIt matches every site, so it was put below the generic fallback: it reads a link only when "
+                    "nothing above it does. Drag it above the generic fallback to have it read links first.")
         QMessageBox.information(engines, "Add a custom engine",
                                 f"Added {found.get('label', name)}"
                                 + (f" for {', '.join(found['sites'])}." if found.get("sites") else ".") + note)

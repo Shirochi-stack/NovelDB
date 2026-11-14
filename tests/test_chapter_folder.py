@@ -354,3 +354,33 @@ def test_a_comic_whose_pages_are_in_its_text_reaches_folder_and_zip(tmp_path, in
     if initial_format == "cbz":
         with ZipFile(tmp_path / "Book.cbz") as archive:
             assert sum(name.endswith(".png") for name in archive.namelist()) == 2
+
+
+def test_the_log_says_when_stitching_is_still_running_after_the_epub_is_saved(tmp_path, monkeypatch):
+    import time
+
+    from noveldb.core import chapter_folder
+
+    settings = AppSettings()
+    images = replace(settings.images, compress=False, webtoon_export=True, stitch_height=1_500)
+    job = ExternalJob("https://example.test/book", replace(settings, images=images), output_dir=str(tmp_path))
+    job._book_data = {"bookname": "Book"}
+    job._chapter_results = [{"chapterName": "Episode", "images": [
+        {"url": f"https://example.test/{page}.png", "name": f"{page}.png"} for page in (1, 2, 3)]}]
+    page = panel("blue", height=700)[1]
+
+    def slow_write(stage, number, title, text, pages, links, **options):
+        time.sleep(1.0)  # still stitching when the EPUB has been written
+        return write_chapter(stage, number, title, text, pages, links, **options)
+
+    monkeypatch.setattr(chapter_folder, "write_chapter", slow_write)
+    job._download_image_python = lambda *_args, **_kwargs: page
+    job._try_cover_from_images = lambda *_args: False
+    job._generate_formats(job._book_data, ("epub", "folder", "zip"), "Book", "Author")
+
+    messages = [str(message) for kind, message in job._msg_queue.messages if kind == "log"]
+    saved = next(i for i, message in enumerate(messages) if "Saved:" in message and message.endswith(".epub"))
+    still = next(i for i, message in enumerate(messages) if "Still stitching 1 chapter for the Folder and ZIP output" in message)
+    done = next(i for i, message in enumerate(messages) if "Chapters stitched." in message)
+    assert saved < still < done
+    assert (tmp_path / "Book.folder").is_dir() and (tmp_path / "Book.zip").is_file()

@@ -22,6 +22,8 @@ TARGETS = [
     ROOT / "ios" / "NpiaKit" / "Sources" / "NpiaWebEngine" / "Resources" / "catalog",
 ]
 COMIX_SCRIPT = ROOT / "noveldb" / "core" / "engines" / "comix-reader.js"
+# What the apps put around a userscript engine (a .user.js added as a custom engine).
+USERSCRIPT_HOST = ROOT / "noveldb" / "core" / "engines" / "userscript-host.js"
 READER_TARGETS = [
     ROOT / "android" / "sources" / "src" / "main" / "resources" / "com" / "shirochi" / "npia" / "sources" / "reader",
     ROOT / "ios" / "NpiaKit" / "Sources" / "NpiaSources" / "Reader" / "Resources",
@@ -118,6 +120,7 @@ def main() -> int:
     comix = COMIX_SCRIPT.read_bytes().replace(b"\r\n", b"\n")
     for target in READER_TARGETS:
         outputs[target / "comix" / COMIX_SCRIPT.name] = comix
+        outputs[target / "userscript" / USERSCRIPT_HOST.name] = USERSCRIPT_HOST.read_bytes().replace(b"\r\n", b"\n")
         outputs[target / "generic" / "generic-lib.js"] = files["generic-lib.js"]
         for name in ("lnreader-lib.js", "manifest.json", "LICENSE.md"):
             outputs[target / "lnreader" / name] = (ROOT / "lnreader" / name).read_bytes().replace(b"\r\n", b"\n")

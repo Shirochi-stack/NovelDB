@@ -14,8 +14,9 @@ sites, as a userscript manager reads it::
     // @match  *://reader.example.com/*
     // ==/UserScript==
 
-A script that matches every site names none: it is asked last, after the generic fallback (it would answer for
-every link otherwise). ``@match`` lines for the sites it should read put it ahead, as for any custom engine.
+A script that matches every site names none. Like the generic fallback, it is asked where it stands in the
+engine order: it is added below the fallback (it would answer for every link otherwise), and reads links
+before the fallback once it is dragged above it.
 """
 
 from __future__ import annotations

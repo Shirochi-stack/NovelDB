@@ -17,12 +17,27 @@ import kotlinx.serialization.json.jsonPrimitive
  * one place, [com.shirochi.npia.core.SiteEngine.CUSTOM]: a link goes to each of them that reads it.
  *
  * Their label and sites are read from the file's text (the page runs it, not this).
+ *
+ * A userscript (`.user.js`, or a `.js` with a `==UserScript==` header) is a custom engine too: its name and
+ * sites come from its header, and it reads a link in a web view page of its own (`UserscriptEngine`). One that
+ * matches every site names none, and is asked last, after the generic fallback.
  */
 object CustomEngines {
     /** Where the files are kept; set by the app at start (its private files folder). */
     @Volatile var folder: File? = null
 
-    data class Info(val id: String, val label: String, val sites: List<String>, val source: String, val bundled: Boolean = false)
+    data class Info(
+        val id: String, val label: String, val sites: List<String>, val source: String, val bundled: Boolean = false,
+        /** A userscript, read in a web view page (not a Python engine). */
+        val userscript: Boolean = false,
+        /** A userscript that matches every site. */
+        val everywhere: Boolean = false,
+    ) {
+        /** The engine's file, as the list shows it. */
+        val fileName: String get() = id + if (userscript) USERSCRIPT else ".py"
+    }
+
+    const val USERSCRIPT = ".user.js"
 
     fun readImport(input: InputStream): ByteArray = readBounded(input, 32 shl 20)
 
@@ -41,13 +56,30 @@ object CustomEngines {
     /** The added engines, by file name; a file that is not an engine is left out. */
     fun list(): List<Info> {
         val dir = folder ?: return emptyList()
-        return (dir.listFiles { f -> f.isFile && f.name.endsWith(".py") } ?: emptyArray())
-            .sortedBy { it.name }
-            .mapNotNull { file -> runCatching { info(file.nameWithoutExtension, file.readText()) }.getOrNull() }
+        val files = dir.listFiles { f -> f.isFile && (f.name.endsWith(".py") || f.name.endsWith(USERSCRIPT)) } ?: emptyArray()
+        return files.mapNotNull { file ->
+            runCatching {
+                if (file.name.endsWith(USERSCRIPT)) userscriptInfo(file.name.removeSuffix(USERSCRIPT), file.readText())
+                else info(file.nameWithoutExtension, file.readText())
+            }.getOrNull()
+        }.sortedWith(compareBy({ it.id }, { !it.userscript })).distinctBy { it.id }  // one engine of a name: the userscript
     }
 
     /** True when an engine was added. */
     fun any(): Boolean = list().isNotEmpty()
+
+    /** The Python engines among them (the Python page runs these). */
+    fun python(): List<Info> = list().filterNot { it.userscript }
+
+    /** A userscript that matches every site was added: the custom step also follows the generic fallback. */
+    fun anywhere(): Boolean = list().any { it.everywhere }
+
+    /** The userscripts that read `url`: those that name its site, then those that match every site. */
+    fun userscriptsFor(url: String): List<Info> {
+        val host = runCatching { URI(url).host }.getOrNull()?.lowercase()?.removePrefix("www.") ?: return emptyList()
+        val scripts = list().filter { it.userscript }
+        return scripts.filter { engine -> engine.sites.any { host == it || host.endsWith(".$it") } } + scripts.filter { it.everywhere }
+    }
 
     /** `url` is on one of an engine's sites (or a subdomain): dynamic priority offers it to them. */
     fun listsSite(url: String): Boolean {
@@ -68,8 +100,14 @@ object CustomEngines {
             } finally {
                 file.delete()
             }
+        } else if (fileName.endsWith(".js", ignoreCase = true)) {
+            require(bytes.size <= (2 shl 20)) { "the script exceeds 2 MB" }
+            userscriptInfo(
+                identifier(fileName.replace(Regex("(?i)\\.user\\.js$"), ".js")),
+                bytes.decodeToString(throwOnInvalidSequence = true).removePrefix("\uFEFF"),
+            )
         } else {
-            require(fileName.endsWith(".py", ignoreCase = true)) { "choose a Python engine or a ZIP" }
+            require(fileName.endsWith(".py", ignoreCase = true)) { "choose a Python engine, a userscript (.user.js) or a ZIP" }
             require(bytes.size <= (2 shl 20)) { "Python engine exceeds 2 MB" }
             info(identifier(fileName), bytes.decodeToString(throwOnInvalidSequence = true).removePrefix("\uFEFF"))
         }
@@ -77,11 +115,13 @@ object CustomEngines {
         val temporary = File.createTempFile("engine-", ".tmp", dir)
         try {
             temporary.writeText(found.source)
-            Files.move(temporary.toPath(), File(dir, found.id + ".py").toPath(),
+            Files.move(temporary.toPath(), File(dir, found.fileName).toPath(),
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } finally {
             temporary.delete()
         }
+        // One engine of a name: the other kind's file of the same name goes.
+        File(dir, found.id + if (found.userscript) ".py" else USERSCRIPT).delete()
         return found
     }
 
@@ -121,6 +161,42 @@ object CustomEngines {
     fun remove(id: String) {
         val dir = folder ?: return
         File(dir, "$id.py").delete()
+        File(dir, id + USERSCRIPT).delete()
+    }
+
+    private val HEADER = Regex("""(?s)//\s*==UserScript==(.*?)//\s*==/UserScript==""")
+    private val HEADER_LINE = Regex("""(?m)^\s*//\s*@([\w:-]+)[ \t]*(.*?)\s*$""")
+
+    /** A userscript's name and sites, from its header (as noveldb/core/engines/userscript_engine.py reads it). */
+    internal fun userscriptInfo(id: String, source: String): Info {
+        val header = HEADER.find(source)?.groupValues?.get(1) ?: throw IllegalArgumentException("it has no ==UserScript== header")
+        val lines = HEADER_LINE.findAll(header).map { it.groupValues[1] to it.groupValues[2] }.toList()
+        val name = lines.firstOrNull { it.first == "name" }?.second?.trim().orEmpty()
+        require(name.isNotEmpty()) { "its header has no @name" }
+        val patterns = lines.filter { it.first == "match" || it.first == "include" }.map { it.second }.filter { it.isNotEmpty() }
+        var everywhere = patterns.isEmpty()
+        val sites = ArrayList<String>()
+        for (pattern in patterns) {
+            when (val host = patternHost(pattern)) {
+                null -> everywhere = true
+                "" -> Unit
+                else -> if (host !in sites) sites += host
+            }
+        }
+        return Info(id, name, if (everywhere) emptyList() else sites, source, userscript = true, everywhere = everywhere)
+    }
+
+    /** The site a @match or @include pattern names ("" when it names nothing usable); null for every site. */
+    private fun patternHost(pattern: String): String? {
+        val text = pattern.trim()
+        if (text == "*" || text == "<all_urls>") return null
+        val found = Regex("""^(?:\*|https?\*?|http\*|file|ftp)://([^/]*)""").find(text)
+            ?: return if (text.startsWith("/") || text.startsWith("*")) null else ""
+        var host = found.groupValues[1].lowercase()
+        if (host.isEmpty() || host == "*") return null
+        host = host.replace(Regex("""^\*\.?"""), "").substringBefore(':').removePrefix("www.")
+        if ('*' in host) return if (host.replace("*", "").trim('.').isEmpty()) null else ""
+        return host
     }
 
     internal fun info(id: String, source: String): Info {

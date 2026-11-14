@@ -80,7 +80,7 @@ object SourceCatalog {
         val order = engines.enabled()
         val native = adapters.firstOrNull { it.id != SourceId.READER && it.matches(url) }
             ?.takeIf { SiteEngine.NATIVE in order }
-        val steps = order.filter { engine ->
+        val listed = order.filter { engine ->
             when {
                 engine == SiteEngine.NATIVE -> native != null
                 engine == SiteEngine.CUSTOM && !CustomEngines.any() -> false  // none added
@@ -89,8 +89,12 @@ object SourceCatalog {
                 else -> (engine == SiteEngine.GENERIC && native is BuiltInComicAdapter) || lists(engine, url)
             }
         }
-        if (steps.isEmpty()) return null
-        if (native != null && steps == listOf(SiteEngine.NATIVE)) return native
+        if (listed.isEmpty()) return null
+        if (native != null && listed == listOf(SiteEngine.NATIVE)) return native
+        // A userscript that matches every site names none: with dynamic priority it is asked last, after the
+        // generic fallback (it would answer for every link otherwise).
+        val steps = if (native == null && engines.dynamicPriority && isWebUrl(url) && SiteEngine.CUSTOM in order &&
+            SiteEngine.CUSTOM !in listed && CustomEngines.anywhere()) listed + SiteEngine.CUSTOM else listed
         if (engines.dynamicPriority && SiteEngine.LNREADER in steps &&
             runCatching { URI(url).host?.lowercase()?.removePrefix("www.") }.getOrNull() == "scribblehub.com") {
             return SiteEngineChain(native, listOf(SiteEngine.LNREADER) + steps.filter { it != SiteEngine.LNREADER })

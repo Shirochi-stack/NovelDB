@@ -246,6 +246,8 @@ internal class ReaderBookSession(
         class Page(val web: PageBundleEngine) : Engine()
         /** lightnovel-crawler, FanFicFare or gallery-dl in the Python engines' page (`PythonEngines`). */
         class Python(val module: PythonEngines.Module, val context: SourceContext) : Engine()
+        /** A userscript the user added: each chapter read in a web view page of its own (`UserscriptEngine`). */
+        class Userscript(val script: CustomEngines.Info, val context: SourceContext) : Engine()
     }
 
     data class ChapterInfo(val url: String, val name: String, val isVIP: Boolean, val isPaid: Boolean?)
@@ -262,6 +264,7 @@ internal class ReaderBookSession(
                 is Engine.WebToEpub -> engine.web.chapter(info)
                 is Engine.Page -> engine.web.chapter(info)
                 is Engine.Python -> PythonEngines.chapter(engine.module, info, book.url, engine.context)
+                is Engine.Userscript -> UserscriptEngine.chapter(engine.script, info, engine.context)
             }
         } catch (e: CancellationException) {
             throw e
@@ -281,6 +284,7 @@ internal class ReaderBookSession(
             is Engine.WebToEpub -> engine.web.closeLater()
             is Engine.Page -> engine.web.closeLater()
             is Engine.Python -> Unit  // the page is shared, and closes itself when idle
+            is Engine.Userscript -> Unit  // each chapter's page closes when it is read
         }
     }
 
@@ -298,6 +302,14 @@ internal class ReaderBookSession(
             shared: SharedBookPage? = null,
         ): ReaderBookSession {
             require(engine.runsScripts) { "${engine.raw} is not a script engine" }
+            if (engine == SiteEngine.CUSTOM) {
+                // The user's userscripts that read this link come before their Python engines.
+                CustomEngines.userscriptsFor(url).firstOrNull()?.let { script ->
+                    val payload = UserscriptEngine.openBook(script, url, context)
+                    return make(payload, url, Engine.Userscript(script, context), SourceId.READER)
+                }
+                if (CustomEngines.python().isEmpty()) throw EngineMissException("No custom engine reads this site.")
+            }
             PythonEngines.name(engine)?.let { name ->
                 // The Python engines fetch the book themselves: the book's own page is not needed.
                 val module = PythonEngines.Module(name, engine.label)

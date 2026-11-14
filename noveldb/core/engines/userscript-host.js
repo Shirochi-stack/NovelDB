@@ -342,16 +342,18 @@
         return best;
     }
     function scrollThrough(limit) {
-        var deadline = Date.now() + limit, still = 0;
+        // The end is reached when nothing has moved, grown or been drawn for a while: a slow site draws a page
+        // seconds after it is scrolled to, and the page's first pictures may not be in yet.
+        var deadline = Date.now() + limit, still = 0, quiet = Math.max(4, Math.round((arguments[1] || 3500) / 350));
         function step() {
             if (Date.now() > deadline) return Promise.resolve();
-            var node = scroller(), before = node.scrollTop, height = node.scrollHeight;
+            var node = scroller(), before = node.scrollTop, height = node.scrollHeight, shown = drawn();
             node.scrollTop = before + Math.max(200, Math.round(window.innerHeight * 0.8));
             window.dispatchEvent(new Event('scroll'));
             return wait(350).then(function () {
-                var moved = node.scrollTop > before + 1, grew = node.scrollHeight > height + 1;
-                still = moved || grew ? 0 : still + 1;
-                return still >= 4 ? undefined : step();
+                var moved = node.scrollTop > before + 1, grew = node.scrollHeight > height + 1, drew = drawn() !== shown;
+                still = moved || grew || drew ? 0 : still + 1;
+                return still >= quiet ? undefined : step();
             });
         }
         return step();
@@ -482,6 +484,30 @@
         }, Promise.resolve());
     }
 
+    /*
+     * For an app that asks in short calls (the phones' web views answer a script within a minute, and a page
+     * can take longer to read): begin() starts the reading, take() hands over the images found since the last
+     * call, a few megabytes at a time, with `done` once the reading has ended and none are left.
+     */
+    host.begin = function (options) {
+        if (host.reading) return true;
+        host.reading = true;
+        host.done = null;
+        host.run(options).then(function (result) { host.done = result; }, function (error) {
+            host.done = { files: host.delivered, title: document.title, pressed: [], failed: String((error && error.message) || error) };
+        });
+        return true;
+    };
+    host.take = function (budget) {
+        var files = [], size = 0;
+        budget = budget || 3000000;
+        while (host.files.length && (!files.length || size + host.files[0].base64.length <= budget)) {
+            size += host.files[0].base64.length;
+            files.push(host.files.shift());
+        }
+        return { files: files, done: host.files.length ? null : host.done };
+    };
+
     host.run = function (options) {
         options = options || {};
         if (!top) return Promise.resolve({ files: 0, title: document.title, pressed: [] });
@@ -491,17 +517,23 @@
             setTimeout(resolve, 20000);
         });
         return loaded.then(function () { return wait(options.settle || 1500); })
-            .then(function () { return scrollThrough(options.scrollLimit || 90000); })
+            .then(function () { return scrollThrough(options.scrollLimit || 90000, options.quiet); })
             .then(function () {
                 var node = scroller();
                 return node.scrollHeight - node.clientHeight < 200 ? pageThrough(options.pageLimit || 120000) : false;
             })
             .then(function () { return wait(800); })
             .then(function () { return host.delivered ? [] : pressButtons(options); })
-            .then(function (names) { pressed = names; return settled(options.saveLimit || 180000, 2500, options.patience || 12000); })
+            .then(function (names) {
+                pressed = names;
+                // A script gathers a whole chapter before it saves its ZIP: minutes, for a long one. With nothing
+                // pressed there is nothing to wait for but a script that saves by itself.
+                return settled(options.saveLimit || 300000, 2500, names.length ? options.patience || 120000 : options.idle || 6000);
+            })
             .then(function () { return host.delivered ? undefined : pagePictures(); })
             .then(function () {
-                return { files: host.delivered, title: document.title, pressed: pressed, failed: host.failed || '', log: host.log.slice(-20) };
+                return { files: host.delivered, title: document.title, pressed: pressed, failed: host.failed || '', log: host.log.slice(-20),
+                    canvases: document.querySelectorAll('canvas').length, pictures: document.images.length };
             });
     };
 })();

@@ -278,7 +278,7 @@ private fun engineHint(engine: SiteEngine): String = when (engine) {
     SiteEngine.GALLERYDL -> "gallery-dl's extractors: manga sites such as fanfox and mangahere (Python, in the app)."
     SiteEngine.MANGAPEAK -> "Article Image Queue's MangaPeak reader (Python, in the app)."
     SiteEngine.TAKO -> "Tako's MangaDex and MangaHere readers (Python, in the app)."
-    SiteEngine.CUSTOM -> "Your own engines: Python files added below (the desktop's format; Python, in the app)."
+    SiteEngine.CUSTOM -> "Your own engines: Python files and userscripts added below (the desktop's formats)."
     SiteEngine.GENERIC -> "Any other site: reads the chapter list and text without site rules."
 }
 
@@ -967,13 +967,18 @@ private fun CustomEnginesSection(model: AppViewModel, enableTako: () -> Unit) {
         }.onFailure { model.manager.message("Could not add the engine: ${it.message}") }
     }
     SectionHeader("Custom engines")
-    Footnote("Import a Python engine, a ZIP with one Python engine, or the Tako Chrome ZIP.")
+    Footnote("Import a Python engine, a ZIP with one Python engine, a userscript (.user.js), or the Tako Chrome ZIP. " +
+        "A userscript reads a link in a hidden page; one that matches every site is asked last, after the generic fallback.")
     added.forEach { engine ->
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(engine.label)
                 Text(
-                    if (engine.sites.isEmpty()) "${engine.id}.py" else "${engine.id}.py · ${engine.sites.joinToString(", ")}",
+                    when {
+                        engine.everywhere -> "${engine.fileName} · any site, asked last"
+                        engine.sites.isEmpty() -> engine.fileName
+                        else -> "${engine.fileName} · ${engine.sites.joinToString(", ")}"
+                    },
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -985,7 +990,13 @@ private fun CustomEnginesSection(model: AppViewModel, enableTako: () -> Unit) {
         AlertDialog(
             onDismissRequest = { pending = null },
             title = { Text("Add a custom engine") },
-            text = { Text("Import $name? Python engines run with the app's access to your downloads and logins. Only add engines you trust.") },
+            text = {
+                Text(
+                    if (name.endsWith(".js", ignoreCase = true)) "Import $name? A userscript runs in the app's own pages on the links " +
+                        "you send it, signed in as you are there, and may make requests through the app. Only add scripts you trust."
+                    else "Import $name? Python engines run with the app's access to your downloads and logins. Only add engines you trust."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     pending = null

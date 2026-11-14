@@ -184,11 +184,12 @@ def chromium():
         browser.close()
 
 
-def run_script(chromium, script, html, pictures, options="{settle: 300, patience: 4000}"):
+def run_script(chromium, script, html, pictures, options="{settle: 300}"):
     page = chromium.new_context(viewport={"width": 800, "height": 600}).new_page()
     files, errors = [], []
     page.expose_function("__ndbUserscriptFile", lambda text: files.append(json.loads(text)))
     page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("console", lambda message: errors.append(message.text) if message.type == "error" and "404" not in message.text else None)
 
     def serve(route):
         path = "/" + route.request.url.split("/", 3)[3].split("?")[0]
@@ -221,6 +222,7 @@ def test_the_page_is_read_to_its_end_and_the_scripts_own_buttons_are_pressed(chr
     pictures = {f"/p{i}.png": png(color) for i, color in enumerate(COLORS)}
     result, files, values = run_script(chromium, SCRIPT, reader_page(len(COLORS)), pictures)
     assert result["pressed"] == ["All", "download"] and result["title"] == "Reader & chapter 3" and not result["failed"]
+    assert files, result
     assert values == {"ran": 1}
     # Every page the reader drew, once it was scrolled to: in page order (c2 before c10), out of the script's ZIP.
     assert [item["name"] for item in files] == [f"c{i}.png" for i in range(1, len(COLORS) + 1)]
@@ -253,3 +255,17 @@ def test_a_script_that_saves_by_itself_is_kept_too_compressed_zip_included(chrom
     assert result["pressed"] == []
     assert [item["name"] for item in files] == ["2.png", "10.png"]
     assert colors(files) == [(255, 0, 0), (0, 0, 255)]
+
+
+def test_a_script_for_every_site_is_added_below_the_generic_fallback_and_read_where_it_stands(tmp_path, monkeypatch):
+    from noveldb.core.settings import model
+
+    monkeypatch.setattr(custom_engines, "folder", lambda: tmp_path)
+    (tmp_path / "any.user.js").write_text("// ==UserScript==\n// @name Any\n// @match *://*/*\n// ==/UserScript==\n", encoding="utf-8")
+    (tmp_path / "capture.user.js").write_text(SCRIPT, encoding="utf-8")
+    order = model.engine_order(model.SITE_ENGINES)
+    # Not placed yet: the one that names its sites just before the fallback, the one for every site after it.
+    assert order.index("custom:capture") < order.index(model.ENGINE_GENERIC) < order.index("custom:any")
+    # Dragged above the fallback, it stays there.
+    moved = ["custom:any"] + [name for name in order if name != "custom:any"]
+    assert model.engine_order(moved)[0] == "custom:any"

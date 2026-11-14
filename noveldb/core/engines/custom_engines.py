@@ -246,7 +246,8 @@ def stamp(name: str) -> Optional[float]:
 
 
 def reads_everything(name: str) -> bool:
-    """A userscript that matches every site: it names none, and is asked after the generic fallback."""
+    """A userscript that matches every site: it names none, and is asked where it stands in the order
+    (it is added below the generic fallback)."""
     found = info(name) if is_custom(name) else None
     return bool(found and found.get("everywhere"))
 
