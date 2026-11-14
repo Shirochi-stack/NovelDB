@@ -1647,7 +1647,7 @@ async function appChapters(doc, final) {
 
 async function book(url, onChapters, active = () => true) {
     let doc, final;
-    url = qdnGlobalCatalog(url || location.href) || asuraAddress(webtoonsSeries(dm5Desktop(url || location.href)));
+    url = qdnGlobalCatalog(url || location.href) || acqqSeries(asuraAddress(webtoonsSeries(dm5Desktop(url || location.href))));
     if (sameAddress(url, location.href)) {
         // The page the site's scripts built: the desktop reads this one only after the plain page fails.
         doc = document;
@@ -1716,7 +1716,7 @@ async function book(url, onChapters, active = () => true) {
     }
     let published = [];
     const entries = chapters => chapters.map((chapter, index) => ({
-        url: chapter.url, name: chapter.name, number: index + 1, bookUrl: final, isVIP: false, isPaid: false
+        url: chapter.url, name: chapter.name, number: index + 1, bookUrl: final, isVIP: !!chapter.paid, isPaid: !!chapter.paid
     }));
     function publish(chapters, numbered = true) {
         let ordered = numbered ? readingOrder(chapters) : chapters.slice();
@@ -1755,6 +1755,17 @@ async function book(url, onChapters, active = () => true) {
     if (listed.length) {
         chapters = listed;  // both tabs, in reading order (the address groups split them)
         for (let [key, value] of Object.entries(dm5Metadata(doc))) {
+            if (value) {
+                info[key] = value;
+            }
+        }
+    }
+    let sold = acqqComic(final) ? acqqChapters(doc, final) : [];
+    if (sold.length) {
+        // The comic page lists every chapter, the paid ones marked (Skip paid leaves those out).
+        chapters = sold;
+        expected = 0;
+        for (let [key, value] of Object.entries(acqqMetadata(doc))) {
             if (value) {
                 info[key] = value;
             }
@@ -2171,6 +2182,320 @@ function webtoonsImages(html, base) {
     return Array.from(new Set(images.filter(i => i)));
 }
 
+// -- ac.qq.com (Tencent's comics) -------------------------------------------------------------------
+//
+// A comic's page lists every chapter, the paid ones marked; a chapter's page keeps its images in DATA, base64
+// of JSON with letters put in at the places a "nonce" names. The nonce is written as arithmetic for the page's
+// script to work out (`"8" + (+eval("!!1+!1+1")).toString() + ...`), after a decoy that is a plain string.
+
+const ACQQ_PATH = /^\/(?:comic\/comicinfo|comicview\/index|comic\/index|chapter\/index)\/id\/(\d+)(?:\/cid\/(\d+))?/i;
+
+/** [comic id, chapter id or ""] of an ac.qq.com comic or chapter address (the phone site's too), else null. */
+function acqqComic(url) {
+    let parsed;
+    try {
+        parsed = new URL(url || "");
+    } catch (error) {
+        return null;
+    }
+    if (!["ac.qq.com", "m.ac.qq.com"].includes(parsed.hostname.toLowerCase())) {
+        return null;
+    }
+    let found = ACQQ_PATH.exec(parsed.pathname);
+    return found ? [found[1], found[2] || ""] : null;
+}
+
+/** The comic's page on the desktop site, for a comic or chapter address; other addresses as they are. */
+function acqqSeries(url) {
+    let found = acqqComic(url);
+    return found ? "https://ac.qq.com/Comic/comicInfo/id/" + found[0] : url;
+}
+
+/** A chapter's address on the desktop site (the phone site's page keeps its images elsewhere). */
+function acqqChapter(url) {
+    let found = acqqComic(url);
+    return found && found[1] ? "https://ac.qq.com/ComicView/index/id/" + found[0] + "/cid/" + found[1] : url;
+}
+
+/** The comic page's chapters in reading order, `paid` on those the site sells (read in its app). */
+function acqqChapters(doc, base) {
+    let chapters = [], seen = new Set();
+    for (let item of doc.querySelectorAll("ol.chapter-page-all .works-chapter-item")) {
+        let link = item.querySelector("a[href]");
+        let url = link ? acqqChapter(cleanUrl(link.getAttribute("href"), base)) : "";
+        if (!url || seen.has(url) || !(acqqComic(url) || ["", ""])[1]) {
+            continue;
+        }
+        seen.add(url);
+        let name = textOf(link) || (link.getAttribute("title") || "").split("：").pop().trim();
+        chapters.push({ url, name: /^\d+$/.test(name) ? "第" + name + "话" : name, paid: !!item.querySelector(".ui-icon-pay") });
+    }
+    return chapters;
+}
+
+function acqqMetadata(doc) {
+    let title = doc.querySelector(".works-intro-title");
+    let author = doc.querySelector(".works-intro-digi .first em, .works-author-name");
+    let synopsis = doc.querySelector(".works-intro-short");
+    let cover = doc.querySelector(".works-cover img[src]");
+    return {
+        title: title ? textOf(title) : "", author: author ? textOf(author).replace(/^[\s ]+|[\s ]+$/g, "") : "",
+        description: synopsis ? textOf(synopsis) : "", cover: cover ? cover.getAttribute("src") : ""
+    };
+}
+
+/**
+ * The arithmetic a page writes a value as: numbers, strings, ! ~ + - * / % & | ^, comparisons, a ? b : c,
+ * brackets, Math, parseInt, eval("...") of the same, the string methods and the page objects it tests for
+ * (window.Array, document.children, document.getElementsByTagName('html')). Anything else throws: the page's
+ * text is never run.
+ */
+const SCRIPT_THING = { thing: true };
+const SCRIPT_TOKEN = /\s*(?:(\d+\.?\d*|\.\d+)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|([A-Za-z_$][\w$]*)|(===|!==|==|!=|<=|>=|&&|\|\||<<|>>|.))/gy;
+const SCRIPT_MATH = { pow: Math.pow, round: Math.round, floor: Math.floor, ceil: Math.ceil, abs: Math.abs, sqrt: Math.sqrt, max: Math.max, min: Math.min };
+
+function scriptValue(source, depth = 0) {
+    const fail = () => { throw new Error("the page's value is not arithmetic"); };
+    if (depth > 4 || source.length > 4000) {
+        fail();
+    }
+    let tokens = [], at = 0, found;
+    SCRIPT_TOKEN.lastIndex = 0;
+    while (SCRIPT_TOKEN.lastIndex < source.length && (found = SCRIPT_TOKEN.exec(source))) {
+        if (found[1]) {
+            tokens.push(["n", parseFloat(found[1])]);
+        } else if (found[2]) {
+            tokens.push(["s", found[2].slice(1, -1).replace(/\\(.)/g, "$1")]);
+        } else if (found[3]) {
+            tokens.push(["i", found[3]]);
+        } else if (found[4] && found[4].trim()) {
+            tokens.push(["p", found[4]]);
+        }
+    }
+    const peek = sign => at < tokens.length && tokens[at][0] === "p" && tokens[at][1] === sign;
+    const take = sign => (peek(sign) ? (at++, true) : false);
+    const need = sign => take(sign) || fail();
+    const isTrue = value => value === SCRIPT_THING || !!value;
+    const number = value => (value === SCRIPT_THING ? fail() : typeof value === "string" ? (value.trim() ? Number(value) : 0) : Number(value));
+    const text = value => (value === SCRIPT_THING ? fail() : String(value));
+    const isName = value => Array.isArray(value);
+
+    function choice() {
+        let test = either();
+        if (!take("?")) {
+            return test;
+        }
+        let yes = choice();
+        need(":");
+        let no = choice();
+        return isTrue(test) ? yes : no;
+    }
+    function either() {
+        let left = compare();
+        while (peek("&&") || peek("||")) {
+            let both = take("&&") || !take("||");
+            let right = compare();
+            left = both ? (isTrue(left) ? right : left) : (isTrue(left) ? left : right);
+        }
+        return left;
+    }
+    function compare() {
+        let left = bits();
+        for (let sign of ["===", "!==", "==", "!=", "<=", ">=", "<", ">"]) {
+            if (take(sign)) {
+                let right = bits();
+                if (sign.includes("=") && sign.length >= 2 && sign !== "<=" && sign !== ">=") {
+                    let same = typeof left === "string" && typeof right === "string" ? left === right
+                        : left === SCRIPT_THING || right === SCRIPT_THING ? left === right : number(left) === number(right);
+                    return sign[0] === "!" ? !same : same;
+                }
+                let a = number(left), b = number(right);
+                return sign === "<=" ? a <= b : sign === ">=" ? a >= b : sign === "<" ? a < b : a > b;
+            }
+        }
+        return left;
+    }
+    function bits() {
+        let left = sum();
+        while (["&", "|", "^", "<<", ">>"].some(peek)) {
+            let sign = tokens[at++][1], a = number(left) | 0, b = number(sum()) | 0;
+            left = sign === "&" ? a & b : sign === "|" ? a | b : sign === "^" ? a ^ b : sign === "<<" ? a << b : a >> b;
+        }
+        return left;
+    }
+    function sum() {
+        let left = product();
+        while (peek("+") || peek("-")) {
+            let plus = take("+") || !take("-");
+            let right = product();
+            left = plus && (typeof left === "string" || typeof right === "string") ? text(left) + text(right)
+                : number(left) + number(right) * (plus ? 1 : -1);
+        }
+        return left;
+    }
+    function product() {
+        let left = unary();
+        while (peek("*") || peek("/") || peek("%")) {
+            let sign = tokens[at++][1], a = number(left), b = number(unary());
+            left = sign === "*" ? a * b : sign === "/" ? a / b : a % b;
+        }
+        return left;
+    }
+    function unary() {
+        if (take("!")) {
+            return !isTrue(unary());
+        }
+        if (take("~")) {
+            return ~(number(unary()) | 0);
+        }
+        if (take("+")) {
+            return number(unary());
+        }
+        if (take("-")) {
+            return -number(unary());
+        }
+        return member();
+    }
+    function args() {
+        let values = [];
+        if (!take(")")) {
+            for (;;) {
+                values.push(choice());
+                if (take(")")) {
+                    break;
+                }
+                need(",");
+            }
+        }
+        return values;
+    }
+    function member() {
+        if (at >= tokens.length) {
+            fail();
+        }
+        let [kind, token] = tokens[at++], value;
+        if (kind === "n" || kind === "s") {
+            value = token;
+        } else if (kind === "p" && token === "(") {
+            value = choice();
+            need(")");
+        } else if (kind === "i" && ["window", "document", "Math", "eval", "parseInt", "Number", "String"].includes(token)) {
+            value = ["name", token];
+        } else {
+            fail();
+        }
+        for (;;) {
+            if (take(".")) {
+                if (at >= tokens.length || tokens[at][0] !== "i") {
+                    fail();
+                }
+                let name = tokens[at++][1];
+                if (isName(value) && value[0] === "name" && value[1] === "Math") {
+                    value = ["name", "Math." + name];
+                } else if ((isName(value) && value[0] === "name" && ["window", "document"].includes(value[1])) || value === SCRIPT_THING) {
+                    // window.Array, document.children: there; document.getElementsByTagName(...): called below
+                    value = peek("(") ? ["name", "document." + name] : SCRIPT_THING;
+                } else if (isName(value)) {
+                    fail();
+                } else if (name === "length" && typeof value === "string") {
+                    value = value.length;
+                } else {
+                    value = ["method", value, name];
+                }
+            } else if (peek("(") && isName(value)) {
+                at++;
+                let values = args();
+                if (value[0] === "method") {
+                    let target = value[1], name = value[2];
+                    if (name === "toString") {
+                        value = text(target);
+                    } else if (typeof target === "string" && ["charCodeAt", "indexOf", "substring", "slice", "substr", "charAt"].includes(name)) {
+                        let plain = values.map(v => (name === "indexOf" ? text(v) : number(v)));
+                        value = target[name](...plain);
+                        if (typeof value === "number" && isNaN(value)) {
+                            fail();
+                        }
+                    } else {
+                        fail();
+                    }
+                } else if (value[1] === "eval" && values.length === 1 && typeof values[0] === "string") {
+                    value = scriptValue(values[0], depth + 1);
+                } else if (["parseInt", "Number"].includes(value[1]) && values.length) {
+                    value = value[1] === "parseInt" ? Math.trunc(number(values[0])) : number(values[0]);
+                } else if (value[1] === "String" && values.length) {
+                    value = text(values[0]);
+                } else if (value[1].startsWith("Math.") && Object.prototype.hasOwnProperty.call(SCRIPT_MATH, value[1].slice(5))) {
+                    value = SCRIPT_MATH[value[1].slice(5)](...values.map(number));
+                } else if (value[1].startsWith("document.")) {
+                    value = SCRIPT_THING;  // document.getElementsByTagName('html'): found
+                } else {
+                    fail();
+                }
+            } else {
+                break;
+            }
+        }
+        if (isName(value)) {
+            if (value[0] === "name" && ["window", "document"].includes(value[1])) {
+                return SCRIPT_THING;
+            }
+            fail();
+        }
+        return value;
+    }
+
+    let result = choice();
+    if (at !== tokens.length) {
+        fail();
+    }
+    return result;
+}
+
+/** A chapter page's data ({comic, chapter, picture}); null when the page has none. Throws when it does not read. */
+function acqqPage(html) {
+    let data = /\bDATA\s*=\s*'([A-Za-z0-9+/=]+)'/.exec(html || "");
+    if (!data) {
+        return null;
+    }
+    let nonces = [];
+    for (let found of (html || "").matchAll(/window\[([^\]\n]{1,80})\]\s*=\s*([^\n]{1,4000}?);?[ \t]*(?:\r?\n|<\/script>)/g)) {
+        try {
+            if (scriptValue(found[1]) === "nonce") {
+                nonces.push(String(scriptValue(found[2])));
+            }
+        } catch (error) {
+            // a line that is not the nonce
+        }
+    }
+    for (let nonce of nonces.reverse()) {  // the page's script reads the last one written
+        let text = data[1];
+        for (let part of (nonce.match(/\d+[a-zA-Z]+/g) || []).reverse()) {
+            let at = parseInt(part, 10) & 255;
+            text = text.slice(0, at) + text.slice(at + part.replace(/\d+/g, "").length);
+        }
+        try {
+            let page = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(base64ToBytes(text + "=".repeat((4 - text.length % 4) % 4))));
+            if (page && Array.isArray(page.picture)) {
+                return page;
+            }
+        } catch (error) {
+            // the decoy's nonce: the next one
+        }
+    }
+    // The data is there and did not read: an error, not a chapter made of the page's own pictures.
+    throw new Error("the chapter page's image list could not be read");
+}
+
+/** The chapter's images in order. A chapter the site sells holds only its "read it in the app" picture. */
+function acqqImages(page) {
+    let chapter = page.chapter && typeof page.chapter === "object" ? page.chapter : {};
+    let images = (page.picture || []).map(p => (p && typeof p.url === "string" && p.url.startsWith("http") ? p.url : "")).filter(u => u);
+    if (chapter.canRead === false || (String(chapter.vipStatus) === "2" && images.length <= 1)) {
+        throw new Error("the site sells this chapter: it reads only in the site's app");
+    }
+    return Array.from(new Set(images));
+}
+
 // -- chapter text -----------------------------------------------------------------------------------
 
 function score(node) {
@@ -2451,7 +2776,7 @@ function listedComicPages(doc, base) {
 }
 
 async function chapter(item, listedOnly) {
-    let url = asuraAddress(webtoonsDesktop(dm5Desktop(item.url || "")));
+    let url = acqqChapter(asuraAddress(webtoonsDesktop(dm5Desktop(item.url || ""))));
     let name = item.fullName || item.name || "";
     let loaded = await load(url, item.bookUrl || location.href);
     let read = { doc: parse(loaded.html), url: loaded.url };
@@ -2467,6 +2792,16 @@ async function chapter(item, listedOnly) {
     let manga = await dm5MangaChapter(loaded.html, read.url);
     if (manga == null && webtoonsTitle(read.url)) {
         let images = webtoonsImages(loaded.html, read.url);
+        manga = images.length ? images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("") : null;
+    }
+    if (manga == null && acqqComic(read.url)) {
+        let images;
+        try {
+            let page = acqqPage(loaded.html);
+            images = page ? acqqImages(page) : [];
+        } catch (error) {
+            return failure(error.message);  // a chapter the site sells, or a page that did not read
+        }
         manga = images.length ? images.map(image => "<p><img src=\"" + image.replace(/"/g, "&quot;") + "\" alt=\"\"/></p>").join("") : null;
     }
     if (manga == null && ASURA_HOSTS.has(hostOf(read.url))) {
@@ -2543,7 +2878,8 @@ window.__GEN_lib = {
     shape, cleanName, chapterNumber, readingOrder, numberedPages, findChapters, metadata, extractContent, mangakProps, mangakTags,
     repair, siteOf, hostOf, cleanUrl, textOf, parse, cleanPageTitle, parentAddresses, isChapterAddress, decode,
     CHAPTER_WORDS, unpackJs, asuraAddress, asuraPages, dm5Chapter, dm5Images, dm5Chapters, dm5Desktop, imageSize,
-    webtoonsTitle, webtoonsDesktop, webtoonsSeries, webtoonsEpisodesApi, webtoonsChapters, webtoonsImages
+    webtoonsTitle, webtoonsDesktop, webtoonsSeries, webtoonsEpisodesApi, webtoonsChapters, webtoonsImages,
+    acqqComic, acqqSeries, acqqChapter, acqqChapters, acqqMetadata, acqqPage, acqqImages, scriptValue
 };
 window.__GEN_test = window.__GEN_lib;
 window.__GEN_API = GEN_API;

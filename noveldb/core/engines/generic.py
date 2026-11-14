@@ -17,7 +17,9 @@ their pages with scripts. `extract_metadata` is shared with the Catalog's generi
 
 from __future__ import annotations
 
+import base64
 import json
+import math
 import re
 from html import escape, unescape
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
@@ -1516,6 +1518,321 @@ def webtoons_images(html: str, base: str) -> List[str]:
     return list(dict.fromkeys(i for i in images if i))
 
 
+# -- ac.qq.com (Tencent's comics) ------------------------------------------------------------------
+#
+# A comic's page lists every chapter, the paid ones marked; a chapter's page keeps its images in DATA, base64
+# of JSON with letters put in at the places a "nonce" names. The nonce is written as arithmetic for the page's
+# script to work out (`"8" + (+eval("!!1+!1+1")).toString() + ...`), after a decoy that is a plain string.
+
+_ACQQ_PATH = re.compile(r"^/(?:comic/comicinfo|comicview/index|comic/index|chapter/index)/id/(\d+)(?:/cid/(\d+))?", re.I)
+
+
+def acqq_comic(url: str) -> Optional[Tuple[str, str]]:
+    """(comic id, chapter id or "") of an ac.qq.com comic or chapter address (the phone site's too), else None."""
+    parts = urlsplit(url or "")
+    if (parts.hostname or "").lower() not in ("ac.qq.com", "m.ac.qq.com"):
+        return None
+    found = _ACQQ_PATH.match(parts.path)
+    return (found.group(1), found.group(2) or "") if found else None
+
+
+def acqq_series(url: str) -> str:
+    """The comic's page on the desktop site, for a comic or chapter address; other addresses as they are."""
+    found = acqq_comic(url)
+    return f"https://ac.qq.com/Comic/comicInfo/id/{found[0]}" if found else url
+
+
+def acqq_chapter(url: str) -> str:
+    """A chapter's address on the desktop site (the phone site's page keeps its images elsewhere)."""
+    found = acqq_comic(url)
+    return f"https://ac.qq.com/ComicView/index/id/{found[0]}/cid/{found[1]}" if found and found[1] else url
+
+
+def acqq_chapters(soup, base: str) -> List[dict]:
+    """The comic page's chapters in reading order, `paid` on those the site sells (read in its app)."""
+    chapters, seen = [], set()
+    for item in soup.select("ol.chapter-page-all .works-chapter-item"):
+        link = item.select_one("a[href]")
+        url = acqq_chapter(clean_url(link.get("href") or "", base)) if link else ""
+        if not url or url in seen or not (acqq_comic(url) or ("", ""))[1]:
+            continue
+        seen.add(url)
+        name = text_of(link) or (link.get("title") or "").rsplit("：", 1)[-1].strip()
+        chapters.append({"url": url, "name": f"第{name}话" if name.isdigit() else name,
+                         "paid": item.select_one(".ui-icon-pay") is not None})
+    return chapters
+
+
+def acqq_metadata(soup) -> dict:
+    title = soup.select_one(".works-intro-title")
+    author = soup.select_one(".works-intro-digi .first em, .works-author-name")
+    synopsis = soup.select_one(".works-intro-short")
+    cover = soup.select_one(".works-cover img[src]")
+    return {"title": text_of(title) if title else "", "author": text_of(author).strip(" \xa0") if author else "",
+            "description": text_of(synopsis) if synopsis else "", "cover": cover.get("src") if cover else ""}
+
+
+class _Script:
+    """The arithmetic a page writes a value as: numbers, strings, ! ~ + - * / % & | ^, comparisons, a ? b : c,
+    brackets, Math, parseInt, eval("...") of the same, the string methods (.toString(), .length, .charCodeAt(),
+    .substring() ...) and the page objects it tests for (window.Array, document.children,
+    document.getElementsByTagName('html')). Anything else is an error: nothing is run."""
+
+    TOKEN = re.compile(r"\s*(?:(\d+\.?\d*|\.\d+)|(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')|([A-Za-z_$][\w$]*)"
+                       r"|(===|!==|==|!=|<=|>=|&&|\|\||<<|>>|.))")
+    MATH = {"pow": pow, "round": lambda x: math.floor(x + 0.5), "floor": math.floor, "ceil": math.ceil, "abs": abs, "sqrt": math.sqrt,
+            "max": max, "min": min}
+    THING = object()  # an object the page has: true, and not a number
+
+    def __init__(self, source: str, depth: int = 0):
+        if depth > 4 or len(source) > 4000:
+            raise ValueError("the page's value is too long to work out")
+        self.depth, self.at, self.tokens = depth, 0, []
+        for number, text, name, sign in self.TOKEN.findall(source):
+            if number:
+                self.tokens.append(("n", float(number)))
+            elif text:
+                self.tokens.append(("s", re.sub(r"\\(.)", r"\1", text[1:-1])))
+            elif name:
+                self.tokens.append(("i", name))
+            elif sign.strip():
+                self.tokens.append(("p", sign))
+
+    @classmethod
+    def value(cls, source: str, depth: int = 0):
+        script = cls(source, depth)
+        result = script.choice()
+        if script.at != len(script.tokens):
+            raise ValueError("the page's value is not arithmetic")
+        return result
+
+    def peek(self, sign: str) -> bool:
+        return self.at < len(self.tokens) and self.tokens[self.at] == ("p", sign)
+
+    def take(self, sign: str) -> bool:
+        if self.peek(sign):
+            self.at += 1
+            return True
+        return False
+
+    def need(self, sign: str):
+        if not self.take(sign):
+            raise ValueError("the page's value is not arithmetic")
+
+    @staticmethod
+    def number(value) -> float:
+        if isinstance(value, str):
+            return float(value) if value.strip() else 0.0
+        if value is _Script.THING:
+            raise ValueError("the page's value is not a number")
+        return float(value)
+
+    @staticmethod
+    def text(value) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float):
+            return str(int(value)) if value == int(value) else repr(value)
+        return str(value)
+
+    @classmethod
+    def true(cls, value) -> bool:
+        return value is cls.THING or (value != "" if isinstance(value, str) else bool(value))
+
+    def choice(self):
+        test = self.either()
+        if not self.take("?"):
+            return test
+        yes = self.choice()
+        self.need(":")
+        no = self.choice()
+        return yes if self.true(test) else no
+
+    def either(self):
+        left = self.compare()
+        while self.peek("&&") or self.peek("||"):
+            both = self.take("&&") or not self.take("||")
+            right = self.compare()
+            left = (right if self.true(left) else left) if both else (left if self.true(left) else right)
+        return left
+
+    def compare(self):
+        left = self.bits()
+        for sign in ("===", "!==", "==", "!=", "<=", ">=", "<", ">"):
+            if self.take(sign):
+                right = self.bits()
+                if sign in ("===", "==", "!==", "!="):
+                    if isinstance(left, str) and isinstance(right, str):
+                        same = left == right
+                    elif left is self.THING or right is self.THING:
+                        same = left is right
+                    else:
+                        same = self.number(left) == self.number(right)
+                    return same if sign in ("===", "==") else not same
+                a, b = self.number(left), self.number(right)
+                return a <= b if sign == "<=" else a >= b if sign == ">=" else a < b if sign == "<" else a > b
+        return left
+
+    def bits(self):
+        left = self.sum()
+        while any(self.peek(sign) for sign in ("&", "|", "^", "<<", ">>")):
+            sign = self.tokens[self.at][1]
+            self.at += 1
+            a, b = int(self.number(left)), int(self.number(self.sum()))
+            left = float(a & b if sign == "&" else a | b if sign == "|" else a ^ b if sign == "^"
+                         else a << (b & 31) if sign == "<<" else a >> (b & 31))
+        return left
+
+    def sum(self):
+        left = self.product()
+        while self.peek("+") or self.peek("-"):
+            plus = self.take("+") or not self.take("-")
+            right = self.product()
+            if plus and (isinstance(left, str) or isinstance(right, str)):
+                left = self.text(left) + self.text(right)
+            else:
+                left = self.number(left) + self.number(right) * (1 if plus else -1)
+        return left
+
+    def product(self):
+        left = self.unary()
+        while self.peek("*") or self.peek("/") or self.peek("%"):
+            sign = self.tokens[self.at][1]
+            self.at += 1
+            a, b = self.number(left), self.number(self.unary())
+            left = a * b if sign == "*" else a / b if sign == "/" else math.fmod(a, b)
+        return left
+
+    def unary(self):
+        if self.take("!"):
+            value = self.unary()
+            return not self.true(value)
+        if self.take("~"):
+            return float(~int(self.number(self.unary())))
+        if self.take("+"):
+            return self.number(self.unary())
+        if self.take("-"):
+            return -self.number(self.unary())
+        return self.member()
+
+    def arguments(self) -> list:
+        values = []
+        if not self.take(")"):
+            while True:
+                values.append(self.choice())
+                if self.take(")"):
+                    break
+                self.need(",")
+        return values
+
+    def member(self):
+        if self.at >= len(self.tokens):
+            raise ValueError("the page's value is not arithmetic")
+        kind, token = self.tokens[self.at]
+        self.at += 1
+        if kind in "ns":
+            value = token
+        elif (kind, token) == ("p", "("):
+            value = self.choice()
+            self.need(")")
+        elif kind == "i" and token in ("window", "document", "Math", "eval", "parseInt", "Number", "String"):
+            value = ("name", token)
+        else:
+            raise ValueError("the page's value is not arithmetic")
+        while True:
+            if self.take("."):
+                if self.at >= len(self.tokens) or self.tokens[self.at][0] != "i":
+                    raise ValueError("the page's value is not arithmetic")
+                name = self.tokens[self.at][1]
+                self.at += 1
+                if isinstance(value, tuple) and value[0] == "name" and value[1] == "Math":
+                    value = ("name", "Math." + name)
+                elif (isinstance(value, tuple) and value[0] == "name" and value[1] in ("window", "document")) or value is self.THING:
+                    # window.Array, document.children: there; document.getElementsByTagName(...): called below
+                    value = ("name", "document." + name) if self.peek("(") else self.THING
+                elif isinstance(value, tuple):
+                    raise ValueError("the page's value is not arithmetic")
+                elif name == "length" and isinstance(value, str):
+                    value = float(len(value))
+                else:
+                    value = ("method", value, name)
+            elif self.peek("(") and isinstance(value, tuple):
+                self.at += 1
+                values = self.arguments()
+                if value[0] == "method":
+                    target, name = value[1], value[2]
+                    if name == "toString":
+                        value = self.text(target)
+                    elif name == "charCodeAt" and isinstance(target, str):
+                        index = int(self.number(values[0])) if values else 0
+                        value = float(ord(target[index]))
+                    elif name == "indexOf" and isinstance(target, str) and values:
+                        value = float(target.find(self.text(values[0])))
+                    elif name in ("substring", "slice", "substr", "charAt") and isinstance(target, str):
+                        first = max(0, int(self.number(values[0]))) if values else 0
+                        last = int(self.number(values[1])) if len(values) > 1 else None
+                        value = (target[first:first + 1] if name == "charAt"
+                                 else target[first:first + last] if name == "substr" and last is not None
+                                 else target[first:last])
+                    else:
+                        raise ValueError("the page's value is not arithmetic")
+                elif value[1] == "eval" and len(values) == 1 and isinstance(values[0], str):
+                    value = _Script.value(values[0], self.depth + 1)
+                elif value[1] in ("parseInt", "Number") and values:
+                    value = float(int(self.number(values[0]))) if value[1] == "parseInt" else self.number(values[0])
+                elif value[1] == "String" and values:
+                    value = self.text(values[0])
+                elif value[1].startswith("Math.") and value[1][5:] in self.MATH:
+                    value = float(self.MATH[value[1][5:]](*[self.number(v) for v in values]))
+                elif value[1].startswith("document."):
+                    value = self.THING  # document.getElementsByTagName('html'): found
+                else:
+                    raise ValueError("the page's value is not arithmetic")
+            else:
+                break
+        if isinstance(value, tuple):
+            if value[0] == "name" and value[1] in ("window", "document"):
+                return self.THING
+            raise ValueError("the page's value is not arithmetic")
+        return value
+
+
+def acqq_page(html: str) -> Optional[dict]:
+    """A chapter page's data ({comic, chapter, picture}); None when the page has none."""
+    data = re.search(r"\bDATA\s*=\s*'([A-Za-z0-9+/=]+)'", html or "")
+    if not data:
+        return None
+    nonces = []
+    for key, written in re.findall(r"window\[([^\]\n]{1,80})\]\s*=\s*([^\n]{1,4000}?);?[ \t]*(?:\r?\n|</script>)", html):
+        try:
+            if _Script.value(key) == "nonce":
+                nonces.append(_Script.text(_Script.value(written)))
+        except (ValueError, IndexError, ZeroDivisionError, OverflowError, TypeError):
+            continue
+    for nonce in reversed(nonces):  # the page's script reads the last one written
+        text = data.group(1)
+        for part in reversed(re.findall(r"\d+[a-zA-Z]+", nonce)):
+            at = int(re.match(r"\d+", part).group(0)) & 255
+            text = text[:at] + text[at + len(re.sub(r"\d+", "", part)):]
+        try:
+            page = json.loads(base64.b64decode(text + "=" * (-len(text) % 4)).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(page, dict) and isinstance(page.get("picture"), list):
+            return page
+    # The data is there and did not read: an error, not a chapter made of the page's own pictures.
+    raise ValueError("the chapter page's image list could not be read")
+
+
+def acqq_images(page: dict) -> List[str]:
+    """The chapter's images in order. A chapter the site sells holds only its "read it in the app" picture."""
+    chapter = page.get("chapter") if isinstance(page.get("chapter"), dict) else {}
+    images = [p.get("url") for p in page.get("picture") or [] if isinstance(p, dict) and str(p.get("url") or "").startswith("http")]
+    if not chapter.get("canRead", True) or (str(chapter.get("vipStatus")) == "2" and len(images) <= 1):
+        raise ValueError("the site sells this chapter: it reads only in the site's app")
+    return list(dict.fromkeys(images))
+
+
 # -- the engine ------------------------------------------------------------------------------------
 
 class GenericEngine:
@@ -1601,7 +1918,7 @@ class GenericEngine:
         return chapters[::-1] if str(props.get("episodeOrder") or "").lower() == "desc" else chapters
 
     def parse_book(self, url: str, *, on_chapters=None, active=lambda: True) -> Optional[dict]:
-        url = qdn_global_catalog(url) or asura_address(webtoons_series(dm5_desktop(url)))
+        url = qdn_global_catalog(url) or acqq_series(asura_address(webtoons_series(dm5_desktop(url))))
         html, final = self._page(url)
         soup = soup_of(html)
         chapters = find_chapters(soup, final)
@@ -1657,7 +1974,7 @@ class GenericEngine:
 
         def entries(chapters):
             return [{"url": chapter["url"], "name": chapter["name"], "number": index + 1,
-                     "bookUrl": final, "isVIP": False, "isPaid": False}
+                     "bookUrl": final, "isVIP": bool(chapter.get("paid")), "isPaid": bool(chapter.get("paid"))}
                     for index, chapter in enumerate(chapters)]
 
         def publish(chapters, *, numbered=True):
@@ -1682,13 +1999,19 @@ class GenericEngine:
                 published[:] = ordered
                 on_chapters(entries(published))
 
+        sold = acqq_chapters(soup, final) if acqq_comic(final) else []
+        if sold:
+            # The comic page lists every chapter, the paid ones marked (Skip paid leaves those out).
+            self.log(f"Generic: {len(sold)} chapters from the comic's page, {sum(c['paid'] for c in sold)} of them paid.")
+            chapters = episodes = sold
+            meta.update({k: v for k, v in acqq_metadata(soup).items() if v})
         if chapters and not episodes and not qdn_global_catalog(final):
             chapters = self._more_list_pages(soup, final, chapters, warnings, publish if on_chapters else None, active)
-        listed = self._platform_chapters(html, final)
+        listed = [] if sold else self._platform_chapters(html, final)
         if len(listed) > len(chapters):
             self.log(f"Generic: {len(listed)} chapters from the site's own chapter list.")
             chapters = listed
-        listed = self._app_chapters(html, final)
+        listed = [] if sold else self._app_chapters(html, final)
         if len(listed) > len(chapters):
             self.log(f"Generic: {len(listed)} chapters from the site's page data.")
             chapters = listed
@@ -1696,7 +2019,7 @@ class GenericEngine:
         if listed:
             chapters = listed  # both tabs, in reading order (the address groups split them)
             meta.update({k: v for k, v in dm5_metadata(soup).items() if v})
-        if self.render is not None and (len(chapters) < 2 or (expected and len(chapters) < expected * 0.8)):
+        if not sold and self.render is not None and (len(chapters) < 2 or (expected and len(chapters) < expected * 0.8)):
             # A list that loads as you scroll, or behind "Load more": the browser, scrolled to the end.
             try:
                 rendered = self.render(final, scroll=True)
@@ -1944,7 +2267,7 @@ class GenericEngine:
         return content, text, rendered
 
     def parse_chapter(self, chapter_info: dict, book: dict, *, listed_only: bool = False) -> Optional[dict]:
-        url = asura_address(webtoons_desktop(dm5_desktop(chapter_info.get("url", ""))))
+        url = acqq_chapter(asura_address(webtoons_desktop(dm5_desktop(chapter_info.get("url", "")))))
         name = chapter_info.get("fullName") or chapter_info.get("name", "")
         host = urlsplit(url).netloc
         # A site that sent scrambled text before: straight to the browser.
@@ -1967,6 +2290,13 @@ class GenericEngine:
             if manga is None and webtoons_title(final):
                 images = webtoons_images(html, final)
                 manga = "".join(f'<p><img src="{image}" alt=""/></p>' for image in images) if images else None
+            if manga is None and acqq_comic(final):
+                page = acqq_page(html)
+                if page is not None:
+                    images = acqq_images(page)  # raises for a chapter the site sells
+                    if images:
+                        self.on_images(images, len(images))
+                        manga = "".join(f'<p><img src="{image}" alt=""/></p>' for image in images)
             if manga is None and (urlsplit(final).hostname or "").lower() in _ASURA_HOSTS:
                 images = asura_pages(html)
                 if images:
