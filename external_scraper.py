@@ -1802,22 +1802,28 @@ class ExternalScraper(SiteEnginesMixin):
         return path if os.path.isdir(path) else ""
 
     @classmethod
+    def _avd_config_value(cls, avd_name, key):
+        """A value from the AVD's config.ini ("" when it is not there). Android Studio writes `key=value`;
+        avdmanager and hand-made AVDs write `key = value`."""
+        avd_dir = cls._android_avd_dir(avd_name)
+        if not avd_dir:
+            return ""
+        try:
+            with open(os.path.join(avd_dir, "config.ini"), "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    name, sign, value = line.partition("=")
+                    if sign and name.strip() == key:
+                        return value.strip()
+        except Exception:
+            pass
+        return ""
+
+    @classmethod
     def _android_avd_system_image_ok(cls, avd_name):
         """True when the AVD's system image is actually installed. An AVD whose `image.sysdir.1`
         folder is missing (e.g. a Play Store AVD whose image was never downloaded) makes the emulator
         abort at launch with "Broken AVD system path", so such AVDs are skipped when choosing one."""
-        avd_dir = cls._android_avd_dir(avd_name)
-        if not avd_dir:
-            return False
-        image_sysdir = ""
-        try:
-            with open(os.path.join(avd_dir, "config.ini"), "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if line.startswith("image.sysdir.1="):
-                        image_sysdir = line.split("=", 1)[1].strip()
-                        break
-        except Exception:
-            return False
+        image_sysdir = cls._avd_config_value(avd_name, "image.sysdir.1")
         if not image_sysdir:
             return False
         full = image_sysdir
@@ -1832,18 +1838,7 @@ class ExternalScraper(SiteEnginesMixin):
     def _avd_system_image_package(cls, avd_name):
         """The sdkmanager package (``system-images;android-N;tag;abi``) an AVD's config.ini references,
         so a missing image can be downloaded for it."""
-        avd_dir = cls._android_avd_dir(avd_name)
-        if not avd_dir:
-            return ""
-        sysdir = ""
-        try:
-            with open(os.path.join(avd_dir, "config.ini"), "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if line.startswith("image.sysdir.1="):
-                        sysdir = line.split("=", 1)[1].strip()
-                        break
-        except Exception:
-            return ""
+        sysdir = cls._avd_config_value(avd_name, "image.sysdir.1")
         parts = [p for p in re.split(r"[\\/]+", sysdir) if p]
         if len(parts) >= 4 and parts[0].lower() == "system-images":
             return ";".join(parts[:4])
@@ -1983,6 +1978,15 @@ class ExternalScraper(SiteEnginesMixin):
 
     def _launch_sfc_after_android_boot_async(self, avd_name=None, package=None, label=None):
         def run():
+            if package:
+                # Another emulator may be connected already (another project's): only this one's own
+                # serial will do, and with none nothing is opened or installed anywhere.
+                serial = self._android_wait_for_avd(avd_name, timeout=300)
+                if not serial:
+                    self.log(f"[Android] {avd_name} did not come up; nothing was opened.")
+                    return
+                self._android_open_app(package, label, serial=serial)
+                return
             if self._android_wait_for_device(timeout=240):
                 serial = ""
                 if avd_name:
@@ -2100,8 +2104,13 @@ class ExternalScraper(SiteEnginesMixin):
         except Exception:
             return []
 
-    def _cleanup_stale_android_avd(self, avd_name):
-        if not avd_name or self._android_serial_for_avd(avd_name):
+    def _cleanup_stale_android_avd(self, avd_name, running=None):
+        """Clears what a crashed earlier run of this AVD left behind. `running`: whether it is up, when the
+        caller already knows (the ac.qq path reads that from this computer's processes; asking adb means
+        asking every connected emulator its name, other projects' included)."""
+        if running is None:
+            running = bool(self._android_serial_for_avd(avd_name))
+        if not avd_name or running:
             return False
         cleaned = False
         pids = self._android_avd_process_ids(avd_name)
@@ -2274,6 +2283,10 @@ class ExternalScraper(SiteEnginesMixin):
                     valid = [name for name in avds if self._android_avd_system_image_ok(name)]
             except Exception as e:
                 self.log(f"[Android] Could not download the system image: {e}")
+        if package:
+            # For another app than sfc's, only NovelDB's own emulators are candidates: with none, one is made.
+            valid = [name for name in valid if self._noveldb_avd(name)]
+            avds = [name for name in avds if self._noveldb_avd(name)]
         skipped = [name for name in avds if name not in valid]
         if skipped:
             self.log(
@@ -2320,7 +2333,9 @@ class ExternalScraper(SiteEnginesMixin):
                 "[Android] Using rootable AVD for SFC import. "
                 "Facebook/SFC must be installed there."
             )
-        running_serial = self._android_serial_for_avd(avd_name)
+        # With an app given the emulators are told apart from this computer's processes: the others are not asked.
+        running_serial = (self._android_running_avds().get(avd_name, "") if package
+                          else self._android_serial_for_avd(avd_name))
         if running_serial:
             self.log(
                 f"[Android] {avd_name} is already running "
@@ -2333,7 +2348,7 @@ class ExternalScraper(SiteEnginesMixin):
             )
             return True
 
-        self._cleanup_stale_android_avd(avd_name)
+        self._cleanup_stale_android_avd(avd_name, running=False if package else None)
         self.log(f"[Android] Launching emulator: {avd_name}")
         self._set_android_emulator_saved_position(avd_name)
         args = [
@@ -2386,10 +2401,84 @@ class ExternalScraper(SiteEnginesMixin):
     ACQQ_ANDROID_APK = "http://m.ac.qq.com/apkSet/qqcomic_android_dm2309.apk"
     ACQQ_ANDROID_HOSTS = (".qq.com",)
 
+    @staticmethod
+    def _android_running_avds():
+        """{AVD name: serial} of the emulators running on this computer, read from their own processes: the
+        name each was started with, and the console port it listens on. Nothing is sent to any emulator,
+        so another project's is not so much as asked its name."""
+        found = {}
+        try:
+            import psutil
+        except ImportError:
+            psutil = None
+        if psutil is not None:
+            for process in psutil.process_iter(["name", "cmdline"]):
+                try:
+                    if not (process.info.get("name") or "").lower().startswith("qemu-system"):
+                        continue
+                    arguments = process.info.get("cmdline") or []
+                    name = next((arguments[i + 1] for i, a in enumerate(arguments[:-1]) if a == "-avd"), "") \
+                        or next((a[1:] for a in arguments[1:] if a.startswith("@")), "")
+                    # psutil 6 renamed connections() to net_connections(); the app ships either.
+                    connections = getattr(process, "net_connections", None) or process.connections
+                    ports = sorted({c.laddr.port for c in connections(kind="tcp")
+                                    if c.status == psutil.CONN_LISTEN and 5554 <= c.laddr.port <= 5682
+                                    and c.laddr.port % 2 == 0})
+                    if name and ports:
+                        found[name] = f"emulator-{ports[0]}"
+                except Exception:
+                    continue
+            return found
+        # Without the process library: the emulator's own notes of what it is running.
+        import glob
+        import tempfile
+
+        for note in glob.glob(os.path.join(tempfile.gettempdir(), "avd", "running", "pid_*.ini")):
+            try:
+                values = {}
+                with open(note, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        key, sign, value = line.partition("=")
+                        if sign:
+                            values[key.strip()] = value.strip()
+                if values.get("avd.name") and values.get("port.serial"):
+                    found[values["avd.name"]] = "emulator-" + values["port.serial"]
+            except Exception:
+                continue
+        return found
+
+    @staticmethod
+    def _noveldb_avd(name):
+        """An emulator of NovelDB's own (the ones it creates are Npia_...): the only ones the ac.qq entry
+        opens, installs to or looks at. Other projects' emulators are theirs, whatever is installed there."""
+        lower = (name or "").lower()
+        return "noveldb" in lower or "npia" in lower
+
+    def _android_wait_for_avd(self, avd_name, timeout=300):
+        """The serial of the emulator named `avd_name` once it has booted ("" when it does not come up)."""
+        deadline = time.time() + timeout
+        while avd_name and time.time() < deadline:
+            if self._stop_requested:
+                return ""
+            serial = self._android_running_avds().get(avd_name, "")
+            if serial:
+                try:
+                    boot = self._adb("shell", "getprop", "sys.boot_completed", timeout=10, serial=serial)
+                    if (boot.stdout or "").strip() == "1":
+                        return serial
+                except Exception:
+                    pass
+            time.sleep(2)
+        return ""
+
     def _android_open_app(self, package, label=None, serial=None):
         """Opens `package` on the emulator; the ac.qq comics app is installed there first when it is missing."""
-        if package == self.ACQQ_ANDROID_PACKAGE and not self._android_has_package(package, serial):
-            if not self._android_install_acqq(serial):
+        if package == self.ACQQ_ANDROID_PACKAGE:
+            if not serial:
+                # Without a named emulator adb would pick any connected device: never for this app.
+                self.log("[Android] No NovelDB emulator to open the ac.qq comics app on.")
+                return False
+            if not self._android_has_package(package, serial) and not self._android_install_acqq(serial):
                 return False
         return self._launch_android_package(package, label, serial=serial)
 
@@ -2437,6 +2526,8 @@ class ExternalScraper(SiteEnginesMixin):
 
     def _android_install_acqq(self, serial):
         """Installs the comics app on the emulator (kept data stays: it is installed over an older copy)."""
+        if not serial:
+            return False
         try:
             abis = (self._adb("shell", "getprop", "ro.product.cpu.abilist", timeout=20, serial=serial).stdout or "")
         except Exception:
@@ -2468,15 +2559,17 @@ class ExternalScraper(SiteEnginesMixin):
     def open_android_emulator_for_acqq(self):
         """Opens the emulator with the ac.qq comics app, for the user to sign in to it there.
 
-        A running emulator that has the app is used as it is; otherwise NovelDB's own emulator is started
-        (a rootable one), the app installed there when it is missing, and opened once it has booted. True
-        when an emulator is up or starting."""
+        Only NovelDB's own emulators (`_noveldb_avd`): one that is running is used, else one is started
+        (and made, when there is none), the app installed there when it is missing, and opened once that
+        emulator has booted. Another project's emulator is never opened, installed to or asked what it has.
+        True when an emulator is up or starting."""
         package, label = self.ACQQ_ANDROID_PACKAGE, self.ACQQ_ANDROID_LABEL
-        for serial, name in self._android_devices():
-            if self._android_has_package(package, serial):
-                self.log(f"[Android] {name or serial} has {label}; opening it there.")
-                self._launch_android_package(package, label, serial=serial)
-                return True
+        for name, serial in self._android_running_avds().items():
+            if not self._noveldb_avd(name):
+                continue  # another project's emulator: nothing is sent to it, whatever it has installed
+            self.log(f"[Android] {name} is running; opening {label} there.")
+            self._android_open_app(package, label, serial=serial)
+            return True
         return self.open_android_emulator(package=package, label=label)
 
     def restore_android_play_avd(self):
