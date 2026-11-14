@@ -327,11 +327,26 @@ def test_a_comic_whose_pages_are_in_its_text_reaches_folder_and_zip(tmp_path, in
     job._book_data = {"bookname": "Book"}
     job._chapter_results = [{"chapterName": "Episode", "comic": True, "images": [], "contentText": "", "imageCount": 2,
                              "contentHtml": "".join(f'<p><img src="{url}" alt=""/></p>' for url in pages)}]
-    job._download_image_python = lambda address, *_args, **_kwargs: pages[address]
+    downloads = []
+
+    def download(address, *_args, **_kwargs):
+        downloads.append(address)
+        return pages[address]
+
+    job._download_image_python = download
     job._try_cover_from_images = lambda *_args: False
     formats = (initial_format, "folder", "zip") if initial_format else ("folder", "zip")
     job._generate_formats(job._book_data, formats, "Book", "Author")
 
+    # Each page fetched once, whatever came first; with EPUB, the chapter is written as its pages arrive.
+    assert sorted(downloads) == sorted(pages)
+    messages = [str(message) for kind, message in job._msg_queue.messages if kind == "log"]
+    if initial_format == "epub":
+        writing = next(i for i, message in enumerate(messages) if "Writing chapter 1" in message)
+        saved = next(i for i, message in enumerate(messages) if "Writing EPUB to disk" in message)
+        assert writing < saved
+        with ZipFile(tmp_path / "Book.epub") as book:
+            assert sum(name.startswith("OEBPS/Images/") for name in book.namelist()) == 2
     files = sorted((tmp_path / "Book.folder").iterdir())
     assert [file.read_bytes() for file in files] == list(pages.values())
     with ZipFile(tmp_path / "Book.zip") as archive:

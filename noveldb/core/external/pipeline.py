@@ -2344,8 +2344,13 @@ img { display: block; max-width: 100%; max-height: 100%;
                 # Process images: use browser-provided base64 data when
                 # available, fall back to Python-side download otherwise.
                 rename_map = {}  # original_name → compressed_name
-                if ch_data.get('images'):
-                    image_items = list(enumerate(ch_data['images'], 1))
+                # A comic whose pages are <img> tags in its text (the generic engine's) takes this road too:
+                # its pages fetched together, once, and handed to the Folder output as they arrive (it stitches
+                # the chapter then, not after the EPUB is written). One at a time, inline, they came twice.
+                chapter_images = ch_data.get('images') or (
+                    ExternalPipelineMixin._chapter_images(ch_data) if ch_data.get('comic') else [])
+                if chapter_images:
+                    image_items = list(enumerate(chapter_images, 1))
                     image_workers = min(
                         32, max(1, self._var_ext_image_workers.get()),
                         len(image_items)
