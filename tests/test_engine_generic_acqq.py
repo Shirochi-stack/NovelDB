@@ -148,3 +148,27 @@ def test_folder_and_cbz_outputs_find_a_comics_pages_in_its_text():
     assert pages({"images": [{"url": "https://img.test/c.jpg"}], "contentHtml": '<img src="https://img.test/a.jpg">'}) == [
         {"url": "https://img.test/c.jpg"}]
     assert pages({"contentText": "Once upon a time", "contentHtml": '<p>Once upon a time</p><img src="https://img.test/a.jpg">'}) == []
+
+
+def test_a_batch_waits_between_its_chapters_and_not_after_the_last(monkeypatch):
+    from external_scraper import ExternalScraper
+
+    class Runner:
+        label = "Generic"
+
+        def parse_chapter(self, chapter, _book):
+            return {"chapterName": chapter["name"], "contentHtml": "<p>text</p>", "contentText": "text"}
+
+    scraper = ExternalScraper(logger=lambda _message: None)
+    scraper._book_data = {"_generic": True}
+    monkeypatch.setattr(scraper, "_python_engine", lambda _engine: Runner())
+    waits = []
+    monkeypatch.setattr(ExternalScraper, "_sleep_interval", classmethod(lambda cls, *args, **kwargs: waits.append(args) or 0))
+    batch = [{"url": f"https://example.test/{n}", "name": f"Chapter {n}"} for n in (1, 2, 3)]
+    results = scraper.parse_chapter_batch(batch, interval=1.0, interval_max=2.0)
+    assert [r["chapterName"] for r in results] == ["Chapter 1", "Chapter 2", "Chapter 3"]
+    assert len(waits) == 2  # between the three, not after the third
+    # A book's single last chapter: no wait at all before the images are fetched.
+    waits.clear()
+    scraper.parse_chapter_batch(batch[:1], interval=1.0, interval_max=2.0)
+    assert waits == []

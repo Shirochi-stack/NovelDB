@@ -22923,9 +22923,12 @@ async (items) => {
                 if self._stop_requested:
                     results.append(None)
                     continue
+                # The wait is between a batch's chapters. After its last one it was paid twice (the
+                # downloader waits between batches too), and once more after the book's very last chapter,
+                # with nothing left to ask for: the images started that much later.
                 result = self._python_parse_chapter(
                     python_engine, index, chapter, interval=interval,
-                    interval_max=interval_max,
+                    interval_max=interval_max, pause=index < len(batch_info) - 1,
                 )
                 results.append(result)
                 report_success(index, result)

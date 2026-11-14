@@ -907,7 +907,10 @@ class SiteEnginesMixin:
 
     @timed_chapter
     def _python_parse_chapter(self, engine: str, index, chapter_info, interval=0.5, log_errors=True,
-                              interval_max=None):
+                              interval_max=None, pause=True):
+        """One chapter from a Python engine, then the rate-limit wait before the next request. `pause` off
+        skips that wait: the last chapter of a batch has no next request here (the downloader paces the
+        batches itself, and nothing follows the last one)."""
         runner = self._python_engine(engine)
         started = time.perf_counter()
         try:
@@ -923,5 +926,6 @@ class SiteEnginesMixin:
                 self.log(f"  [{index + 1}] {runner.label}: {e}")
         if isinstance(data, dict) and getattr(self, "chapter_timing", False):
             data["_scrape_seconds"] = time.perf_counter() - started
-        self._sleep_interval(interval, interval_max)
+        if pause:
+            self._sleep_interval(interval, interval_max)
         return data
