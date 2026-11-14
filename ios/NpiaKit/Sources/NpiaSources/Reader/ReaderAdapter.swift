@@ -241,6 +241,8 @@ final class ReaderBookSession: @unchecked Sendable {
         case page(PageScriptSession)
         /// lightnovel-crawler, FanFicFare or gallery-dl in the Python engines' page (`PythonEngines`).
         case python(PythonEngines.Module, SourceContext)
+        /// A userscript the user added: each chapter read in a web view page of its own (`UserscriptEngine`).
+        case userscript(CustomEngines.Info, SourceContext)
     }
 
     struct ChapterInfo {
@@ -274,7 +276,15 @@ final class ReaderBookSession: @unchecked Sendable {
                 case .lnreader: return try await openPageScript(url, script: .lnreader, context: context, page: shared)
                 case .haruneko: return try await openPageScript(url, script: .haruneko, context: context, page: shared)
                 case .generic: return try await openPageScript(url, script: .generic, context: context, page: shared)
-                case .lncrawl, .fanficfare, .gallerydl, .mangapeak, .tako, .custom:
+                case .custom:
+                    // The user's userscripts that read this link come before their Python engines.
+                    if let script = CustomEngines.userscripts(for: url).first {
+                        let payload = try await UserscriptEngine.openBook(script, url: url, context: context)
+                        return try make(payload, requested: url, engine: .userscript(script, context))
+                    }
+                    guard !CustomEngines.python().isEmpty else { throw EngineNoMatch(message: "No custom engine reads this site.") }
+                    return try await openPython(url, engine: engine, context: context)
+                case .lncrawl, .fanficfare, .gallerydl, .mangapeak, .tako:
                     return try await openPython(url, engine: engine, context: context)
                 case .native: continue
                 }
@@ -458,6 +468,10 @@ final class ReaderBookSession: @unchecked Sendable {
                 imageData = read.images
             case .python(let engine, let context):
                 blocks = try await PythonEngines.shared.chapter(engine, info: info, bookURL: book.url, context: context)
+            case .userscript(let script, let context):
+                let read = try await UserscriptEngine.chapter(script, info: info, context: context)
+                blocks = read.blocks
+                imageData = read.images
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -483,6 +497,7 @@ final class ReaderBookSession: @unchecked Sendable {
         case .webtoepub(let session): Task { await session.close() }
         case .page(let session): Task { await session.close() }
         case .python: break  // the page is shared, and closes itself when idle
+        case .userscript: break  // each chapter's page closes when it is read
         }
     }
 

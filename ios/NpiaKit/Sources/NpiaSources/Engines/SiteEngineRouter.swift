@@ -74,13 +74,18 @@ public enum SiteEngineRouter {
         let isWebPage = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         let enabled = engines.enabled().filter { $0 != .custom || !CustomEngines.list().isEmpty }
         let native = SourceCatalog.nativeAdapterType(for: url)
-        let steps = plan(order: enabled, nativeOwnsURL: native != nil,
+        var steps = plan(order: enabled, nativeOwnsURL: native != nil,
                          dynamic: engines.dynamicPriority) { engine in
             if PythonEngines.bundled.contains(engine) { return PythonEngines.listsBundled(engine, url: url) }
             if engine == .generic { return native?.id == .comix || native?.id == .mangak }
             if engine == .custom { return CustomEngines.lists(url) }
             guard let rules = engine.ruleEngine else { return false }
             return EngineSites.lists(rules, url)
+        }
+        // A userscript that matches every site names none: with dynamic priority it is asked last, after the
+        // generic fallback (it would answer for every link otherwise).
+        if native == nil, engines.dynamicPriority, enabled.contains(.custom), !steps.contains(.custom), CustomEngines.anywhere() {
+            steps.append(.custom)
         }
         // The Settings' order as it is, as on the desktop (gallery-dl was put before HaruNeko on manga sites
         // here only, and books it lists without pages, such as fanfox's One Piece, could not be read), except

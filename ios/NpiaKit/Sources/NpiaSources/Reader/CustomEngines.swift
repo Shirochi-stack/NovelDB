@@ -3,13 +3,26 @@ import NpiaCore
 import ZIPFoundation
 
 /// Import Python engines for the Pyodide host, or enable a bundled adapter for a recognized ZIP.
+///
+/// A userscript (`.user.js`, or a `.js` with a `==UserScript==` header) is a custom engine too: its name and
+/// sites come from its header, and it reads a link in a web view page of its own (`UserscriptEngine`). One that
+/// matches every site names none, and is asked last, after the generic fallback.
 public enum CustomEngines {
     public struct Info {
         public let id: String
         public let label: String
         public let sites: [String]
         let source: String
+        /// A userscript, read in a web view page (not a Python engine).
+        public var userscript = false
+        /// A userscript that matches every site.
+        public var everywhere = false
+
+        /// The engine's file, as the list shows it.
+        public var fileName: String { id + (userscript ? CustomEngines.userscriptSuffix : ".py") }
     }
+
+    static let userscriptSuffix = ".user.js"
 
     private struct ImportError: LocalizedError {
         let errorDescription: String?
@@ -23,10 +36,47 @@ public enum CustomEngines {
 
     public static func list() -> [Info] {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.pathExtension == "py" }.sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { file in
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
-            return describe(file.lastPathComponent, text)
+        var found: [Info] = []
+        // One engine of a name: the userscript (its files are read first).
+        let ordered = files.sorted { a, b in
+            let (first, second) = (a.lastPathComponent.hasSuffix(userscriptSuffix), b.lastPathComponent.hasSuffix(userscriptSuffix))
+            return first != second ? first : a.lastPathComponent < b.lastPathComponent
         }
+        for file in ordered {
+            let name = file.lastPathComponent
+            guard name.hasSuffix(userscriptSuffix) || file.pathExtension == "py",
+                  let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            let info: Info?
+            if name.hasSuffix(userscriptSuffix) {
+                info = try? describeUserscript(String(name.dropLast(userscriptSuffix.count)), text)
+            } else {
+                info = describe(name, text)
+            }
+            if let info, !found.contains(where: { $0.id == info.id }) { found.append(info) }
+        }
+        return found.sorted { $0.id < $1.id }
+    }
+
+    /// The Python engines among them (the Python page runs these).
+    static func python() -> [Info] { list().filter { !$0.userscript } }
+
+    /// A userscript that matches every site was added: the custom step also follows the generic fallback.
+    static func anywhere() -> Bool { list().contains { $0.everywhere } }
+
+    /// The userscripts that read `url`: those that name its site, then those that match every site.
+    static func userscripts(for url: URL) -> [Info] {
+        guard let name = url.host?.lowercased() else { return [] }
+        let host = name.hasPrefix("www.") ? String(name.dropFirst(4)) : name
+        let scripts = list().filter(\.userscript)
+        return scripts.filter { engine in engine.sites.contains { host == $0 || host.hasSuffix("." + $0) } }
+            + scripts.filter(\.everywhere)
+    }
+
+    /// A Python engine lists `url`'s site (the Python page is not asked for a userscript's sites).
+    static func listsPython(_ url: URL) -> Bool {
+        guard let name = url.host?.lowercased() else { return false }
+        let host = name.hasPrefix("www.") ? String(name.dropFirst(4)) : name
+        return python().contains { engine in engine.sites.contains { host == $0 || host.hasSuffix("." + $0) } }
     }
 
     static func lists(_ url: URL) -> Bool {
@@ -37,7 +87,9 @@ public enum CustomEngines {
 
     public static func remove(_ id: String) throws {
         guard id.range(of: #"^[a-z0-9_]+$"#, options: .regularExpression) != nil else { return }
-        try FileManager.default.removeItem(at: folder.appendingPathComponent(id + ".py"))
+        let files = [id + ".py", id + userscriptSuffix].map { folder.appendingPathComponent($0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        for file in files { try FileManager.default.removeItem(at: file) }
     }
 
     /// A bundled engine to enable, or nil when a Python engine was installed.
@@ -57,12 +109,73 @@ public enum CustomEngines {
                 throw ImportError("The file must contain a Python class Engine with parse_book and parse_chapter.")
             }
             entry = selected
+        case "js":
+            guard size <= (2 << 20) else { throw ImportError("The script exceeds 2 MB.") }
+            let name = file.lastPathComponent.replacingOccurrences(of: #"(?i)\.user\.js$"#, with: ".js", options: .regularExpression)
+            entry = try describeUserscript(identifier(name), try String(contentsOf: file, encoding: .utf8))
         default:
-            throw ImportError("Choose a Python engine or a ZIP.")
+            throw ImportError("Choose a Python engine, a userscript (.user.js) or a ZIP.")
         }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try Data(entry.source.utf8).write(to: folder.appendingPathComponent(entry.id + ".py"), options: .atomic)
+        try Data(entry.source.utf8).write(to: folder.appendingPathComponent(entry.fileName), options: .atomic)
+        // One engine of a name: the other kind's file of the same name goes.
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent(entry.id + (entry.userscript ? ".py" : userscriptSuffix)))
         return nil
+    }
+
+    private static func identifier(_ name: String) -> String {
+        let file = (name.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent as NSString
+        let stem = file.deletingPathExtension.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9_]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        return stem.isEmpty ? "engine" : stem
+    }
+
+    private static func groups(_ pattern: String, in text: String, options: NSRegularExpression.Options = []) -> [[String]] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return [] }
+        return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).map { match in
+            (0..<match.numberOfRanges).map { Range(match.range(at: $0), in: text).map { String(text[$0]) } ?? "" }
+        }
+    }
+
+    /// A userscript's name and sites, from its header (as noveldb/core/engines/userscript_engine.py reads it).
+    static func describeUserscript(_ id: String, _ source: String) throws -> Info {
+        let source = source.hasPrefix("\u{FEFF}") ? String(source.dropFirst()) : source
+        guard let header = groups(#"//\s*==UserScript==(.*?)//\s*==/UserScript=="#, in: source, options: [.dotMatchesLineSeparators]).first?[1] else {
+            throw ImportError("The script has no ==UserScript== header.")
+        }
+        let lines = groups(#"^\s*//\s*@([\w:-]+)[ \t]*(.*?)\s*$"#, in: header, options: [.anchorsMatchLines])
+            .map { (key: $0[1], value: $0[2]) }
+        let name = lines.first { $0.key == "name" }?.value.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { throw ImportError("The script's header has no @name.") }
+        let patterns = lines.filter { $0.key == "match" || $0.key == "include" }.map(\.value).filter { !$0.isEmpty }
+        var everywhere = patterns.isEmpty
+        var sites: [String] = []
+        for pattern in patterns {
+            switch patternHost(pattern) {
+            case nil: everywhere = true
+            case let host?: if !host.isEmpty, !sites.contains(host) { sites.append(host) }
+            }
+        }
+        return Info(id: id, label: name, sites: everywhere ? [] : sites, source: source, userscript: true, everywhere: everywhere)
+    }
+
+    /// The site a @match or @include pattern names ("" when it names nothing usable); nil for every site.
+    private static func patternHost(_ pattern: String) -> String? {
+        let text = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text == "*" || text == "<all_urls>" { return nil }
+        guard let found = groups(#"^(?:\*|https?\*?|http\*|file|ftp)://([^/]*)"#, in: text).first?[1] else {
+            return text.hasPrefix("/") || text.hasPrefix("*") ? nil : ""
+        }
+        var host = found.lowercased()
+        if host.isEmpty || host == "*" { return nil }
+        host = host.replacingOccurrences(of: #"^\*\.?"#, with: "", options: .regularExpression)
+        host = String(host.split(separator: ":", omittingEmptySubsequences: false).first ?? "")
+        if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
+        if host.contains("*") {
+            return host.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: CharacterSet(charactersIn: ".")).isEmpty ? nil : ""
+        }
+        return host
     }
 
     private static func readArchive(_ url: URL) throws -> Info? {

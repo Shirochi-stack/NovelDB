@@ -78,7 +78,7 @@ actor PythonEngines {
         let listed: Bool
         switch engine {
         case .mangapeak, .tako: listed = Self.listsBundled(engine, url: url)
-        case .custom: listed = CustomEngines.lists(url)
+        case .custom: listed = CustomEngines.listsPython(url)
         default:
             listed = engine.ruleEngine.map { EngineSites.lists($0, url, store: store) } ?? false
         }
@@ -187,7 +187,7 @@ actor PythonEngines {
             if let data = json.data(using: .utf8),
                let request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                request["op"] as? String == "customEngines" {
-                let engines = CustomEngines.list().map {
+                let engines = CustomEngines.python().map {
                     ["id": $0.id, "label": $0.label, "source": $0.source, "sites": $0.sites] as [String: Any]
                 }
                 let reply = (try? JSONSerialization.data(withJSONObject: ["engines": engines])) ?? Data()

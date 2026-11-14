@@ -271,7 +271,11 @@ struct SiteEnginesForm: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(engine.label)
-                            if !engine.sites.isEmpty { Text(engine.sites.joined(separator: ", ")).font(.caption) }
+                            if engine.everywhere {
+                                Text("\(engine.fileName) · any site, asked last").font(.caption)
+                            } else if !engine.sites.isEmpty {
+                                Text(engine.sites.joined(separator: ", ")).font(.caption)
+                            }
                         }
                         Spacer()
                         Button("Remove", role: .destructive) {
@@ -287,7 +291,7 @@ struct SiteEnginesForm: View {
             } header: {
                 Text("Custom engines")
             } footer: {
-                Text("Import a Python engine, a ZIP with one Python engine, or the Tako Chrome ZIP.")
+                Text("Import a Python engine, a ZIP with one Python engine, a userscript (.user.js), or the Tako Chrome ZIP. A userscript reads a link in a hidden page; one that matches every site is asked last, after the generic fallback.")
             }
             Section {
                 Toggle("Update the novel-downloader rules automatically", isOn: $model.settings.engines.novelDownloaderAutoUpdate)
@@ -357,7 +361,9 @@ struct SiteEnginesForm: View {
             }
             Button("Cancel", role: .cancel) { pendingEngine = nil }
         } message: {
-            Text("Python engines run with the app’s access to your downloads and logins. Only add engines you trust.")
+            Text(pendingEngine?.pathExtension.lowercased() == "js"
+                 ? "A userscript runs in the app’s own pages on the links you send it, signed in as you are there, and may make requests through the app. Only add scripts you trust."
+                 : "Python engines run with the app’s access to your downloads and logins. Only add engines you trust.")
         }
         .alert("Custom engines", isPresented: Binding(
             get: { importMessage != nil }, set: { if !$0 { importMessage = nil } }
