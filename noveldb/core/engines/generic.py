@@ -1824,12 +1824,18 @@ def acqq_page(html: str) -> Optional[dict]:
     raise ValueError("the chapter page's image list could not be read")
 
 
+class SoldChapter(ValueError):
+    """A chapter the site sells and this account cannot read. The downloader counts it as locked (no retries)."""
+
+    locked = True
+
+
 def acqq_images(page: dict) -> List[str]:
     """The chapter's images in order. A chapter the site sells holds only its "read it in the app" picture."""
     chapter = page.get("chapter") if isinstance(page.get("chapter"), dict) else {}
     images = [p.get("url") for p in page.get("picture") or [] if isinstance(p, dict) and str(p.get("url") or "").startswith("http")]
     if not chapter.get("canRead", True) or (str(chapter.get("vipStatus")) == "2" and len(images) <= 1):
-        raise ValueError("the site sells this chapter: it reads only in the site's app")
+        raise SoldChapter("the site sells this chapter: it reads only in the site's app")
     return list(dict.fromkeys(images))
 
 

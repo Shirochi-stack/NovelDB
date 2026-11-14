@@ -864,7 +864,12 @@ class SiteEnginesMixin:
             data = runner.parse_chapter(chapter_info, self._book_data or {})
         except Exception as e:
             data = None
-            if log_errors:
+            if getattr(e, "locked", False):
+                # A chapter the site sells: locked, as the built-in scrapers report theirs (asking again changes nothing).
+                name = chapter_info.get("fullName") or chapter_info.get("name", "")
+                self.log(f"  [{index + 1}] 🔒 {name}: {e}")
+                data = {"_locked": True, "chapterName": name}
+            elif log_errors:
                 self.log(f"  [{index + 1}] {runner.label}: {e}")
         if isinstance(data, dict) and getattr(self, "chapter_timing", False):
             data["_scrape_seconds"] = time.perf_counter() - started

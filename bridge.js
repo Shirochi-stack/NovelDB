@@ -169,10 +169,21 @@
       window.__ND_ruleInstance = rule;
       window.__ND_bookObj = book;
 
+      // 69shuba.com's rule reads the book's category as its author (the page's third line, where the
+      // author once was): the author is the link to the author's own page.
+      var bookAuthor = book.author;
+      try {
+        if (/(^|\.)69shuba\.(com|cx)$/i.test(location.hostname)) {
+          var authorLink = document.querySelector('.booknav2 a[href*="author"]');
+          var authorName = authorLink ? (authorLink.textContent || '').trim() : '';
+          if (authorName) bookAuthor = authorName;
+        }
+      } catch (e) { /* the rule's own answer stays */ }
+
       return JSON.stringify({
         bookUrl: book.bookUrl,
         bookname: book.bookname,
-        author: book.author,
+        author: bookAuthor,
         introduction: book.introduction || "",
         introductionHTML: introHtml,
         coverUrl: coverUrl,

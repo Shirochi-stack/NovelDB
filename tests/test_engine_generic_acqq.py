@@ -129,3 +129,9 @@ console.log(JSON.stringify({
     assert all(out["refused"])
     assert out["free"] == 110
     assert "sells this chapter" in out["paid"]
+
+
+def test_a_sold_chapter_is_reported_as_locked_so_the_downloader_does_not_retry_it():
+    with pytest.raises(g.SoldChapter) as caught:
+        g.acqq_images(g.acqq_page(page("chapter_paid.html")))
+    assert caught.value.locked is True
