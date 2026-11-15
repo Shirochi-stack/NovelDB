@@ -26,6 +26,7 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "metadata/state/nu_titles.json.gz"
+ADDRESSES_NAME = "nu_title_addresses.json.gz"
 BASE = "https://www.novelupdates.com/"
 PARSER_VERSION = 2
 PUBLISHERS = {
@@ -435,6 +436,29 @@ def repack(source, data_dir, replacements):
     build_preview(source, data_dir)
 
 
+def write_addresses(path, source, matches):
+    """Keep each confirmed work's series address beside the published state.
+
+    One gzip file for every source: {"sources": {source: {novel id: {"title", "url"}}}}.
+    The title corpus and catalog bundles hold the English title alone, so this is
+    where a work's NovelUpdates address stays after the run's report expires.
+    """
+    path = Path(path)
+    data = {"version": 1, "sources": {}}
+    if path.exists():
+        stored = json.loads(gzip.decompress(path.read_bytes()))
+        if stored.get("version") == 1 and isinstance(stored.get("sources"), dict):
+            data = stored
+    entries = {nid: {"title": match["english"], "url": match["url"]}
+               for nid, match in sorted(matches.items())}
+    if data["sources"].get(source) == entries and path.exists():
+        return
+    data["sources"][source] = entries
+    data["sources"] = dict(sorted(data["sources"].items()))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_cache(path, data)
+
+
 def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
     try:
         from . import metadata_common, metadata_pipeline
@@ -472,6 +496,7 @@ def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
         atomic_text(path, text)
         if path.with_suffix(path.suffix + ".gz").exists():
             atomic_bytes(path.with_suffix(path.suffix + ".gz"), gzip.compress(text.encode("utf-8"), mtime=0))
+    write_addresses(Path(state_dir) / ADDRESSES_NAME, source, matches)
     # Reconcile bundles on retries even when the corpus was already saved.
     if rebuild and matches:
         repack(source, data_dir, matches)

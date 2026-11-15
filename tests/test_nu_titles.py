@@ -247,9 +247,20 @@ def test_apply_rebuilds_browser_bundles_and_preserves_raw_rows(tmp_path):
     assert preview["translations"]["1"] == "Debut or Die"
     manifest = json.loads((data_dir / "kpage_chunk_manifest.json").read_text(encoding="utf-8"))
     assert manifest["chunkHashes"] == [hashlib.sha256((data_dir / manifest["files"][0]).read_bytes()).hexdigest()]
+    # Each confirmed work's series address is kept as gzip beside the published state.
+    addresses = tmp_path / "state" / "nu_title_addresses.json.gz"
+    assert json.loads(gzip.decompress(addresses.read_bytes())) == {
+        "version": 1, "sources": {"kpage": {"1": {"title": "Debut or Die", "url": URL}}}}
     before = (data_dir / "kpage_chunk_manifest.json").read_bytes()
+    stored = addresses.read_bytes()
     assert nu_titles.apply_catalog("kpage", data_dir, tmp_path / "state", cache_path, rebuild=True)["changed"] == 0
     assert (data_dir / "kpage_chunk_manifest.json").read_bytes() == before
+    assert addresses.read_bytes() == stored
+    # Another source adds its own entry; a work that no longer matches leaves the file.
+    nu_titles.write_addresses(addresses, "npia", {"9": {"english": "Other", "url": URL}})
+    nu_titles.write_addresses(addresses, "kpage", {})
+    assert json.loads(gzip.decompress(addresses.read_bytes()))["sources"] == {
+        "kpage": {}, "npia": {"9": {"title": "Other", "url": URL}}}
 
 
 def test_chinese_native_title_and_author():
