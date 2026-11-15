@@ -53,6 +53,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -108,7 +109,9 @@ fun RootScreen(model: AppViewModel) {
     // Add links opens beside it as a panel, from the Download button the Catalog page shows right of Sites.
     val screenWidth = LocalConfiguration.current.screenWidthDp
     val wide = screenWidth >= WIDE_SCREEN_DP
-    val split = wide && downloadHome && catalog.genericShown && catalog.error == null
+    // The link cart opens from Add links, so on a wide screen it stays in that panel instead of taking the screen.
+    val cartInPanel = model.tab == Tab.ADD && stack.size == 1 && route == Route.LinkCart
+    val split = wide && (downloadHome || cartInPanel) && catalog.genericShown && catalog.error == null
     val panelOpen = split && model.tab == Tab.ADD
     LaunchedEffect(wide, cart.size, panelOpen) { catalog.setSections(wide, cart.size, panelOpen) }
 
@@ -206,14 +209,21 @@ fun RootScreen(model: AppViewModel) {
                     AnimatedVisibility(panelOpen, enter = fadeIn() + expandHorizontally(), exit = fadeOut() + shrinkHorizontally()) {
                         DownloadPanel(
                             width = (screenWidth * 0.42f).dp.coerceIn(320.dp, 460.dp),
+                            title = if (cartInPanel) Route.LinkCart.title else "Download",
+                            onBack = if (cartInPanel) ({ model.pop() }) else null,
+                            onClear = if (cartInPanel && cart.isNotEmpty()) ({ model.cart.clear(); model.pop() }) else null,
                             onClose = { model.select(Tab.CATALOG) },
                         ) {
-                            saveableState.SaveableStateProvider("add") { AddScreen(model, onQueued = { model.openQueue() }) }
+                            if (cartInPanel) {
+                                LinkCartScreen(model, topBar = null)
+                            } else {
+                                saveableState.SaveableStateProvider("add") { AddScreen(model, onQueued = { model.openQueue() }) }
+                            }
                         }
                     }
                 }
-                // Back closes the panel before it does anything in the Catalog.
-                BackHandler(enabled = panelOpen) { model.select(Tab.CATALOG) }
+                // Back leaves the link cart, then closes the panel, before it does anything in the Catalog.
+                BackHandler(enabled = panelOpen) { if (cartInPanel) model.pop() else model.select(Tab.CATALOG) }
             } else when (route) {
                 null -> when (model.tab) {
                     Tab.ADD -> saveableState.SaveableStateProvider("add") {
@@ -278,20 +288,32 @@ private val DOWNLOAD_SECTIONS = listOf(
 
 /**
  * Add links beside the Catalog on a wide screen: the Download panel the Catalog page's Download button
- * opens and closes, in well under half of the screen.
+ * opens and closes, in well under half of the screen. The link cart shows in it too, with Back to Add links
+ * (`onBack`) and Clear cart (`onClear`) in the header.
  */
 @Composable
-private fun DownloadPanel(width: Dp, onClose: () -> Unit, content: @Composable () -> Unit) {
+private fun DownloadPanel(
+    width: Dp,
+    title: String,
+    onBack: (() -> Unit)?,
+    onClear: (() -> Unit)?,
+    onClose: () -> Unit,
+    content: @Composable () -> Unit,
+) {
     Row(Modifier.width(width).fillMaxHeight()) {
         Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             Row(
-                Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 2.dp),
+                Modifier.fillMaxWidth().padding(start = if (onBack != null) 2.dp else 14.dp, end = 4.dp, top = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (onBack != null) {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Add links") }
+                }
                 Image(painterResource(R.drawable.halgakos_cart), contentDescription = null, modifier = Modifier.size(30.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Download", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                if (onClear != null) TextButton(onClick = onClear) { Text("Clear cart", maxLines = 1) }
                 IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close the Download panel") }
             }
             Box(Modifier.fillMaxSize()) { content() }

@@ -237,12 +237,12 @@ private fun LinkCartRow(count: Int, onOpen: () -> Unit) {
     HorizontalDivider()
 }
 
-/** The books in the link cart, each removable. */
+/** The books in the link cart, each removable. Without a `topBar` (the wide screen's panel) the caller shows Clear cart. */
 @Composable
-fun LinkCartScreen(model: AppViewModel, topBar: TopBarState) {
+fun LinkCartScreen(model: AppViewModel, topBar: TopBarState?) {
     val items by model.cart.items.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) {
-        topBar.actions = {
+    LaunchedEffect(topBar) {
+        topBar?.actions = {
             TextButton(onClick = { model.cart.clear(); model.pop() }) { Text("Clear cart") }
         }
     }
