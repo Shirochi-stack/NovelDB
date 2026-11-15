@@ -419,6 +419,60 @@ def test_details_compact_facts_hide_irrelevant_ranks_and_cover_url(age,expected,
     asyncio.run(scenario())
 
 
+def test_details_link_a_confirmed_work_to_its_title_page_from_one_lazy_download():
+    address='https://www.novelupdates.com/series/fixture-work/'
+    stored={'version':1,'sources':{'npia':{'7':{'title':'Fixture','url':address},
+        '9':{'title':'Elsewhere','url':'https://elsewhere.test/series/fixture-work/'}},'kpage':{'8':{'title':'Other source','url':address}}}}
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            for width in (1280,390):
+                page=await browser.new_page(viewport={'width':width,'height':900})
+                errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+                site=FixtureSite(many_npia=True);requests=[];fail=[True]
+                async def route(r):
+                    if urlsplit(r.request.url).path.endswith('/nu_title_addresses.json.gz'):
+                        requests.append(r.request.url)
+                        if fail[0]:await r.fulfill(status=503,body='Unavailable');return
+                        await r.fulfill(body=gzip.compress(json.dumps(stored).encode()),content_type='application/octet-stream',
+                            headers={'access-control-allow-origin':'*'});return
+                    await site.route(r)
+                await page.route('**/*',route)
+                await page.goto('http://metadata.test/#src=npia');await wait_loaded(page)
+                assert requests==[]  # Nothing is read until a Details view opens.
+                dialog=page.get_by_role('dialog');link=page.locator('.novel-details [data-field=novelUpdatesUrl]')
+                async def view(ident):
+                    await page.locator(f'.novel-card[data-novel-id="{ident}"] .cover-details').click()
+                    await dialog.wait_for()
+                    await page.wait_for_function('(id)=>document.querySelector(".novel-details [data-field=id]")?.textContent===id',arg=str(ident))
+                async def close():
+                    await page.get_by_role('button',name='Close Details').click()
+                    assert await link.is_hidden() and await link.get_attribute('href') is None
+                # A failed download leaves the dialog as it was and is tried again on the next view.
+                await view(7)
+                await page.wait_for_function('(n)=>n===1',arg=len(requests))
+                assert await link.is_hidden() and await dialog.get_by_role('link',name='Open novel').is_visible()
+                await close();fail[0]=False
+                await view(7)
+                await link.wait_for(state='visible')
+                assert await link.get_attribute('href')==address and await link.inner_text()=='NovelUpdates ↗'
+                assert await link.get_attribute('target')=='_blank' and await link.get_attribute('rel')=='noopener'
+                assert await link.evaluate('a=>a.parentElement.className')=='novel-details-actions'
+                assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                await close()
+                # No entry for this source's work 8, and an address on another site is never linked.
+                for ident in (8,9):
+                    await view(ident)
+                    await page.evaluate('new Promise(resolve=>setTimeout(resolve,150))')
+                    assert await link.is_hidden()
+                    await close()
+                await view(7);await link.wait_for(state='visible');await close()
+                assert len(requests)==2 and not errors  # One failed read, then one download for every later view.
+                await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_blocked_host_keeps_small_canvas_and_displays_original_inside_details():
     async def scenario():
         data=image_bytes('PNG')

@@ -150,7 +150,25 @@
     figure.append(image,imageStatus);
     const detailNovel=document.createElement('a');detailNovel.textContent='Open novel ↗';detailNovel.dataset.field='canonicalUrl';
     detailNovel.target='_blank';detailNovel.rel='noopener';detailNovel.hidden=true;
-    const actions=document.createElement('div');actions.className='novel-details-actions';actions.append(detailDownload,detailNovel);
+    // The work's NovelUpdates page, where its title was confirmed there. Every source's addresses are
+    // one small file ({sources: {source: {novel id: {title, url}}}}), read on the first Details view
+    // (never while the catalog loads) and kept for the visit; the link appears once it is known.
+    const TITLE_ADDRESSES='https://raw.githubusercontent.com/Shirochi-stack/NovelDB/data/metadata/state/nu_title_addresses.json.gz';
+    const TITLE_SITE='https://www.novelupdates.com/';
+    const detailTitles=document.createElement('a');detailTitles.textContent='NovelUpdates ↗';detailTitles.dataset.field='novelUpdatesUrl';
+    detailTitles.target='_blank';detailTitles.rel='noopener';detailTitles.hidden=true;
+    let titleAddresses=null;
+    function loadTitleAddresses() {
+        return titleAddresses ||= (async()=>{
+            const response=await fetch(TITLE_ADDRESSES,{credentials:'omit'});
+            if(!response.ok) {await response.body?.cancel();throw new Error(`Addresses HTTP ${response.status}`);}
+            const data=JSON.parse(await new Response(response.body.pipeThrough(new DecompressionStream('gzip'))).text());
+            if(data?.version!==1 || !data.sources || typeof data.sources!=='object') throw new Error('Invalid addresses');
+            return data.sources;
+        })().catch(()=>{titleAddresses=null;return null;});  // A failed read is tried again on the next view.
+    }
+    function clearTitles() {detailTitles.hidden=true;detailTitles.removeAttribute('href');}
+    const actions=document.createElement('div');actions.className='novel-details-actions';actions.append(detailDownload,detailNovel,detailTitles);
     const fields=document.createElement('div');fields.className='novel-details-fields';
     const facts=document.createElement('dl');facts.className='novel-details-facts';
     const content=document.createElement('dl');content.className='novel-details-content';
@@ -264,6 +282,13 @@
         title.textContent=card._record?.titleEn || card._record?.title || 'Novel details';
         title.dataset.field=card._record?.titleEn ? 'titleEn' : 'title';
         renderMetadata({...card._record,canonicalUrl:card._record?.canonicalUrl || card.querySelector('.card-cover-wrap')?.href,synopsis:card._synopsis || card._record?.synopsis || 'Loading synopsis…'});
+        clearTitles();
+        const source=card.dataset.source || card._record?.source,id=card.dataset.novelId || card._record?.id;
+        loadTitleAddresses().then(sources=>{
+            if(signal.aborted || sequence!==viewSequence || !sources) return;
+            const works=sources[source],entry=works && Object.hasOwn(works,id) ? works[id] : null;
+            if(typeof entry?.url==='string' && entry.url.startsWith(TITLE_SITE)) {detailTitles.href=entry.url;detailTitles.hidden=false;}
+        });
         image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
         imageStatus.textContent='Loading original image…';
         let attempt=0, imageTimer;
@@ -305,7 +330,7 @@
     close.addEventListener('click',()=>dialog.close());
     dialog.addEventListener('close',()=>{
         const source=detailCard?.dataset.source,id=detailCard?.dataset.novelId,focus=returnFocus;
-        viewSequence++;viewController?.abort();viewController=null;detailCard=null;clearMetadata();returnFocus=null;
+        viewSequence++;viewController?.abort();viewController=null;detailCard=null;clearMetadata();clearTitles();returnFocus=null;
         if(focus?.isConnected)focus.focus({preventScroll:true});
         else requestAnimationFrame(()=>{
             if(dialog.open || (document.activeElement!==document.body && document.activeElement?.isConnected))return;
