@@ -36,10 +36,20 @@ test('metadata-v1 keeps null distinct from measured zero and explicit status', (
     assert.equal(known.views, 0);
     assert.equal(core.matchesStatus(unknown, 'ongoing'), false);
     assert.equal(core.matchesStatus(unknown, 'complete'), false);
-    assert.equal(core.matchesAudience(unknown, 'general'), false);
+    // General holds every work not known to be adults-only: a work without a rating stays in it.
+    assert.equal(core.matchesAudience(unknown, 'general'), true);
+    assert.equal(core.matchesAudience(unknown, 'adult'), false);
+    assert.equal(core.matchesAudience(unknown, 'r15'), false);
     assert.equal(core.matchesAudience(unknown, 'all'), true);
     assert.equal(core.matchesStatus(known, 'ongoing'), true);
     assert.equal(core.matchesAudience(known, 'general'), true);
+    const [adult, teen] = core.parseRows([row(9, {10: 19}), row(10, {10: 15})], 'nweb', cfg);
+    assert.deepEqual(['general', 'adult', 'r15'].map(a => core.matchesAudience(adult, a)), [false, true, false]);
+    assert.deepEqual(['general', 'adult', 'r15'].map(a => core.matchesAudience(teen, a)), [true, false, true]);
+    // Counts and previews published under an older General rule are not used.
+    const manifest = {files: ['npia_chunk_0.json.gz'], chunks: 1, totalEntries: 9, audienceTotals: {general: 5}};
+    assert.equal(core.catalogManifestConfig(manifest, 'npia').generalEntries, null);
+    assert.equal(core.catalogManifestConfig({...manifest, audienceRule: core.AUDIENCE_RULE}, 'npia').generalEntries, 5);
 });
 
 test('new sorts by original publication date and not the update date', () => {
@@ -67,6 +77,8 @@ test('legacy positions, start dates, and SFC audience behavior remain unchanged'
     assert.equal(s.chapters, 9000); assert.equal(s.ticketRank, 6); assert.equal(s.synopsis, '第一行\n第二行');
     assert.equal(s.startDate, '2019-08-07');
     assert.equal(core.matchesAudience(s, 'r15'), true); assert.equal(core.matchesAudience(s, 'adult'), false);
+    // That source's "19" is a teen rating, so General keeps it; npia's and kpage's is adults-only.
+    assert.equal(core.matchesAudience(s, 'general'), true); assert.equal(core.matchesAudience(n, 'general'), false);
     const kpage = [8, 'K', 'A', '', [], 100, 0, 1012, 0, '2026-10-25', 0, 0, '2024-07-01',
         {rating: 9.6, rating_count: 16981, rating_scale: 10}];
     const [k] = core.parseRows([kpage], 'kpage', {});

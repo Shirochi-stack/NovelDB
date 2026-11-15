@@ -7398,7 +7398,7 @@
                         const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
                         bundle={...metadata.compactPreview(JSON.parse(await new Response(stream).text()),source,cfg),_signature:signature};
                     } else bundle=await new Promise((resolve,reject)=>{
-const worker=new Worker('preview-worker.js?v=5');
+const worker=new Worker('preview-worker.js?v=6');
                         const finish=(error,result)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);worker.terminate();error?reject(error):resolve(result);};
                         const abort=()=>finish(new DOMException('Preview cancelled','AbortError'));
                         const timer=setTimeout(()=>finish(new Error('Preview timed out')),20000);
@@ -7485,7 +7485,7 @@ const worker=new Worker('preview-worker.js?v=5');
     function workerRequest(type, value, progress) {
         clearTimeout(catalogIdleTimer);
         if (!catalogWorker) {
-const worker = new Worker("catalog-worker.js?v=18");
+const worker = new Worker("catalog-worker.js?v=19");
             catalogWorker = worker;
             catalogWorkerTagVersion=null;
             worker.onmessage = ({data}) => {

@@ -121,17 +121,25 @@
         return status === "complete" ? !!novel.complete : !novel.complete;
     }
 
+    // Which works the General audience holds: every work not known to be adults-only (rule 2). Rule 1
+    // also hid works without a rating and sfc's teen works. Counts and previews published under another
+    // rule are not used for General (catalogManifestConfig).
+    const AUDIENCE_RULE = 2;
+
     function matchesAudience(novel, audience) {
         if (!["adult", "r15", "general"].includes(audience)) return true;
         if (novel.metadataV1) {
+            // A work without a rating is neither adult nor teen, so General keeps it.
+            if (audience === "general") return novel.age === null || novel.age < 19;
             if (novel.age === null) return false;
             if (audience === "adult") return novel.age >= 19;
-            if (audience === "r15") return novel.age >= 15 && novel.age < 19;
-            return novel.age < 19;
+            return novel.age >= 15 && novel.age < 19;
         }
-        if (audience === "adult") return ["npia", "kpage"].includes(novel.source) && novel.age === 19;
+        // sfc's "19" is a teen rating; only npia and kpage mark adults-only works with it.
+        const adult = ["npia", "kpage"].includes(novel.source) && novel.age === 19;
+        if (audience === "adult") return adult;
         if (audience === "r15") return (novel.source === "sfc" && novel.age === 19) || (novel.source === "npia" && novel.age === 15);
-        return novel.age !== 19;
+        return !adult;
     }
 
     function compareNullable(a, b, order = "desc", text = false) {
@@ -421,8 +429,8 @@
                 || !/^[a-f0-9]{64}$/.test(manifest.previewHash || ''))) throw new Error(`Invalid ${source} preview`);
         if (manifest.previewSortsUrl != null && (manifest.previewSortsUrl !== `${source}_chunk_preview_sorts.json.gz`
                 || !/^[a-f0-9]{64}$/.test(manifest.previewSortsHash || ''))) throw new Error(`Invalid ${source} sort previews`);
-        // How many works the General audience shows, counted when the previews were built.
-        const general = manifest.audienceTotals?.general;
+        // How many works the General audience shows, counted when the previews were built (under this rule).
+        const general = manifest.audienceRule === AUDIENCE_RULE ? manifest.audienceTotals?.general : null;
         return { chunked:true, chunkFiles:manifest.files.map(file => `data/${file}`), chunkCount:manifest.chunks,
             totalEntries:manifest.totalEntries, chunkHashes:hashes || null,
             generalEntries:Number.isInteger(general) && general >= 0 && general <= manifest.totalEntries ? general : null,
@@ -461,6 +469,6 @@
     }
 
     return { nullableNumber, identity, mergeRecords, safeHttpUrl, safeCoverUrl, parseRows, matchesStatus,
-        matchesAudience, compareNullable, nativeRank, rankValue, periodRank, supportedPeriods, sortPlan, recordComparator, sortRecords,
+        matchesAudience, AUDIENCE_RULE, compareNullable, nativeRank, rankValue, periodRank, supportedPeriods, sortPlan, recordComparator, sortRecords,
         mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig, previewSorts, resolveSourceSort, compactPreview };
 });

@@ -88,4 +88,4 @@ for (const [key,profile] of best) {
     });
 }
 process.stdout.write(JSON.stringify({version:2,source,total:manifest.totalEntries,
-    chunkHashes:manifest.chunkHashes,limit:300,audienceTotals,novels,translations,ordinals,profiles}));
+    chunkHashes:manifest.chunkHashes,limit:300,audienceRule:M.AUDIENCE_RULE,audienceTotals,novels,translations,ordinals,profiles}));

@@ -127,7 +127,9 @@ def test_generated_previews_match_full_worker_order_for_every_profile(previews):
                 assert 'descriptions' not in bundle
                 if source=='sfc':assert all(not r[17] for r in bundle['novels'])
                 manifest = json.loads((previews/f'{source}_chunk_manifest.json').read_text(encoding='utf-8'))
-                assert manifest['audienceTotals'] == bundle['audienceTotals'] and 0 < bundle['audienceTotals']['general'] < 350
+                assert manifest['audienceTotals'] == bundle['audienceTotals'] and manifest['audienceRule'] == bundle['audienceRule'] == 2
+                # sfc marks no work adults-only; every other source's General audience leaves some out.
+                assert bundle['audienceTotals']['general'] == 350 if source == 'sfc' else 0 < bundle['audienceTotals']['general'] < 350
                 small = json.loads(gzip.decompress((previews/f'{source}_chunk_preview.json.gz').read_bytes()))
                 assert any(key.endswith(',"general"]') for key in small['profiles'])
                 for key,positions in small['profiles'].items():
@@ -372,8 +374,9 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
 
 def test_first_visit_opens_on_general_previews_and_keeps_them_on_import(previews):
     def general(source,item):
-        age = item[10] if source not in ('npia','kpage') else item[11]
-        return age is not None and age < 19 if source not in ('npia','kpage','sfc') else age != 19
+        # Every work not known to be adults-only: no rating, and sfc's teen "19", stay in.
+        if source in ('npia','kpage'): return item[11] != 19
+        return source == 'sfc' or item[10] is None or item[10] < 19
     async def scenario():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)

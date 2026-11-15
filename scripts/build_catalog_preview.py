@@ -56,7 +56,8 @@ def build(source, output_dir):
                 if str(entry[0]) in payload['translations']:default['translations'][str(entry[0])] = payload['translations'][str(entry[0])]
             positions.append(selected[index])
         default['profiles'][sort if audience is None else json.dumps(key,separators=(',',':'))] = positions
-    manifest.update(audienceTotals=payload.get('audienceTotals',{}),previewUrl=name,previewHash=write_asset(name,default),
+    # The rule the audience counts and orders were built under: the site ignores another rule's.
+    manifest.update(audienceRule=payload.get('audienceRule'),audienceTotals=payload.get('audienceTotals',{}),previewUrl=name,previewHash=write_asset(name,default),
                     previewSortsUrl=expanded_name,previewSortsHash=write_asset(expanded_name,payload))
     atomic_json(manifest_path,manifest)
     return manifest

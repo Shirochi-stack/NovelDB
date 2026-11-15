@@ -182,7 +182,8 @@ def test_jara_and_rbooks_use_shared_tags_in_cards_and_filters(monkeypatch):
                 chip = page.locator('.card-tag', has_text='Shared translated tag').first
                 await chip.click()
                 assert 'Shared translated tag' in await page.locator('#activeTagsSummary').inner_text()
-                assert await page.locator('.novel-card').count() > 0
+                # The filtered page arrives from the catalog worker a moment after the click.
+                await page.wait_for_function("document.querySelectorAll('.novel-card').length > 0")
             await browser.close()
     asyncio.run(scenario())
 
@@ -659,8 +660,9 @@ def test_new_sources_r19_badges_audience_filter_and_reload(monkeypatch):
             assert await page.locator('.novel-card').get_attribute('data-novel-id') == '8'
             await page.wait_for_function("document.querySelector('.synopsis-label')?.textContent === 'Synopsis preview:'")
             await page.select_option('#audienceSelect', 'general')
-            await page.wait_for_function("document.querySelector('.novel-card')?.dataset.novelId === '9'")
-            assert await page.locator('.novel-card').count() == 1
+            # General leaves out only the adults-only work: the one without a rating (7) stays with the rated one (9).
+            await page.wait_for_function("document.querySelectorAll('.novel-card').length === 2")
+            assert set(await page.locator('.novel-card').evaluate_all("cards => cards.map(c => c.dataset.novelId)")) == {'7', '9'}
             assert await page.locator('.badge-r19').count() == 0
             await page.select_option('#audienceSelect', 'all')
             await page.wait_for_function("document.querySelectorAll('.novel-card').length === 3")
