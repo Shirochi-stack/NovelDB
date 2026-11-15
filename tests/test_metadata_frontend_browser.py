@@ -205,7 +205,10 @@ def row(source, ident=7, known=False, completed=False):
 
 
 class FixtureSite:
-    def __init__(self, *, missing=(), broken=(), delay_nweb=False, many_npia=False, covers=False, coverage=None, coverage_by_source=None):
+    def __init__(self, *, missing=(), broken=(), delay_nweb=False, many_npia=False, covers=False, coverage=None, coverage_by_source=None, audience='all'):
+        # The published page opens on the General audience. The fixtures open on every rating unless a
+        # test asks for the page's own default (audience=None), so they keep showing each fixture row.
+        self.audience = audience
         self.coverage = coverage
         self.coverage_by_source = coverage_by_source or {}
         self.covers = covers
@@ -228,7 +231,12 @@ class FixtureSite:
         if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/preview-worker.js", "/source-picker.js", "/mobile-feed.js", "/cover-loader.js", "/cover-save.js", "/site-tools.js", "/cache-worker.js", "/style.css", "/same-books.js"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
-            await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
+            body = (DOCS / name).read_bytes()
+            if name == "index.html" and self.audience:
+                chosen = f'<option value="{self.audience}"'.encode()
+                assert b'<option value="general" selected>' in body and chosen in body
+                body = body.replace(b'<option value="general" selected>', b'<option value="general">').replace(chosen, chosen + b' selected')
+            await route.fulfill(status=200, body=body, content_type=mime)
             return
         if path == '/halgakos.ico' or path.startswith('/icons/'):
             name = path.lstrip('/')

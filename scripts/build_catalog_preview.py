@@ -42,17 +42,21 @@ def build(source, output_dir):
     default = {key:payload[key] for key in ('source','total','chunkHashes','limit')}
     default.update(version=1,novels=[],ordinals=[],translations={},profiles={})
     selected = {}
-    for sort in primary:
+    # The site opens on the General audience, so its primary orders ride in the
+    # small file too, under their full [sort,order,audience] key.
+    audiences = list(payload.get('audienceTotals',{}))
+    for sort,audience in [(sort,None) for sort in primary]+[(sort,audience) for audience in audiences for sort in primary]:
         positions = []
-        for index in payload['profiles'][json.dumps([sort,'desc'],separators=(',',':'))]:
+        key = [sort,'desc'] if audience is None else [sort,'desc',audience]
+        for index in payload['profiles'][json.dumps(key,separators=(',',':'))]:
             if index not in selected:
                 selected[index] = len(default['novels'])
                 entry = payload['novels'][index]
                 default['novels'].append(entry);default['ordinals'].append(payload['ordinals'][index])
                 if str(entry[0]) in payload['translations']:default['translations'][str(entry[0])] = payload['translations'][str(entry[0])]
             positions.append(selected[index])
-        default['profiles'][sort] = positions
-    manifest.update(previewUrl=name,previewHash=write_asset(name,default),
+        default['profiles'][sort if audience is None else json.dumps(key,separators=(',',':'))] = positions
+    manifest.update(audienceTotals=payload.get('audienceTotals',{}),previewUrl=name,previewHash=write_asset(name,default),
                     previewSortsUrl=expanded_name,previewSortsHash=write_asset(expanded_name,payload))
     atomic_json(manifest_path,manifest)
     return manifest

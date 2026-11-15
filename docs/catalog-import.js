@@ -1,6 +1,6 @@
 /* Shared catalog indexing and atomic chunk storage for import workers. */
 "use strict";
-importScripts("metadata-core.js?v=14");
+importScripts("metadata-core.js?v=15");
 const M = self.NovelMetadata;
 const BLOCK = 512;
 const RANK_FIELDS = ['weeklyRank','monthlyRank','dailyRank','weeklyRankAdult','monthlyRankAdult','dailyRankAdult','weeklyRankTeen','monthlyRankTeen','dailyRankTeen'];

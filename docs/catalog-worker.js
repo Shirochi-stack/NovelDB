@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=11","same-books.js?v=1");
+importScripts("catalog-import.js?v=12","same-books.js?v=1");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -27,7 +27,7 @@ function createParserPool(size=PARSERS) {
             if (slot.job || !queue.length) continue;
             if (!slot.worker) {
                 try {
-const worker = slot.worker = new Worker('catalog-parser.js?v=10');
+const worker = slot.worker = new Worker('catalog-parser.js?v=11');
                     worker.onmessage = ({data}) => {
                         if (closed || slot.worker !== worker || data.id !== slot.job?.id) return;
                         if(data.tags) {

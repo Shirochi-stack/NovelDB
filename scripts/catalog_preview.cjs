@@ -39,9 +39,15 @@ function selection(options) {
         }
     }};
 }
-const best = new Map();
+// Every order once for all works ([sort,order]) and once per filtered audience
+// ([sort,order,audience]): that audience's works alone, ranked as it ranks them.
+const AUDIENCES = ['general'];
+const best = new Map(), audienceTotals = Object.fromEntries(AUDIENCES.map(audience=>[audience,0]));
 for (const sortBy of sorts) for (const order of ['desc','asc']) {
     best.set(JSON.stringify([sortBy,order]),selection({sortBy,order,audience:'all',defaultSource:source}));
+    for (const audience of AUDIENCES) {
+        best.set(JSON.stringify([sortBy,order,audience]),selection({sortBy,order,audience,defaultSource:source}));
+    }
 }
 let ordinal = 0;
 for (const file of manifest.files) {
@@ -53,7 +59,16 @@ for (const file of manifest.files) {
         record._row = rows[index];
         record.titleEn = translations[record.id] || '';
     });
-    for (const profile of best.values()) for (const record of records) profile.add(record);
+    for (const audience of AUDIENCES) {
+        const shown = records.filter(record=>M.matchesAudience(record,audience));
+        audienceTotals[audience] += shown.length;
+        for (const profile of best.values()) {
+            if (profile.options.audience===audience) for (const record of shown) profile.add(record);
+        }
+    }
+    for (const profile of best.values()) {
+        if (profile.options.audience==='all') for (const record of records) profile.add(record);
+    }
 }
 const novels = [], translations = {}, ordinals = [], positions = new Map(), profiles = {};
 for (const [key,profile] of best) {
@@ -73,4 +88,4 @@ for (const [key,profile] of best) {
     });
 }
 process.stdout.write(JSON.stringify({version:2,source,total:manifest.totalEntries,
-    chunkHashes:manifest.chunkHashes,limit:300,novels,translations,ordinals,profiles}));
+    chunkHashes:manifest.chunkHashes,limit:300,audienceTotals,novels,translations,ordinals,profiles}));

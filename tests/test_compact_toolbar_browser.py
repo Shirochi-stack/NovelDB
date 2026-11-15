@@ -54,7 +54,7 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
             # Compact selected badges keep their full accessible descriptions.
             for value, text in [('general','G'),('r15','15+'),('adult','19+'),('all','👥\nAll')]:
                 await page.locator('#audiencePickerButton').click()
-                await page.locator('#audiencePickerMenu').get_by_role('option', name={'general':'General','r15':'Teen Only (R15+)','adult':'Adult Only (19+)','all':'All ages'}[value], exact=True).click()
+                await page.locator('#audiencePickerMenu').get_by_role('option', name={'general':'General','r15':'Teen Only (R15+)','adult':'Adult Only (19+)','all':'All ratings'}[value], exact=True).click()
                 assert await page.locator('#audienceSelect').input_value() == value
                 assert (await page.locator('#audiencePickerButton').inner_text()).strip() == text
                 assert (await page.locator('#audiencePickerButton').get_attribute('aria-label')).startswith('Audience: ')

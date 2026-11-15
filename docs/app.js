@@ -5710,6 +5710,9 @@
     const batchSelect = $("#batchSelect");
     const statusSelect = $("#statusSelect");
     const audienceSelect = $("#audienceSelect");
+    // The page's selected option is the audience of a first visit (General: no R19 work); any other
+    // choice, "all" (every rating) included, is kept in the address.
+    const DEFAULT_AUDIENCE = [...audienceSelect.options].find((option) => option.defaultSelected)?.value || "all";
 
     function setBatch(value) {
         const requested = String(value) === "100" ? "90" : String(value);
@@ -5817,7 +5820,7 @@
         preTagScrollY = null;
         tagMenuSearch.value = "";
         statusSelect.value = "all";
-        audienceSelect.value = "all";
+        // The audience stays: an author's works must not bring back the ratings the reader turned off.
         if (clearSearch) {
             searchInput.value = "";
             activeAuthorFilter = null;
@@ -5855,7 +5858,7 @@
 
         searchInput.value = state.search || "";
         statusSelect.value = state.status || "all";
-        audienceSelect.value = state.audience || "all";
+        audienceSelect.value = state.audience || DEFAULT_AUDIENCE;
         currentPage = state.page || 1;
         focusedCard = state.focusedCard ? { ...state.focusedCard } : null;
         preTagScrollY = state.preTagScrollY ?? null;
@@ -7253,9 +7256,19 @@
         while (resultPages.size>24) resultPages.delete(resultPages.keys().next().value);
     }
     function previewEligible(query) {
-        return !query.text && !query.author && !query.focus && query.status==='all' && query.audience==='all'
+        return !query.text && !query.author && !query.focus && query.status==='all' && ['all','general'].includes(query.audience)
             && !query.and.length && !query.or.length && !query.exclude.length;
     }
+    // A preview order is published per audience: "all" under [sort,order] (the small first file: the
+    // sort's name alone), any other under [sort,order,audience] with only that audience's works.
+    const previewSelection=(sort,order,audience)=>audience==='all' ? [sort,order] : [sort,order,audience];
+    function previewProfile(bundle,[sort,order,audience='all']) {
+        if (!bundle) return null;
+        if (audience!=='all') return bundle.profiles[JSON.stringify([sort,order,audience])] || null;
+        return bundle.profiles[JSON.stringify([sort,order])] || (bundle.version===1 && order==='desc' ? bundle.profiles[sort] : null);
+    }
+    // How many of a source's works an audience shows; null when its published data does not say.
+    const audienceEntries=(name,audience)=>audience==='all' ? SOURCES[name].totalEntries : SOURCES[name].generalEntries;
     function shouldLoadQueryPreview(query) {
         // A ready index answers changed controls without waiting for another preview download.
         return previewEligible(query) && query.page*query.size<=300
@@ -7272,14 +7285,14 @@
     function previewSources(query) {
         if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)) {
             const bundle=previewBundles.get('npia'), cfg=SOURCES.npia;
-            const profileKey=JSON.stringify([query.sort.sortBy,query.sort.order]);
-            const profile=bundle?.profiles[profileKey]
-                || (bundle?.version===1 && query.sort.order==='desc' ? bundle.profiles[query.sort.sortBy] : null);
+            const selection=previewSelection(query.sort.sortBy,query.sort.order,query.audience);
+            const profileKey=JSON.stringify(selection);
+            const profile=previewProfile(bundle,selection);
             if (profile) {
                 bundle._rankCounts ||= new Map();
                 if (!bundle._rankCounts.has(profileKey)) {
                     const ranked=metadata.parseRows(profile.map(index=>bundle.novels[index]),'npia',cfg)
-                        .filter(novel=>metadata.rankValue(novel,query.sort.sortBy,'all','all')>0).length;
+                        .filter(novel=>metadata.rankValue(novel,query.sort.sortBy,query.audience,'all')>0).length;
                     bundle._rankCounts.set(profileKey,ranked);
                 }
                 if (bundle._rankCounts.get(profileKey)>=Math.min(query.page*query.size,300)) return ['npia'];
@@ -7289,7 +7302,7 @@
     }
     function previewResult(query) {
         if (!previewEligible(query)) return null;
-        const total=query.sources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
+        const total=query.sources.reduce((sum,name)=>sum+(audienceEntries(name,query.audience) || 0),0);
         const page=Math.min(query.page,Math.max(1,Math.ceil(total/query.size))),start=(page-1)*query.size;
         if (Math.min(page*query.size,total)>300) return null;
         const rows=[];
@@ -7299,9 +7312,8 @@
             const cfg=SOURCES[source],bundle=previewBundles.get(source);
             if (needed.includes(source) && cfg.totalEntries!==0) {
                 const [sort,order]=sourcePreviewSort(source,query);
-                const profile=bundle?.profiles[JSON.stringify([sort,order])]
-                    || (bundle?.version===1 && order==='desc' ? bundle.profiles[sort] : null);
-                if (!profile) return null;
+                const profile=previewProfile(bundle,previewSelection(sort,order,query.audience));
+                if (!profile || audienceEntries(source,query.audience)==null) return null;
                 const parsed=metadata.parseRows(profile.map(index=>bundle.novels[index]),source,cfg);
                 parsed.forEach((row,index)=>{
                     row.titleEn=bundle.translations[row.id] || '';
@@ -7329,7 +7341,7 @@
         if (!previewEligible(query)) return;
         if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)) {
             const cfg=await ensureSourceConfig('npia');
-            await loadPreviewBundle('npia',cfg,signal,'high',query.sort.order==='asc',[query.sort.sortBy,query.sort.order]);
+            await loadPreviewBundle('npia',cfg,signal,'high',query.sort.order==='asc',previewSelection(query.sort.sortBy,query.sort.order,query.audience));
         }
         await Promise.all(previewSources(query).map(async source=>{
             const cfg=await ensureSourceConfig(source);
@@ -7339,7 +7351,7 @@
                 if (source==='sfc') primary.push(...metadata.previewSorts(source).filter(value=>value.startsWith('sfc_')));
                 else primary.push(Object.keys(cfg?.boards || {}).length ? `rank:${source}:${Object.keys(cfg.boards)[0]}` : 'updated');
             }
-            await loadPreviewBundle(source,cfg,signal,'high',order==='asc' || !primary.includes(sort),[sort,order]);
+            await loadPreviewBundle(source,cfg,signal,'high',order==='asc' || !primary.includes(sort),previewSelection(sort,order,query.audience));
         }));
     }
     async function loadPreviewBundle(source,cfg,signal,priority='high',allSorts=false,profile=null,cacheOnly=false) {
@@ -7348,9 +7360,8 @@
         const url=expanded ? cfg.previewSortsUrl : cfg.previewUrl;
         const signature=expanded ? cfg.previewSortsHash : cfg.previewHash;
         const profileKey=JSON.stringify([source,signature,profile]);
-        const current=previewBundles.get(source),requested=profile && JSON.stringify(profile);
-        if(!cacheOnly && current?._signature===signature && (!profile || current.profiles[requested]
-                || (current.version===1 && profile[1]==='desc' && current.profiles[profile[0]]))) return;
+        const current=previewBundles.get(source);
+        if(!cacheOnly && current?._signature===signature && (!profile || previewProfile(current,profile))) return;
         if(!cacheOnly && previewProfiles.has(profileKey)) {
             const bundle=previewProfiles.get(profileKey);
             previewProfiles.delete(profileKey);previewProfiles.set(profileKey,bundle);
@@ -7387,7 +7398,7 @@
                         const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
                         bundle={...metadata.compactPreview(JSON.parse(await new Response(stream).text()),source,cfg),_signature:signature};
                     } else bundle=await new Promise((resolve,reject)=>{
-const worker=new Worker('preview-worker.js?v=4');
+const worker=new Worker('preview-worker.js?v=5');
                         const finish=(error,result)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);worker.terminate();error?reject(error):resolve(result);};
                         const abort=()=>finish(new DOMException('Preview cancelled','AbortError'));
                         const timer=setTimeout(()=>finish(new Error('Preview timed out')),20000);
@@ -7474,7 +7485,7 @@ const worker=new Worker('preview-worker.js?v=4');
     function workerRequest(type, value, progress) {
         clearTimeout(catalogIdleTimer);
         if (!catalogWorker) {
-const worker = new Worker("catalog-worker.js?v=16");
+const worker = new Worker("catalog-worker.js?v=17");
             catalogWorker = worker;
             catalogWorkerTagVersion=null;
             worker.onmessage = ({data}) => {
@@ -8312,7 +8323,7 @@ const worker = new Worker("catalog-worker.js?v=16");
             catalogRequestedPage = null; activeCatalogController = null;
             document.body.dataset.catalogReady = 'true'; catalogLoadStatus.hidden = true;
             const page = resultPages.get(diskQueryKey());
-            if (page?.preview) page.result.total = selectedSources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
+            if (page?.preview) page.result.total = selectedSources.reduce((sum,name)=>sum+(audienceEntries(name,audienceSelect.value) || 0),0);
             await queryDiskCatalog();
             scheduleCatalogIdle();
             return;
@@ -8393,7 +8404,7 @@ const worker = new Worker("catalog-worker.js?v=16");
         if (sortSelect.value !== "daily") state.sort = sortSelect.value;
         if (orderSelect.value !== "desc") state.order = orderSelect.value;
         if (statusSelect.value !== "all") state.status = statusSelect.value;
-        if (audienceSelect.value !== "all") state.audience = audienceSelect.value;
+        if (audienceSelect.value !== DEFAULT_AUDIENCE) state.audience = audienceSelect.value;
         if (batchSelect.value !== "30") state.batch = batchSelect.value;
         const savedPage = activeCatalogController && catalogRequestedPage != null ? catalogRequestedPage : currentPage;
         if (savedPage > 1) state.page = savedPage;
@@ -8432,7 +8443,7 @@ const worker = new Worker("catalog-worker.js?v=16");
         ensureSortValue(params.sort);
         orderSelect.value = params.order || "desc";
         statusSelect.value = params.status || "all";
-        audienceSelect.value = params.audience || "all";
+        audienceSelect.value = params.audience || DEFAULT_AUDIENCE;
         setBatch(params.batch || "30");
         currentPage = Math.max(1, parseInt(params.page, 10) || 1);
         if (activeCatalogController) catalogRequestedPage = currentPage;

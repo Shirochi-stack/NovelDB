@@ -395,7 +395,8 @@
                 || Object.values(bundle.profiles).some(p=>!Array.isArray(p) || p.length>300 || p.some(i=>!Number.isInteger(i) || !bundle.novels[i]))) throw new Error('Invalid preview');
         let profiles=bundle.profiles;
         if(profile) {
-            const key=JSON.stringify(profile),legacy=profile[1]==='desc' ? profile[0] : null;
+            // The sort's name alone is the first file's "all" audience order; another audience has its full key only.
+            const key=JSON.stringify(profile),legacy=profile.length===2 && profile[1]==='desc' ? profile[0] : null;
             const rows=profiles[key] || (bundle.version===1 ? profiles[legacy] : null);
             if(!rows) throw new Error('Preview sort unavailable');
             profiles={[key]:rows};
@@ -420,8 +421,11 @@
                 || !/^[a-f0-9]{64}$/.test(manifest.previewHash || ''))) throw new Error(`Invalid ${source} preview`);
         if (manifest.previewSortsUrl != null && (manifest.previewSortsUrl !== `${source}_chunk_preview_sorts.json.gz`
                 || !/^[a-f0-9]{64}$/.test(manifest.previewSortsHash || ''))) throw new Error(`Invalid ${source} sort previews`);
+        // How many works the General audience shows, counted when the previews were built.
+        const general = manifest.audienceTotals?.general;
         return { chunked:true, chunkFiles:manifest.files.map(file => `data/${file}`), chunkCount:manifest.chunks,
             totalEntries:manifest.totalEntries, chunkHashes:hashes || null,
+            generalEntries:Number.isInteger(general) && general >= 0 && general <= manifest.totalEntries ? general : null,
             previewUrl:manifest.previewUrl ? `data/${manifest.previewUrl}` : null,previewHash:manifest.previewHash || null,
             previewSortsUrl:manifest.previewSortsUrl ? `data/${manifest.previewSortsUrl}` : null,previewSortsHash:manifest.previewSortsHash || null };
     }
