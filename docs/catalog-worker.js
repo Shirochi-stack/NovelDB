@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=12","same-books.js?v=1");
+importScripts("catalog-import.js?v=12","same-books.js?v=1","title-addresses.js?v=1");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -209,7 +209,9 @@ async function importSource(source, cfg, progress, labels, recovered=false) {
 }
 function matches(n, q) {
     if (q.author && n.author !== q.author) return false;
-    if (q.text && !(q.matcher.test(n.title) || q.matcher.test(n.titleEn || "") || q.matcher.test(n.author) || n.id === q.text)) return false;
+    // A work is also found by its verified title (title-addresses.js), which the catalog never displays.
+    if (q.text && !(q.matcher.test(n.title) || q.matcher.test(n.titleEn || "") || q.matcher.test(n.author) || n.id === q.text
+            || q.matcher.test(q.titles?.find(n.source, n.id)?.title || ""))) return false;
     if (!M.matchesStatus(n, q.status) || !M.matchesAudience(n, q.audience)) return false;
     const has = spellings => n.tags.some(t => spellings.includes(t.trim()));
     return (!q.and.length || q.and.every(has)) && (!q.or.length || q.or.some(has)) && !q.exclude.some(has);
@@ -280,12 +282,15 @@ async function executeQuery(q, token) {
     // One book on several sources shows once (same-books.js): its first entry, the others when it is missing.
     const same = await self.NovelSameBooks.load();
     check();
-    const revision = JSON.stringify([3,q.sources.map(source => [source,revisions.get(source)]),same?.version || null]);
+    // Verified titles are read for a text search only; without them the search uses the catalog's own titles.
+    const titles = q.text ? await self.NovelTitleAddresses.load() : null;
+    check();
+    const revision = JSON.stringify([3,q.sources.map(source => [source,revisions.get(source)]),same?.version || null,titles?.version || null]);
     if (!savedPages) savedPages = await get("meta",["saved-pages"]) || [];
     const saved = savedPages.find(page => page.key === cacheKey && page.revision === revision);
     check();
     if (saved) { pages.set(cacheKey,saved.result); while (pages.size > PAGE_CACHE) pages.delete(pages.keys().next().value); return saved.result; }
-    q = {...q, and:q.and || [], or:q.or || [], exclude:q.exclude || []};
+    q = {...q, and:q.and || [], or:q.or || [], exclude:q.exclude || [], titles};
     if (q.text) q.matcher = new RegExp(q.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "iu");
     const plan = M.sortPlan(q.sort), compare = compareKeys(plan), reverse = (a,b) => -compare(a,b);
     const wanted = q.page * q.size, deep = wanted > HEAP_LIMIT;

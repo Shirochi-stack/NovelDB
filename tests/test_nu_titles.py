@@ -124,47 +124,67 @@ def test_missing_native_metadata_is_cached_without_a_match():
     assert nu_titles.TitleIndex(data).match(RAW, AUTHOR, "kpage") is None
 
 
-def test_canonical_state_provenance_history_and_author_invalidation():
-    old = {"original": RAW, "english": "I Die If I Cannot Debut"}
-    state = {"source": "mpia", "records": {"1": {"title": RAW, "author": AUTHOR, "translations": {"title": old}}}}
-    index = nu_titles.TitleIndex(cache())
-    assert nu_titles.apply_state(state, index) == 1
-    record = state["records"]["1"]
-    assert record["translation_history"][0]["english"] == old["english"]
-    assert record["translations"]["title"]["origin_url"] == URL
-    assert metadata_pipeline.active_translation(record, "title") == "Debut or Die"
-    assert nu_titles.apply_state(state, index) == 0
-    record["author"] = "다른 작가"
-    assert nu_titles.apply_state(state, index) == 1
-    assert not metadata_pipeline.active_translation(record, "title")
+def verified(original=RAW, english="Debut or Die"):
+    """A title translation as written while verified titles replaced machine titles."""
+    return {"original": original, "english": english, "author": AUTHOR, "origin": "novelupdates",
+            "origin_url": URL, "translated_at": "2026-11-10T00:00:00Z"}
+
+
+def test_restore_returns_the_machine_title_from_the_backup_then_history_else_retranslates():
+    machine = {"original": RAW, "english": "I Die If I Cannot Debut", "translated_at": "2026-01-01T00:00:00Z"}
+    state = {"source": "mpia", "records": {
+        # 1: its own history holds the machine title; 2: only the backup does; 3: neither.
+        "1": {"title": RAW, "author": AUTHOR, "translations": {"title": verified()},
+              "translation_history": [{**machine, "field": "title", "replaced_at": "2026-11-10T00:00:00Z"}]},
+        "2": {"title": RAW, "author": AUTHOR, "translations": {"title": verified()}},
+        "3": {"title": RAW, "author": AUTHOR, "translations": {"title": verified()},
+              # A title translated for an earlier original is not this title's machine translation.
+              "translation_history": [{"original": "이전 제목", "english": "Earlier", "field": "title"}]},
+        "4": {"title": RAW, "author": AUTHOR, "translations": {"title": dict(machine)}},
+    }}
+    restore = {"mpia": {"2": {"original": RAW, "english": "Backup Machine Title"},
+                        "3": {"original": "이전 제목", "english": "Stale Backup"}}}
+    changed, pending = nu_titles.restore_state(state, restore)
+    assert (changed, pending) == (3, {"3"})
+    records = state["records"]
+    assert records["1"]["translations"]["title"] == machine
+    assert metadata_pipeline.active_translation(records["2"], "title") == "Backup Machine Title"
+    assert "origin" not in records["2"]["translations"]["title"]
+    assert "title" not in records["3"]["translations"]
+    assert records["4"]["translations"]["title"] == machine
+    # The verified title stays in the record's history, marked as reverted.
+    assert all(records[nid]["translation_history"][-1]["origin_url"] == URL
+               and records[nid]["translation_history"][-1]["reverted_at"] for nid in "123")
+    assert nu_titles.restore_state(state, restore) == (0, set())
 
 
 @pytest.mark.parametrize("source", metadata_pipeline.SOURCES)
-def test_prepare_removes_verified_titles_from_paid_api_input(tmp_path, source):
+def test_prepare_translates_every_title_and_never_takes_a_verified_one(tmp_path, source):
     state_dir, output_dir = tmp_path / "state", tmp_path / "data"
     state = metadata_common.empty_state(source)
-    state["records"] = {"1": {"id": "1", "title": RAW, "author": AUTHOR},
-                        "2": {"id": "2", "title": "별개의 소설", "author": AUTHOR}}
+    state["records"] = {"1": {"id": "1", "title": RAW, "author": AUTHOR, "translations": {"title": verified()}},
+                        "2": {"id": "2", "title": "별개의 소설", "author": AUTHOR},
+                        "3": {"id": "3", "title": RAW, "author": AUTHOR}}
     metadata_common.save_state(state, state_dir)
     nu_titles.write_cache(state_dir / "nu_titles.json.gz", cache())
+    # The master corpus still shows the verified title for 1: it must not be taken back as a translation.
+    output_dir.mkdir()
+    (output_dir / f"{source}_titles_en.txt").write_text(f"1|||{RAW}|||Debut or Die\n", encoding="utf-8")
     metadata_pipeline.prepare(source, output_dir, state_dir, fields=("title",))
     master = metadata_pipeline.read_corpus(output_dir / f"{source}_titles_en.txt")
     pending = metadata_pipeline.read_corpus(output_dir / f"{source}_titles_untranslated.txt")
-    assert master["1"][1] == "Debut or Die"
-    assert set(pending) == {"2"}
+    assert master["1"][1] == "" and set(pending) == {"1", "2", "3"}
+    records = metadata_common.load_state(source, state_dir)["records"]
+    assert not any(record.get("translations", {}).get("title") for record in records.values())
+    # Its translation arrives like any other title's.
+    (output_dir / f"{source}_titles_untranslated.txt").write_text(f"1|||{RAW}|||A Machine Title\n", encoding="utf-8")
+    metadata_pipeline.merge(source, output_dir, state_dir)
     record = metadata_common.load_state(source, state_dir)["records"]["1"]
-    assert record["translations"]["title"]["origin"] == "novelupdates"
-
-
-def test_missing_cache_preserves_previously_verified_translation():
-    state = {"source": "mpia", "records": {"1": {"title": RAW, "author": AUTHOR}}}
-    nu_titles.apply_state(state, nu_titles.TitleIndex(cache()))
-    assert nu_titles.apply_state(state, nu_titles.TitleIndex({"series": {}})) == 0
-    assert metadata_pipeline.active_translation(state["records"]["1"], "title") == "Debut or Die"
+    assert metadata_pipeline.active_translation(record, "title") == "A Machine Title"
 
 
 @pytest.mark.parametrize("source", ("npia", "kpage", "sfc"))
-def test_legacy_extraction_prefers_verified_titles(tmp_path, monkeypatch, source):
+def test_legacy_extraction_keeps_machine_titles(tmp_path, monkeypatch, source):
     from scripts import extract_titles
     data = cache()
     if source == "sfc":
@@ -173,13 +193,13 @@ def test_legacy_extraction_prefers_verified_titles(tmp_path, monkeypatch, source
     monkeypatch.setattr(nu_titles.TitleIndex, "load", classmethod(lambda cls: index))
     raw = tmp_path / "novels.json"
     master = tmp_path / "titles_en.txt"
-    metadata_common.atomic_json(raw, [["1", RAW, AUTHOR], ["2", "수정된 제목", AUTHOR]])
+    metadata_common.atomic_json(raw, [["1", RAW, AUTHOR], ["2", "수정된 제목", AUTHOR], ["3", RAW, AUTHOR]])
     master.write_text(f"1|||{RAW}|||Machine Title\n2|||이전 제목|||Stale Title\n", encoding="utf-8")
     monkeypatch.setitem(extract_titles.SOURCES, source, {"data": str(raw), "en": str(master)})
     extract_titles.extract(source)
     corpus = metadata_pipeline.read_corpus(master)
-    assert corpus["1"][1] == "Debut or Die"
-    assert corpus["2"][1] == ""
+    assert corpus["1"][1] == "Machine Title"
+    assert corpus["2"][1] == "" and corpus["3"][1] == ""
 
 
 def test_collector_resumes_failed_request_and_does_not_cache_missing(tmp_path):
@@ -221,41 +241,55 @@ def test_collector_continues_to_a_valid_series_after_an_unavailable_one(tmp_path
     assert failed not in stored["series"]
 
 
-def test_apply_rebuilds_browser_bundles_and_preserves_raw_rows(tmp_path):
-    data_dir = tmp_path / "data"
+def test_record_keeps_addresses_and_restores_machine_titles_in_corpus_and_bundles(tmp_path):
+    data_dir, state_dir = tmp_path / "data", tmp_path / "state"
     data_dir.mkdir()
     cache_path = tmp_path / "cache.json.gz"
     nu_titles.write_cache(cache_path, cache())
-    row = ["1", RAW, AUTHOR, "", [], 0, 0, 0, 0, "", 0, "", "", 0, {}, {}]
-    rows = [row]
+    row = lambda nid: [nid, RAW, AUTHOR, "", [], 0, 0, 0, 0, "", 0, "", "", 0, {}, {}]
+    # 1 and 2 show the verified title from the earlier replacement (2 has no backup); 3 already shows
+    # a machine title; 4 was translated to the same words by the machine.
+    rows = [row("1"), row("2"), row("3"), row("4")]
     metadata_common.atomic_json(data_dir / "kpage_novels.json", rows)
-    (data_dir / "kpage_titles_en.txt").write_text(f"1|||{RAW}|||Old Machine Title\n\nlegacy|||incomplete\n", encoding="utf-8")
-    payload = {"novels": rows, "translations": {"1": "Old Machine Title"}, "descriptions": {"1": "Synopsis"}}
+    (data_dir / "kpage_titles_en.txt").write_text(
+        f"1|||{RAW}|||Debut or Die\n2|||{RAW}|||Debut or Die\n3|||{RAW}|||Newer Machine Title\n"
+        f"4|||{RAW}|||Debut or Die\n\nlegacy|||incomplete\n", encoding="utf-8")
+    payload = {"novels": rows, "translations": {"1": "Debut or Die", "2": "Debut or Die", "3": "Newer Machine Title",
+                                                "4": "Debut or Die"}, "descriptions": {"1": "Synopsis"}}
     nu_titles.write_cache(data_dir / "kpage_chunk_0.json.gz", payload)
     metadata_common.atomic_json(data_dir / "kpage_chunk_manifest.json", {
-        "files": ["kpage_chunk_0.json.gz"], "chunks": 1, "totalEntries": 1, "embedded": True,
+        "files": ["kpage_chunk_0.json.gz"], "chunks": 1, "totalEntries": 4, "embedded": True,
     })
-    report = nu_titles.apply_catalog("kpage", data_dir, tmp_path / "state", cache_path, rebuild=True)
-    assert report["changed"] == report["matched"] == 1
-    assert report["changes"]["1"]["previous_english"] == "Old Machine Title"
+    nu_titles.write_cache(state_dir / nu_titles.RESTORE_NAME, {"version": 1, "sources": {"kpage": {
+        "1": {"original": RAW, "english": "Old Machine Title"}, "3": {"original": RAW, "english": "Old Machine Title"},
+        "4": {"original": RAW, "english": "Debut or Die"}}}})
+    report = nu_titles.record_catalog("kpage", data_dir, state_dir, cache_path, rebuild=True)
+    assert (report["matched"], report["restored"], report["pending"]) == (4, 1, 1)
+    assert report["changes"]["1"] == {"original": RAW, "author": AUTHOR, "english": "Debut or Die", "url": URL,
+                                      "previous_english": "Debut or Die", "restored": "Old Machine Title"}
+    corpus = metadata_pipeline.read_corpus(data_dir / "kpage_titles_en.txt")
+    # 2 is emptied for translation; a machine title that is already shown is never overwritten.
+    assert [corpus[nid][1] for nid in "1234"] == ["Old Machine Title", "", "Newer Machine Title", "Debut or Die"]
     assert (data_dir / "kpage_titles_en.txt").read_text(encoding="utf-8").endswith("\n\nlegacy|||incomplete\n")
     packed = json.loads(gzip.decompress((data_dir / "kpage_chunk_0.json.gz").read_bytes()))
     assert packed["novels"] == rows
     assert packed["descriptions"] == payload["descriptions"]
-    assert packed["translations"]["1"] == "Debut or Die"
+    assert packed["translations"] == {"1": "Old Machine Title", "2": "Debut or Die", "3": "Newer Machine Title",
+                                      "4": "Debut or Die"}
     preview = json.loads(gzip.decompress((data_dir / "kpage_chunk_preview_sorts.json.gz").read_bytes()))
-    assert preview["translations"]["1"] == "Debut or Die"
+    assert preview["translations"]["1"] == "Old Machine Title"
     manifest = json.loads((data_dir / "kpage_chunk_manifest.json").read_text(encoding="utf-8"))
     assert manifest["chunkHashes"] == [hashlib.sha256((data_dir / manifest["files"][0]).read_bytes()).hexdigest()]
-    # Each confirmed work's series address is kept as gzip beside the published state.
-    addresses = tmp_path / "state" / "nu_title_addresses.json.gz"
+    # The verified title and its address stay recorded as gzip beside the published state.
+    addresses = state_dir / "nu_title_addresses.json.gz"
     assert json.loads(gzip.decompress(addresses.read_bytes())) == {
-        "version": 1, "sources": {"kpage": {"1": {"title": "Debut or Die", "url": URL}}}}
+        "version": 1, "sources": {"kpage": {nid: {"title": "Debut or Die", "url": URL} for nid in "1234"}}}
     before = (data_dir / "kpage_chunk_manifest.json").read_bytes()
-    stored = addresses.read_bytes()
-    assert nu_titles.apply_catalog("kpage", data_dir, tmp_path / "state", cache_path, rebuild=True)["changed"] == 0
+    stored, text = addresses.read_bytes(), (data_dir / "kpage_titles_en.txt").read_bytes()
+    again = nu_titles.record_catalog("kpage", data_dir, state_dir, cache_path, rebuild=True)
+    assert (again["restored"], again["pending"], again["changes"]) == (0, 0, {})
     assert (data_dir / "kpage_chunk_manifest.json").read_bytes() == before
-    assert addresses.read_bytes() == stored
+    assert addresses.read_bytes() == stored and (data_dir / "kpage_titles_en.txt").read_bytes() == text
     # Another source adds its own entry; a work that no longer matches leaves the file.
     nu_titles.write_addresses(addresses, "npia", {"9": {"english": "Other", "url": URL}})
     nu_titles.write_addresses(addresses, "kpage", {})

@@ -39,14 +39,14 @@ jobs:
             scripts/nu_titles.py
             scripts/source_names.py
             scripts/metadata_common.py
-            metadata/state/nu_titles.json.gz
           sparse-checkout-cone-mode: false
 
       - name: Load published data
         # docs/data lives on the `data` branch (scripts/data_branch.py).
         run: |
           git fetch --no-tags --depth=1 origin data
-          git archive FETCH_HEAD docs/data | tar -x
+          # Verified titles (search only) come with it: the title cache and each work's recorded title.
+          git archive FETCH_HEAD docs/data metadata/state/nu_titles.json.gz metadata/state/nu_title_addresses.json.gz | tar -x
 
       - uses: actions/setup-node@v4
         with:

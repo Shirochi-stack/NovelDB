@@ -447,7 +447,9 @@ def test_details_link_a_confirmed_work_to_its_title_page_from_one_lazy_download(
                     await page.wait_for_function('(id)=>document.querySelector(".novel-details [data-field=id]")?.textContent===id',arg=str(ident))
                 async def close():
                     await page.get_by_role('button',name='Close Details').click()
-                    assert await link.is_hidden() and await link.get_attribute('href') is None
+                    # The dialog's close event clears the link.
+                    await page.wait_for_function('!document.querySelector(".novel-details [data-field=novelUpdatesUrl]").hasAttribute("href")')
+                    assert await link.is_hidden()
                 # A failed download leaves the dialog as it was and is tried again on the next view.
                 await view(7)
                 await page.wait_for_function('(n)=>n===1',arg=len(requests))
@@ -458,16 +460,39 @@ def test_details_link_a_confirmed_work_to_its_title_page_from_one_lazy_download(
                 assert await link.get_attribute('href')==address and await link.inner_text()=='NovelUpdates ↗'
                 assert await link.get_attribute('target')=='_blank' and await link.get_attribute('rel')=='noopener'
                 assert await link.evaluate('a=>a.parentElement.className')=='novel-details-actions'
+                # The verified title is a field of its own, after the original title; the dialog keeps the displayed one.
+                verified=page.locator('.novel-details [data-field=novelUpdatesTitle]')
+                assert await verified.inner_text()=='Fixture'
+                assert await page.locator('#novelDetailsTitle').inner_text()=='npia translated 7'
+                assert await page.locator('.novel-details .details-verified-title dt').inner_text()=='NovelUpdates title'
+                assert await page.locator('.novel-details-field').evaluate_all('''fields=>{
+                    const shown=fields.filter(f=>f.offsetParent).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top||a.getBoundingClientRect().left-b.getBoundingClientRect().left);
+                    const at=shown.findIndex(f=>f.classList.contains('details-verified-title'));
+                    return at>0 && shown[at-1].classList.contains('details-title');}''')
+                # It survives the fields being rebuilt when the full details arrive.
+                await page.wait_for_function('!document.querySelector(".novel-details [data-field=synopsis]")?.textContent.startsWith("Loading")')
+                assert await verified.inner_text()=='Fixture' and await verified.count()==1
                 assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
                 await close()
-                # No entry for this source's work 8, and an address on another site is never linked.
-                for ident in (8,9):
+                assert await verified.count()==0
+                # No entry for this source's work 8; an address on another site is never linked, its title still shows.
+                for ident,shown in ((8,None),(9,'Elsewhere')):
                     await view(ident)
                     await page.evaluate('new Promise(resolve=>setTimeout(resolve,150))')
                     assert await link.is_hidden()
+                    assert (await verified.inner_text() if await verified.count() else None)==shown
                     await close()
                 await view(7);await link.wait_for(state='visible');await close()
                 assert len(requests)==2 and not errors  # One failed read, then one download for every later view.
+                # A search finds the work by its verified title too, and the card still shows the displayed title.
+                await page.locator('#searchInput').fill('fixtur')
+                await page.wait_for_function('document.querySelectorAll(".novel-card").length===1 && document.body.dataset.catalogReady==="true"')
+                assert await page.locator('.novel-card').get_attribute('data-novel-id')=='7'
+                assert await page.locator('.novel-card .card-title').inner_text()=='npia translated 7'
+                # Another source's verified title does not match this source's work 8.
+                await page.locator('#searchInput').fill('Other source')
+                await page.wait_for_function('document.querySelector("#resultCount").textContent.startsWith("0 ") || /No novels|0 novel/.test(document.querySelector("#resultCount").textContent)')
+                assert await page.locator('.novel-card').count()==0
                 await page.close()
             await browser.close()
     asyncio.run(scenario())

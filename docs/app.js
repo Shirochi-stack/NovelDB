@@ -7485,7 +7485,7 @@ const worker=new Worker('preview-worker.js?v=5');
     function workerRequest(type, value, progress) {
         clearTimeout(catalogIdleTimer);
         if (!catalogWorker) {
-const worker = new Worker("catalog-worker.js?v=17");
+const worker = new Worker("catalog-worker.js?v=18");
             catalogWorker = worker;
             catalogWorkerTagVersion=null;
             worker.onmessage = ({data}) => {

@@ -253,12 +253,13 @@ def ordered_records(state):
     return sorted(state["records"].items(), key=lambda item: str(item[0]))
 
 
-def apply_canonical_titles(state, state_dir):
+def restore_machine_titles(state, state_dir):
+    """Undo verified titles that once replaced machine titles; returns the ids left untranslated."""
     try:
-        from .nu_titles import TitleIndex, apply_state
+        from .nu_titles import RESTORE_NAME, read_restore, restore_state
     except ImportError:
-        from nu_titles import TitleIndex, apply_state
-    return apply_state(state, TitleIndex.load(Path(state_dir) / "nu_titles.json.gz"))
+        from nu_titles import RESTORE_NAME, read_restore, restore_state
+    return restore_state(state, read_restore(Path(state_dir) / RESTORE_NAME))[1]
 
 
 def active_translation(record, field):
@@ -320,6 +321,9 @@ def prepare(source, output_dir, state_dir, shared_tags=None, fields=None):
     chosen = tuple(fields) if fields is not None else tuple(FIELDS)
     for field in chosen:
         master = read_corpus(output_dir / f"{source}_{FIELDS[field][0]}")
+        # A verified title is recorded beside the work, never displayed: a record
+        # that lost one here must not take it back from the master corpus.
+        reverted = restore_machine_titles(state, state_dir) if field == "title" else set()
         for nid, record in ordered_records(state):
             had_translation = field in record.get("translations", {})
             expire_translation(record, field)
@@ -328,13 +332,12 @@ def prepare(source, output_dir, state_dir, shared_tags=None, fields=None):
             original, english = master.get(str(nid), (None, ""))
             english = decode_field(english)
             if (not had_translation and field not in record.get("translations", {})
+                    and str(nid) not in reverted
                     and original == clean_field(record.get(field)) and valid_english(english)):
                 record.setdefault("translations", {})[field] = {
                     "original": str(record.get(field) or ""), "english": english,
                     "translated_at": common().utc_now(),
                 }
-        if field == "title":
-            apply_canonical_titles(state, state_dir)
         write_field_corpus(state, field, output_dir)
     if fields is None:
         known = known_tags(output_dir, shared_tags)
@@ -451,7 +454,7 @@ def build(source, output_dir, state_dir):
     source_name(source)
     output_dir = Path(output_dir).resolve()
     state = state_for(source, state_dir)
-    apply_canonical_titles(state, state_dir)
+    restore_machine_titles(state, state_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = common().export_rows(state)
     start_date_count = 0

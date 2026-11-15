@@ -95,14 +95,13 @@ def extract(source):
         print(f"  Preserved {len(existing_en)} existing translations")
 
     if __package__:
-        from .nu_titles import TitleIndex
         from .metadata_pipeline import decode_field
     else:
-        from nu_titles import TitleIndex
         from metadata_pipeline import decode_field
-    canonical = TitleIndex.load()
 
-    # Build rows, split into translated and untranslated
+    # Build rows, split into translated and untranslated. The English title is
+    # always the machine translation: a verified title is only recorded beside
+    # the work (scripts/nu_titles.py), for search and the Details view.
     translated = []
     untranslated = []
     for r in raw:
@@ -110,9 +109,6 @@ def extract(source):
         title = r[1] or ""
         previous_original, previous_english = existing_en.get(novel_id, (None, ""))
         en = previous_english if decode_field(previous_original) == title else ""
-        match = canonical.match(title, r[2], source)
-        if match:
-            en = match["title"]
         row = f"{novel_id}|||{title}|||{en}\n"
         if en:
             translated.append(row)

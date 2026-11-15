@@ -150,24 +150,21 @@
     figure.append(image,imageStatus);
     const detailNovel=document.createElement('a');detailNovel.textContent='Open novel ↗';detailNovel.dataset.field='canonicalUrl';
     detailNovel.target='_blank';detailNovel.rel='noopener';detailNovel.hidden=true;
-    // The work's NovelUpdates page, where its title was confirmed there. Every source's addresses are
-    // one small file ({sources: {source: {novel id: {title, url}}}}), read on the first Details view
-    // (never while the catalog loads) and kept for the visit; the link appears once it is known.
-    const TITLE_ADDRESSES='https://raw.githubusercontent.com/Shirochi-stack/NovelDB/data/metadata/state/nu_title_addresses.json.gz';
-    const TITLE_SITE='https://www.novelupdates.com/';
+    // The work's verified title and its NovelUpdates page (title-addresses.js): read on the first
+    // Details view, never while the catalog loads. The link and the title appear once they are known;
+    // the dialog's own title stays the displayed (machine-translated) one.
     const detailTitles=document.createElement('a');detailTitles.textContent='NovelUpdates ↗';detailTitles.dataset.field='novelUpdatesUrl';
     detailTitles.target='_blank';detailTitles.rel='noopener';detailTitles.hidden=true;
-    let titleAddresses=null;
-    function loadTitleAddresses() {
-        return titleAddresses ||= (async()=>{
-            const response=await fetch(TITLE_ADDRESSES,{credentials:'omit'});
-            if(!response.ok) {await response.body?.cancel();throw new Error(`Addresses HTTP ${response.status}`);}
-            const data=JSON.parse(await new Response(response.body.pipeThrough(new DecompressionStream('gzip'))).text());
-            if(data?.version!==1 || !data.sources || typeof data.sources!=='object') throw new Error('Invalid addresses');
-            return data.sources;
-        })().catch(()=>{titleAddresses=null;return null;});  // A failed read is tried again on the next view.
+    let verifiedTitle='';
+    function showVerifiedTitle() {
+        content.querySelector('.details-verified-title')?.remove();
+        if(!verifiedTitle || verifiedTitle===title.textContent) return;
+        const group=document.createElement('div'),term=document.createElement('dt'),definition=document.createElement('dd');
+        group.className='novel-details-field details-wide details-verified-title';group.style.order=1;
+        term.textContent='NovelUpdates title';definition.dataset.field='novelUpdatesTitle';definition.textContent=verifiedTitle;
+        group.append(term,definition);content.append(group);
     }
-    function clearTitles() {detailTitles.hidden=true;detailTitles.removeAttribute('href');}
+    function clearTitles() {detailTitles.hidden=true;detailTitles.removeAttribute('href');verifiedTitle='';showVerifiedTitle();}
     const actions=document.createElement('div');actions.className='novel-details-actions';actions.append(detailDownload,detailNovel,detailTitles);
     const fields=document.createElement('div');fields.className='novel-details-fields';
     const facts=document.createElement('dl');facts.className='novel-details-facts';
@@ -272,6 +269,7 @@
             add(key,value,['title','canonicalUrl','synopsis','tags'].includes(key) || (value!==null && typeof value==='object'));
         }
         if(rankEntries.length) add('rankings',rankEntries,true);
+        showVerifiedTitle();  // The fields are rebuilt when the full details arrive.
     }
     async function openDetails(card) {
         if(!card) return;
@@ -284,10 +282,12 @@
         renderMetadata({...card._record,canonicalUrl:card._record?.canonicalUrl || card.querySelector('.card-cover-wrap')?.href,synopsis:card._synopsis || card._record?.synopsis || 'Loading synopsis…'});
         clearTitles();
         const source=card.dataset.source || card._record?.source,id=card.dataset.novelId || card._record?.id;
-        loadTitleAddresses().then(sources=>{
-            if(signal.aborted || sequence!==viewSequence || !sources) return;
-            const works=sources[source],entry=works && Object.hasOwn(works,id) ? works[id] : null;
-            if(typeof entry?.url==='string' && entry.url.startsWith(TITLE_SITE)) {detailTitles.href=entry.url;detailTitles.hidden=false;}
+        window.NovelTitleAddresses?.load().then(table=>{
+            if(signal.aborted || sequence!==viewSequence) return;
+            const entry=table?.find(source,id);
+            if(!entry) return;
+            if(entry.url) {detailTitles.href=entry.url;detailTitles.hidden=false;}
+            verifiedTitle=entry.title;showVerifiedTitle();
         });
         image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
         imageStatus.textContent='Loading original image…';

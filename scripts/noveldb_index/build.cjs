@@ -251,6 +251,7 @@ function mergeSame(books) {
             gone.add(other);
             lead.also.push([other.source, other.id, other.url]);
             if (other.titleEn && other.titleEn !== lead.titleEn) lead.otherTitles.push(other.titleEn);
+            if (other.verifiedTitle) lead.otherTitles.push(other.verifiedTitle);
             lead.titleEn = lead.titleEn || other.titleEn;
             lead.cover = lead.cover || other.cover;
             other.tags.forEach((tag, i) => {
@@ -270,13 +271,31 @@ function mergeSame(books) {
     return {books: books.filter((book) => !gone.has(book)), merged: gone.size};
 }
 
+/**
+ * Each confirmed work's verified title (scripts/nu_titles.py: {sources: {source: {id: {title, url}}}}):
+ * a book is found by it as by its own titles, but its card keeps the displayed English title.
+ */
+function verifiedTitles() {
+    const file = process.argv[4] || path.join(DATA, "..", "..", "metadata", "state", "nu_title_addresses.json.gz");
+    if (!fs.existsSync(file)) return {};
+    const data = JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString("utf8"));
+    const sources = data && data.version === 1 && data.sources && typeof data.sources === "object" ? data.sources : {};
+    console.log(`${Object.values(sources).reduce((n, works) => n + Object.keys(works).length, 0)} verified titles`);
+    return sources;
+}
+
 function main() {
     const started = Date.now();
     const tagNames = readPairs(path.join(DATA, "tags_en.txt"));
+    const verified = verifiedTitles();
     let books = [];
     const sources = {};
     for (const [source, cfg] of Object.entries(SOURCES)) {
         const found = sourceBooks(source, cfg, tagNames);
+        for (const book of found) {
+            const entry = verified[source] && Object.hasOwn(verified[source], book.id) ? verified[source][book.id] : null;
+            if (entry && typeof entry.title === "string") book.verifiedTitle = entry.title;
+        }
         // Each source's most read first: a book's place in its own source (views differ in scale between sites).
         found.sort((a, b) => b.views - a.views || b.likes - a.likes);
         found.forEach((book, index) => { book.rank = index / Math.max(1, found.length); });
@@ -317,7 +336,7 @@ function main() {
     books.forEach((book, number) => {
         // "!source": every book of a source, the most read first (a source's Top list).
         const own = new Set([...tokens(book.titleEn), ...tokens(book.title), "!" + book.source]);
-        for (const other of book.otherTitles || []) for (const token of tokens(other)) own.add(token);
+        for (const other of [book.verifiedTitle, ...(book.otherTitles || [])]) for (const token of tokens(other)) own.add(token);
         if (book.author) own.add(authorToken(book.author));
         // Its status as a tag: "Completed" and "Ongoing" are searched like any tag.
         const status = book.complete === 1 ? "Completed" : book.complete === 0 ? "Ongoing" : "";

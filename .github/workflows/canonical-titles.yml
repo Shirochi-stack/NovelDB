@@ -44,8 +44,9 @@ jobs:
         id: collect
         continue-on-error: true
         run: python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --browser-fallback
-      - name: Apply verified titles and rebuild catalogue gzip bundles
-        run: python scripts/nu_titles.py apply --source all --rebuild --report .cache/nu-title-migration.json
+      - name: Record verified titles beside the catalogue and restore machine titles
+        # A verified title is kept for search and Details; the displayed title is the machine translation.
+        run: python scripts/nu_titles.py record --source all --rebuild --report .cache/nu-title-migration.json
       - name: Preserve title provenance and migration backup
         uses: actions/upload-artifact@v4
         with:
@@ -53,6 +54,7 @@ jobs:
           include-hidden-files: true
           path: |
             metadata/state/nu_titles.json.gz
+            metadata/state/nu_title_addresses.json.gz
             .cache/nu-title-migration.json
           retention-days: 30
           if-no-files-found: error
@@ -60,7 +62,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          python scripts/publish_metadata.py --message 'Refresh verified canonical titles' --paths metadata/state/nu_titles.json.gz 'metadata/state/*.json.gz' 'docs/data/*titles_en.txt*' 'docs/data/*chunk_*.json.gz' 'docs/data/*chunk_manifest.json' 'docs/data/*top.json.gz'
+          python scripts/publish_metadata.py --message 'Record verified canonical titles' --paths metadata/state/nu_titles.json.gz 'metadata/state/*.json.gz' 'docs/data/*titles_en.txt*' 'docs/data/*chunk_*.json.gz' 'docs/data/*chunk_manifest.json' 'docs/data/*top.json.gz'
       - name: Summarize canonical coverage
         env:
           NU_COLLECTION_OUTCOME: ${{ steps.collect.outcome }}
@@ -72,5 +74,5 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
               output.write(f"NovelUpdates collection completed with status {os.environ['NU_COLLECTION_OUTCOME']}. Failed pages remain queued for retry.\n\n")
               for report in reports:
-                  output.write(f"- {report['source']} matched {report['matched']} of {report['rows']} titles, replaced {report['changed']}.\n")
+                  output.write(f"- {report['source']} matched {report['matched']} of {report['rows']} titles, restored {report['restored']} machine titles, {report['pending']} left to translate.\n")
           PY

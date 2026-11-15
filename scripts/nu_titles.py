@@ -1,7 +1,9 @@
-"""Cache verified NovelUpdates titles before paid title translation.
+"""Cache verified NovelUpdates titles and record them beside the catalog.
 
-Collection is an explicit, resumable network operation. Matching and applying
-the cache are offline. Native titles and author aliases must both match.
+Collection is an explicit, resumable network operation. Matching and recording
+are offline. Native titles and author aliases must both match. A verified title
+never replaces the displayed machine title: it is kept with its address for
+search and for the Details view.
 """
 from __future__ import annotations
 
@@ -27,6 +29,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "metadata/state/nu_titles.json.gz"
 ADDRESSES_NAME = "nu_title_addresses.json.gz"
+RESTORE_NAME = "nu_title_restore.json.gz"
 BASE = "https://www.novelupdates.com/"
 PARSER_VERSION = 2
 PUBLISHERS = {
@@ -212,34 +215,60 @@ class TitleIndex:
         return candidates[0] if len(candidates) == 1 else None
 
 
-def apply_state(state, index):
-    """Override machine titles and retain provenance and the previous value."""
-    changed = 0
-    for record in state["records"].values():
-        match = index.match(record.get("title"), record.get("author"), state["source"])
-        translations = record.setdefault("translations", {})
-        old = translations.get("title", {})
-        if match:
-            if (old.get("english") == match["title"] and old.get("origin_url") == match["url"]
-                    and old.get("original") == record.get("title")
-                    and old.get("author") == record.get("author")):
-                continue
-            if old:
-                record.setdefault("translation_history", []).append({**old, "field": "title", "replaced_at": utc_now()})
-            translations["title"] = {
-                "original": record["title"], "english": match["title"],
-                "author": record.get("author"), "origin": "novelupdates",
-                "origin_url": match["url"], "translated_at": match["checked_at"],
-            }
-            changed += 1
-        elif (old.get("origin") == "novelupdates"
-              and (old.get("original") != record.get("title")
-                   or old.get("author") != record.get("author")
-                   or old.get("origin_url") in index.urls)):
-            record.setdefault("translation_history", []).append({**old, "field": "title", "invalidated_at": utc_now()})
+def read_restore(path):
+    """The machine titles from before verified titles replaced them: {source: {id: {original, english}}}.
+
+    `original` and `english` are corpus fields exactly as *_titles_en.txt held them.
+    """
+    path = Path(path)
+    if not path.exists():
+        return {}
+    data = json.loads(gzip.decompress(path.read_bytes()))
+    if data.get("version") != 1 or not isinstance(data.get("sources"), dict):
+        raise ValueError("Invalid machine title backup")
+    return data["sources"]
+
+
+def restore_state(state, restore=None):
+    """Give each record back its machine title where a verified title had replaced it.
+
+    A verified title is never the displayed title: it is kept beside the work
+    (write_addresses) for search and Details. The machine title comes from the
+    backup, else from the record's own history; a record with neither loses its
+    title translation and is translated again. Returns (records changed, the ids
+    left without a title).
+    """
+    try:
+        from .metadata_pipeline import clean_field, decode_field
+    except ImportError:
+        from metadata_pipeline import clean_field, decode_field
+    known = (restore or {}).get(state["source"], {})
+    changed, pending = 0, set()
+    for nid, record in state["records"].items():
+        translations = record.get("translations") or {}
+        old = translations.get("title")
+        if not isinstance(old, dict) or old.get("origin") != "novelupdates":
+            continue
+        original = str(record.get("title") or "")
+        english, translated_at = "", None
+        saved = known.get(str(nid))
+        if saved and saved.get("original") == clean_field(original):
+            english = decode_field(saved.get("english") or "")
+        if not english:
+            for entry in reversed(record.get("translation_history", [])):
+                if (entry.get("field") == "title" and entry.get("origin") != "novelupdates"
+                        and entry.get("original") == original and str(entry.get("english") or "").strip()):
+                    english, translated_at = entry["english"], entry.get("translated_at")
+                    break
+        record.setdefault("translation_history", []).append({**old, "field": "title", "reverted_at": utc_now()})
+        if english:
+            translations["title"] = {"original": original, "english": english,
+                                     "translated_at": translated_at or utc_now()}
+        else:
             translations.pop("title")
-            changed += 1
-    return changed
+            pending.add(str(nid))
+        changed += 1
+    return changed, pending
 
 
 class Collector:
@@ -399,8 +428,12 @@ def raw_path(source, data_dir):
     return Path(data_dir) / ("novels.json" if source == "npia" else f"{source}_novels.json")
 
 
-def repack(source, data_dir, replacements):
-    """Patch existing bundles, retaining raw rows, descriptions and ranking order."""
+def repack(source, data_dir, replacements, verified):
+    """Patch existing bundles, retaining raw rows, descriptions and ranking order.
+
+    Only a work still showing its verified title (`verified`: id -> that title)
+    is given the replacement; any other title a bundle shows is left alone.
+    """
     try:
         from .build_catalog_preview import build as build_preview
     except ImportError:
@@ -424,7 +457,7 @@ def repack(source, data_dir, replacements):
             nid = str(row[0])
             match = replacements.get(nid)
             if (match and row[1] == match["original"] and row[2] == match["author"]
-                    and payload.get("translations", {}).get(nid) != match["english"]):
+                    and payload.get("translations", {}).get(nid) == verified.get(nid) != match["english"]):
                 payload.setdefault("translations", {})[nid] = match["english"]
                 changed = True
         if changed:
@@ -459,12 +492,20 @@ def write_addresses(path, source, matches):
     write_cache(path, data)
 
 
-def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
+def record_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
+    """Record each confirmed work's verified title and address; never display it.
+
+    The displayed English title is the machine translation. A corpus row that
+    still shows a verified title (from when they replaced machine titles) gets
+    its machine title back from the backup, or is emptied to be translated again.
+    """
     try:
         from . import metadata_common, metadata_pipeline
     except ImportError:
         import metadata_common, metadata_pipeline
     index = TitleIndex.load(cache_path)
+    restore = read_restore(Path(state_dir) / RESTORE_NAME)
+    known = restore.get(source, {})
     rows = json.loads(raw_path(source, data_dir).read_text(encoding="utf-8"))
     matches = {}
     for row in rows:
@@ -475,6 +516,7 @@ def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
     path = corpus_path(source, data_dir)
     lines = []
     changes = {}
+    restored = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.count("|||") < 2:
             lines.append(line + "\n")
@@ -482,14 +524,19 @@ def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
         nid, rest = line.split("|||", 1)
         original, english = rest.rsplit("|||", 1)
         match = matches.get(nid)
-        if match and metadata_pipeline.decode_field(original) == match["original"]:
-            if metadata_pipeline.decode_field(english) != match["english"]:
-                changes[nid] = {**match, "previous_english": english}
-            english = metadata_pipeline.clean_field(match["english"])
+        if (match and metadata_pipeline.decode_field(original) == match["original"]
+                and metadata_pipeline.decode_field(english) == match["english"]):
+            saved = known.get(nid)
+            machine = saved.get("english", "") if saved and saved.get("original") == original else ""
+            if machine != english:
+                changes[nid] = {**match, "previous_english": english, "restored": machine}
+                if machine:
+                    restored[nid] = {**match, "english": metadata_pipeline.decode_field(machine)}
+                english = machine
         lines.append(f"{nid}|||{original}|||{english}\n")
-    if source in metadata_pipeline.SOURCES and matches:
+    if source in metadata_pipeline.SOURCES:
         state = metadata_common.load_state(source, state_dir)
-        if apply_state(state, index):
+        if restore_state(state, restore)[0]:
             metadata_common.save_state(state, state_dir)
     if changes:
         text = "".join(lines)
@@ -497,15 +544,24 @@ def apply_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
         if path.with_suffix(path.suffix + ".gz").exists():
             atomic_bytes(path.with_suffix(path.suffix + ".gz"), gzip.compress(text.encode("utf-8"), mtime=0))
     write_addresses(Path(state_dir) / ADDRESSES_NAME, source, matches)
-    # Reconcile bundles on retries even when the corpus was already saved.
-    if rebuild and matches:
-        repack(source, data_dir, matches)
-    return {"source": source, "rows": len(rows), "matched": len(matches), "changed": len(changes), "changes": changes}
+    # Reconcile bundles on retries even when the corpus was already saved: every
+    # confirmed work whose machine title is known shows it.
+    if rebuild:
+        for nid, match in matches.items():
+            saved = known.get(nid)
+            if (nid not in restored and saved and saved.get("english")
+                    and saved.get("original") == metadata_pipeline.clean_field(match["original"])):
+                restored[nid] = {**match, "english": metadata_pipeline.decode_field(saved["english"])}
+        if restored:
+            repack(source, data_dir, restored, {nid: match["english"] for nid, match in matches.items()})
+    return {"source": source, "rows": len(rows), "matched": len(matches),
+            "restored": sum(1 for change in changes.values() if change["restored"]),
+            "pending": sum(1 for change in changes.values() if not change["restored"]), "changes": changes}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("collect", "apply", "import-snapshot"))
+    parser.add_argument("command", choices=("collect", "record", "import-snapshot"))
     parser.add_argument("--source", choices=(*PUBLISHERS, "all"), default="all")
     parser.add_argument("--cache", type=Path, default=CACHE)
     parser.add_argument("--max-requests", type=int, default=100)
@@ -537,9 +593,10 @@ def main():
     else:
         reports = []
         for source in sources:
-            report = apply_catalog(source, args.data_dir, args.state_dir, args.cache, args.rebuild)
+            report = record_catalog(source, args.data_dir, args.state_dir, args.cache, args.rebuild)
             reports.append(report)
-            print(f"{source}: {report['matched']} confirmed, {report['changed']} changed, {report['rows']} total", flush=True)
+            print(f"{source}: {report['matched']} confirmed of {report['rows']}, {report['restored']} machine titles restored, "
+                  f"{report['pending']} left to translate", flush=True)
             if args.report:
                 atomic_json(args.report, reports)
 

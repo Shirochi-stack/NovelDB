@@ -31,7 +31,8 @@ def build(data, destination):
             for row in json.loads(raw_path(source, data).read_text(encoding="utf-8")):
                 match = index.match(row[1], row[2], source)
                 if match:
-                    aliases[f"{source}/{row[0]}"] = match["aliases"]
+                    # The verified title is searched like the other names, never displayed.
+                    aliases[f"{source}/{row[0]}"] = list(dict.fromkeys([*match["aliases"], match["title"]]))
         alias_file = folder / "aliases.input"
         alias_file.write_text(dumps(aliases, ensure_ascii=False), encoding="utf-8")
         subprocess.run(["node", "--max-old-space-size=8192", str(ROOT / "scripts/noveldb_index/instant.cjs"),
