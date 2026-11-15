@@ -77,7 +77,7 @@
     }
 
     function row(card) {
-        const [source, id, title, titleEn, author, cover, tagsEn, views, likes, chapters, complete, url, updated, age, tags, , also] = card;
+        const [source, id, title, titleEn, author, cover, tagsEn, views, likes, chapters, complete, url, updated, age, tags, published, also] = card;
         return {
             id: String(id), source, title: title || "", titleEn: titleEn || "", author: author || "", cover: cover || "",
             tags: Array.isArray(tags) && tags.length ? tags : (tagsEn || []), views: views || 0, likes: likes || 0,
@@ -85,7 +85,8 @@
             canonicalUrl: url || "", metadataV1: METADATA_V1.has(source), fromIndex: true,
             // The same book's entries on other sources (the index merged them): [[source, id, address], ...].
             also: Array.isArray(also) ? also : [],
-            tier: null, purchaseUrl: null, metrics: {}, rankings: {}, startDate: null,
+            // The card's publication date (YYYY-MM-DD), as the catalog's own records carry it.
+            tier: null, purchaseUrl: null, metrics: {}, rankings: {}, startDate: typeof published === "string" && published ? published : null,
         };
     }
 
