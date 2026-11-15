@@ -35,6 +35,8 @@ _build_info.py
 /dist-desktop/
 # Desktop app runtime data in a portable (source) install: the repo's data/ folder doubles as
 # the app's data folder, so keep the user's cart, queue, uploads and browser profile out of git.
+/data/library-reading.json
+/data/library-updates.json
 /data/link-cart.json
 /data/queue.json
 /data/upload-history.json
@@ -50,3 +52,5 @@ build/pyodide-cache/
 # Extracted from the immutable local catalogue archive by build_mobile_catalog.py.
 android/app/src/main/assets/catalog/instant/
 ios/NpiaKit/Sources/NpiaWebEngine/Resources/catalog/instant/
+# Screenshots attached to remote coding sessions.
+/.codex-remote-attachments/
