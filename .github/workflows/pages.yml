@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -56,6 +57,20 @@ jobs:
         with:
           name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: ${{ runner.temp }}/noveldb-pages
+
+      - name: Wait until the uploaded site is listed
+        # deploy-pages reads the run's artifact list at once and fails on an empty one; right after
+        # the upload the list can still be empty for a moment.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=$PAGES_ARTIFACT_NAME" --jq '.total_count' || echo 0)
+            if [ "${count:-0}" -ge 1 ]; then echo "Listed after $attempt check(s)"; exit 0; fi
+            sleep 2
+          done
+          echo "::warning::The site artifact is not listed yet; deploying anyway"
 
       - id: deployment
         uses: actions/deploy-pages@v4

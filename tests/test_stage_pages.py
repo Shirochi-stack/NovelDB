@@ -70,3 +70,10 @@ def test_pages_retry_uses_a_distinct_upload_and_deployment_name():
     deploy = next(step for step in job["steps"] if "deploy-pages" in step.get("uses", ""))
     assert upload["with"]["name"] == deploy["with"]["artifact_name"] == "${{ env.PAGES_ARTIFACT_NAME }}"
     assert int(deploy["with"]["timeout"]) == 600000
+    # The deploy step reads the run's artifact list at once: a step between the two waits until the
+    # upload is listed (reading that list needs the actions permission).
+    steps = job["steps"]
+    wait = steps[steps.index(upload) + 1]
+    assert steps[steps.index(wait) + 1] is deploy
+    assert "actions/runs/${{ github.run_id }}/artifacts?name=$PAGES_ARTIFACT_NAME" in wait["run"]
+    assert workflow["permissions"]["actions"] == "read"
