@@ -57,4 +57,4 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          python scripts/publish_metadata.py --message "📊 Update Npia rankings ($(date -u +%Y-%m-%d))" --paths docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz 'docs/data/descriptions_shard_*.json.gz' docs/data/descriptions_shard_manifest.json 'docs/data/npia_chunk_*.json.gz' docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz
+          python scripts/publish_metadata.py --message "📊 Update Npia rankings ($(date -u +%Y-%m-%d))" --paths docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz 'docs/data/descriptions_shard_*.json.gz' docs/data/descriptions_shard_manifest.json 'docs/data/npia_chunk_*.json.gz' docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz 'docs/data/npia_cover_originals_*.json.gz'

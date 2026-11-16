@@ -42,6 +42,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 from npia_search_http import PartialSearchError, paginated_search, get_json_with_retry as _search_json
 from npia_author_catalog import author_id, parallel_author_pages
 from npia_intro_discovery import discover as discover_intro
+import npia_cover_originals as cover_originals
 import npia_author_registry as author_registry
 from npia_author_resolution import RESOLUTION_VERSION, resolve_missing as resolve_author_identities
 
@@ -101,9 +102,17 @@ def preserve_cover(fresh_cover, existing_site_cover="", existing_full_cover=""):
     return fresh_cover
 
 
+# Each work's original cover upload as the API names it: {novel id: image host path}. The
+# catalog row keeps the small card cover; these are saved beside it (npia_cover_originals).
+SEEN_COVER_ORIGINALS = {}
+
+
 def extract_novel(item):
     """Extract novel metadata dict from an API response item."""
     cover = pick_cover(item)
+    original = cover_originals.original_path(item, cover)
+    if original and item.get("novel_no") is not None:
+        SEEN_COVER_ORIGINALS[str(item["novel_no"])] = original
     tags = item.get("novel_genre_arr") or item.get("novel_genre") or []
     if isinstance(tags, str):
         try:
@@ -760,6 +769,11 @@ def main():
     with open(data_path, "w", encoding="utf-8") as f:
         source_names.dump(existing_data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"\nSaved {data_path} ({os.path.getsize(data_path) / 1024 / 1024:.1f} MB)")
+
+    # The full-size covers seen in this scrape, beside the catalog.
+    originals = cover_originals.Store(os.path.dirname(data_path))
+    recorded = sum(originals.set(nid, path) for nid, path in SEEN_COVER_ORIGINALS.items())
+    print(f"Full-size covers: {len(SEEN_COVER_ORIGINALS)} seen, {recorded} new or changed, {originals.save()} files written")
 
     # Save full version with synopses for description extraction
     full_novels = []

@@ -42,6 +42,13 @@ HEADERS = {
 
 COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 
+import npia_cover_originals as cover_originals
+
+# Each ranked work's original cover upload as the API names it: {novel id: image host path}.
+# The catalog row keeps the small card cover; these are saved beside it.
+SEEN_COVER_ORIGINALS = {}
+
+
 def pick_cover(item):
     """Pick the best cover URL from a Npia API response."""
     for k in ("cover_url", "novel_thumb_all", "novel_thumb", "novel_img", "novel_img_all"):  # cover_url: the ~20 KB card WebP; novel_img_all: the 10 MB+ upload
@@ -81,6 +88,9 @@ def rescrape_metadata(session, ranked_ids):
 
     def extract_item(item):
         cover = pick_cover(item)
+        original = cover_originals.original_path(item, cover)
+        if original and item.get("novel_no") is not None:
+            SEEN_COVER_ORIGINALS[str(item["novel_no"])] = original
         if cover.startswith(COVER_PREFIX):
             cover = cover[len(COVER_PREFIX):]
         return {
@@ -243,6 +253,11 @@ def main():
     with open(data_path, "w", encoding="utf-8") as f:
         source_names.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"Saved to {data_path} ({os.path.getsize(data_path) / 1024 / 1024:.1f} MB)")
+
+    # The full-size covers of the works whose card cover was just rewritten.
+    originals = cover_originals.Store(os.path.dirname(data_path))
+    recorded = sum(originals.set(nid, path) for nid, path in SEEN_COVER_ORIGINALS.items() if nid in fresh_data)
+    print(f"Full-size covers: {recorded} new or changed, {originals.save()} files written")
 
     # Phase 4: Merge fresh descriptions into descriptions.txt
     desc_path = os.path.join(BASE_DIR, "docs", "data", "descriptions.txt")

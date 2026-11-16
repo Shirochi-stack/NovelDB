@@ -27,10 +27,40 @@
         if(!['https:','http:'].includes(url.protocol) || url.username || url.password) throw new Error('Original image is unavailable.');
         return url.href;
     }
-    async function preferredOriginalUrl(card,signal) {
+    // An npia work's full-size cover (scripts/npia_cover_originals.py): the original upload, another
+    // file than the card cover's and often thousands of pixels a side. The catalog rows keep the small
+    // card cover; the originals are small shards (novel id % 64) read only for a work whose Details
+    // open or whose image is downloaded. A failed read is tried again the next time.
+    const ORIGINAL_SHARDS=64, originalShards=new Map();
+    function coverOriginals(id) {
+        const shard=String(Number(id)%ORIGINAL_SHARDS).padStart(2,'0');
+        if(!originalShards.has(shard)) originalShards.set(shard,(async()=>{
+            const response=await fetch(new URL(`data/npia_cover_originals_${shard}.json.gz`,document.baseURI),{credentials:'omit'});
+            if(!response.ok) {await response.body?.cancel();throw new Error(`Cover originals HTTP ${response.status}`);}
+            const stream=new Blob([await response.arrayBuffer()]).stream().pipeThrough(new DecompressionStream('gzip'));
+            const data=JSON.parse(await new Response(stream).text());
+            if(data?.version!==1 || !data.covers || typeof data.covers!=='object') throw new Error('Invalid cover originals');
+            return data.covers;
+        })().catch(()=>{originalShards.delete(shard);return null;}));
+        return originalShards.get(shard);
+    }
+    /** The recorded full-size cover of a card's work, on the image host its own cover comes from; else null. */
+    async function recordedOriginal(card,standard) {
+        const id=card.dataset.novelId || '';
+        if(card.dataset.source!=='npia' || !/^[1-9][0-9]*$/.test(id)) return null;
+        const covers=await coverOriginals(id), path=covers && Object.hasOwn(covers,id) ? covers[id] : null;
+        if(typeof path!=='string' || !/^\/imagebox\/[A-Za-z0-9_.\/-]+$/.test(path) || path.includes('..')) return null;
+        const url=new URL(standard).origin+path;
+        return url===standard ? null : url;
+    }
+    /** The best address a host offers for the card's own cover (not the recorded full-size upload). */
+    async function standardPreferredUrl(card,signal) {
         const value = originalUrl(card);
         if (card.querySelector('.card-cover')?.dataset.originalSrc) return value;
         return window.NovelCovers.preferredUrl(value,signal);
+    }
+    async function preferredOriginalUrl(card,signal) {
+        return await recordedOriginal(card,originalUrl(card)).catch(()=>null) || standardPreferredUrl(card,signal);
     }
     async function readOriginal(url,signal) {
         let failure;
@@ -291,28 +321,45 @@
         });
         image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
         imageStatus.textContent='Loading original image…';
-        let attempt=0, imageTimer;
-        const imageAttempts=[];
+        let attempt=0, imageTimer, upgrading=false;
+        const imageAttempts=[], fullSize=new Image();
         const finishImage=text=>{clearTimeout(imageTimer);imageStatus.textContent=text;};
         const nextImage=()=>{
             const next=imageAttempts[attempt++];
             if(next) {image.referrerPolicy=next[1];image.src=next[0];}
             else {image.hidden=true;finishImage('The original image could not load.');}
         };
-        image.onload=()=>finishImage(`Original image · ${image.naturalWidth} × ${image.naturalHeight}`);
+        // The cover shows at once; a recorded full-size upload replaces it when it has loaded.
+        const describe=()=>finishImage(`Original image · ${image.naturalWidth} × ${image.naturalHeight}${upgrading ? ' · loading full size…' : ''}`);
+        image.onload=describe;
         image.onerror=()=>{
             if(signal.aborted) return;
             nextImage();
         };
-        signal.addEventListener('abort',()=>{clearTimeout(imageTimer);image.onload=image.onerror=null;image.removeAttribute('src');},{once:true});
+        signal.addEventListener('abort',()=>{
+            clearTimeout(imageTimer);image.onload=image.onerror=fullSize.onload=fullSize.onerror=null;
+            image.removeAttribute('src');fullSize.removeAttribute('src');
+        },{once:true});
         (async()=>{
             try {
-                const standard=originalUrl(card), preferred=await preferredOriginalUrl(card,signal);
+                const standard=originalUrl(card), preferred=await standardPreferredUrl(card,signal);
                 if(signal.aborted || sequence!==viewSequence) return;
                 imageAttempts.push([preferred,'no-referrer'],[preferred,'strict-origin-when-cross-origin']);
                 if(preferred!==standard) imageAttempts.push([standard,'no-referrer'],[standard,'strict-origin-when-cross-origin']);
                 imageTimer=setTimeout(()=>{image.removeAttribute('src');image.hidden=true;finishImage('The original image did not load in time. Reopen Details to retry.');},20000);
                 nextImage();
+                const full=await recordedOriginal(card,standard).catch(()=>null);
+                if(!full || full===preferred || signal.aborted || sequence!==viewSequence) return;
+                upgrading=true;
+                if(image.complete && image.naturalWidth) describe();
+                fullSize.decoding='async';fullSize.referrerPolicy='no-referrer';
+                fullSize.onload=()=>{
+                    // Decoded and cached: the visible image takes it without a blank frame.
+                    upgrading=false;clearTimeout(imageTimer);image.onerror=null;image.hidden=false;
+                    image.referrerPolicy='no-referrer';image.src=full;
+                };
+                fullSize.onerror=()=>{upgrading=false;if(image.complete && image.naturalWidth && !image.hidden) describe();};
+                fullSize.src=full;
             } catch(error) {
                 if(!signal.aborted && sequence===viewSequence) {image.hidden=true;detailDownload.disabled=true;finishImage(error.message);}
             }

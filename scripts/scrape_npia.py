@@ -26,6 +26,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 from npia_search_http import PartialSearchError, paginated_search, get_json_with_retry as _search_json
 from npia_author_catalog import author_id
 import npia_author_registry as author_registry
+import npia_cover_originals as cover_originals
 
 from npia_auth import NpiaAuth
 from npia_search_terms import SEARCH_TAGS, SWEEP_CHARS
@@ -88,7 +89,15 @@ def preserve_cover(fresh_cover, existing_site_cover="", existing_full_cover=""):
     return fresh_cover
 
 
+# Each work's original cover upload as the API names it: {novel id: image host path}. The
+# catalog row keeps the small card cover; these are saved beside it (npia_cover_originals).
+SEEN_COVER_ORIGINALS = {}
+
+
 def extract_novel(item):
+    original = cover_originals.original_path(item, pick_cover(item))
+    if original and item.get("novel_no") is not None:
+        SEEN_COVER_ORIGINALS[str(item["novel_no"])] = original
     return {
         "id": item.get("novel_no"),
         "title": item.get("novel_name", ""),
@@ -454,6 +463,9 @@ def main():
     print(f"\nFull: {len(novels)} novels -> {os.path.getsize(full_path) / 1024 / 1024:.1f} MB")
 
     write_json_file(opt_path, optimized, separators=(",", ":"))
+    originals = cover_originals.Store("docs/data")
+    recorded = sum(originals.set(nid, path) for nid, path in SEEN_COVER_ORIGINALS.items())
+    print(f"Full-size covers: {len(SEEN_COVER_ORIGINALS)} seen, {recorded} new or changed, {originals.save()} files written")
     author_registry.save(registry_path, registry)
 
     print(f"Site: {len(optimized)} novels -> {os.path.getsize(opt_path) / 1024 / 1024:.1f} MB")

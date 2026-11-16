@@ -160,6 +160,78 @@ def test_original_download_keeps_original_dimensions_and_pixels_while_display_is
     asyncio.run(scenario())
 
 
+def test_details_and_download_use_the_recorded_full_size_cover_while_cards_keep_the_small_one(tmp_path):
+    async def scenario():
+        small=io.BytesIO();Image.new('RGB',(400,600),'#8040c0').save(small,format='PNG')
+        big=image_bytes('PNG')  # 800 x 1200: the original upload, another file than the card cover
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':1280,'height':900},accept_downloads=True)
+            errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+            site=FixtureSite(many_npia=True);requested=[];release=asyncio.Event()
+            async def route(r):
+                url=urlsplit(r.request.url)
+                if url.hostname=='covers.test':
+                    requested.append(url.path)
+                    if url.path=='/imagebox/cover/upload_q_ori.file':
+                        await release.wait()
+                        await r.fulfill(body=big,content_type='application/octet-stream',headers={'access-control-allow-origin':'*'})
+                    elif url.path=='/imagebox/cover/gone_q_ori.file':await r.fulfill(status=404,body='gone')
+                    else:await r.fulfill(body=small.getvalue(),content_type='application/octet-stream',headers={'access-control-allow-origin':'*'})
+                elif url.path=='/data/npia_chunk_0.json.gz':
+                    novels=[row('npia',ident) for ident in range(7,68)]
+                    for novel in novels:novel[3]=f'https://covers.test/imagebox/cover/card_{novel[0]}_ori.file'
+                    await r.fulfill(body=gzip.compress(json.dumps({'novels':novels}).encode()),content_type='application/gzip')
+                elif url.path.startswith('/data/npia_cover_originals_'):
+                    requested.append(url.path)
+                    covers={'/data/npia_cover_originals_07.json.gz':{'7':'/imagebox/cover/upload_q_ori.file'},
+                            '/data/npia_cover_originals_08.json.gz':{'8':'/imagebox/cover/gone_q_ori.file'},
+                            '/data/npia_cover_originals_10.json.gz':{'10':'https://elsewhere.test/imagebox/cover/x.file'}}.get(url.path)
+                    if covers is None:await r.fulfill(status=404,body='Not published')
+                    else:await r.fulfill(body=gzip.compress(json.dumps({'version':1,'covers':covers}).encode()),content_type='application/gzip')
+                else:await site.route(r)
+            await page.route('**/*',route)
+            await page.goto('https://metadata.test/#src=npia');await wait_loaded(page)
+            await page.locator('.novel-card[data-novel-id="7"] .card-cover.loaded').wait_for()
+            # Cards load only their own small cover: no originals file and no upload is read for them.
+            assert not any('npia_cover_originals' in path or 'upload' in path for path in requested)
+            image=page.locator('.novel-details-image img');status=page.locator('.novel-details-image figcaption')
+            async def view(ident):
+                await page.locator(f'.novel-card[data-novel-id="{ident}"] .cover-details').click()
+                await page.wait_for_function('(id)=>document.querySelector(".novel-details [data-field=id]")?.textContent===id',arg=str(ident))
+            async def close():
+                await page.get_by_role('button',name='Close Details').click()
+                await page.wait_for_function('!document.querySelector(".novel-details-image img").hasAttribute("src")')
+            # The card's own cover shows at once, then the upload replaces it when it has loaded.
+            await view(7)
+            await page.wait_for_function('document.querySelector(".novel-details-image img").naturalWidth===400')
+            await page.wait_for_function('document.querySelector(".novel-details-image figcaption").textContent.includes("loading full size")')
+            assert await status.inner_text()=='Original image · 400 × 600 · loading full size…'
+            release.set()
+            await page.wait_for_function('document.querySelector(".novel-details-image img").naturalWidth===800')
+            assert await status.inner_text()=='Original image · 800 × 1200'
+            assert await image.get_attribute('src')=='https://covers.test/imagebox/cover/upload_q_ori.file'
+            assert requested.count('/data/npia_cover_originals_07.json.gz')==1
+            # The download is the upload itself, byte for byte.
+            async with page.expect_download() as event:await page.get_by_role('dialog').get_by_role('button',name='Download Image').click()
+            file=tmp_path/'cover.png';await (await event.value).save_as(file)
+            assert file.read_bytes()==big
+            await close()
+            # A recorded upload that is gone, one on another host, and a work with none: the card's cover stays.
+            for ident in (8,10,9):
+                await view(ident)
+                await page.wait_for_function('document.querySelector(".novel-details-image img").naturalWidth===400')
+                await page.wait_for_function('document.querySelector(".novel-details-image figcaption").textContent==="Original image · 400 × 600"')
+                assert await image.get_attribute('src')==f'https://covers.test/imagebox/cover/card_{ident}_ori.file'
+                await close()
+            assert not any('elsewhere' in path for path in requested)
+            # One read per shard for the visit.
+            await view(7);await page.wait_for_function('document.querySelector(".novel-details-image img").naturalWidth===800');await close()
+            assert requested.count('/data/npia_cover_originals_07.json.gz')==1 and not errors
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_details_show_primary_fields_and_original_image_without_enabling_card_synopses():
     async def scenario():
         async with async_playwright() as p:
