@@ -110,7 +110,7 @@ class ImageStage(
                             encodes.withPermit { encode(data) }.also { encoded ->
                                 if (encoded.data.size < data.size) {
                                     val saved = (1 - encoded.data.size.toDouble() / data.size) * 100
-                                    logger.log(LogLevel.INFO, "  ⚙ $label: ${formatSize(data.size.toLong())} → " +
+                                    logger.log(LogLevel.DEBUG, "  ⚙ $label: ${formatSize(data.size.toLong())} → " +
                                         "${formatSize(encoded.data.size.toLong())} (${"%.0f".format(java.util.Locale.ROOT, saved)}% saved)")
                                 }
                             }
@@ -140,13 +140,14 @@ class ImageStage(
     /** `page`: the chapter's address, sent as the Referer when the image server refuses a request without one (fanfox). */
     /**
      * One log line per image, as the desktop writes them: "✓ label: size [speed]" when it arrived,
-     * "✗ label: reason" (with its address) when it did not.
+     * "✗ label: reason" (with its address) when it did not. The ✓ and ⚙ lines are details (debug
+     * level): the log view's Details switch shows or hides them; a failure always shows.
      */
     private suspend fun download(ref: ImageRef, page: String? = null, label: String = ref.filename): ByteArray? {
         coroutineContext.ensureActive()
         // Bytes that came with the chapter were already read: no request, no speed.
         (ref.data ?: store?.held(ref.filename))?.let { held ->
-            logger.log(LogLevel.INFO, "  ✓ $label: ${formatSize(held.size.toLong())}")
+            logger.log(LogLevel.DEBUG, "  ✓ $label: ${formatSize(held.size.toLong())}")
             return held
         }
         val started = System.nanoTime()
@@ -160,7 +161,7 @@ class ImageStage(
                 null
             } else {
                 val seconds = ((System.nanoTime() - started) / 1e9).coerceAtLeast(0.001)
-                logger.log(LogLevel.INFO, "  ✓ $label: ${formatSize(response.body.size.toLong())} " +
+                logger.log(LogLevel.DEBUG, "  ✓ $label: ${formatSize(response.body.size.toLong())} " +
                     "[${formatSize((response.body.size / seconds).toLong())}/s]")
                 response.body
             }

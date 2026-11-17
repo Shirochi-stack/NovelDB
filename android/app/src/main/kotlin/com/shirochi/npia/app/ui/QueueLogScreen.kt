@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +78,17 @@ fun QueueLogView(model: AppViewModel, jobs: List<JobItem>, modifier: Modifier = 
     }
     LaunchedEffect(entries.lastOrNull()?.seq, entries.size, following) {
         if (following && entries.isNotEmpty()) listState.scrollToItem(entries.lastIndex)
+    }
+    // Details or the job picked changes many lines at once. The newest line is asked for before this
+    // frame is measured: scrolling a frame later (the effect above) drew the old place first, a flash
+    // of other lines each time the switch was pressed.
+    val filterKey = details to filterId
+    val shownFilter = remember { arrayOf(filterKey) }
+    SideEffect {
+        if (shownFilter[0] != filterKey) {
+            shownFilter[0] = filterKey
+            if (following && entries.isNotEmpty()) listState.requestScrollToItem(entries.lastIndex)
+        }
     }
 
     Column(modifier.fillMaxSize()) {

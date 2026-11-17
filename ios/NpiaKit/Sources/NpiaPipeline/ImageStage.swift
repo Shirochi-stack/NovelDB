@@ -155,7 +155,7 @@ public struct ImageStage: Sendable {
         let data: Data
         if let bytes = ref.data {
             // Bytes that came with the chapter were already read: no request, no speed.
-            logger.log(.info, "  ✓ \(label): \(Self.formatSize(bytes.count))")
+            logger.log(.debug, "  ✓ \(label): \(Self.formatSize(bytes.count))")
             data = bytes
         } else {
             let started = Date()
@@ -170,7 +170,7 @@ public struct ImageStage: Sendable {
                 }
                 let seconds = max(Date().timeIntervalSince(started), 0.001)
                 let speed = Self.formatSize(Int(Double(response.body.count) / seconds))
-                logger.log(.info, "  ✓ \(label): \(Self.formatSize(response.body.count)) [\(speed)/s]")
+                logger.log(.debug, "  ✓ \(label): \(Self.formatSize(response.body.count)) [\(speed)/s]")
                 data = response.body
             } catch is CancellationError {
                 throw CancellationError()
@@ -185,7 +185,7 @@ public struct ImageStage: Sendable {
         try Task.checkCancellation()
         if let result, result.data.count < data.count {
             let saved = (1 - Double(result.data.count) / Double(data.count)) * 100
-            logger.log(.info, "  ⚙ \(label): \(Self.formatSize(data.count)) → \(Self.formatSize(result.data.count)) (\(String(format: "%.0f", saved))% saved)")
+            logger.log(.debug, "  ⚙ \(label): \(Self.formatSize(data.count)) → \(Self.formatSize(result.data.count)) (\(String(format: "%.0f", saved))% saved)")
         }
         let raw = preserveSource ? ProcessedImage(data: data, fileExtension: ImageProcessor.sniffExtension(data)) : nil
         return (result, raw)

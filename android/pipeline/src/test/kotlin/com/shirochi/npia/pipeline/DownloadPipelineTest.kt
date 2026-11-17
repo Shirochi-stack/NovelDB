@@ -250,6 +250,9 @@ class DownloadPipelineTest {
             val arrived = Regex("""  ✓ \[\d+] Image #1 \[Chapter \d+]: \d+ B \[[\d.]+ (?:B|KB|MB)/s]""")
             assertTrue("no image line in $text", text.any { arrived.matches(it) })
             assertEquals(1, text.count { it.startsWith("  ✓ ") })
+            // An image that arrived is a detail (the log's Details switch hides it); the step's own lines are not.
+            assertEquals(LogLevel.DEBUG, lines.first { it.second.startsWith("  ✓ ") }.first)
+            assertEquals(LogLevel.INFO, lines.first { it.second.startsWith("Downloading 1 image") }.first)
             assertEquals(listOf("512 B", "19.5 KB", "1.20 MB"), listOf(512L, 19_968L, 1_258_291L).map(ImageStage::formatSize))
             has("Images: 1 kept")
             has("Writing EPUB")
