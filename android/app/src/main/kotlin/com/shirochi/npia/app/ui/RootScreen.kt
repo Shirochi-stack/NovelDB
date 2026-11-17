@@ -263,6 +263,7 @@ fun RootScreen(model: AppViewModel) {
     }
     SignInPrompt()
     AppUpdateDialog(model)
+    BackgroundPrompt(model)
     model.pendingUpload?.let { upload ->
         ShareAgreementDialog(
             onAgree = {

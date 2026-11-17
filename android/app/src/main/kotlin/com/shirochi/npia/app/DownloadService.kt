@@ -138,6 +138,11 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean("askedForNotifications", false)
         set(value) = prefs.edit().putBoolean("askedForNotifications", value).apply()
 
+    /** The app's own "keep downloads running in the background" question was shown once. */
+    var askedForBatteryOptimization: Boolean
+        get() = prefs.getBoolean("askedForBatteryOptimization", false)
+        set(value) = prefs.edit().putBoolean("askedForBatteryOptimization", value).apply()
+
     /** When the app last asked for a newer build (milliseconds since the epoch); the automatic check runs once per 24 hours. */
     var lastAppUpdateCheck: Long
         get() = prefs.getLong("lastAppUpdateCheck", 0L)
@@ -173,7 +178,9 @@ class AppPreferences(context: Context) {
 }
 
 /** What keeps the service alive: downloads, uploads, or a tag search. */
-private data class ServiceWork(val jobs: List<JobItem>, val uploads: List<UploadState>, val batch: UploadBatch?, val searching: Boolean)
+private data class ServiceWork(
+    val jobs: List<JobItem>, val uploads: List<UploadState>, val batch: UploadBatch?, val searching: Boolean, val testing: Boolean,
+)
 
 /**
  * Foreground service that keeps the process alive while downloads run, with a progress
@@ -199,24 +206,28 @@ class DownloadService : Service() {
             goForeground(
                 Notifications.progress(
                     this, manager.jobs.value, manager.runningUploads(), manager.uploadBatch.value, manager.tagSearch.running.value,
-                    NotificationTarget.forRun(manager.runJobIds()),
+                    NotificationTarget.forRun(manager.runJobIds()), manager.backgroundTest.running.value,
                 ),
             )
             acquireLocks()
             // Notification updates are throttled; the system drops faster ones anyway. Uploads
             // keep the service alive too, so they finish with the screen off.
             collector = scope.launch {
-                combine(manager.jobs, manager.uploadStates, manager.uploadBatch, manager.tagSearch.running) { jobs, uploads, batch, searching ->
-                    ServiceWork(jobs, uploads.values.filter { it.phase == UploadState.Phase.RUNNING }, batch, searching)
+                combine(
+                    manager.jobs, manager.uploadStates, manager.uploadBatch, manager.tagSearch.running, manager.backgroundTest.running,
+                ) { jobs, uploads, batch, searching, testing ->
+                    ServiceWork(jobs, uploads.values.filter { it.phase == UploadState.Phase.RUNNING }, batch, searching, testing)
                 }.sample(750).collect { activity ->
-                    if (activity.jobs.none { it.state.isActive } && activity.uploads.isEmpty() && activity.batch == null && !activity.searching) {
+                    if (activity.jobs.none { it.state.isActive } && activity.uploads.isEmpty() && activity.batch == null &&
+                        !activity.searching && !activity.testing
+                    ) {
                         stop()
                     } else {
                         Notifications.notify(
                             this@DownloadService, Notifications.PROGRESS_ID,
                             Notifications.progress(
                                 this@DownloadService, activity.jobs, activity.uploads, activity.batch, activity.searching,
-                                NotificationTarget.forRun(manager.runJobIds()),
+                                NotificationTarget.forRun(manager.runJobIds()), activity.testing,
                             ),
                         )
                     }
@@ -297,6 +308,7 @@ object Notifications {
     const val PROGRESS_ID = 1
     const val SUMMARY_ID = 2
     const val UPLOAD_RESULT_ID = 3
+    const val BACKGROUND_TEST_ID = 4
     private const val CHANNEL_PROGRESS = "downloads"
     private const val CHANNEL_RESULTS = "results"
 
@@ -346,6 +358,7 @@ object Notifications {
         batch: UploadBatch? = null,
         searching: Boolean = false,
         target: NotificationTarget = NotificationTarget.Queue,
+        testing: Boolean = false,
     ): Notification {
         val runningJobs = jobs.filter { it.state == JobState.RUNNING }
         val queued = jobs.count { it.state == JobState.QUEUED }
@@ -378,10 +391,13 @@ object Notifications {
             .setLargeIcon(artwork(context))
             .setContentTitle(
                 first?.displayTitle ?: (if (batch != null) "Uploading files" else upload?.fileName)
-                    ?: (if (searching) "Searching npia" else "Preparing downloads"),
+                    ?: (if (searching) "Searching npia" else if (testing) "Background test" else "Preparing downloads"),
             )
             .setContentText(
-                listOfNotNull(first?.status ?: uploadLine ?: (if (searching) "Tag search running" else null), extra.ifEmpty { null })
+                listOfNotNull(
+                    first?.status ?: uploadLine ?: (if (searching) "Tag search running" else if (testing) "Keep NovelDB off screen until it ends" else null),
+                    extra.ifEmpty { null },
+                )
                     .joinToString(" · "),
             )
             .setProgress(1000, (fraction * 1000).toInt(), indeterminate)
@@ -432,6 +448,19 @@ object Notifications {
             builder.addAction(0, "Copy links", NotificationActionReceiver.pending(context, report.id, NotificationActionReceiver.ACTION_COPY_LINKS))
         }
         notify(context, UPLOAD_RESULT_ID, builder.build())
+    }
+
+    /** The end of a background test from Settings: what it found. */
+    fun backgroundTest(context: Context, result: com.shirochi.npia.app.model.BackgroundTestResult) {
+        val builder = NotificationCompat.Builder(context, CHANNEL_RESULTS)
+            .setSmallIcon(if (result.passed) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
+            .setLargeIcon(artwork(context))
+            .setContentTitle("Background test")
+            .setContentText(result.text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(result.text))
+            .setAutoCancel(true)
+            .setContentIntent(openApp(context))
+        notify(context, BACKGROUND_TEST_ID, builder.build())
     }
 
     fun cancel(context: Context, id: Int) {

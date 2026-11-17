@@ -116,7 +116,7 @@ fun SettingsScreen(model: AppViewModel) {
         NavRow("Appearance", "Theme and accent colour") { model.push(Route.Appearance) }
         NavRow("Catalog site", "The website shown in the Catalog tab") { model.push(Route.CatalogSite) }
         NavRow("Browser", "Language the Browser tab translates pages into") { model.push(Route.BrowserSettings) }
-        NavRow("Screen and background") { model.push(Route.Background) }
+        NavRow("Screen and background", "Battery optimization and the background test") { model.push(Route.Background) }
         NavRow("Import / export", "Desktop config.json and app settings") { model.push(Route.Transfer) }
     }
 }
@@ -871,21 +871,7 @@ fun AppearanceSettingsScreen(model: AppViewModel) {
     }
 }
 
-// Screen and background
-
-@Composable
-fun BackgroundSettingsScreen(model: AppViewModel) {
-    val manager = model.manager
-    manager.preferencesFlow.collectAsStateWithLifecycle().value
-    SettingsColumn {
-        SwitchRow("Keep screen awake while downloading", manager.preferences.keepScreenAwake, { manager.setKeepScreenAwake(it) })
-        Footnote("Applies while the app is open.")
-        Footnote(
-            "Downloads keep running in a foreground service with a progress notification after you leave the app or lock the screen. " +
-                "Some phones still stop background work to save battery; if downloads stop, allow NovelDB to run unrestricted in the system battery settings.",
-        )
-    }
-}
+// Screen and background: see BackgroundRunningUi.kt.
 
 // Import / export
 

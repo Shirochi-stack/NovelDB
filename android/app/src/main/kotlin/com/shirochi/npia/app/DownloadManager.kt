@@ -114,7 +114,12 @@ class DownloadManager(private val app: Application) {
     private val _settings = MutableStateFlow(loadSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
-    private val _jobs = MutableStateFlow(JobItem.interrupted(jobStore.load().orEmpty()))
+    private val savedJobs = jobStore.load().orEmpty()
+
+    /** Downloads that were running when the process last ended: Android (or the user) stopped the app under them. */
+    val interruptedAtStart: Int = savedJobs.count { it.state.isActive }
+
+    private val _jobs = MutableStateFlow(JobItem.interrupted(savedJobs))
     val jobs: StateFlow<List<JobItem>> = _jobs.asStateFlow()
     private val libraryStore = JsonFileStore(File(app.filesDir, "library-updates.json"), LibraryUpdateState.serializer())
     private val _libraryUpdates = MutableStateFlow(libraryStore.load() ?: LibraryUpdateState())
@@ -150,6 +155,9 @@ class DownloadManager(private val app: Application) {
         contextFor = { logger -> sourceContext(logger, maxRetries = 0) },
         onStarted = { DownloadService.start(app) },
     )
+
+    /** Settings' background test: shows whether Android lets the app work off screen. */
+    val backgroundTest = BackgroundTest(app, scope)
 
     /** The run summary the notification buttons act on; see `RunSummary`. */
     private val lastRunStore = JsonFileStore(File(app.filesDir, "last-run.json"), RunSummary.serializer())
