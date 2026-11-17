@@ -232,6 +232,12 @@ public struct DownloadPipeline: Sendable {
         var stageSettings = settings
         if compressAfter && !otherImageOutputs { stageSettings.images.compress = false }
         let stage = ImageStage(http: client, settings: stageSettings, source: source, logger: logger)
+        // The image step follows the chapters and can be far longer than them: say what it counts.
+        let imageFiles = Set(chapters.flatMap { $0.images.map { $0.filename } }).count
+        if imageFiles > 0 && !settings.images.saveImageURLsOnly {
+            let withImages = chapters.filter { !$0.images.isEmpty }.count
+            logger.log(.info, "Downloading \(imageFiles) image\(imageFiles == 1 ? "" : "s") from \(withImages) of \(chapters.count) chapters")
+        }
         let progress: @Sendable (Int, Int) -> Void = { done, total in
             onPhase(.downloadingImages(done: done, total: total))
         }

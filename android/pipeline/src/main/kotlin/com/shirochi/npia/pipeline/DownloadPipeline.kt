@@ -144,9 +144,13 @@ class DownloadPipeline(
         if (owner.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
         onBook?.invoke(selected)
         val range = listOfNotNull(shared.rangeFrom?.let { "from $it" }, shared.rangeTo?.let { "to $it" }).joinToString(" ")
+        // Notices are not chapters of the book: counted apart, so the line never reads "157 of 154".
+        val notices = selected.count { it.isNotice }
         logger.log(
             LogLevel.INFO,
-            "Downloading ${selected.size} of ${book.chapters.size} chapters" + (if (range.isNotEmpty()) " ($range)" else ""),
+            "Downloading ${selected.size - notices} of ${book.chapters.size} chapters" +
+                (if (range.isNotEmpty()) " ($range)" else "") +
+                (if (notices > 0) ", and $notices notice${if (notices == 1) "" else "s"}" else ""),
         )
         onPhase(JobPhase.FetchingChapters(0, selected.size))
         val completed = ConcurrentHashMap<String, ChapterResult>()
@@ -211,7 +215,30 @@ class DownloadPipeline(
         val otherImageOutputs = shared.formats.any { it == OutputFormat.EPUB || it == OutputFormat.CBZ || it == OutputFormat.PDF }
         val stage = ImageStage(http, settings, source,
             if (compressAfter && !otherImageOutputs) PassthroughImages else images, logger, store)
-        val progress: (Int, Int) -> Unit = { done, total -> onPhase(JobPhase.DownloadingImages(done, total)) }
+        // The image step follows the chapters and can be far longer than them (an illustrated book
+        // has several images a chapter). Say so in the log: without these lines the progress bar keeps
+        // counting "Images n/total" after the last chapter line, with nothing to show what it counts.
+        val imageRefs = chapters.flatMap { it.images }
+        val imageFiles = imageRefs.distinctBy { it.filename }.size
+        if (imageFiles > 0 && !settings.images.saveImageUrlsOnly) {
+            val addresses = imageRefs.distinctBy { it.url }.size
+            logger.log(
+                LogLevel.INFO,
+                "Downloading $imageFiles image${if (imageFiles == 1) "" else "s"} from " +
+                    "${chapters.count { it.images.isNotEmpty() }} of ${chapters.size} chapters" +
+                    (if (addresses < imageFiles) " ($addresses different addresses)" else ""),
+            )
+        }
+        var loggedQuarter = 0
+        val progress: (Int, Int) -> Unit = { done, total ->
+            onPhase(JobPhase.DownloadingImages(done, total))
+            // A long image step reports each quarter.
+            val quarter = if (total >= 40) done * 4 / total else 0
+            if (quarter in 1..3 && quarter > loggedQuarter) {
+                loggedQuarter = quarter
+                logger.log(LogLevel.INFO, "Images $done/$total")
+            }
+        }
         val imageOutput = if (prepared == null) stage.run(chapters, onProgress = progress) else coroutineScope {
             val ready = Channel<Pair<ChapterContent, Map<String, ByteArray>>>(capacity = 1)
             val writer = launch {
@@ -416,7 +443,8 @@ class DownloadPipeline(
                 publish(live)
             }
             val elapsed = starts.remove(result.ref.id)?.let { " (${durationText((System.nanoTime() - it) / 1_000_000)})" }.orEmpty()
-            val label = "Chapter ${result.ref.index}: ${result.ref.title}$elapsed"
+            // A notice has its own numbering: "Notice 1" beside "Chapter 1", not two "Chapter 1" lines.
+            val label = "${if (result.ref.isNotice) "Notice" else "Chapter"} ${result.ref.index}: ${result.ref.title}$elapsed"
             when (result) {
                 is ChapterResult.Content -> logger.log(LogLevel.INFO, label)
                 is ChapterResult.Refused -> logger.log(LogLevel.WARNING, "$label skipped: ${result.reason}")

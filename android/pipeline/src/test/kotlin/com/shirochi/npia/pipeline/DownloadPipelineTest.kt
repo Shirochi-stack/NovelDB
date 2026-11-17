@@ -244,6 +244,8 @@ class DownloadPipelineTest {
             has("Downloading 2 of 2 chapters")
             has("Chapter 1: Chapter 1")
             has("Chapters: 2 downloaded")
+            // The image step says what it is about to count, so its progress is not a mystery.
+            has("Downloading 1 image from 1 of 2 chapters")
             has("Images: 1 kept")
             has("Writing EPUB")
             has("Wrote The Legendary Mechanic.epub (")
@@ -252,7 +254,7 @@ class DownloadPipelineTest {
             assertEquals(LogLevel.DEBUG, lines.first { it.second.startsWith("Settings: ") }.first)
             assertEquals(LogLevel.INFO, lines.first { it.second.startsWith("Writing EPUB") }.first)
             // In order: the start comes before the book, the book before its chapters, the file last.
-            val order = listOf("Starting ", "The Legendary Mechanic: 2", "Downloading 2 of 2", "Chapters: 2 downloaded", "Images: ", "Writing EPUB", "Wrote ", "Finished in")
+            val order = listOf("Starting ", "The Legendary Mechanic: 2", "Downloading 2 of 2", "Chapters: 2 downloaded", "Downloading 1 image", "Images: ", "Writing EPUB", "Wrote ", "Finished in")
                 .map { prefix -> text.indexOfFirst { it.startsWith(prefix) } }
             assertEquals(order.sorted(), order)
         } finally {
