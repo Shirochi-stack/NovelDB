@@ -45,6 +45,14 @@ public struct ImageStage: Sendable {
         for chapter in chapters {
             for image in chapter.images where pageOf[image.filename] == nil { pageOf[image.filename] = chapter.ref.url }
         }
+        // The desktop's label for each image's log lines: "[12] Image #3 [Chapter title]".
+        var labelOf: [String: String] = [:]
+        for chapter in chapters {
+            let number = (chapter.ref.isNotice ? "N" : "") + String(chapter.ref.index)
+            for (position, image) in chapter.images.enumerated() where labelOf[image.filename] == nil {
+                labelOf[image.filename] = "[\(number)] Image #\(position + 1) [\(chapter.ref.title)]"
+            }
+        }
         let processor = ImageProcessor(settings: settings.images)
         let workers = max(1, settings.effective(for: source).imageWorkers)
         let compressionGate = AsyncGate(limit: max(1, settings.images.compressionWorkers))
@@ -98,8 +106,9 @@ public struct ImageStage: Sendable {
             for _ in 0..<workers {
                 guard let ref = pending.popLast() else { break }
                 let page = pageOf[ref.filename]
+                let label = labelOf[ref.filename] ?? ref.filename
                 group.addTask {
-                    let (image, raw) = try await self.fetch(ref, page: page, processor: processor, gate: compressionGate,
+                    let (image, raw) = try await self.fetch(ref, page: page, label: label, processor: processor, gate: compressionGate,
                                                             preserveSource: preserveChapterSources)
                     return (ref.filename, image, raw)
                 }
@@ -112,8 +121,9 @@ public struct ImageStage: Sendable {
                 onProgress(done, unique.count)
                 if let ref = pending.popLast() {
                     let page = pageOf[ref.filename]
+                    let label = labelOf[ref.filename] ?? ref.filename
                     group.addTask {
-                        let (image, raw) = try await self.fetch(ref, page: page, processor: processor, gate: compressionGate,
+                        let (image, raw) = try await self.fetch(ref, page: page, label: label, processor: processor, gate: compressionGate,
                                                                 preserveSource: preserveChapterSources)
                         return (ref.filename, image, raw)
                     }
@@ -137,27 +147,35 @@ public struct ImageStage: Sendable {
     }
 
     /// `page`: the chapter's address, sent as the Referer when the image server refuses a request without one (fanfox).
-    private func fetch(_ ref: ImageRef, page: URL?, processor: ImageProcessor, gate: AsyncGate,
+    /// One log line per image, as the desktop writes them: "✓ label: size [speed]" when it arrived,
+    /// "✗ label: reason" (with its address) when it did not, "⚙" when compression made it smaller.
+    private func fetch(_ ref: ImageRef, page: URL?, label: String, processor: ImageProcessor, gate: AsyncGate,
                        preserveSource: Bool) async throws -> (ProcessedImage?, ProcessedImage?) {
         try Task.checkCancellation()
         let data: Data
         if let bytes = ref.data {
+            // Bytes that came with the chapter were already read: no request, no speed.
+            logger.log(.info, "  ✓ \(label): \(Self.formatSize(bytes.count))")
             data = bytes
         } else {
+            let started = Date()
             do {
                 var response = try await http.get(ref.url)
                 if response.status == 401 || response.status == 403, let page {
                     response = try await http.get(ref.url, headers: ["Referer": page.absoluteString])
                 }
                 guard (200..<300).contains(response.status), !response.body.isEmpty else {
-                    logger.log(.warning, "Image failed (\(response.status)): \(ref.url.absoluteString)")
+                    logger.log(.warning, "  ✗ \(label): HTTP \(response.status): \(ref.url.absoluteString)")
                     return (nil, nil)
                 }
+                let seconds = max(Date().timeIntervalSince(started), 0.001)
+                let speed = Self.formatSize(Int(Double(response.body.count) / seconds))
+                logger.log(.info, "  ✓ \(label): \(Self.formatSize(response.body.count)) [\(speed)/s]")
                 data = response.body
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                logger.log(.warning, "Image failed: \(ref.url.absoluteString): \(error.localizedDescription)")
+                logger.log(.warning, "  ✗ \(label): \(error.localizedDescription): \(ref.url.absoluteString)")
                 return (nil, nil)
             }
         }
@@ -165,8 +183,19 @@ public struct ImageStage: Sendable {
         let result = Task.isCancelled ? nil : ((try? processor.process(data)) ?? ProcessedImage(data: data, fileExtension: ImageProcessor.sniffExtension(data)))
         await gate.release()
         try Task.checkCancellation()
+        if let result, result.data.count < data.count {
+            let saved = (1 - Double(result.data.count) / Double(data.count)) * 100
+            logger.log(.info, "  ⚙ \(label): \(Self.formatSize(data.count)) → \(Self.formatSize(result.data.count)) (\(String(format: "%.0f", saved))% saved)")
+        }
         let raw = preserveSource ? ProcessedImage(data: data, fileExtension: ImageProcessor.sniffExtension(data)) : nil
         return (result, raw)
+    }
+
+    /// A byte count as the desktop log writes it: "512 B", "19.5 KB", "1.20 MB".
+    static func formatSize(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        if bytes < 1024 * 1024 { return String(format: "%.1f KB", Double(bytes) / 1024) }
+        return String(format: "%.2f MB", Double(bytes) / (1024 * 1024))
     }
 
     /// Old name -> new name for every image whose extension changed. Collisions get a

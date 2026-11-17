@@ -246,6 +246,11 @@ class DownloadPipelineTest {
             has("Chapters: 2 downloaded")
             // The image step says what it is about to count, so its progress is not a mystery.
             has("Downloading 1 image from 1 of 2 chapters")
+            // Each image has its own line, as on the desktop: its chapter, its place, its size and speed.
+            val arrived = Regex("""  ✓ \[\d+] Image #1 \[Chapter \d+]: \d+ B \[[\d.]+ (?:B|KB|MB)/s]""")
+            assertTrue("no image line in $text", text.any { arrived.matches(it) })
+            assertEquals(1, text.count { it.startsWith("  ✓ ") })
+            assertEquals(listOf("512 B", "19.5 KB", "1.20 MB"), listOf(512L, 19_968L, 1_258_291L).map(ImageStage::formatSize))
             has("Images: 1 kept")
             has("Writing EPUB")
             has("Wrote The Legendary Mechanic.epub (")

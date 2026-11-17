@@ -59,6 +59,14 @@ class ImageStage(
         // One download per file name, in reading order.
         val unique = chapters.flatMap { it.images }.distinctBy { it.filename }
         val pageOf = chapters.flatMap { chapter -> chapter.images.map { it.filename to chapter.ref.url } }.toMap()
+        // The desktop's label for each image's log lines: "[12] Image #3 [Chapter title]".
+        val labelOf = HashMap<String, String>()
+        for (chapter in chapters) {
+            val number = (if (chapter.ref.isNotice) "N" else "") + chapter.ref.index
+            chapter.images.forEachIndexed { position, image ->
+                labelOf.getOrPut(image.filename) { "[$number] Image #${position + 1} [${chapter.ref.title}]" }
+            }
+        }
         val downloads = Semaphore(settings.effective(source).imageWorkers.coerceAtLeast(1))
         val encodes = Semaphore(settings.images.compressionWorkers.coerceAtLeast(1))
         val progress = Mutex()
@@ -92,13 +100,20 @@ class ImageStage(
                 async {
                     var original: ProcessedImage? = null
                     // The download slot is held through encoding so raw bytes never pile up.
+                    val label = labelOf[ref.filename] ?: ref.filename
                     val image = downloads.withPermit {
-                        download(ref, pageOf[ref.filename])?.let { data ->
+                        download(ref, pageOf[ref.filename], label)?.let { data ->
                             if (preserveChapterSources) {
                                 store?.put(RAW + ref.filename, data)
                                 original = ProcessedImage(if (store == null) data else ByteArray(0), sniffImageExtension(data))
                             }
-                            encodes.withPermit { encode(data) }
+                            encodes.withPermit { encode(data) }.also { encoded ->
+                                if (encoded.data.size < data.size) {
+                                    val saved = (1 - encoded.data.size.toDouble() / data.size) * 100
+                                    logger.log(LogLevel.INFO, "  ⚙ $label: ${formatSize(data.size.toLong())} → " +
+                                        "${formatSize(encoded.data.size.toLong())} (${"%.0f".format(java.util.Locale.ROOT, saved)}% saved)")
+                                }
+                            }
                         }
                     }?.let { stored(ref.filename, it) }
                     progress.withLock {
@@ -123,25 +138,36 @@ class ImageStage(
             ?: processed.entries.associate { (name, image) -> (renames[name] ?: name) to image.data }
 
     /** `page`: the chapter's address, sent as the Referer when the image server refuses a request without one (fanfox). */
-    private suspend fun download(ref: ImageRef, page: String? = null): ByteArray? {
+    /**
+     * One log line per image, as the desktop writes them: "✓ label: size [speed]" when it arrived,
+     * "✗ label: reason" (with its address) when it did not.
+     */
+    private suspend fun download(ref: ImageRef, page: String? = null, label: String = ref.filename): ByteArray? {
         coroutineContext.ensureActive()
-        ref.data?.let { return it }
-        store?.held(ref.filename)?.let { return it }
+        // Bytes that came with the chapter were already read: no request, no speed.
+        (ref.data ?: store?.held(ref.filename))?.let { held ->
+            logger.log(LogLevel.INFO, "  ✓ $label: ${formatSize(held.size.toLong())}")
+            return held
+        }
+        val started = System.nanoTime()
         return try {
             var response = http.get(ref.url)
             if ((response.status == 401 || response.status == 403) && !page.isNullOrEmpty()) {
                 response = http.get(ref.url, mapOf("Referer" to page))
             }
             if (response.status !in 200..299 || response.body.isEmpty()) {
-                logger.log(LogLevel.WARNING, "Image failed (${response.status}): ${ref.url}")
+                logger.log(LogLevel.WARNING, "  ✗ $label: HTTP ${response.status}: ${ref.url}")
                 null
             } else {
+                val seconds = ((System.nanoTime() - started) / 1e9).coerceAtLeast(0.001)
+                logger.log(LogLevel.INFO, "  ✓ $label: ${formatSize(response.body.size.toLong())} " +
+                    "[${formatSize((response.body.size / seconds).toLong())}/s]")
                 response.body
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            logger.log(LogLevel.WARNING, "Image failed: ${ref.url}: ${e.message}")
+            logger.log(LogLevel.WARNING, "  ✗ $label: ${e.message}: ${ref.url}")
             null
         }
     }
@@ -167,6 +193,13 @@ class ImageStage(
     companion object {
         private const val ENCODED = "encoded:"
         private const val RAW = "raw:"
+
+        /** A byte count as the desktop log writes it: "512 B", "19.5 KB", "1.20 MB". */
+        fun formatSize(bytes: Long): String = when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "%.1f KB".format(java.util.Locale.ROOT, bytes / 1024.0)
+            else -> "%.2f MB".format(java.util.Locale.ROOT, bytes / (1024.0 * 1024.0))
+        }
 
         /**
          * Old name -> new name for every image whose extension changed. Collisions get a numeric

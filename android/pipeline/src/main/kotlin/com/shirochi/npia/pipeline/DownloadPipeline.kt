@@ -229,16 +229,8 @@ class DownloadPipeline(
                     (if (addresses < imageFiles) " ($addresses different addresses)" else ""),
             )
         }
-        var loggedQuarter = 0
-        val progress: (Int, Int) -> Unit = { done, total ->
-            onPhase(JobPhase.DownloadingImages(done, total))
-            // A long image step reports each quarter.
-            val quarter = if (total >= 40) done * 4 / total else 0
-            if (quarter in 1..3 && quarter > loggedQuarter) {
-                loggedQuarter = quarter
-                logger.log(LogLevel.INFO, "Images $done/$total")
-            }
-        }
+        // Each image then gets its own line (ImageStage), as on the desktop.
+        val progress: (Int, Int) -> Unit = { done, total -> onPhase(JobPhase.DownloadingImages(done, total)) }
         val imageOutput = if (prepared == null) stage.run(chapters, onProgress = progress) else coroutineScope {
             val ready = Channel<Pair<ChapterContent, Map<String, ByteArray>>>(capacity = 1)
             val writer = launch {
