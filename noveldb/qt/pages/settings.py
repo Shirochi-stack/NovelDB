@@ -610,6 +610,9 @@ def sources_form(context: AppContext) -> Form:
     f.check("Horizontal page layout", "sources.kobo_horizontal_layout")
     f.add_section("Browser")
     f.check("Use the regular browser profile (signed-in sites)", "sources.regular_browser")
+    f.check("Disable profile rotation", "sources.disable_profile_rotation")
+    f.add_hint("With several Enter Browser profiles, auto purchase gives each locked chapter to the next "
+               "profile in turn. Tick this to keep it on the profile selected on the Download page.")
     f.finish()
     return f
 

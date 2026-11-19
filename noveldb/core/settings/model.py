@@ -272,6 +272,9 @@ class SourceOptions:
     # sessions; downloads use the selected one.
     browser_profiles: int = 1
     browser_profile: int = 1
+    # Auto purchase normally gives each locked chapter to the next profile in turn; on, it only
+    # ever uses the selected profile.
+    disable_profile_rotation: bool = False
 
 
 @dataclass(frozen=True)

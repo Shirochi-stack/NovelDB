@@ -40,6 +40,11 @@ def test_the_selected_profile_is_saved_and_reaches_the_download():
     again = import_config(export_config(settings))
     assert (again.sources.browser_profiles, again.sources.browser_profile) == (3, 2)
     assert external_values(again, "https://example.com/b")["_var_browser_profile"].get() == 2
+    # Auto purchase rotates over the profiles unless "Disable profile rotation" is ticked.
+    assert external_values(again, "https://example.com/b")["_var_browser_profiles"].get() == 3
+    fixed = replace(again, sources=replace(again.sources, disable_profile_rotation=True))
+    assert external_values(fixed, "https://example.com/b")["_var_browser_profiles"].get() == 1
+    assert import_config(export_config(fixed)).sources.disable_profile_rotation is True
     # A profile number past the count (a hand-edited file) falls back inside it.
     odd = import_config({"ext_browser_profiles": 2, "ext_browser_profile": 9})
     assert (odd.sources.browser_profiles, odd.sources.browser_profile) == (2, 2)
