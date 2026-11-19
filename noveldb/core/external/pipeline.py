@@ -421,6 +421,11 @@ class ExternalPipelineMixin:
         claimed = getattr(self._scraper, '_kpage_claimed', None)
         if isinstance(claimed, dict):
             claimed.clear()  # a new download asks again for each book's gift and waiting tickets
+        count = getattr(self, '_var_browser_profiles', None)
+        count = int(count.get() or 1) if count is not None else 1
+        switch = getattr(self._scraper, 'kpage_switch_profile', None)
+        if count > 1 and callable(switch):
+            return ExternalPipelineMixin._auto_purchase_rotating(self, wanted, start, purchase, switch, count)
         for index, chapter in wanted:
             if not self._downloading:
                 break
@@ -430,6 +435,65 @@ class ExternalPipelineMixin:
             if outcome:
                 chapter['isVIP'] = chapter['isPaid'] = False
                 chapter['isAccessible'] = True
+        return {}
+
+    def _auto_purchase_rotating(self, wanted, start, purchase, switch, count):
+        """Auto purchase across the Enter Browser profiles (one account each).
+
+        Each locked chapter goes to the next profile in turn; a profile without a ticket (or
+        signed out) passes it on to the one after. A ticket opens the chapter for that account
+        only, so the chapter is downloaded straight away, with the profile that unlocked it.
+        Returns {position: chapter data}; the selected profile is in use again at the end.
+        """
+        selected = getattr(self, '_var_browser_profile', None)
+        selected = min(max(1, int(selected.get() or 1)), count) if selected is not None else 1
+        self._log(f"Auto purchase rotates over {count} browser profiles, starting with #{selected}.")
+        fetched = {}
+        current = selected
+        pointer = selected
+        spent = set()  # profiles with no ticket left for this book, or signed out
+        try:
+            for index, chapter in wanted:
+                if not self._downloading:
+                    break
+                name = chapter.get('name') or f'chapter {start + index + 1}'
+                for step in range(count):
+                    profile = (pointer - 1 + step) % count + 1
+                    if profile in spent or not self._downloading:
+                        continue
+                    if profile != current:
+                        try:
+                            switch(profile)
+                        except Exception as exc:
+                            self._log(f"  Profile #{profile} could not be opened: {exc}")
+                            spent.add(profile)
+                            continue
+                        current = profile
+                    outcome = purchase(chapter)
+                    if outcome is True:
+                        self._log(f"  Profile #{profile} unlocked {name}; downloading it with that profile.")
+                        data = self._scraper.parse_chapter(start + index, chapter, log_errors=False)
+                        if data and not data.get('_locked'):
+                            fetched[index] = data
+                            chapter['isVIP'] = chapter['isPaid'] = False
+                            chapter['isAccessible'] = True
+                        else:
+                            self._log(f"  {name} could not be read with profile #{profile} after unlocking it.")
+                        pointer = profile % count + 1  # the next chapter goes to the next profile
+                        break
+                    spent.add(profile)  # no ticket for this book, or signed out
+                else:
+                    self._log(f"  No profile has a ticket for {name}.")
+                if len(spent) >= count:
+                    self._log("  Every profile is out of tickets for this book.")
+                    break
+        finally:
+            if current != selected:
+                try:
+                    switch(selected)
+                except Exception as exc:
+                    self._log(f"⚠ Could not return to profile #{selected}: {exc}")
+        return fetched
 
     def _do_download(self, chapters, start, end, interval, num_threads=1,
                       skip_paid=False, retry_passes=5, interval_max=None):
@@ -683,7 +747,17 @@ class ExternalPipelineMixin:
                 self._log(f"Chapters {ExternalPipelineMixin._range_label(self)}: "
                           f"{total - len(left_out)} of the {total} in that span are downloaded.")
 
-            ExternalPipelineMixin._auto_purchase(self, selected, start, results)
+            # With several browser profiles, auto purchase downloads each chapter it unlocks itself
+            # (with the profile that unlocked it); those arrive here already read.
+            for i, data in (ExternalPipelineMixin._auto_purchase(self, selected, start, results) or {}).items():
+                numbered(i, data)
+                results[i] = data
+                ExternalPipelineMixin._publish_live_chapter(self, i, data)
+                lookahead = getattr(self, "_kpage_images", None)
+                if lookahead:
+                    lookahead.offer(data)
+                checkpoint_result(i, data, cache_images)
+                self._log(f"  [{i + 1}/{total}] {data.get('chapterName') or selected[i].get('name', '')}")
 
             # Pre-filter paid chapters if the user opted to skip them.
             # For Kpage, skip only rows that the product list marks as not

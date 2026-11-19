@@ -3190,9 +3190,47 @@ class ExternalScraper(SiteEnginesMixin):
         reported_profile_wait = False
         next_cookie_snapshot = 0
         reported_session_cookies = False
+        self._login_release_requested = False
+        self._login_wait_active = True
+        try:
+            return self._wait_for_login_window(
+                proc, user_data_dir, port, saw_window, profile_pids, next_pid_scan,
+                launch_deadline, reported_profile_wait, next_cookie_snapshot,
+                reported_session_cookies)
+        finally:
+            self._login_wait_active = False
 
+    def release_login_browser(self):
+        """Ask the open Enter Browser to close because a download needs its profile.
+
+        Safe to call from any thread. True when a login window was being waited for; the browser
+        worker is then free again within a few seconds.
+        """
+        if getattr(self, '_login_wait_active', False):
+            self._login_release_requested = True
+            return True
+        return False
+
+    def _wait_for_login_window(self, proc, user_data_dir, port, saw_window, profile_pids,
+                               next_pid_scan, launch_deadline, reported_profile_wait,
+                               next_cookie_snapshot, reported_session_cookies):
         while not self._stop_requested:
             now = time.time()
+            if self._login_release_requested:
+                self._login_release_requested = False
+                # Only the downloader's own profile is closed for the user; a window on their
+                # regular Chrome profile is left open and simply no longer waited for.
+                same = os.path.abspath(str(user_data_dir or '')) == os.path.abspath(self._get_user_data_dir())
+                if not same:
+                    self.log("[Browser] Download started; no longer waiting for the browser window.")
+                    return False
+                self.log("[Browser] Download needs the browser profile; closing Enter Browser...")
+                try:
+                    remaining = self._close_chrome_profile_processes(user_data_dir)
+                except Exception as exc:
+                    self.log(f"[Browser] Could not close Enter Browser: {exc}")
+                    return False
+                return not remaining
             if now >= next_pid_scan:
                 profile_pids = set(
                     self._chrome_processes_using_profile(user_data_dir)
@@ -4382,14 +4420,32 @@ class ExternalScraper(SiteEnginesMixin):
         # a race: cleanup() would call context.close() while Chromium was
         # still mid-shutdown, interrupting the disk flush and losing the
         # login session.
-        while self._context:
-            try:
-                self._context.wait_for_event("close", timeout=5000)
-                break
-            except PlaywrightTimeoutError:
-                self._backup_storage_state()
-            except Exception:
-                break
+        self._login_release_requested = False
+        self._login_wait_active = True
+        try:
+            waited = 0
+            while self._context:
+                try:
+                    self._context.wait_for_event("close", timeout=1000)
+                    break
+                except PlaywrightTimeoutError:
+                    if self._login_release_requested:
+                        # A download needs this profile: keep the sign-ins, then close the window.
+                        self._login_release_requested = False
+                        self.log("[Browser] Download needs the browser profile; closing Enter Browser...")
+                        self._backup_storage_state()
+                        try:
+                            self._context.close()
+                        except Exception:
+                            pass
+                        break
+                    waited += 1
+                    if waited % 5 == 0:
+                        self._backup_storage_state()
+                except Exception:
+                    break
+        finally:
+            self._login_wait_active = False
 
         # Chromium's persistent profile should already be flushed at this
         # point. Take one explicit storage snapshot after close/disconnect as
@@ -16640,6 +16696,18 @@ async (ids) => {
         return out;
     }
     """
+
+    def kpage_switch_profile(self, number):
+        """Use Enter Browser profile `number` from here on: its browser, its sign-in sessions."""
+        self.use_profile(number)
+        self._kpage_claimed = {}  # the other account has its own gift and waiting tickets
+        self.prepare_download_browser()
+        self.start()
+        restored = self._restore_session_cookies(self._KPAGE_COOKIE_DOMAIN)
+        if restored:
+            self.log(f"[Kpage] Restored {restored} session login cookie(s) "
+                     "from Enter Browser.")
+        return bool(self._page)
 
     def kpage_auto_purchase(self, chapter):
         """Unlock one paid episode with a ticket the account already holds; True when it opened.

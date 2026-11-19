@@ -68,6 +68,11 @@ class JobDispatcher:
         if job.engine == NPIA_NATIVE:
             return self._npia_job(job.input, settings, self._auth, events, self._prompts, token, output_dir).run()
         external = self._external_job(job.input, settings, job.source, events, token, output_dir)
+        # An Enter Browser window left open keeps the browser worker (and the profile) busy, so a
+        # download would wait for it for ever. Close it: its sign-in is saved as it closes.
+        release = getattr(getattr(self._browser, "_scraper", None), "release_login_browser", None)
+        if callable(release) and release():
+            events.log("Enter Browser was still open; closing it so the download can start.")
         future = self._browser.submit(external.run, log=external._log)
         while True:
             try:

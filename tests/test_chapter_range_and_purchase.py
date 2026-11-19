@@ -145,6 +145,62 @@ def test_auto_purchase_stops_when_the_account_is_signed_out():
     assert job.bought == ["c4"]
 
 
+class Rotating(Purchaser):
+    """Several Enter Browser profiles; `tickets` says how many chapters each can unlock."""
+
+    def __init__(self, tickets, selected=1, **kwargs):
+        super().__init__(**kwargs)
+        self._var_browser_profiles = Value(len(tickets))
+        self._var_browser_profile = Value(selected)
+        self.tickets = dict(enumerate(tickets, 1))
+        self.profile = selected
+        self.switches = []
+        self.read = []
+
+        def purchase(chapter):
+            if self.tickets[self.profile] <= 0:
+                return False
+            self.tickets[self.profile] -= 1
+            self.bought.append((self.profile, chapter["name"]))
+            return True
+
+        def switch(number):
+            self.profile = number
+            self.switches.append(number)
+
+        def parse_chapter(position, chapter, log_errors=True):
+            self.read.append((self.profile, chapter["name"]))
+            return {"chapterName": chapter["name"], "contentText": "text"}
+
+        self._scraper = SimpleNamespace(kpage_auto_purchase=purchase, kpage_switch_profile=switch,
+                                        parse_chapter=parse_chapter)
+
+
+def test_auto_purchase_gives_each_chapter_to_the_next_profile_and_reads_it_there():
+    job = Rotating([1, 1, 1], low=4, high=6)
+    fetched = ExternalPipelineMixin._auto_purchase(job, _chapters(8), 0, [None] * 8)
+    assert job.bought == [(1, "c4"), (2, "c5"), (3, "c6")]
+    assert job.read == job.bought  # each chapter is read with the profile that unlocked it
+    assert sorted(fetched) == [3, 4, 5]
+    assert job.profile == 1 and job.switches[-1] == 1  # the selected profile is in use again
+
+
+def test_a_profile_without_a_ticket_passes_the_chapter_on():
+    job = Rotating([0, 2, 0], selected=1, low=4, high=6)
+    fetched = ExternalPipelineMixin._auto_purchase(job, _chapters(8), 0, [None] * 8)
+    assert job.bought == [(2, "c4"), (2, "c5")]  # profile 2 holds the only tickets
+    assert sorted(fetched) == [3, 4]
+    assert any("out of tickets" in line or "No profile has a ticket" in line for line in job.lines)
+    assert job.profile == 1
+
+
+def test_one_profile_keeps_the_plain_auto_purchase():
+    job = Purchaser()
+    job._var_browser_profiles = Value(1)
+    assert ExternalPipelineMixin._auto_purchase(job, _chapters(8), 0, [None] * 8) == {}
+    assert job.bought == ["c4"]
+
+
 def test_a_ranged_download_is_named_after_its_range(tmp_path):
     settings = AppSettings(shared=replace(SharedSettings(), range_from=4, range_to=7))
     job = SimpleNamespace(**external_values(settings, "https://example.com/b"))
