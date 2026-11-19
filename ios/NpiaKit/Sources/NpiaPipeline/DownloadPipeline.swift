@@ -191,7 +191,14 @@ public struct DownloadPipeline: Sendable {
         logger.log(.info, "Source \(source.rawValue) read through \(opened.engine.title); formats \(shared.formats.map { $0.rawValue }.joined(separator: ", "))")
         logger.log(.debug, "Settings: \(shared.threads) threads, \(shared.intervalMin)-\(shared.intervalMax) s between requests, range \(shared.rangeFrom.map(String.init) ?? "start")-\(shared.rangeTo.map(String.init) ?? "end"), skip paid \(shared.skipPaid)")
 
-        var selected = Self.select(book.chapters, shared: shared)
+        let unlocked = try await autoPurchase(adapter, book: book, shared: shared, context: context)
+        let chaptersNow = book.chapters.map { chapter -> ChapterRef in
+            guard unlocked.contains(chapter.id) else { return chapter }
+            var open = chapter
+            open.isPaid = false
+            return open
+        }
+        var selected = Self.select(chaptersNow, shared: shared)
         if source == .npia, settings.npia.includeNotices {
             selected = book.notices + selected
         }
@@ -386,6 +393,50 @@ public struct DownloadPipeline: Sendable {
             answer = again
         }
         return (200..<300).contains(answer.status) ? answer.body : nil
+    }
+
+    /// Auto purchase: unlocks the paid chapters that are in both the chapter range and the purchase
+    /// range, before they are downloaded. Returns the ids of the chapters that opened.
+    private func autoPurchase(_ adapter: any SourceAdapter, book: BookInfo, shared: SharedSettings, context: SourceContext) async throws -> Set<String> {
+        guard shared.autoPurchase else { return [] }
+        guard let range = shared.purchaseRange else {
+            logger.log(.info, "Auto purchase is on but has no chapter range; nothing is purchased.")
+            return []
+        }
+        let label = ChapterRangeText.label(from: shared.purchaseFrom, to: shared.purchaseTo)
+        let chapterRange = shared.chapterRange
+        let wanted = book.chapters.filter { $0.isPaid && !$0.isNotice && range.contains($0.index) && chapterRange.contains($0.index) }
+        if wanted.isEmpty {
+            logger.log(.info, "Auto purchase (\(label)): no locked chapter in that range to unlock.")
+            return []
+        }
+        logger.log(.info, "Auto purchase (\(label)): \(wanted.count) locked chapter\(wanted.count == 1 ? "" : "s") to unlock with free tickets.")
+        var opened: Set<String> = []
+        for ref in wanted {
+            try Task.checkCancellation()
+            let result: UnlockResult
+            do {
+                result = try await adapter.unlock(ref, book: book, context: context)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                result = .noTicket(reason: error.localizedDescription)
+            }
+            switch result {
+            case .unlocked(let with):
+                opened.insert(ref.id)
+                logger.log(.info, "Auto purchase: chapter \(ref.index) unlocked with \(with).")
+            case .noTicket(let reason):
+                logger.log(.warning, "Auto purchase: no ticket for chapter \(ref.index) (\(reason)). Nothing was bought.")
+            case .signedOut:
+                logger.log(.warning, "Auto purchase needs a signed-in account. Sign in from the Browser tab, then download again.")
+                return opened
+            case .unsupported:
+                logger.log(.warning, "Auto purchase (\(label)) is not available for \(type(of: adapter).id.rawValue) yet; the locked chapters stay locked.")
+                return opened
+            }
+        }
+        return opened
     }
 
     public static func select(_ chapters: [ChapterRef], shared: SharedSettings) -> [ChapterRef] {

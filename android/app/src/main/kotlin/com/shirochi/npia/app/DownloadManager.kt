@@ -331,6 +331,32 @@ class DownloadManager(private val app: Application) {
         startNext()
     }
 
+    /**
+     * "Upload chapters": queues the books of the jobs `ids` again for chapters `from..to` only. Each
+     * is written in the output formats selected now (cached chapters are not downloaded again),
+     * named after the range, and uploaded. False when none of the jobs can be queued.
+     */
+    fun uploadChapters(ids: Collection<String>, from: Int, to: Int): Boolean {
+        val books = ids.mapNotNull(::job).filter { !it.state.isActive && it.libraryTarget == null }.distinctBy { it.url }
+        if (books.isEmpty()) return false
+        val current = _settings.value
+        val added = books.map { old ->
+            val shared = (old.source?.let(current::effective) ?: current.shared).copy(
+                rangeFrom = from, rangeTo = to, useCache = true, autoPurchase = false, generateOnStop = false,
+            )
+            JobItem(
+                url = old.url, source = old.source, title = old.title, bookId = old.bookId, uploadChapters = true,
+                settings = current.copy(overrides = emptyMap(), shared = shared),
+            )
+        }
+        _jobs.update { added + it }
+        val label = com.shirochi.npia.core.ChapterRangeText.label(from, to)
+        added.forEach { jobLog(it.id, LogLevel.INFO, "Queued to upload chapters $label: ${it.url}") }
+        persistJobs()
+        startNext()
+        return true
+    }
+
     fun cancel(id: String) {
         val task = running[id]
         if (task != null) {
@@ -359,7 +385,8 @@ class DownloadManager(private val app: Application) {
             return
         }
         // A retry uses the settings as they are now, so a range or option changed since queueing applies.
-        update(id) { it.resetForRetry().copy(settings = _settings.value) }
+        // An "Upload chapters" job keeps its own: its range is what it was queued for.
+        update(id) { it.resetForRetry().let { again -> if (again.uploadChapters) again else again.copy(settings = _settings.value) } }
         jobLog(id, LogLevel.INFO, "Retry: back in the queue")
         persistJobs()
         startNext()
@@ -411,9 +438,15 @@ class DownloadManager(private val app: Application) {
             logger = logger,
             // Shares cookies with the web engine, so web-view logins apply to HTTP requests.
             httpFactory = { OkHttpFetcher(it, web.cookieJar(), logger) },
-            currentUploadSettings = { if (job.libraryTarget != null) job.settings.upload.copy(autoUpload = false) else uploadSettings() },
+            currentUploadSettings = {
+                when {
+                    job.libraryTarget != null -> job.settings.upload.copy(autoUpload = false)
+                    job.uploadChapters -> uploadSettings().copy(autoUpload = true)
+                    else -> uploadSettings()
+                }
+            },
             uploadContextFactory = ::uploadContext,
-            generateOnStop = { job.libraryTarget == null && _settings.value.shared.generateOnStop },
+            generateOnStop = { job.libraryTarget == null && !job.uploadChapters && _settings.value.shared.generateOnStop },
             onBook = live?.let { it::book },
             onChapter = live?.let { it::chapter },
         )

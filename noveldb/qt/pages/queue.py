@@ -113,6 +113,11 @@ class QueuePage(QWidget):
         self.reveal.clicked.connect(self._reveal)
         self.upload = QPushButton("Upload")
         self.upload.clicked.connect(self._upload)
+        self.upload.setToolTip("Upload the selected downloads' files (several go up together as ZIPs).")
+        self.upload_chapters = QPushButton("Upload chapters...")
+        self.upload_chapters.setToolTip("Upload only some chapters of the selected downloads, such as 4 or 4-7, "
+                                        "in the output formats selected on the Download page.")
+        self.upload_chapters.clicked.connect(self._upload_chapters)
         self.select_finished = QPushButton("Select finished")
         self.select_finished.setToolTip("Select every finished download that has files")
         self.select_finished.clicked.connect(self._select_finished)
@@ -120,7 +125,7 @@ class QueuePage(QWidget):
         for button in (self.stop, self.retry, self.remove, self.select_finished):
             actions.addWidget(button)
         actions.addStretch(1)
-        for button in (self.open, self.reveal, self.upload):
+        for button in (self.open, self.reveal, self.upload, self.upload_chapters):
             actions.addWidget(button)
         self.detail = hint("")
         self.detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -229,6 +234,7 @@ class QueuePage(QWidget):
         self.open.setEnabled(has_outputs)
         self.reveal.setEnabled(has_outputs or any(job.output_dir for job in jobs))
         self.upload.setEnabled(has_outputs)
+        self.upload_chapters.setEnabled(any(self._can_upload_chapters(job) for job in jobs))
         self.select_finished.setEnabled(any(job.state == DONE and job.outputs for job in self.runner.jobs))
         if len(jobs) == 1:
             job = jobs[0]
@@ -278,6 +284,43 @@ class QueuePage(QWidget):
     def _upload(self) -> None:
         upload_jobs(self.context, self._selected_jobs(), self)
 
+    @staticmethod
+    def _can_upload_chapters(job) -> bool:
+        return job.state in FINISHED and bool(job.input) and not job.library_target
+
+    def _upload_chapters(self) -> None:
+        """Ask for a chapter range, then queue each selected book again for just those chapters:
+        written in the selected output formats (cached chapters are not downloaded again) and uploaded."""
+        from PySide6.QtWidgets import QInputDialog
+
+        from noveldb.core import chapter_range
+        from noveldb.core.queue.model import Job
+        from noveldb.qt.uploads import ensure_agreement
+
+        jobs = [job for job in self._selected_jobs() if self._can_upload_chapters(job)]
+        if not jobs:
+            return
+        books = "this book" if len(jobs) == 1 else f"each of the {len(jobs)} selected books"
+        typed, ok = QInputDialog.getText(
+            self, "Upload chapters",
+            f"Chapters of {books} to upload, such as 4 or 4-7.\n"
+            "They are written in the output formats selected on the Download page.")
+        low, high = chapter_range.parse(typed) if ok else (None, None)
+        if low is None:
+            return
+        if not ensure_agreement(self.context, self):
+            return
+        seen = set()
+        fresh = []
+        for job in jobs:
+            if job.input in seen:
+                continue
+            seen.add(job.input)
+            fresh.append(Job(job.input, source=job.source, engine=job.engine, title=job.title,
+                             output_dir=job.output_dir, upload_range=[low, high]))
+        self.runner.submit(fresh)
+        self.reload()
+
     def _reveal(self) -> None:
         """Show the selected jobs' files, selected in their folders (one window per folder)."""
         files: list[str] = []
@@ -294,7 +337,8 @@ class QueuePage(QWidget):
 
     def _menu(self, pos) -> None:
         menu = QMenu(self)
-        for button in (self.stop, self.retry, self.remove, None, self.open, self.reveal, self.upload, None,
+        for button in (self.stop, self.retry, self.remove, None, self.open, self.reveal, self.upload,
+                       self.upload_chapters, None,
                        self.select_finished):
             if button is None:
                 menu.addSeparator()

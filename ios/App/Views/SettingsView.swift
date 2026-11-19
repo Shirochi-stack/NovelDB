@@ -71,15 +71,25 @@ struct SharedSettingsForm: View {
                     Text("Title").tag(NamingMode.title)
                     Text("Book ID").tag(NamingMode.id)
                 }
-                Toggle("Append chapter range to title", isOn: $model.settings.shared.appendRange)
                 Toggle("Separate TXT files", isOn: $model.settings.shared.separateTXT)
                 Toggle("Number chapters", isOn: $model.settings.shared.numberChapters)
             }
-            Section("Chapters") {
-                OptionalNumberField(title: "From chapter", value: $model.settings.shared.rangeFrom, defaultValue: 1)
-                OptionalNumberField(title: "To chapter", value: $model.settings.shared.rangeTo, defaultValue: model.settings.shared.rangeFrom ?? 1)
+            Section {
+                LabeledContent("Chapters") {
+                    CompactRange(placeholder: "all", from: $model.settings.shared.rangeFrom, to: $model.settings.shared.rangeTo, width: 120)
+                }
+                Toggle("Auto purchase", isOn: $model.settings.shared.autoPurchase)
+                if model.settings.shared.autoPurchase {
+                    LabeledContent("Chapters to purchase") {
+                        CompactRange(placeholder: "4 or 4-7", from: $model.settings.shared.purchaseFrom, to: $model.settings.shared.purchaseTo, width: 120)
+                    }
+                }
                 Toggle("Skip paid", isOn: $model.settings.shared.skipPaid)
                 Toggle("Generate on stop", isOn: $model.settings.shared.generateOnStop)
+            } header: {
+                Text("Chapters")
+            } footer: {
+                Text("One chapter (4) or a range (4-7). A download of a range is named after it, such as \"Title (4-7)\", so it never replaces the whole book. Auto purchase unlocks the locked chapters in its range with the account's free tickets before downloading them: a gift ticket first, then wait-for-free, then tickets you already hold. It never pays. kpage only for now.")
             }
             Section("Speed (external downloader)") {
                 Stepper("Threads: \(model.settings.shared.threads)", value: $model.settings.shared.threads, in: 1...16)

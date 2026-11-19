@@ -49,6 +49,40 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(try SettingsCoding.decode(SettingsCoding.encode(settings)), settings)
     }
 
+    func testARangeIsTypedLikePagesAndBadRangesKeepTheirFirstNumber() {
+        let cases: [(String, Int?, Int?)] = [
+            ("4", 4, 4), (" 4 ", 4, 4), ("4-7", 4, 7), ("4 - 7", 4, 7), ("4\u{2013}7", 4, 7),
+            ("7-3", 7, 7), ("3-", 3, 3), ("-7", 7, 7), ("", nil, nil), ("all", nil, nil),
+            ("0", nil, nil), ("4-7-9", 4, 7), ("ch 12", 12, 12),
+        ]
+        for (typed, from, to) in cases {
+            let parsed = ChapterRangeText.parse(typed)
+            XCTAssertEqual(parsed.from, from, typed)
+            XCTAssertEqual(parsed.to, to, typed)
+        }
+        XCTAssertEqual(ChapterRangeText.text(from: nil, to: nil), "")
+        XCTAssertEqual(ChapterRangeText.text(from: 4, to: 4), "4")
+        XCTAssertEqual(ChapterRangeText.text(from: 4, to: 7), "4-7")
+        XCTAssertEqual(ChapterRangeText.text(from: 4, to: nil), "4-")
+        XCTAssertEqual(ChapterRangeText.text(from: nil, to: 7), "1-7")
+        XCTAssertEqual(ChapterRangeText.label(from: 4, to: nil), "4-end")
+        XCTAssertEqual(ChapterRangeText.label(from: 4, to: 4), "4")
+        XCTAssertEqual(ChapterRangeText.label(from: 4, to: 7), "4-7")
+    }
+
+    func testAutoPurchaseNeedsItsRangeAndSurvivesCoding() throws {
+        var settings = AppSettings()
+        settings.shared.autoPurchase = true
+        XCTAssertNil(settings.shared.purchaseRange)
+        settings.shared.purchaseFrom = 4
+        settings.shared.purchaseTo = 7
+        XCTAssertEqual(settings.shared.purchaseRange, 4...7)
+        let decoded = try SettingsCoding.decode(SettingsCoding.encode(settings))
+        XCTAssertEqual(decoded.shared.purchaseRange, 4...7)
+        settings.shared.autoPurchase = false
+        XCTAssertNil(settings.shared.purchaseRange)
+    }
+
     func testOverridesApplyPerSource() {
         var settings = AppSettings()
         settings.shared.threads = 4

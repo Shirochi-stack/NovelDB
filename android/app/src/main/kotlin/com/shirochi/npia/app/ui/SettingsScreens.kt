@@ -133,13 +133,17 @@ fun GeneralSettingsScreen(model: AppViewModel) {
         SectionHeader("Output")
         FormatPicker(shared.formats) { f -> set { it.copy(formats = f) } }
         ChoiceRow("File Naming", shared.namingMode, NamingMode.entries, { if (it == NamingMode.TITLE) "Save as Title" else "Save as ID" }, { m -> set { it.copy(namingMode = m) } })
-        SwitchRow("Append chapter range to title for ongoing novels", shared.appendRange, { v -> set { it.copy(appendRange = v) } })
         SwitchRow("Separate TXT files", shared.separateTxt, { v -> set { it.copy(separateTxt = v) } })
         SwitchRow("Number chapters", shared.numberChapters, { v -> set { it.copy(numberChapters = v) } })
 
         SectionHeader("Chapter Range")
-        OptionalIntRow("From", shared.rangeFrom, 1) { v -> set { it.copy(rangeFrom = v) } }
-        OptionalIntRow("To", shared.rangeTo, shared.rangeFrom ?: 1) { v -> set { it.copy(rangeTo = v) } }
+        RangeRow("Chapters", shared.rangeFrom, shared.rangeTo, "all") { low, high -> set { it.copy(rangeFrom = low, rangeTo = high) } }
+        Footnote("One chapter (4) or a range (4-7). A download of a range is named after it, such as \"Title (4-7)\", so it never replaces the whole book.")
+        SwitchRow("Auto purchase", shared.autoPurchase, { v -> set { it.copy(autoPurchase = v) } })
+        if (shared.autoPurchase) {
+            RangeRow("Chapters to purchase", shared.purchaseFrom, shared.purchaseTo, "4 or 4-7") { low, high -> set { it.copy(purchaseFrom = low, purchaseTo = high) } }
+        }
+        Footnote("Unlocks the locked chapters in its range with the account's free tickets before downloading them: a gift ticket first, then wait-for-free, then tickets you already hold. It never pays. kpage only for now.")
         SwitchRow("Skip paid", shared.skipPaid, { v -> set { it.copy(skipPaid = v) } })
         SwitchRow("Generate on stop", shared.generateOnStop, { v -> set { it.copy(generateOnStop = v) } })
 

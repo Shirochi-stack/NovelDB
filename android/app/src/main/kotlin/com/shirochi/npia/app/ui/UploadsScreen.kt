@@ -132,7 +132,7 @@ fun UploadRow(model: AppViewModel, upload: UploadResult, onRemove: (() -> Unit)?
                 DownloadManager.copyToClipboard(context, upload.link)
                 model.manager.message("Link copied")
             }) { Text("Copy link") }
-            TextButton(onClick = { FileActions.shareText(context, upload.link) }) { Text("Share") }
+            TextButton(onClick = { FileActions.shareText(context, upload.link) }) { Text("Share link") }
             TextButton(onClick = { FileActions.openUrl(context, upload.link) }) { Text("Open") }
             upload.deleteLink?.let { delete ->
                 if (delete.startsWith("http")) TextButton(onClick = { FileActions.openUrl(context, delete) }) { Text("Delete page") }
@@ -168,7 +168,7 @@ fun UploadStatus(model: AppViewModel, state: UploadState, onRetry: () -> Unit, m
                         state.link?.let { DownloadManager.copyToClipboard(context, it) }
                         model.manager.message("Link copied")
                     }) { Text("Copy") }
-                    TextButton(onClick = { state.link?.let { FileActions.shareText(context, it) } }) { Text("Share") }
+                    TextButton(onClick = { state.link?.let { FileActions.shareText(context, it) } }) { Text("Share link") }
                     TextButton(onClick = { model.manager.dismissUpload(state.path) }) { Text("Dismiss") }
                 }
             }

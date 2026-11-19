@@ -261,4 +261,35 @@ class SettingsTest {
         val (settings, _) = DesktopConfig.import("""{"ext_formats": ["epub", "cbz"]}""")
         assertEquals(listOf(OutputFormat.EPUB, OutputFormat.CBZ), settings.shared.formats)
     }
+
+    @Test
+    fun aRangeIsTypedLikePagesAndBadRangesKeepTheirFirstNumber() {
+        val cases = mapOf(
+            "4" to (4 to 4), " 4 " to (4 to 4), "4-7" to (4 to 7), "4 - 7" to (4 to 7), "4–7" to (4 to 7),
+            "7-3" to (7 to 7), "3-" to (3 to 3), "-7" to (7 to 7), "" to (null to null), "all" to (null to null),
+            "0" to (null to null), "4-7-9" to (4 to 7), "ch 12" to (12 to 12),
+        )
+        for ((typed, expected) in cases) assertEquals(typed, expected, ChapterRangeText.parse(typed))
+        for (stored in listOf(4 to 4, 4 to 7)) assertEquals(stored, ChapterRangeText.parse(ChapterRangeText.text(stored.first, stored.second)))
+        assertEquals("", ChapterRangeText.text(null, null))
+        assertEquals("4-", ChapterRangeText.text(4, null)) // an open end of older settings
+        assertEquals("1-7", ChapterRangeText.text(null, 7))
+        assertEquals("4-end", ChapterRangeText.label(4, null))
+        assertEquals("4", ChapterRangeText.label(4, 4))
+        assertEquals("4-7", ChapterRangeText.label(4, 7))
+    }
+
+    @Test
+    fun autoPurchaseNeedsItsRangeAndMovesThroughTheDesktopConfig() {
+        assertEquals(null, SharedSettings(autoPurchase = true).purchaseRange)
+        assertEquals(null, SharedSettings(purchaseFrom = 4, purchaseTo = 4).purchaseRange)
+        assertEquals(4..4, SharedSettings(autoPurchase = true, purchaseFrom = 4, purchaseTo = 4).purchaseRange)
+        assertEquals(4..7, SharedSettings(autoPurchase = true, purchaseFrom = 4, purchaseTo = 7).purchaseRange)
+        val settings = AppSettings(shared = SharedSettings(autoPurchase = true, purchaseFrom = 4, purchaseTo = 7))
+        val again = DesktopConfig.import(DesktopConfig.export(settings).toString()).first.shared
+        assertEquals(Triple(true, 4, 7), Triple(again.autoPurchase, again.purchaseFrom, again.purchaseTo))
+        val decoded = SettingsCoding.decode(SettingsCoding.encode(settings)).shared
+        assertEquals(4..7, decoded.purchaseRange)
+        assertEquals(false, SettingsCoding.decode("{}").shared.autoPurchase)
+    }
 }

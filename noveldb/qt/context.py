@@ -266,7 +266,8 @@ class AppContext(QObject):
                 if Path(path).suffix.lower() == ".epub":
                     self.library_updates.record(path, job.input, job.download_ranged is not False)
         upload = self.settings.upload
-        if not upload.auto_upload or not result.get("ok", True) or result.get("cancelled") or token.cancelled:
+        wanted = upload.auto_upload or bool(job.upload_range)  # "Upload chapters" always uploads its file
+        if not wanted or not result.get("ok", True) or result.get("cancelled") or token.cancelled:
             return result
         if not upload.agreement_accepted:
             self.hub.log(job.id, "Automatic upload skipped. Enable Upload finished files in Settings to accept the sharing agreement.")

@@ -3,6 +3,7 @@ package com.shirochi.npia.output
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.BookInfo
 import com.shirochi.npia.core.ChapterContent
+import com.shirochi.npia.core.ChapterRangeText
 import com.shirochi.npia.core.NamingMode
 import com.shirochi.npia.core.OutputFormat
 import com.shirochi.npia.core.SharedSettings
@@ -45,12 +46,16 @@ object Writers {
         OutputFormat.ZIP -> FolderWriter(OutputFormat.ZIP)
     }
 
-    /** Output file name without extension, following `namingMode` and `appendRange`. */
+    /**
+     * Output file name without extension, following `namingMode`. A ranged download is named after
+     * its range ("Title (4-7)"): downloads of different chapters of one book would otherwise
+     * overwrite each other, and the whole book.
+     */
     fun baseName(book: BookInfo, settings: SharedSettings): String {
         var name = if (settings.namingMode == NamingMode.ID) book.id else book.title
-        if (settings.appendRange && (settings.rangeFrom != null || settings.rangeTo != null)) {
+        if (settings.rangeFrom != null || settings.rangeTo != null) {
             val range = settings.chapterRange
-            name += " (${settings.rangeFrom ?: 1}-${if (settings.rangeTo == null) "end" else range.last})"
+            name += " (${ChapterRangeText.label(settings.rangeFrom, if (settings.rangeTo == null) null else range.last)})"
         }
         val cleaned = name.map { if (it in "/\\:*?\"<>|" || it.isISOControl()) '_' else it }.joinToString("").trim()
         return if (cleaned.isEmpty()) book.id else cleaned.take(180)

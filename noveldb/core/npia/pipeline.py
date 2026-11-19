@@ -526,8 +526,16 @@ class NpiaPipelineMixin:
         if self.var_quick_enable.get() and self.var_quick_path.get():
             folder = self.var_quick_path.get()
             base = clean_filename(default_name)
-            if self.var_append_range.get() and self.var_from_enabled.get() and self.var_to_enabled.get():
-                base = f"{base}_{self.var_from_num.get()}-{self.var_to_num.get()}"
+            # A ranged download is named after its range, so downloads of different chapters of one
+            # book do not overwrite each other or the whole book.
+            from noveldb.core import chapter_range
+
+            ranged = chapter_range.label(
+                self.var_from_num.get() if self.var_from_enabled.get() else None,
+                self.var_to_num.get() if self.var_to_enabled.get() else None,
+            )
+            if ranged:
+                base = f"{base}_{ranged}"
             anchor = os.path.join(folder, f"[{novel_id}] {base}")
             self._output_paths = {
                 fmt: f"{anchor}.{fmt}" for fmt in self._output_formats

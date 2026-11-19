@@ -65,7 +65,23 @@ data class SharedSettings(
     val chapterTiming: Boolean = true,
     val namingMode: NamingMode = NamingMode.TITLE,
     val appendRange: Boolean = false,
+    /**
+     * Auto purchase: paid chapters inside `purchaseFrom..purchaseTo` are unlocked with the account's
+     * free tickets (a gift, a wait-for-free ticket) before they are downloaded. Never spends cash;
+     * without a range nothing is purchased.
+     */
+    val autoPurchase: Boolean = false,
+    val purchaseFrom: Int? = null,
+    val purchaseTo: Int? = null,
 ) {
+    /** The chapters auto purchase may unlock, or null when it is off or has no range. */
+    val purchaseRange: IntRange?
+        get() {
+            if (!autoPurchase || (purchaseFrom == null && purchaseTo == null)) return null
+            val from = purchaseFrom ?: 1
+            return from..maxOf(purchaseTo ?: Int.MAX_VALUE, from)
+        }
+
     /**
      * The chapters the range keeps, as `first..last` (unset ends open). A "From" after "To" is a typo,
      * so it keeps just the "From" chapter rather than nothing.
@@ -96,6 +112,41 @@ data class SharedSettings(
     suspend fun pauseBetweenChapters() {
         val seconds = chapterDelay()
         if (seconds > 0) kotlinx.coroutines.delay((seconds * 1000).toLong())
+    }
+}
+
+/**
+ * A chapter range typed in one field, the way a print dialog takes pages: `4` or `4-7` (desktop
+ * `noveldb.core.chapter_range`, iOS `ChapterRangeText`). Text that is not a range keeps its first
+ * number: `7-3` is chapter 7 and `3-` chapter 3. No number at all is no range.
+ */
+object ChapterRangeText {
+    private val first = Regex("\\d+")
+    private val second = Regex("\\s*[-\u2013\u2014~]\\s*(\\d+)")
+
+    /** `(first, last)` of the chapters `text` names, or `(null, null)` when it names none. */
+    fun parse(text: String): Pair<Int?, Int?> {
+        val match = first.find(text) ?: return null to null
+        val low = match.value.toIntOrNull()?.takeIf { it >= 1 } ?: return null to null
+        val high = second.matchAt(text, match.range.last + 1)?.groupValues?.get(1)?.toIntOrNull() ?: low
+        return low to maxOf(high, low)
+    }
+
+    /** The field's text for a stored range. An open end (older settings) shows as `4-` or `1-7`. */
+    fun text(from: Int?, to: Int?): String = when {
+        from == null && to == null -> ""
+        from == null -> "1-$to"
+        to == null -> "$from-"
+        to <= from -> "$from"
+        else -> "$from-$to"
+    }
+
+    /** The range as file names and logs show it: `4`, `4-7`, `4-end`; "" for no range. */
+    fun label(from: Int?, to: Int?): String = when {
+        from == null && to == null -> ""
+        to == null -> "$from-end"
+        to <= (from ?: 1) -> "${from ?: 1}"
+        else -> "${from ?: 1}-$to"
     }
 }
 

@@ -33,6 +33,21 @@ class SourceContext(
     fun shared(source: SourceId): SharedSettings = settings.effective(source)
 }
 
+/** What `SourceAdapter.unlock` did with one paid chapter. */
+sealed class UnlockResult {
+    /** The chapter is open to the account now; `with` says what paid for it ("a gift ticket"). */
+    data class Unlocked(val with: String) : UnlockResult()
+
+    /** Nothing the account holds opens it; nothing was bought. */
+    data class NoTicket(val reason: String) : UnlockResult()
+
+    /** The account is signed out, so no chapter of this book can be unlocked. */
+    data object SignedOut : UnlockResult()
+
+    /** This source has no purchase step. */
+    data object Unsupported : UnlockResult()
+}
+
 /**
  * One source. Mirrors `_<source>_parse_book` / `_parse_chapter` / `_parse_chapter_batch` in the
  * desktop `external_scraper.py` (and `downloader_core.py` for npia), and `SourceAdapter` in the
@@ -71,6 +86,12 @@ interface SourceAdapter {
      * that source's settings; every other adapter is its own owner.
      */
     fun owner(book: BookInfo): SourceAdapter = this
+
+    /**
+     * Auto purchase: unlocks the paid chapter `ref` with what the account already holds (a gift or
+     * wait-for-free ticket), never with money. The default has no purchase step.
+     */
+    suspend fun unlock(ref: ChapterRef, book: BookInfo, context: SourceContext): UnlockResult = UnlockResult.Unsupported
 
     /**
      * Defaults to `parseChapter` with `threads` concurrent workers, each pausing for the rate

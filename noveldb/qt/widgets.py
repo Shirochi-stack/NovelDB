@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -236,6 +237,50 @@ class SpinBox(QSpinBox):
         if self._blank_min and not text.strip():
             return self.minimum()
         return super().valueFromText(text)
+
+
+class RangeField(QLineEdit):
+    """One field for a chapter range, typed like pages in a print dialog: `4` or `4-7`
+    (noveldb.core.chapter_range). `on_change(first, last)` runs when the typed range changes."""
+
+    def __init__(self, on_change: Callable, placeholder: str = "") -> None:
+        super().__init__()
+        from noveldb.core import chapter_range
+        from noveldb.qt.scale import bind_size
+
+        self._ranges = chapter_range
+        self._on_change = on_change
+        self._range = (None, None)
+        self.setPlaceholderText(placeholder or chapter_range.PLACEHOLDER)
+        self.setToolTip("One chapter (4) or a range (4-7). Empty: no range.")
+        self.setClearButtonEnabled(True)
+        bind_size(self, min_width=120, max_width=170)
+        self.editingFinished.connect(self._edited)
+        self.textChanged.connect(self._cleared)
+
+    def _edited(self) -> None:
+        parsed = self._ranges.parse(self.text())
+        if self.text().strip() == self._ranges.text(*self._range):
+            return  # untouched (an open-ended range of older settings stays as it is)
+        self.set_range(*parsed, force=True)
+        self._on_change(*parsed)
+
+    def _cleared(self, value: str) -> None:
+        # The clear button empties the field without the focus leaving it.
+        if not value and self._range != (None, None) and not self.signalsBlocked():
+            self._range = (None, None)
+            self._on_change(None, None)
+
+    def set_range(self, low, high, force: bool = False) -> None:
+        """Show a stored range (not while the user is typing in the field)."""
+        self._range = (low, high)
+        if self.hasFocus() and not force:
+            return
+        value = self._ranges.text(low, high)
+        if value != self.text():
+            self.blockSignals(True)
+            self.setText(value)
+            self.blockSignals(False)
 
 
 class DoubleSpinBox(QDoubleSpinBox):

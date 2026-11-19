@@ -237,6 +237,44 @@ struct CompactNumber: View {
     }
 }
 
+/// One small box for a chapter range, typed like pages in a print dialog: `4` or `4-7`
+/// (`ChapterRangeText`). The range is saved as it is typed; leaving the box tidies the text, so
+/// "7-3" and "3-" show the one chapter they keep.
+struct CompactRange: View {
+    let placeholder: String
+    @Binding var from: Int?
+    @Binding var to: Int?
+    var width: CGFloat = 92
+    @State private var text: String?
+    @FocusState private var focused: Bool
+
+    private var shown: String { text ?? ChapterRangeText.text(from: from, to: to) }
+
+    var body: some View {
+        TextField(placeholder, text: Binding(
+            get: { shown },
+            set: { new in
+                // The field also sets its text when it is drawn; only typing may change the range.
+                guard new != shown else { return }
+                text = new
+                let parsed = ChapterRangeText.parse(new)
+                if parsed.from != from { from = parsed.from }
+                if parsed.to != to { to = parsed.to }
+            }
+        ))
+        .keyboardType(.numbersAndPunctuation)
+        .autocorrectionDisabled()
+        .focused($focused)
+        .multilineTextAlignment(.center)
+        .font(.subheadline.monospacedDigit())
+        .frame(width: width)
+        .textFieldStyle(.roundedBorder)
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused { text = nil }
+        }
+    }
+}
+
 extension ImageFormat {
     var label: String {
         switch self {

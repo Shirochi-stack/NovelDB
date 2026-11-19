@@ -10,6 +10,7 @@ import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.SourceTier
+import com.shirochi.npia.core.UnlockResult
 import com.shirochi.npia.core.WebLoadState
 import com.shirochi.npia.core.WebProfile
 import com.shirochi.npia.core.evaluate
@@ -54,8 +55,8 @@ private class KpageApiResult(val status: Int, val body: ByteArray)
 /**
  * kpage: metadata from the rendered content page (web engine), episode list and viewer data from
  * the site's JSON gateway (plain HTTP, browser fallback), text chunks as JSON paragraph lists, and
- * image-only episodes as image pages. Paid episodes the account cannot open are refused; nothing
- * is ever purchased or rented.
+ * image-only episodes as image pages. Paid episodes the account cannot open are refused. With auto
+ * purchase on, `unlock` opens them with the account's free tickets first; nothing is ever paid for.
  */
 class KpageAdapter : SourceAdapter {
     override val id = SourceId.KPAGE
@@ -75,6 +76,7 @@ class KpageAdapter : SourceAdapter {
     override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
         val seriesId = KpageParsing.seriesId(url) ?: throw SourceException.UnsupportedUrl(url)
         context.logger.log(LogLevel.INFO, "[kpage] Navigating to: $url")
+        claimed.remove(seriesId)  // a new download asks again for the book's gift and waiting tickets
 
         val aboutUrl: String? = runCatching {
             val uri = URI(url)
@@ -239,6 +241,36 @@ class KpageAdapter : SourceAdapter {
                 }
             }
         }
+    }
+
+    // Auto purchase
+
+    /** Ticket codes each book handed over on its first unlock of a download, tried first for its later chapters. */
+    private val claimed = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
+    /** Opens a paid episode with a free ticket or one the account holds (see `KpageTickets`); never buys. */
+    override suspend fun unlock(ref: ChapterRef, book: BookInfo, context: SourceContext): UnlockResult {
+        val ids = ref.url?.let(KpageParsing::viewerIds) ?: return UnlockResult.NoTicket("invalid viewer URL")
+        val (series, product) = ids
+        val seriesKey = series.toString()
+        val first = !claimed.containsKey(seriesKey)
+        val script = KpageTickets.script(seriesKey, product.toString(), first, claimed[seriesKey].orEmpty())
+        val raw = context.web.withPage(WebProfile.EXTERNAL) { page ->
+            page.load("${KpageHosts.SITE}/content/$series", WebLoadState.DOM_CONTENT_LOADED, 30)
+            page.evaluateJson(script)
+        }
+        val answer = KpageTickets.parse(raw)
+        if (answer.signedOut) return UnlockResult.SignedOut
+        if (first) {
+            claimed[seriesKey] = answer.claimed
+            if (answer.claimed.isNotEmpty()) {
+                context.logger.log(LogLevel.INFO, "[kpage] Received ${answer.claimed.size} free ticket${if (answer.claimed.size == 1) "" else "s"} for this book.")
+            } else if (answer.giftError.isNotEmpty()) {
+                context.logger.log(LogLevel.WARNING, "[kpage] Gift ticket not received: ${answer.giftError}")
+            }
+        }
+        return if (answer.used.isNotEmpty()) UnlockResult.Unlocked(KpageTickets.describe(answer.used))
+        else UnlockResult.NoTicket(answer.error.ifEmpty { "no ticket available" })
     }
 
     private suspend fun fetchImageBytes(url: String, context: SourceContext): ByteArray? = try {

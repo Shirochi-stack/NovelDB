@@ -120,7 +120,16 @@ fun IntField(title: String, value: Int, onChange: (Int) -> Unit, enabled: Boolea
 
 fun formatNumber(value: Double): String = if (value == Math.floor(value) && value < 1e9) value.toLong().toString() else value.toString()
 
-/** An optional integer with an on/off switch (chapter ranges). */
+/** A settings row with one chapter range box (`MiniRangeField`): `4` or `4-7`. */
+@Composable
+fun RangeRow(title: String, from: Int?, to: Int?, placeholder: String, onChange: (Int?, Int?) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f))
+        MiniRangeField(from, to, placeholder, width = 110, onChange = onChange)
+    }
+}
+
+/** An optional integer with an on/off switch (size targets). */
 @Composable
 fun OptionalIntRow(title: String, value: Int?, defaultValue: Int, onChange: (Int?) -> Unit) {
     SwitchRow(title, value != null, { on -> onChange(if (on) value ?: defaultValue else null) })

@@ -25,6 +25,10 @@ struct QueueView: View {
     @State private var selecting = false
     @State private var selected: Set<UUID> = []
     @State private var reading: URL?
+    /// The jobs "Upload chapters" was chosen for, while its prompt asks for the range.
+    @State private var chapterJobs: Set<UUID> = []
+    @State private var askChapters = false
+    @State private var chapterText = ""
 
     var body: some View {
         @Bindable var model = model
@@ -62,6 +66,29 @@ struct QueueView: View {
         .onChange(of: model.queueSection) { _, section in
             if section == .log { endSelection() }
         }
+        .alert("Upload chapters", isPresented: $askChapters) {
+            TextField("4 or 4-7", text: $chapterText)
+                .keyboardType(.numbersAndPunctuation)
+            Button("Upload") {
+                let range = ChapterRangeText.parse(chapterText)
+                if let from = range.from, let to = range.to {
+                    model.uploadChapters(jobs: chapterJobs, from: from, to: to)
+                    endSelection()
+                } else {
+                    model.message = "Type the chapters to upload, such as 4 or 4-7."
+                }
+                chapterJobs = []
+            }
+            Button("Cancel", role: .cancel) { chapterJobs = [] }
+        } message: {
+            Text("Chapters of \(chapterJobs.count == 1 ? "this book" : "each of the \(chapterJobs.count) books") to upload, such as 4 or 4-7. They are written in the output formats selected on the Add tab; chapters already downloaded are not fetched again.")
+        }
+    }
+
+    private func askUploadChapters(_ ids: Set<UUID>) {
+        chapterJobs = ids
+        chapterText = ""
+        askChapters = true
     }
 
     // MARK: - Toolbar
@@ -147,6 +174,15 @@ struct QueueView: View {
                     Button("Retry", systemImage: "arrow.clockwise") { model.retry(job.id) }
                 }
                 let files = model.existingFiles(of: job)
+                // An uploaded book shares its link; the files are the other entry, named as such.
+                if !job.uploads.isEmpty {
+                    ShareLink(item: job.shareLinks) {
+                        Label(job.uploads.count == 1 ? "Share link" : "Share links", systemImage: "link")
+                    }
+                }
+                if !job.state.isActive, job.libraryTarget == nil {
+                    Button("Upload chapters...", systemImage: "icloud.and.arrow.up") { askUploadChapters([job.id]) }
+                }
                 if !files.isEmpty {
                     if let file = LibraryBook.readerFile(in: files) {
                         Button("Open", systemImage: "book") { reading = file }
@@ -180,22 +216,42 @@ struct QueueView: View {
     private var selectionBar: some View {
         let chosen = selectableJobs.filter { selected.contains($0.id) }
         let files = chosen.flatMap { model.existingFiles(of: $0) }
+        // The links of the chosen downloads that were uploaded, one per line, without repeats.
+        var seenLinks: Set<String> = []
+        let links = chosen.flatMap { $0.uploads.map { $0.link.absoluteString } }
+            .filter { seenLinks.insert($0).inserted }.joined(separator: "\n")
         return VStack(spacing: 8) {
             HStack {
                 Text(chosen.count == 1 ? "1 selected" : "\(chosen.count) selected")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
+                Button("Upload chapters") { askUploadChapters(Set(chosen.map(\.id))) }
+                    .font(.subheadline)
+                    .disabled(chosen.isEmpty)
                 Button("Select all finished") {
                     selected = Set(selectableJobs.map(\.id))
                 }
                 .font(.subheadline)
             }
             HStack(spacing: 12) {
-                ShareLink(items: files.map(SharedOutput.init(url:)), preview: { SharePreview($0.url.lastPathComponent) }) {
-                    Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                if links.isEmpty {
+                    ShareLink(items: files.map(SharedOutput.init(url:)), preview: { SharePreview($0.url.lastPathComponent) }) {
+                        Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(files.isEmpty)
+                } else {
+                    // Uploaded downloads have links to share: offer them first, the files second.
+                    Menu {
+                        ShareLink(item: links) { Label("Share links", systemImage: "link") }
+                        ShareLink(items: files.map(SharedOutput.init(url:)), preview: { SharePreview($0.url.lastPathComponent) }) {
+                            Label("Share files", systemImage: "doc.on.doc")
+                        }
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
-                .disabled(files.isEmpty)
                 Button {
                     model.upload(jobs: Set(chosen.map(\.id)))
                     endSelection()

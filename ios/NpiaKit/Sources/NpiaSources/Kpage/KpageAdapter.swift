@@ -33,7 +33,8 @@ private struct KpageBrowserFetch: Decodable {
 /// kpage: metadata from the rendered content page (web engine), episode list and viewer data
 /// from the site's JSON gateway (plain HTTP, browser fallback), text chunks as JSON paragraph
 /// lists, and image-only episodes as image pages. Paid episodes the account cannot open are
-/// refused; nothing is ever purchased or rented.
+/// refused. With auto purchase on, `unlock` opens them with the account's free tickets first;
+/// nothing is ever paid for.
 public struct KpageAdapter: SourceAdapter {
     public static let id: SourceID = .kpage
     public static let tier: SourceTier = .lightBrowser
@@ -267,6 +268,29 @@ public struct KpageAdapter: SourceAdapter {
             titled.title = KpageParsing.headingTitle(paragraphs, fallback: ref.title)
             return .content(ChapterContent(ref: titled, html: output.html))
         }
+    }
+
+    // MARK: Auto purchase
+
+    /// Opens a paid episode with a free ticket or one the account holds (see `KpageTickets`); never buys.
+    public func unlock(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> UnlockResult {
+        guard let urlText = ref.url?.absoluteString, let ids = KpageParsing.viewerIDs(from: urlText),
+              let contentPage = URL(string: "\(KpageHosts.site)/content/\(ids.series)") else {
+            return .noTicket(reason: "invalid viewer URL")
+        }
+        let script = KpageTickets.script(series: "\(ids.series)", product: "\(ids.product)")
+        let answer: KpageTicketAnswer = try await context.web.withPage(profile: WebProfile.external) { page in
+            try await page.load(contentPage, until: .domContentLoaded, timeout: 30)
+            return try await page.evaluate(KpageTicketAnswer.self, script)
+        }
+        if answer.login { return .signedOut }
+        if !answer.claimed.isEmpty {
+            context.logger.log(.info, "[kpage] Received \(answer.claimed.count) free ticket\(answer.claimed.count == 1 ? "" : "s") for this book.")
+        } else if let giftError = answer.giftError, !giftError.isEmpty {
+            context.logger.log(.warning, "[kpage] Gift ticket not received: \(giftError)")
+        }
+        if !answer.used.isEmpty { return .unlocked(with: KpageTickets.describe(answer.used)) }
+        return .noTicket(reason: answer.error.isEmpty ? "no ticket available" : answer.error)
     }
 
     private func fetchImageBytes(_ url: URL, context: SourceContext) async -> Data? {

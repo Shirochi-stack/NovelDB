@@ -361,6 +361,52 @@ class ExternalPipelineMixin:
                 )
         return result
 
+    def _auto_purchase(self, selected, start, results):
+        """Auto purchase: unlock the paid chapters inside its range before they are downloaded.
+
+        Only chapters this download is about to fetch are touched (in the chapter range, not
+        cached, not already open to the account). kpage uses the account's free tickets and never
+        pays; other sources have no purchase step yet.
+        """
+        from noveldb.core import chapter_range
+
+        option = getattr(self, '_var_auto_purchase', None)
+        if not (option and option.get()):
+            return
+        low = getattr(self, '_var_purchase_from').get()
+        high = getattr(self, '_var_purchase_to').get()
+        if low is None and high is None:
+            self._log("Auto purchase is on but has no chapter range; nothing is purchased.")
+            return
+        wanted = [
+            (index, chapter) for index, chapter in enumerate(selected)
+            if results[index] is None and not chapter.get('isNotice')
+            and chapter_range.contains(low, high, start + index + 1)
+            and (chapter.get('isVIP') or chapter.get('isPaid')) and not chapter.get('isAccessible')
+        ]
+        label = chapter_range.label(low, high)
+        if not wanted:
+            self._log(f"Auto purchase ({label}): no locked chapter in that range to unlock.")
+            return
+        purchase = getattr(self._scraper, 'kpage_auto_purchase', None)
+        if not (self._book_data and self._book_data.get('_kpage')) or purchase is None:
+            self._log(f"Auto purchase ({label}) is not available for this source yet; "
+                      f"{len(wanted)} locked chapter(s) stay locked.")
+            return
+        self._log(f"Auto purchase ({label}): {len(wanted)} locked chapter(s) to unlock with free tickets.")
+        claimed = getattr(self._scraper, '_kpage_claimed', None)
+        if isinstance(claimed, dict):
+            claimed.clear()  # a new download asks again for each book's gift and waiting tickets
+        for index, chapter in wanted:
+            if not self._downloading:
+                break
+            outcome = purchase(chapter)
+            if outcome == 'login':
+                break
+            if outcome:
+                chapter['isVIP'] = chapter['isPaid'] = False
+                chapter['isAccessible'] = True
+
     def _do_download(self, chapters, start, end, interval, num_threads=1,
                       skip_paid=False, retry_passes=5, interval_max=None):
         """Run chapter downloads on the worker thread.
@@ -594,6 +640,8 @@ class ExternalPipelineMixin:
                     interval_max, rate_interval
                 )
             completed = 0
+
+            ExternalPipelineMixin._auto_purchase(self, selected, start, results)
 
             # Pre-filter paid chapters if the user opted to skip them.
             # For Kpage, skip only rows that the product list marks as not
@@ -1440,6 +1488,18 @@ class ExternalPipelineMixin:
             start = 1
         return start + result_index
 
+    def _range_label(self):
+        """The chapter range of this download as file names show it ("4", "4-7", "4-end"), or ""."""
+        from noveldb.core import chapter_range
+
+        def value(enabled, number):
+            try:
+                return int(getattr(self, number).get()) if getattr(self, enabled).get() else None
+            except (AttributeError, TypeError, ValueError):
+                return None
+
+        return chapter_range.label(value('_var_from_enabled', '_var_from'), value('_var_to_enabled', '_var_to'))
+
     def _generate_output(self):
         """Generate every selected format from downloaded chapter data."""
         data = self._book_data
@@ -1447,6 +1507,11 @@ class ExternalPipelineMixin:
             return
 
         title = _sanitize_filename(data.get('bookname', 'novel'))
+        # A ranged download is named after its range ("Title (4-7)"): downloads of different
+        # chapters of one book would otherwise overwrite each other, and the whole book.
+        ranged = ExternalPipelineMixin._range_label(self)
+        if ranged:
+            title = f"{title} ({ranged})"
         author = data.get('author', 'Unknown')
 
         formats = (

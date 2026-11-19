@@ -61,7 +61,7 @@ from noveldb.qt import icons
 from noveldb.qt.context import AppContext
 from noveldb.qt.scale import bind_rows, bind_size, bind_title, on_scale, ui_scale
 from noveldb.qt.theme_palettes import ACCENT_LABELS
-from noveldb.qt.widgets import ButtonFeedback, Chip, ComboBox, DoubleSpinBox, SpinBox, flow, hint, section
+from noveldb.qt.widgets import ButtonFeedback, Chip, ComboBox, DoubleSpinBox, RangeField, SpinBox, flow, hint, section
 
 THEME_LABELS = {"system": "System", "light": "Light", "dark": "Dark", "amoled": "AMOLED black"}
 NAMING_LABELS = {"title": "Book title", "id": "Book ID"}
@@ -291,7 +291,8 @@ def general_form(context: AppContext) -> Form:
     f.check("Ask for a folder each time", "output.ask_each_time", " ")
     f.spin("Downloads at once", "queue.max_concurrent_jobs", 1, 3)
     f.combo("File names", "shared.naming_mode", {k: NAMING_LABELS[k] for k in NAMING_MODES})
-    f.check("Add the chapter range to file names", "shared.append_range", " ")
+    f.add_hint("A download of a chapter range is named after the range, such as \"Title (4-7)\", so it "
+               "never replaces the whole book or another range.")
     f.spin("Retries per chapter", "shared.max_retries", 0, 50)
     if platform_services.shutdown_supported():
         f.check("Shut down the computer when the whole queue finishes", "output.shutdown_after_success", " ")
@@ -493,22 +494,15 @@ class OverridesForm(Form):
         self.format_toggle.toggled.connect(lambda on: self._toggle("formats", on))
         self.add(self.format_toggle)
         self.add(flow(*self.format_chips.values()))
-        self.range_toggle = QCheckBox("Chapter range (0 = first / last)")
-        self.range_from = SpinBox()
-        self.range_to = SpinBox()
-        for box in (self.range_from, self.range_to):
-            box.setRange(0, 999_999)
-            box.valueChanged.connect(lambda _v: self._range())
+        self.range_toggle = QCheckBox("Chapter range (4 or 4-7; empty for every chapter)")
+        self.range = RangeField(lambda _low, _high: self._range())
         self.range_toggle.toggled.connect(lambda _on: self._range())
         holder = QWidget()
         row = QHBoxLayout(holder)
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(self.range_toggle)
         row.addStretch(1)
-        row.addWidget(QLabel("From"))
-        row.addWidget(self.range_from)
-        row.addWidget(QLabel("To"))
-        row.addWidget(self.range_to)
+        row.addWidget(self.range)
         self.add(holder)
         reset = QPushButton("Use the shared settings for this source")
         reset.clicked.connect(lambda: self._update(lambda _o: SharedOverrides()))
@@ -544,7 +538,13 @@ class OverridesForm(Form):
 
     def _range(self) -> None:
         if self.range_toggle.isChecked():
-            low, high = self.range_from.value() or None, self.range_to.value() or None
+            from noveldb.core import chapter_range
+
+            typed = self.range.text().strip()
+            run = self.context.settings.effective(self.current)
+            # An untouched field keeps the stored range (an open end of older settings included).
+            low, high = ((run.range_from, run.range_to) if typed == chapter_range.text(run.range_from, run.range_to)
+                         else chapter_range.parse(typed))
             self._update(lambda o: replace(o, range_from=low, range_to=high, range_override=True))
         else:
             self._update(lambda o: replace(o, range_from=None, range_to=None, range_override=False))
@@ -563,7 +563,7 @@ class OverridesForm(Form):
         else:
             self.summary.setText(f"Overrides: {', '.join(names)}." if names else "Uses the shared settings.")
         widgets = [w for pair in self.controls.values() for w in pair]
-        widgets += [self.format_toggle, self.range_toggle, self.range_from, self.range_to, *self.format_chips.values()]
+        widgets += [self.format_toggle, self.range_toggle, *self.format_chips.values()]
         for widget in widgets:
             widget.blockSignals(True)
         try:
@@ -581,10 +581,8 @@ class OverridesForm(Form):
                 chip.setChecked(fmt in run.formats)
                 chip.setEnabled(override.formats is not None)
             self.range_toggle.setChecked(override.has_range)
-            self.range_from.setValue(run.range_from or 0)
-            self.range_to.setValue(run.range_to or 0)
-            self.range_from.setEnabled(override.has_range)
-            self.range_to.setEnabled(override.has_range)
+            self.range.set_range(run.range_from, run.range_to)
+            self.range.setEnabled(override.has_range)
             chosen = self.current is not None
             for toggle, _value in self.controls.values():
                 toggle.setEnabled(chosen)

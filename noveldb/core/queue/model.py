@@ -34,6 +34,9 @@ class Job:
     output_dir: str = ""
     library_target: str = ""
     download_ranged: Optional[bool] = None
+    # "Upload chapters": [first, last] of the chapters this job writes (from the cache where it has
+    # them) in the selected formats and uploads, whatever the chapter range and auto upload say.
+    upload_range: list = field(default_factory=list)
     outputs: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     created: float = field(default_factory=time.time)

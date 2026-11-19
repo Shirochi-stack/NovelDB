@@ -234,6 +234,9 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         page_load_timeout=clamp_seconds(_int(c.get("page_load_timeout")), b.page_load_timeout),
         naming_mode=_choice(c.get("naming_mode"), NAMING_MODES, b.naming_mode),
         append_range=_first_bool(c, "append_range", b.append_range),
+        auto_purchase=_first_bool(c, "auto_purchase", b.auto_purchase),
+        purchase_from=_int(c.get("purchase_from")) if "purchase_from" in c or "auto_purchase" in c else b.purchase_from,
+        purchase_to=_int(c.get("purchase_to")) if "purchase_to" in c or "auto_purchase" in c else b.purchase_to,
     )
 
     overrides = {
@@ -507,6 +510,9 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["page_load_timeout"] = clamp_seconds(shared.page_load_timeout)
     c["naming_mode"] = shared.naming_mode
     c["append_range"] = shared.append_range
+    c["auto_purchase"] = shared.auto_purchase
+    c["purchase_from"] = shared.purchase_from
+    c["purchase_to"] = shared.purchase_to
 
     c["thread_num"] = npia.threads
     c["interval_num"] = npia.interval_min

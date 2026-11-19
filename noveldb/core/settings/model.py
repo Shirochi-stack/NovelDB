@@ -139,6 +139,11 @@ class SharedSettings:
     chapter_timing: bool = True
     naming_mode: str = "title"
     append_range: bool = False
+    # Auto purchase: paid chapters inside this range are unlocked with the account's free tickets
+    # (a gift, a wait-for-free ticket) before they are downloaded. Never spends cash; no range, nothing bought.
+    auto_purchase: bool = False
+    purchase_from: Optional[int] = None
+    purchase_to: Optional[int] = None
 
     @property
     def interval_range(self) -> tuple[float, float]:
@@ -438,6 +443,9 @@ class AppSettings:
             max_retries=nxt.max_retries,
             naming_mode=nxt.naming_mode,
             append_range=nxt.append_range,
+            auto_purchase=nxt.auto_purchase,
+            purchase_from=nxt.purchase_from,
+            purchase_to=nxt.purchase_to,
         )
         o = existing
         for name in OVERRIDABLE:

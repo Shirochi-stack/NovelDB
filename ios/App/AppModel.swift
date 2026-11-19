@@ -208,6 +208,42 @@ final class AppModel {
         startNext()
     }
 
+    /// "Upload chapters": queues the books of these jobs again for chapters `from...to` only. Each is
+    /// written in the output formats selected now (cached chapters are not downloaded again), named
+    /// after the range, and uploaded.
+    func uploadChapters(jobs ids: Set<UUID>, from: Int, to: Int) {
+        // Uploading publishes a link, so it waits for the sharing agreement like every upload.
+        guard hasAcceptedShareAgreement else {
+            message = "Upload a finished file once and accept the sharing notice first."
+            return
+        }
+        var seen: Set<URL> = []
+        let books = jobs.filter { ids.contains($0.id) && !$0.state.isActive && $0.libraryTarget == nil && seen.insert($0.url).inserted }
+        guard !books.isEmpty else {
+            message = "There is nothing to upload chapters of."
+            return
+        }
+        let label = ChapterRangeText.label(from: from, to: to)
+        for old in books.reversed() {
+            var adjusted = settings
+            adjusted.shared = old.source.map { settings.effective(for: $0) } ?? settings.shared
+            adjusted.overrides = [:]
+            adjusted.shared.rangeFrom = from
+            adjusted.shared.rangeTo = to
+            adjusted.shared.useCache = true
+            adjusted.shared.autoPurchase = false
+            adjusted.shared.generateOnStop = false
+            adjusted.upload.autoUpload = true
+            var job = JobItem(url: old.url, source: old.source, title: old.title, bookID: old.bookID, settings: adjusted)
+            job.uploadChapters = true
+            jobs.insert(job, at: 0)
+            runJobIDs.append(job.id)
+            log(job.id, .info, "Queued to upload chapters \(label): \(old.url.absoluteString)")
+        }
+        persistJobs()
+        startNext()
+    }
+
     func cancel(_ id: UUID) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         if let task = tasks[id] {
@@ -250,7 +286,8 @@ final class AppModel {
         job.log = []
         job.finishedAt = nil
         // A retry uses the settings as they are now, so a range or option changed since queueing applies.
-        job.settings = settings
+        // An "Upload chapters" job keeps its own: its range is what it was queued for.
+        if job.uploadChapters != true { job.settings = settings }
         jobs[index] = job
         if !runJobIDs.contains(id) { runJobIDs.append(id) }
         log(id, .info, "Retry: queued again")

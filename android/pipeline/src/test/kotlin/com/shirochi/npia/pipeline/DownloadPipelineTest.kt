@@ -111,6 +111,30 @@ class DownloadPipelineTest {
         }
     }
 
+    @Test
+    fun autoPurchaseAsksOnlyForLockedChaptersInItsRangeAndNeverFailsTheDownload() = runTest {
+        val fixture = mechanicPage()
+        val output = Files.createTempDirectory("purchase").toFile()
+        try {
+            for ((purchase, expected) in listOf(
+                SharedSettings(autoPurchase = true, purchaseFrom = 2, purchaseTo = 2) to "is not available for",
+                SharedSettings(autoPurchase = true, purchaseFrom = 1, purchaseTo = 1) to "no locked chapter in that range",
+                SharedSettings(autoPurchase = true) to "has no chapter range",
+            )) {
+                val lines = mutableListOf<String>()
+                // Chapter 2 is locked; the script engines have no purchase step, so it stays locked.
+                val page = W2ePage(fixture.book.replace("\"number\":2,\"isVIP\":false,\"isPaid\":false", "\"number\":2,\"isVIP\":true,\"isPaid\":true"), fixture.chapters)
+                val settings = AppSettings(shared = purchase.copy(intervalMin = 0.0, intervalMax = 0.0, formats = listOf(OutputFormat.TXT)))
+                val outcome = DownloadPipeline(InMemorySecretStore(), output, web = WebOf(page),
+                    httpFactory = { Images(emptyMap()) }, logger = JobLogging { _, message -> lines += message }).run(mechanicUrl, settings)
+                assertTrue(lines.toString(), lines.any { it.startsWith("Auto purchase") && it.contains(expected) })
+                assertTrue(outcome.files.isNotEmpty())
+            }
+        } finally {
+            output.deleteRecursively()
+        }
+    }
+
     private val mechanicUrl = "https://novelfull.com/the-legendary-mechanic.html"
 
     private fun mechanicPage() = W2ePage(
@@ -154,7 +178,8 @@ class DownloadPipelineTest {
                 assertEquals(listOf("Chapter $selected: Chapter $selected"), lines.filter { it.startsWith("Chapter ") }.map { it.substringBefore(" (") })
                 assertTrue(phases.toString(), phases.all { it.total == 1 && it.done in 0..1 })
                 val text = outcome.files.single().readText()
-                assertTrue(outcome.files.single().name.endsWith(" ($selected-$selected).txt"))
+                // A ranged download is named after its range, a single chapter as just its number.
+                assertTrue(outcome.files.single().name, outcome.files.single().name.endsWith(" ($selected).txt"))
                 assertTrue(text.contains(if (selected == 1) "One." else "Two."))
                 assertFalse(text.contains(if (selected == 1) "Two." else "One."))
             } finally {

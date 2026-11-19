@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.shirochi.npia.core.ChapterRangeText
 import com.shirochi.npia.core.OutputFormat
 
 // Dense controls for the Add tab, so the desktop download options fit on one screen.
@@ -133,6 +135,52 @@ private fun StepButton(symbol: String, enabled: Boolean, onClick: () -> Unit) {
             style = MaterialTheme.typography.titleMedium,
             color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
         )
+    }
+}
+
+/**
+ * One small box for a chapter range, typed like pages in a print dialog: `4` or `4-7`
+ * (`ChapterRangeText`). `onChange` gets the range as it is typed; leaving the box tidies the text.
+ */
+@Composable
+fun MiniRangeField(from: Int?, to: Int?, placeholder: String, width: Int = 84, enabled: Boolean = true, onChange: (Int?, Int?) -> Unit) {
+    var text by remember { mutableStateOf(ChapterRangeText.text(from, to)) }
+    var focused by remember { mutableStateOf(false) }
+    // A range set elsewhere (another screen, an import) replaces the text; the user's own typing does not.
+    LaunchedEffect(from, to) {
+        if (ChapterRangeText.parse(text) != (from to to)) text = ChapterRangeText.text(from, to)
+    }
+    val focus = LocalFocusManager.current
+    val alpha = if (enabled) 1f else 0.38f
+    Surface(shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = alpha))) {
+        Box(Modifier.width(width.dp).height(32.dp).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+            if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), maxLines = 1)
+            BasicTextField(
+                value = text,
+                onValueChange = { new ->
+                    text = new
+                    val (low, high) = ChapterRangeText.parse(new)
+                    if (low != from || high != to) onChange(low, high)
+                },
+                enabled = enabled,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha), textAlign = TextAlign.Center),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                // The symbols keyboard has the dash a range needs on every phone.
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+                    // An untouched box changes nothing (an open-ended range of older settings stays as it is).
+                    if (focused && !state.isFocused && text != ChapterRangeText.text(from, to)) {
+                        // "7-3" and "3-" keep their first number; show what was understood.
+                        val (low, high) = ChapterRangeText.parse(text)
+                        if (low != from || high != to) onChange(low, high)
+                        text = ChapterRangeText.text(low, high)
+                    }
+                    focused = state.isFocused
+                },
+            )
+        }
     }
 }
 

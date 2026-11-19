@@ -41,6 +41,12 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     public var chapterTiming = true
     public var namingMode: NamingMode = .title
     public var appendRange = false
+    /// Auto purchase: paid chapters inside `purchaseFrom...purchaseTo` are unlocked with the account's
+    /// free tickets (a gift, a wait-for-free ticket) before they are downloaded. Never spends cash;
+    /// without a range nothing is purchased.
+    public var autoPurchase = false
+    public var purchaseFrom: Int?
+    public var purchaseTo: Int?
 
     public init() {}
 
@@ -50,7 +56,7 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case threads, intervalMin, intervalMax, maxRetries, requestTimeoutSeconds, pageLoadTimeoutSeconds, formats
         case rangeFrom, rangeTo, useCache, cacheImages, numberChapters, separateTXT, skipPaid, imageWorkers
-        case generateOnStop, chapterTiming, namingMode, appendRange
+        case generateOnStop, chapterTiming, namingMode, appendRange, autoPurchase, purchaseFrom, purchaseTo
     }
 
     /// Every key is optional, so settings stored before a field existed (the queue keeps a copy
@@ -76,6 +82,9 @@ public struct SharedSettings: Codable, Sendable, Equatable {
         generateOnStop = try c.decodeIfPresent(Bool.self, forKey: .generateOnStop) ?? generateOnStop
         namingMode = try c.decodeIfPresent(NamingMode.self, forKey: .namingMode) ?? namingMode
         appendRange = try c.decodeIfPresent(Bool.self, forKey: .appendRange) ?? appendRange
+        autoPurchase = try c.decodeIfPresent(Bool.self, forKey: .autoPurchase) ?? autoPurchase
+        purchaseFrom = try c.decodeIfPresent(Int.self, forKey: .purchaseFrom)
+        purchaseTo = try c.decodeIfPresent(Int.self, forKey: .purchaseTo)
     }
 
     /// Desktop `_normalize_interval_range`: each bound clamped to 0...300 s, swapped when
@@ -346,5 +355,68 @@ extension SharedSettings {
         let to = rangeTo ?? Int.max
         if let rangeFrom, let rangeTo, rangeFrom > rangeTo { return from...from }
         return from...to
+    }
+
+    /// The chapters auto purchase may unlock, or nil when it is off or has no range.
+    public var purchaseRange: ClosedRange<Int>? {
+        guard autoPurchase, purchaseFrom != nil || purchaseTo != nil else { return nil }
+        let from = purchaseFrom ?? 1
+        return from...Swift.max(purchaseTo ?? Int.max, from)
+    }
+}
+
+/// A chapter range typed in one field, the way a print dialog takes pages: `4` or `4-7` (desktop
+/// `noveldb.core.chapter_range`, Android `ChapterRangeText`). Text that is not a range keeps its
+/// first number: `7-3` is chapter 7 and `3-` chapter 3. No number at all is no range.
+public enum ChapterRangeText {
+    /// The first and last chapter `text` names, or nil for both when it names none.
+    public static func parse(_ text: String) -> (from: Int?, to: Int?) {
+        let scalars = Array(text.unicodeScalars)
+        func isDigit(_ scalar: Unicode.Scalar) -> Bool { scalar.value >= 48 && scalar.value <= 57 }
+        func number(at start: Int) -> (value: Int?, end: Int) {
+            var end = start
+            var digits = ""
+            while end < scalars.count, isDigit(scalars[end]) {
+                digits.unicodeScalars.append(scalars[end])
+                end += 1
+            }
+            return (Int(digits), end)
+        }
+        func skipSpaces(_ start: Int) -> Int {
+            var index = start
+            while index < scalars.count, scalars[index].properties.isWhitespace { index += 1 }
+            return index
+        }
+        guard let start = scalars.firstIndex(where: isDigit) else { return (nil, nil) }
+        let first = number(at: start)
+        guard let low = first.value, low >= 1 else { return (nil, nil) }
+        var high = low
+        var index = skipSpaces(first.end)
+        // A hyphen, an en dash, an em dash or a tilde joins the two numbers.
+        if index < scalars.count, [0x2D, 0x2013, 0x2014, 0x7E].contains(scalars[index].value) {
+            index = skipSpaces(index + 1)
+            if index < scalars.count, isDigit(scalars[index]), let second = number(at: index).value {
+                high = second
+            }
+        }
+        return (low, Swift.max(high, low))
+    }
+
+    /// The field's text for a stored range. An open end (older settings) shows as `4-` or `1-7`.
+    public static func text(from: Int?, to: Int?) -> String {
+        switch (from, to) {
+        case (nil, nil): return ""
+        case (nil, let to?): return "1-\(to)"
+        case (let from?, nil): return "\(from)-"
+        case (let from?, let to?): return to <= from ? "\(from)" : "\(from)-\(to)"
+        }
+    }
+
+    /// The range as file names and logs show it: `4`, `4-7`, `4-end`; "" for no range.
+    public static func label(from: Int?, to: Int?) -> String {
+        if from == nil, to == nil { return "" }
+        let low = from ?? 1
+        guard let to else { return "\(low)-end" }
+        return to <= low ? "\(low)" : "\(low)-\(to)"
     }
 }

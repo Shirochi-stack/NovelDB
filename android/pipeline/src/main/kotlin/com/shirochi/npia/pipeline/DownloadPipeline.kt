@@ -3,7 +3,9 @@ package com.shirochi.npia.pipeline
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.BookInfo
 import com.shirochi.npia.core.ChapterContent
+import com.shirochi.npia.core.ChapterRangeText
 import com.shirochi.npia.core.ChapterRef
+import com.shirochi.npia.core.UnlockResult
 import com.shirochi.npia.core.ChapterResult
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
@@ -140,7 +142,8 @@ class DownloadPipeline(
         val owner = adapter.owner(book)
         val shared = settings.effective(owner.id).copy(rangeFrom = requested.rangeFrom, rangeTo = requested.rangeTo)
         if (owner.id != adapter.id) logger.log(LogLevel.INFO, "Book read by the ${owner.id.raw} engine")
-        var selected = select(book.chapters, shared)
+        val unlocked = autoPurchase(owner, book, shared, context)
+        var selected = select(book.chapters.map { if (it.id in unlocked) it.copy(isPaid = false) else it }, shared)
         if (owner.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
         onBook?.invoke(selected)
         val range = listOfNotNull(shared.rangeFrom?.let { "from $it" }, shared.rangeTo?.let { "to $it" }).joinToString(" ")
@@ -172,6 +175,54 @@ class DownloadPipeline(
                     offline, url, store, started, onPhase, stopped = true)
             }
         }
+    }
+
+    /**
+     * Auto purchase: unlocks the paid chapters that are in both the chapter range and the purchase
+     * range, before they are downloaded. Returns the ids of the chapters that opened.
+     */
+    private suspend fun autoPurchase(adapter: SourceAdapter, book: BookInfo, shared: SharedSettings, context: SourceContext): Set<String> {
+        if (!shared.autoPurchase) return emptySet()
+        val range = shared.purchaseRange
+        if (range == null) {
+            logger.log(LogLevel.INFO, "Auto purchase is on but has no chapter range; nothing is purchased.")
+            return emptySet()
+        }
+        val label = ChapterRangeText.label(shared.purchaseFrom, shared.purchaseTo)
+        val wanted = book.chapters.filter { it.isPaid && !it.isNotice && it.index in range && it.index in shared.chapterRange }
+        if (wanted.isEmpty()) {
+            logger.log(LogLevel.INFO, "Auto purchase ($label): no locked chapter in that range to unlock.")
+            return emptySet()
+        }
+        logger.log(LogLevel.INFO, "Auto purchase ($label): ${wanted.size} locked chapter${if (wanted.size == 1) "" else "s"} to unlock with free tickets.")
+        val opened = mutableSetOf<String>()
+        for (ref in wanted) {
+            coroutineContext.ensureActive()
+            val result = try {
+                adapter.unlock(ref, book, context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                UnlockResult.NoTicket(e.message ?: e.toString())
+            }
+            when (result) {
+                is UnlockResult.Unlocked -> {
+                    opened += ref.id
+                    logger.log(LogLevel.INFO, "Auto purchase: chapter ${ref.index} unlocked with ${result.with}.")
+                }
+                is UnlockResult.NoTicket ->
+                    logger.log(LogLevel.WARNING, "Auto purchase: no ticket for chapter ${ref.index} (${result.reason}). Nothing was bought.")
+                UnlockResult.SignedOut -> {
+                    logger.log(LogLevel.WARNING, "Auto purchase needs a signed-in account. Sign in from the Browser tab, then download again.")
+                    return opened
+                }
+                UnlockResult.Unsupported -> {
+                    logger.log(LogLevel.WARNING, "Auto purchase ($label) is not available for ${adapter.id.raw} yet; the locked chapters stay locked.")
+                    return opened
+                }
+            }
+        }
+        return opened
     }
 
     private suspend fun finishDownload(

@@ -30,8 +30,17 @@ struct JobItem: Identifiable, Codable {
     var log: [String] = []
     var createdAt = Date()
     var finishedAt: Date?
+    /// "Upload chapters": this job writes only the chapter range in its settings (from the cache
+    /// where it has the chapters) and uploads the files. Optional so older saved queues still load.
+    var uploadChapters: Bool?
 
     var displayTitle: String { title ?? url.absoluteString }
+
+    /// The share links of this job's uploads, one per line, without repeats ("" when it has none).
+    var shareLinks: String {
+        var seen: Set<String> = []
+        return uploads.map { $0.link.absoluteString }.filter { seen.insert($0).inserted }.joined(separator: "\n")
+    }
 
     func files(in directory: URL) -> [URL] {
         fileNames.map { name in

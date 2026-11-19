@@ -54,6 +54,7 @@ import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.SourceOptionGroup
 import com.shirochi.npia.app.model.editRunSettings
 import com.shirochi.npia.core.AppSettings
+import com.shirochi.npia.core.ChapterRangeText
 import com.shirochi.npia.core.EngineSettings
 import com.shirochi.npia.core.ImageFormat
 import com.shirochi.npia.core.OutputFormat
@@ -161,31 +162,26 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             }
         }
         FieldFlow {
+            // One box each, typed like pages in a print dialog (4 or 4-7), so both fit on a row.
             FieldGroup {
-                // A wrong entry stays in its field, marked red, until it is fixed; only valid numbers are saved.
-                var badFrom by remember { mutableStateOf(false) }
-                var badTo by remember { mutableStateOf(false) }
-                val crossed = run.rangeFrom != null && run.rangeTo != null && run.rangeFrom!! > run.rangeTo!!
-                MiniLabel("Chapter Range")
-                MiniLabel("From")
-                MiniNumberField(run.rangeFrom?.toString().orEmpty(), "first", decimal = false, error = badFrom || crossed) { t ->
-                    val number = t.trim().toIntOrNull()
-                    badFrom = t.isNotBlank() && (number == null || number < 1)
-                    if (t.isBlank()) edit { it.copy(rangeFrom = null) } else if (!badFrom) edit { it.copy(rangeFrom = number) }
-                }
-                MiniLabel("To")
-                MiniNumberField(run.rangeTo?.toString().orEmpty(), "end", decimal = false, error = badTo || crossed) { t ->
-                    val number = t.trim().toIntOrNull()
-                    badTo = t.isNotBlank() && (number == null || number < 1)
-                    if (t.isBlank()) edit { it.copy(rangeTo = null) } else if (!badTo) edit { it.copy(rangeTo = number) }
+                MiniLabel("Chapters")
+                MiniRangeField(run.rangeFrom, run.rangeTo, "all") { low, high -> edit { it.copy(rangeFrom = low, rangeTo = high) } }
+            }
+            FieldGroup {
+                ToggleChip("Auto purchase", run.autoPurchase) { v -> edit { it.copy(autoPurchase = v) } }
+                MiniRangeField(run.purchaseFrom, run.purchaseTo, "4 or 4-7", enabled = run.autoPurchase) { low, high ->
+                    edit { it.copy(purchaseFrom = low, purchaseTo = high) }
                 }
             }
         }
-        val rangeFrom = run.rangeFrom
-        val rangeTo = run.rangeTo
-        if (rangeFrom != null && rangeTo != null && rangeFrom > rangeTo) {
-            Text("From is after To, so only chapter $rangeFrom will be downloaded.", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+        if (run.autoPurchase) {
+            Text(
+                if (run.purchaseRange == null) "Auto purchase needs its chapters, such as 4 or 4-7."
+                else "Locked chapters ${ChapterRangeText.label(run.purchaseFrom, run.purchaseTo)} are unlocked with free tickets first (a gift, then wait-for-free). Never pays. kpage only for now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (run.purchaseRange == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
         ChipFlow {
             ToggleChip("Skip paid", run.skipPaid) { v -> edit { it.copy(skipPaid = v) } }

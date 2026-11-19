@@ -103,15 +103,27 @@ struct AddURLView: View {
                     Text("s").font(.caption).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
-                HStack(spacing: 8) {
-                    Text("Chapter Range").font(.subheadline)
-                    CompactNumber(title: "From", value: rangeBinding(\.rangeFrom, \.rangeFrom), marked: rangeCrossed)
-                    CompactNumber(title: "To", value: rangeBinding(\.rangeTo, \.rangeTo), marked: rangeCrossed)
-                    Spacer(minLength: 0)
+                // One box each, typed like pages in a print dialog (4 or 4-7), so both fit on a row.
+                FlowLayout(spacing: 14) {
+                    HStack(spacing: 6) {
+                        Text("Chapters").font(.subheadline)
+                        CompactRange(placeholder: "all", from: rangeBinding(\.rangeFrom, \.rangeFrom), to: rangeBinding(\.rangeTo, \.rangeTo))
+                    }
+                    HStack(spacing: 6) {
+                        ChipToggle(title: "Auto purchase", isOn: sharedOnly(\.autoPurchase))
+                        CompactRange(placeholder: "4 or 4-7", from: sharedOnly(\.purchaseFrom), to: sharedOnly(\.purchaseTo))
+                            .disabled(!model.settings.shared.autoPurchase)
+                            .opacity(model.settings.shared.autoPurchase ? 1 : 0.4)
+                    }
                 }
-                if rangeCrossed, let from = effective.rangeFrom {
-                    Text("From is after To, so only chapter \(from) will be downloaded.")
-                        .font(.caption).foregroundStyle(.red)
+                if model.settings.shared.autoPurchase {
+                    if model.settings.shared.purchaseRange == nil {
+                        Text("Auto purchase needs its chapters, such as 4 or 4-7.")
+                            .font(.caption).foregroundStyle(.red)
+                    } else {
+                        Text("Locked chapters \(ChapterRangeText.label(from: model.settings.shared.purchaseFrom, to: model.settings.shared.purchaseTo)) are unlocked with free tickets first (a gift, then wait-for-free). Never pays. kpage only for now.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 FlowLayout(spacing: 8) {
                     ChipToggle(title: "Skip paid", isOn: sharedOnly(\.skipPaid))
@@ -170,11 +182,6 @@ struct AddURLView: View {
 
     private func sharedOnly<T>(_ path: WritableKeyPath<SharedSettings, T>) -> Binding<T> {
         Binding(get: { model.settings.shared[keyPath: path] }, set: { model.settings.shared[keyPath: path] = $0 })
-    }
-
-    private var rangeCrossed: Bool {
-        guard let from = effective.rangeFrom, let to = effective.rangeTo else { return false }
-        return from > to
     }
 
     private func rangeBinding(_ sharedPath: WritableKeyPath<SharedSettings, Int?>, _ overridePath: WritableKeyPath<SharedOverrides, Int?>) -> Binding<Int?> {

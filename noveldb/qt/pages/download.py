@@ -29,7 +29,7 @@ from noveldb.core.sources import BROWSER, detect_source, engine_for, split_input
 from noveldb.qt.context import AppContext
 from noveldb.qt import icons
 from noveldb.qt.scale import bind_size, bind_title, on_scale
-from noveldb.qt.widgets import Chip, dspin, field_group, flow, hint, section, set_quietly, spin
+from noveldb.qt.widgets import Chip, RangeField, dspin, field_group, flow, hint, section, set_quietly, spin
 
 NL = chr(10)
 FORMAT_LABELS = {"epub": "EPUB", "txt": "TXT", "pdf": "PDF", "cbz": "CBZ", "folder": "Folder", "zip": "ZIP"}
@@ -197,9 +197,21 @@ class DownloadPage(QWidget):
                         field_group("Max", self.interval_max),
                         field_group("Retries", self.retries), spacing=18)
 
-        self.range_from = spin(0, 0, 999_999, lambda v: self._run(range_from=v or None), special="First")
-        self.range_to = spin(0, 0, 999_999, lambda v: self._run(range_to=v or None), special="Last")
-        range_row = flow(field_group("Chapters  From", self.range_from), field_group("To", self.range_to), spacing=18)
+        # One field each, typed like pages in a print dialog (4 or 4-7), so both fit on a row.
+        self.range = RangeField(lambda low, high: self._run(range_from=low, range_to=high))
+        self.auto_purchase = Chip("Auto purchase", on_change=lambda on: self._run(auto_purchase=on))
+        self.auto_purchase.setToolTip(
+            "Unlocks the paid chapters in its range with the account's free tickets before downloading "
+            "them: a gift ticket first, then a wait-for-free ticket, then tickets you already hold. "
+            "It never pays with cash. kpage only for now.")
+        self.purchase_range = RangeField(lambda low, high: self._run(purchase_from=low, purchase_to=high), "4 or 4-7")
+        purchase_group = QWidget()
+        pl = QHBoxLayout(purchase_group)
+        pl.setContentsMargins(0, 0, 0, 0)
+        pl.setSpacing(6)
+        pl.addWidget(self.auto_purchase)
+        pl.addWidget(self.purchase_range)
+        range_row = flow(field_group("Chapters", self.range), purchase_group, spacing=18)
 
         self.skip_paid = Chip("Skip paid", on_change=lambda on: self._run(skip_paid=on))
         self.number_chapters = Chip("Number chapters", on_change=lambda on: self._run(number_chapters=on))
@@ -415,8 +427,10 @@ class DownloadPage(QWidget):
         set_quietly(self.interval_min, lo)
         set_quietly(self.interval_max, hi)
         set_quietly(self.retries, run.max_retries)
-        set_quietly(self.range_from, run.range_from or 0)
-        set_quietly(self.range_to, run.range_to or 0)
+        self.range.set_range(run.range_from, run.range_to)
+        self.auto_purchase.set_quietly(run.auto_purchase)
+        self.purchase_range.set_range(run.purchase_from, run.purchase_to)
+        self.purchase_range.setEnabled(run.auto_purchase)
         self.skip_paid.set_quietly(run.skip_paid)
         self.number_chapters.set_quietly(run.number_chapters)
         self.generate_on_stop.set_quietly(run.generate_on_stop)

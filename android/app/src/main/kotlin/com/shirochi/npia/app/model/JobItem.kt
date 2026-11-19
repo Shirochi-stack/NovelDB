@@ -47,8 +47,16 @@ data class JobItem(
     val createdAt: Long = System.currentTimeMillis(),
     val finishedAt: Long? = null,
     val stopRequested: Boolean = false,
+    /**
+     * "Upload chapters": this job writes only the chapter range in its settings (from the cache
+     * where it has the chapters) and uploads the files, whatever "Upload finished files" says.
+     */
+    val uploadChapters: Boolean = false,
 ) {
     val displayTitle: String get() = title ?: url
+
+    /** The share links of this job's uploads, one per line, without repeats ("" when it has none). */
+    val shareLinks: String get() = uploads.map { it.link }.distinct().joinToString("\n")
 
     fun files(directory: File): List<File> = fileNames.map { File(directory, it) }
 

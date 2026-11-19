@@ -49,6 +49,9 @@ object DesktopConfig {
             pageLoadTimeoutSeconds = c.int("page_load_timeout")?.coerceIn(10, 600) ?: b.pageLoadTimeoutSeconds,
             namingMode = when (c.string("naming_mode")) { "id" -> NamingMode.ID; "title" -> NamingMode.TITLE; else -> b.namingMode },
             appendRange = c.bool("append_range") ?: b.appendRange,
+            autoPurchase = c.bool("auto_purchase") ?: b.autoPurchase,
+            purchaseFrom = if (c.bool("auto_purchase") != null) c.int("purchase_from") else b.purchaseFrom,
+            purchaseTo = if (c.bool("auto_purchase") != null) c.int("purchase_to") else b.purchaseTo,
         )
 
         val npia = SharedOverrides(
@@ -203,6 +206,9 @@ object DesktopConfig {
         put("page_load_timeout", shared.pageLoadTimeoutSeconds)
         put("naming_mode", if (shared.namingMode == NamingMode.ID) "id" else "title")
         put("append_range", shared.appendRange)
+        put("auto_purchase", shared.autoPurchase)
+        shared.purchaseFrom?.let { put("purchase_from", it) }
+        shared.purchaseTo?.let { put("purchase_to", it) }
 
         put("thread_num", npia.threads)
         put("interval_num", npia.intervalMin)

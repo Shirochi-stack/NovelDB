@@ -32,6 +32,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import com.shirochi.npia.core.ChapterRangeText
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -135,6 +139,10 @@ private fun QueueJobs(
     val manager = model.manager
     val context = LocalContext.current
     var reading by remember { mutableStateOf<File?>(null) }
+    // The jobs "Upload chapters" was tapped for, while its dialog asks for the range.
+    var uploadChapters by remember { mutableStateOf<List<String>?>(null) }
+    // The selected jobs' links and files, while "Share" asks which of the two to hand over.
+    var shareChoice by remember { mutableStateOf<Pair<String, List<File>>?>(null) }
     if (jobs.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No downloads yet. Add a URL to start.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -195,12 +203,21 @@ private fun QueueJobs(
                                                 if (book != null) reading = book
                                                 else if (!FileActions.open(context, files[0])) manager.message("No app can open ${files[0].name}")
                                             }) { Text("Open") }
-                                            TextButton(onClick = { FileActions.share(context, files) }) { Text("Share") }
+                                            // An uploaded book shares its link; the file is the other button, named as such.
+                                            if (job.uploads.isNotEmpty()) {
+                                                TextButton(onClick = { FileActions.shareText(context, job.shareLinks) }) { Text("Share link") }
+                                            }
+                                            TextButton(onClick = { FileActions.share(context, files) }) {
+                                                Text(if (job.uploads.isNotEmpty()) "Share file" else "Share")
+                                            }
                                             if (canSelect) {
                                                 TextButton(onClick = {
                                                     model.requestUpload { if (!manager.uploadJobs(listOf(job.id))) manager.message("Nothing left to upload.") }
                                                 }) { Text("Upload") }
                                             }
+                                        }
+                                        if (job.libraryTarget == null) {
+                                            TextButton(onClick = { uploadChapters = listOf(job.id) }) { Text("Upload chapters") }
                                         }
                                         TextButton(onClick = { manager.remove(job.id, deleteFiles = false) }) { Text("Remove") }
                                     }
@@ -233,7 +250,10 @@ private fun QueueJobs(
                     OutlinedButton(
                         enabled = selectedFiles.isNotEmpty(),
                         onClick = {
-                            if (FileActions.share(context, selectedFiles)) onSelection(selection.clear()) else manager.message("Nothing left to share.")
+                            // Uploaded books have links to share: ask which, instead of sending the files.
+                            val links = jobs.filter { it.id in selection.ids }.flatMap { job -> job.uploads.map { it.link } }.distinct().joinToString("\n")
+                            if (links.isNotEmpty()) shareChoice = links to selectedFiles
+                            else if (FileActions.share(context, selectedFiles)) onSelection(selection.clear()) else manager.message("Nothing left to share.")
                         },
                     ) { Text("Share") }
                     Button(
@@ -246,9 +266,74 @@ private fun QueueJobs(
                     ) { Text("Upload") }
                 }
             }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(enabled = selection.count > 0, onClick = { uploadChapters = selection.ids.toList() }) { Text("Upload chapters") }
+            }
         }
     }
     reading?.let { file -> LibraryReader(file, model) { reading = null } }
+    uploadChapters?.let { ids ->
+        UploadChaptersDialog(ids.size, onDismiss = { uploadChapters = null }) { from, to ->
+            uploadChapters = null
+            model.requestUpload { if (!manager.uploadChapters(ids, from, to)) manager.message("Nothing to upload chapters of.") }
+            if (selection.active) onSelection(selection.clear())
+        }
+    }
+    shareChoice?.let { (links, files) ->
+        AlertDialog(
+            onDismissRequest = { shareChoice = null },
+            title = { Text("Share what?") },
+            text = { Text("These downloads were uploaded. Share their links, or the ${files.size} file${if (files.size == 1) "" else "s"} themselves.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    shareChoice = null
+                    if (FileActions.shareText(context, links)) onSelection(selection.clear())
+                }) { Text("Share links") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    shareChoice = null
+                    if (FileActions.share(context, files)) onSelection(selection.clear()) else manager.message("Nothing left to share.")
+                }) { Text("Share files") }
+            },
+        )
+    }
+}
+
+/**
+ * Asks which chapters to upload (`4` or `4-7`). The books are written again for just those chapters,
+ * in the output formats selected on the Add tab, and uploaded.
+ */
+@Composable
+fun UploadChaptersDialog(books: Int, onDismiss: () -> Unit, onUpload: (Int, Int) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    val (from, to) = ChapterRangeText.parse(text)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Upload chapters") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Chapters of ${if (books == 1) "this book" else "each of the $books books"} to upload, such as 4 or 4-7. " +
+                        "They are written in the output formats selected on the Add tab; chapters already downloaded are not fetched again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    label = { Text("Chapters") },
+                    placeholder = { Text("4 or 4-7") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    supportingText = { if (from != null && to != null) Text("Uploads chapter${if (to > from) "s" else ""} ${ChapterRangeText.label(from, to)}") },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = from != null && to != null, onClick = { if (from != null && to != null) onUpload(from, to) }) { Text("Upload") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

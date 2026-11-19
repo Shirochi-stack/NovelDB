@@ -57,10 +57,27 @@ public protocol SourceAdapter: Sendable {
     func parseChapter(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> ChapterResult
     /// Defaults to `parseChapter` with `threads` concurrent tasks; override for batch APIs.
     func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult]
+    /// Auto purchase: unlocks the paid chapter `ref` with what the account already holds (a gift or
+    /// wait-for-free ticket), never with money. The default has no purchase step.
+    func unlock(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> UnlockResult
+}
+
+/// What `SourceAdapter.unlock` did with one paid chapter.
+public enum UnlockResult: Sendable, Equatable {
+    /// The chapter is open to the account now; `with` says what paid for it ("a gift ticket").
+    case unlocked(with: String)
+    /// Nothing the account holds opens it; nothing was bought.
+    case noTicket(reason: String)
+    /// The account is signed out, so no chapter of this book can be unlocked.
+    case signedOut
+    /// This source has no purchase step.
+    case unsupported
 }
 
 public extension SourceAdapter {
     static var sites: Set<String> { [] }
+
+    func unlock(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> UnlockResult { .unsupported }
 
     static func ownsSite(_ host: String) -> Bool {
         sites.contains { host == $0 || host.hasSuffix("." + $0) }

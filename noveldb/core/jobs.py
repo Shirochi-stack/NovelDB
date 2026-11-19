@@ -50,6 +50,13 @@ class JobDispatcher:
             settings = replace(settings, overrides={}, shared=replace(requested, formats=("epub",),
                                range_from=None, range_to=None, append_range=False, use_cache=True,
                                generate_on_stop=False), upload=replace(settings.upload, auto_upload=False))
+        elif len(job.upload_range or ()) == 2:
+            # The chapters to share, in this source's selected formats; cached chapters are reused.
+            low, high = job.upload_range
+            job.download_ranged = True
+            settings = replace(settings, overrides={}, shared=replace(
+                requested, range_from=low, range_to=high, use_cache=True, auto_purchase=False,
+                generate_on_stop=False))
         net_timeouts.configure_from(settings)  # the minimum waits this job runs with
         events = self._events_for(job)
         output_dir = output_dir or job.output_dir or None

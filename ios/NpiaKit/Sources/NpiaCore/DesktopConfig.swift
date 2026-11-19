@@ -45,6 +45,11 @@ public enum DesktopConfig {
         s.shared.pageLoadTimeoutSeconds = int(c["page_load_timeout"]).map { min(600, max(10, $0)) } ?? s.shared.pageLoadTimeoutSeconds
         s.shared.namingMode = (c["naming_mode"] as? String).flatMap(NamingMode.init(rawValue:)) ?? s.shared.namingMode
         s.shared.appendRange = bool(c["append_range"]) ?? s.shared.appendRange
+        if let autoPurchase = bool(c["auto_purchase"]) {
+            s.shared.autoPurchase = autoPurchase
+            s.shared.purchaseFrom = int(c["purchase_from"])
+            s.shared.purchaseTo = int(c["purchase_to"])
+        }
 
         // npia values, stored only where they differ from shared.
         var npia = SharedOverrides()
@@ -175,6 +180,9 @@ public enum DesktopConfig {
         c["page_load_timeout"] = shared.pageLoadTimeoutSeconds
         c["naming_mode"] = shared.namingMode.rawValue
         c["append_range"] = shared.appendRange
+        c["auto_purchase"] = shared.autoPurchase
+        if let purchaseFrom = shared.purchaseFrom { c["purchase_from"] = purchaseFrom }
+        if let purchaseTo = shared.purchaseTo { c["purchase_to"] = purchaseTo }
 
         c["thread_num"] = npia.threads
         c["interval_num"] = npia.intervalMin

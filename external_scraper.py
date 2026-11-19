@@ -16509,6 +16509,157 @@ async (ids) => {
         )
         return None
 
+    # What each ticket code of the site is, for the log. RT: a rental ticket, TT: one that keeps the
+    # episode. Every one of them is a ticket the account already holds; none is bought here.
+    _KPAGE_TICKET_NAMES = {
+        'RT00': 'new member gift ticket', 'RT05': 'wait-for-free ticket',
+        'RT06': 'gift ticket', 'RT07': 'gift ticket', 'RT10': 'wait-for-free ticket',
+        'TT05': 'wait-for-free ticket', 'TT06': 'gift ticket', 'TT07': 'gift ticket',
+    }
+
+    _KPAGE_TICKET_JS = r"""
+    async ([seriesId, productId, claim, preferred]) => {
+        // The gateway sits on the page's own host with a "bff-" prefix.
+        const api = 'https://bff-' + location.host.replace(/^bff-/, '') + '/api/gateway/api/v1';
+        const out = { claimed: [], tried: [], used: '', login: false, error: '' };
+        const call = async (path, form) => {
+            const options = { credentials: 'include' };
+            if (form) {
+                options.method = 'POST';
+                options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+                options.body = new URLSearchParams(form).toString();
+            }
+            try {
+                const response = await fetch(api + path, options);
+                let data = null;
+                try { data = await response.json(); } catch (e) {}
+                return { status: response.status, data: data || {} };
+            } catch (e) {
+                return { status: 0, data: { message: String(e) } };
+            }
+        };
+        const code = (answer) => Number(answer.data.result_code ?? -1);
+        const why = (answer) => String(answer.data.message || answer.data.message_key || ('HTTP ' + answer.status));
+        const signedOut = (answer) => answer.status === 401
+            || /authorize|login/i.test(String(answer.data.message_key || ''));
+
+        if (claim) {
+            // Opening a book's page hands over the free tickets waiting for it; this is that request.
+            const waiting = await call('/ticket/free_check?series_id=' + seriesId);
+            if (signedOut(waiting)) { out.login = true; return out; }
+            for (const item of ((waiting.data.result || {}).list || [])) {
+                if (item && item.ticket_type) out.claimed.push(String(item.ticket_type));
+            }
+            // The page's "Receive" button for a gift ticket.
+            const overview = await call('/content/overview?series_id=' + seriesId);
+            const seen = new Set();
+            const find = (value) => {
+                if (!value || typeof value !== 'object' || seen.has(value)) return null;
+                seen.add(value);
+                if (value.today_gift && typeof value.today_gift === 'object') return value.today_gift;
+                for (const child of Object.values(value)) {
+                    const found = find(child);
+                    if (found) return found;
+                }
+                return null;
+            };
+            const gift = find(overview.data);
+            const uid = gift && (gift.today_gift_uid || gift.uid);
+            if (uid && gift.is_received !== true && gift.received !== true) {
+                const received = await call('/ticket/free', { uid: String(uid), series_id: String(seriesId), type: 'TODAY_GIFT' });
+                if (code(received) === 0) out.claimed.push(String(gift.ticket_type || 'RT06'));
+                else out.giftError = why(received);
+            }
+        }
+
+        const ready = await call('/ticket/ready_to_use?product_id=' + productId + '&include_series=true');
+        if (signedOut(ready)) { out.login = true; return out; }
+        const result = ready.data.result || {};
+        const available = result.available || {};
+        out.access = String((result.single || {}).read_access_type || '');
+        const my = result.my || {};
+        out.rental = Number(my.ticket_rental_count || 0);
+        out.own = Number(my.ticket_own_count || 0);
+        // Gift tickets first, then what the site itself would use: a rental ticket before one that keeps the episode.
+        const order = [];
+        for (const type of [...(preferred || []), ...out.claimed, available.ticket_rental_type, available.ticket_own_type]) {
+            if (type && /^(RT|TT)\d+$/.test(String(type)) && !order.includes(String(type))) order.push(String(type));
+        }
+        if (!order.length) {
+            out.error = code(ready) === 0 ? 'no ticket available' : why(ready);
+            return out;
+        }
+        for (const type of order) {
+            const used = await call('/ticket/use', { product_id: String(productId), ticket_type: type });
+            out.tried.push(type);
+            if (code(used) === 0) {
+                out.used = type;
+                out.chargedAt = String((used.data.result || {}).waitfree_charged_at || '');
+                return out;
+            }
+            out.error = why(used);
+        }
+        return out;
+    }
+    """
+
+    def kpage_auto_purchase(self, chapter):
+        """Unlock one paid episode with a ticket the account already holds; True when it opened.
+
+        Free tickets go first (a gift the page offers is received, then used; then the
+        wait-for-free ticket), then the account's own rental and keep tickets. Nothing is ever
+        bought: the site's cash endpoints are not called. "login" when the account is signed out.
+        """
+        target = self._page
+        url = chapter.get('url') or ''
+        name = chapter.get('fullName') or chapter.get('name') or 'episode'
+        m = re.search(r'/content/(\d+)/viewer/(\d+)', url)
+        if target is None or not m:
+            return False
+        series, product = m.group(1), m.group(2)
+        site = url.split('/content/')[0]
+        try:
+            current = target.url or ''
+        except Exception:
+            current = ''
+        if not current.startswith(site) or 'tab_type=about' in current:
+            try:
+                target.goto(f'{site}/content/{series}', wait_until='domcontentloaded',
+                            timeout=_page_ms(30000))
+                target.wait_for_timeout(1000)
+            except Exception as e:
+                self.log(f"  [Kpage] Auto purchase: could not open the book page: {e}")
+                return False
+        claimed = getattr(self, '_kpage_claimed', None)
+        if claimed is None:
+            claimed = self._kpage_claimed = {}
+        first = series not in claimed
+        try:
+            answer = target.evaluate(self._KPAGE_TICKET_JS,
+                                     [series, product, first, claimed.get(series, [])]) or {}
+        except Exception as e:
+            self.log(f"  [Kpage] Auto purchase failed for {name}: {e}")
+            return False
+        if answer.get('login'):
+            self.log("  [Kpage] Auto purchase needs a signed-in account. Sign in with Enter Browser, "
+                     "then download again.")
+            return 'login'
+        if first:
+            claimed[series] = list(answer.get('claimed') or [])
+            if claimed[series]:
+                self.log(f"  [Kpage] Received {len(claimed[series])} free ticket(s) for this book.")
+            elif answer.get('giftError'):
+                self.log(f"  [Kpage] Gift ticket not received: {answer['giftError']}")
+        used = answer.get('used')
+        if used:
+            kind = self._KPAGE_TICKET_NAMES.get(
+                used, 'rental ticket' if used.startswith('RT') else 'ticket')
+            self.log(f"  [Kpage] Auto purchase: {name} unlocked with a {kind}.")
+            return True
+        reason = answer.get('error') or 'no ticket available'
+        self.log(f"  [Kpage] Auto purchase: no ticket for {name} ({reason}). Nothing was bought.")
+        return False
+
     @staticmethod
     def _kpage_strip_headings(para_tuples):
         """Remove redundant episode heading paragraphs from chapter text.
