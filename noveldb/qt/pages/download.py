@@ -558,9 +558,23 @@ class DownloadPage(QWidget):
         seen = set(lines)
         return lines + [url for url in self.context.cart.urls if url not in seen]
 
+    def show_browser_opening(self, opening: bool, profile: int = 0) -> None:
+        """While the Enter Browser window is on its way the button says so; Chrome takes a few
+        seconds to set up a profile it has not used before, and nothing else shows that it is coming."""
+        self._browser_opening = opening
+        if opening:
+            self.enter_browser.setText("Opening...")
+            self.context.hub.message.emit(
+                f"Opening Enter Browser{f' (profile #{profile})' if profile else ''}... "
+                "the first time with a new profile takes a few seconds.")
+        else:
+            self.enter_browser.setText("Enter Browser")
+        self._update_enter_browser()
+
     def _update_enter_browser(self) -> None:
         downloading = any(job.active for job in self.context.runner.jobs)
-        self.enter_browser.setEnabled(self._enter_browser_ok and not downloading)
+        opening = getattr(self, "_browser_opening", False)
+        self.enter_browser.setEnabled(self._enter_browser_ok and not downloading and not opening)
         self.enter_browser.setToolTip(
             self._enter_browser_reason
             or ("Available again when the downloads finish (they use the same browser profile)." if downloading

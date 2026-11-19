@@ -3190,7 +3190,6 @@ class ExternalScraper(SiteEnginesMixin):
         reported_profile_wait = False
         next_cookie_snapshot = 0
         reported_session_cookies = False
-        self._login_release_requested = False
         self._login_wait_active = True
         try:
             return self._wait_for_login_window(
@@ -3552,12 +3551,27 @@ class ExternalScraper(SiteEnginesMixin):
         except Exception:
             return 80, 60, width, height
 
+    @staticmethod
+    def _display_scale():
+        """The primary display's scale (1.5 at 150%); 1.0 where it is unknown."""
+        if sys.platform != "win32":
+            return 1.0
+        try:
+            dpi = ctypes.windll.user32.GetDpiForSystem()
+            return max(1.0, float(dpi) / 96.0) if dpi else 1.0
+        except Exception:
+            return 1.0
+
     @classmethod
     def _centered_chrome_window_args(cls):
+        # The geometry is in real pixels (this process is DPI aware), but Chrome reads these two
+        # switches in scaled units. Passed as they were, a 150% display put the window half as far
+        # again down and to the right, off toward the next screen, until it was moved back.
         x, y, width, height = cls._centered_chrome_window_geometry()
+        scale = cls._display_scale()
         return [
-            f"--window-position={x},{y}",
-            f"--window-size={width},{height}",
+            f"--window-position={int(round(x / scale))},{int(round(y / scale))}",
+            f"--window-size={int(round(width / scale))},{int(round(height / scale))}",
         ]
 
     @staticmethod
@@ -4217,6 +4231,10 @@ class ExternalScraper(SiteEnginesMixin):
         """
         # Must close any existing context first (only one per data dir)
         self.cleanup()
+        # A download may ask for this window to close at any point from here on, also while it is
+        # still opening; the wait below acts on it (see release_login_browser).
+        self._login_release_requested = False
+        self._login_wait_active = True
 
         use_regular = (
             regular_browser
@@ -4356,6 +4374,7 @@ class ExternalScraper(SiteEnginesMixin):
                 headless=False,
                 args=visible_args,
                 ignore_https_errors=True,
+                no_viewport=True,
             )
             self.log("Using installed Google Chrome for login.")
         except Exception as chrome_error:
@@ -4393,13 +4412,11 @@ class ExternalScraper(SiteEnginesMixin):
         self._restore_storage_state()
         page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page = page
-        self._center_profile_browser_windows(
-            user_data_dir,
-            timeout=5,
-            focus=True,
-        )
+        # The window is up: say so and load the site first. Finding the window to confirm its place
+        # and focus it takes a few seconds (a process scan), which used to leave a blank page waiting.
+        self.log("Browser opened. Login to sites as needed, then close the browser.")
         try:
-            page.goto(start_url)
+            page.goto(start_url, wait_until="commit")
         except Exception as e:
             msg = str(e)
             benign = (
@@ -4410,7 +4427,11 @@ class ExternalScraper(SiteEnginesMixin):
             )
             if not benign:
                 self.log(f"Browser navigation warning: {e}")
-        self.log("Browser opened. Login to sites as needed, then close the browser.")
+        self._center_profile_browser_windows(
+            user_data_dir,
+            timeout=5,
+            focus=True,
+        )
 
         # Wait for the browser to fully close.  We listen on the *context*
         # "close" event rather than the page – this fires only after
@@ -4420,7 +4441,6 @@ class ExternalScraper(SiteEnginesMixin):
         # a race: cleanup() would call context.close() while Chromium was
         # still mid-shutdown, interrupting the disk flush and losing the
         # login session.
-        self._login_release_requested = False
         self._login_wait_active = True
         try:
             waited = 0

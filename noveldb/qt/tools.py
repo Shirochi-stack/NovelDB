@@ -53,6 +53,7 @@ def available(tool: str) -> tuple[bool, str]:
 
 class _Done(QObject):
     finished = Signal(str, object, str)  # tool, result, error
+    browserShown = Signal()  # the Enter Browser window is up (or failed to open)
 
 
 class SfcSessionDialog(QDialog):
@@ -96,6 +97,7 @@ class Tools(QObject):
         self._tag_dialog = None
         self._done = _Done()
         self._done.finished.connect(self._finished, Qt.QueuedConnection)
+        self._done.browserShown.connect(lambda: self._browser_opening(False), Qt.QueuedConnection)
 
     def run(self, tool: str) -> None:
         ok, reason = available(tool)
@@ -156,6 +158,12 @@ class Tools(QObject):
 
     # -- browser worker tools --------------------------------------------------------------------
 
+    def _browser_opening(self, opening: bool, profile: int = 0) -> None:
+        """Show on the Enter Browser button that its window is on the way."""
+        show = getattr(getattr(self.window, "download", None), "show_browser_opening", None)
+        if callable(show):
+            show(opening, profile)
+
     def _submit(self, tool: str, call) -> None:
         if self.context.browser is None:
             self.context.hub.message.emit("The browser worker is not running.")
@@ -163,6 +171,9 @@ class Tools(QObject):
 
         def log(text):
             self.context.hub.log("", text)
+            # The window is up once the scraper says so (a new profile takes Chrome a few seconds).
+            if tool == "enter_browser" and ("Browser opened" in str(text) or "Using normal installed Chrome" in str(text)):
+                self._done.browserShown.emit()
 
         def done(future, tool=tool):
             try:
@@ -190,6 +201,7 @@ class Tools(QObject):
 
         if not regular:
             self.context.hub.log("", f"Enter Browser: profile #{profile}.")
+        self._browser_opening(True, 0 if regular else profile)
         self._submit("enter_browser", open_browser)
 
     def _sfc_app(self) -> None:
@@ -232,6 +244,8 @@ class Tools(QObject):
         self._submit("sfc_copy", lambda scraper: scraper.sfc_app_cookie_header())
 
     def _finished(self, tool: str, result, error: str) -> None:
+        if tool == "enter_browser":
+            self._browser_opening(False)
         if error:
             self.context.hub.log("", f"{tool.replace('_', ' ')} failed: {error}")
             self.context.hub.message.emit(f"Failed: {error}")
