@@ -55,7 +55,8 @@ object Writers {
         var name = if (settings.namingMode == NamingMode.ID) book.id else book.title
         if (settings.rangeFrom != null || settings.rangeTo != null) {
             val range = settings.chapterRange
-            name += " (${ChapterRangeText.label(settings.rangeFrom, if (settings.rangeTo == null) null else range.last)})"
+            val to = if (settings.rangeTo == null) null else range.last
+            name += " (${ChapterRangeText.named(settings.rangeFrom, to, settings.rangeList)})"
         }
         val cleaned = name.map { if (it in "/\\:*?\"<>|" || it.isISOControl()) '_' else it }.joinToString("").trim()
         return if (cleaned.isEmpty()) book.id else cleaned.take(180)

@@ -336,13 +336,13 @@ class DownloadManager(private val app: Application) {
      * is written in the output formats selected now (cached chapters are not downloaded again),
      * named after the range, and uploaded. False when none of the jobs can be queued.
      */
-    fun uploadChapters(ids: Collection<String>, from: Int, to: Int): Boolean {
+    fun uploadChapters(ids: Collection<String>, from: Int, to: Int, list: String = ""): Boolean {
         val books = ids.mapNotNull(::job).filter { !it.state.isActive && it.libraryTarget == null }.distinctBy { it.url }
         if (books.isEmpty()) return false
         val current = _settings.value
         val added = books.map { old ->
             val shared = (old.source?.let(current::effective) ?: current.shared).copy(
-                rangeFrom = from, rangeTo = to, useCache = true, autoPurchase = false, generateOnStop = false,
+                rangeFrom = from, rangeTo = to, rangeList = list, useCache = true, autoPurchase = false, generateOnStop = false,
             )
             JobItem(
                 url = old.url, source = old.source, title = old.title, bookId = old.bookId, uploadChapters = true,
@@ -350,7 +350,7 @@ class DownloadManager(private val app: Application) {
             )
         }
         _jobs.update { added + it }
-        val label = com.shirochi.npia.core.ChapterRangeText.label(from, to)
+        val label = com.shirochi.npia.core.ChapterRangeText.named(from, to, list)
         added.forEach { jobLog(it.id, LogLevel.INFO, "Queued to upload chapters $label: ${it.url}") }
         persistJobs()
         startNext()

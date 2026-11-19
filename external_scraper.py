@@ -2800,15 +2800,17 @@ class ExternalScraper(SiteEnginesMixin):
         return False
 
     # Chrome drops site session cookies when the Enter Browser window closes.
-    # Downloads start in a new Chrome process, so preserve RBOOKS and Kobo
-    # logins alongside Qdn's until that process can restore them.
+    # Downloads start in a new Chrome process, so preserve RBOOKS, Kobo and
+    # Kpage logins alongside Qdn's until that process can restore them.
     _SESSION_COOKIE_DOMAINS = (
         '\u0071\u0069\u0064\u0069\u0061\u006e.com',
         '\u0077\u0065\u0062\u006e\u006f\u0076\u0065\u006c.com',
         'yuewen.com',
         '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com',
         'kobo.com',
+        '\u006b\u0061\u006b\u0061\u006f.com',
     )
+    _KPAGE_COOKIE_DOMAIN = '\u006b\u0061\u006b\u0061\u006f.com'
 
     @classmethod
     def _get_session_cookie_path(cls):
@@ -15904,6 +15906,12 @@ async (ids) => {
         if not self._page:
             self.start()
         self._stop_requested = False
+        # The site's login cookie lasts one browser session, so Chrome drops it
+        # when Enter Browser closes. Put back the copy saved at that moment.
+        restored = self._restore_session_cookies(self._KPAGE_COOKIE_DOMAIN)
+        if restored:
+            self.log(f"[Kpage] Restored {restored} session login cookie(s) "
+                     "from Enter Browser.")
         self.log(f"[Kpage] Navigating to: {url}")
 
         # Extract series ID from URL

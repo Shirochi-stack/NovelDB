@@ -67,21 +67,21 @@ struct QueueView: View {
             if section == .log { endSelection() }
         }
         .alert("Upload chapters", isPresented: $askChapters) {
-            TextField("4 or 4-7", text: $chapterText)
+            TextField("4, 4-7 or 4,7", text: $chapterText)
                 .keyboardType(.numbersAndPunctuation)
             Button("Upload") {
-                let range = ChapterRangeText.parse(chapterText)
+                let range = ChapterRangeText.read(chapterText)
                 if let from = range.from, let to = range.to {
-                    model.uploadChapters(jobs: chapterJobs, from: from, to: to)
+                    model.uploadChapters(jobs: chapterJobs, from: from, to: to, list: range.list)
                     endSelection()
                 } else {
-                    model.message = "Type the chapters to upload, such as 4 or 4-7."
+                    model.message = "Type the chapters to upload, such as 4, 4-7 or 4,7."
                 }
                 chapterJobs = []
             }
             Button("Cancel", role: .cancel) { chapterJobs = [] }
         } message: {
-            Text("Chapters of \(chapterJobs.count == 1 ? "this book" : "each of the \(chapterJobs.count) books") to upload, such as 4 or 4-7. They are written in the output formats selected on the Add tab; chapters already downloaded are not fetched again.")
+            Text("Chapters of \(chapterJobs.count == 1 ? "this book" : "each of the \(chapterJobs.count) books") to upload, such as 4, 4-7 or 4,7. They are written in the output formats selected on the Add tab; chapters already downloaded are not fetched again.")
         }
     }
 

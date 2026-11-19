@@ -50,6 +50,8 @@ public enum DesktopConfig {
             s.shared.purchaseFrom = int(c["purchase_from"])
             s.shared.purchaseTo = int(c["purchase_to"])
         }
+        s.shared.rangeList = (c["ext_range_list"] as? String) ?? ""
+        s.shared.purchaseList = (c["purchase_list"] as? String) ?? ""
 
         // npia values, stored only where they differ from shared.
         var npia = SharedOverrides()
@@ -183,6 +185,8 @@ public enum DesktopConfig {
         c["auto_purchase"] = shared.autoPurchase
         if let purchaseFrom = shared.purchaseFrom { c["purchase_from"] = purchaseFrom }
         if let purchaseTo = shared.purchaseTo { c["purchase_to"] = purchaseTo }
+        c["ext_range_list"] = shared.rangeList
+        c["purchase_list"] = shared.purchaseList
 
         c["thread_num"] = npia.threads
         c["interval_num"] = npia.intervalMin

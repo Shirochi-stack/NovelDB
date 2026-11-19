@@ -211,7 +211,7 @@ final class AppModel {
     /// "Upload chapters": queues the books of these jobs again for chapters `from...to` only. Each is
     /// written in the output formats selected now (cached chapters are not downloaded again), named
     /// after the range, and uploaded.
-    func uploadChapters(jobs ids: Set<UUID>, from: Int, to: Int) {
+    func uploadChapters(jobs ids: Set<UUID>, from: Int, to: Int, list: String = "") {
         // Uploading publishes a link, so it waits for the sharing agreement like every upload.
         guard hasAcceptedShareAgreement else {
             message = "Upload a finished file once and accept the sharing notice first."
@@ -223,13 +223,14 @@ final class AppModel {
             message = "There is nothing to upload chapters of."
             return
         }
-        let label = ChapterRangeText.label(from: from, to: to)
+        let label = ChapterRangeText.named(from: from, to: to, list: list)
         for old in books.reversed() {
             var adjusted = settings
             adjusted.shared = old.source.map { settings.effective(for: $0) } ?? settings.shared
             adjusted.overrides = [:]
             adjusted.shared.rangeFrom = from
             adjusted.shared.rangeTo = to
+            adjusted.shared.rangeList = list
             adjusted.shared.useCache = true
             adjusted.shared.autoPurchase = false
             adjusted.shared.generateOnStop = false

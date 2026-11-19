@@ -47,6 +47,10 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     public var autoPurchase = false
     public var purchaseFrom: Int?
     public var purchaseTo: Int?
+    /// A comma list typed in a range field ("4,7", "1-3,9"), kept beside the range it spans
+    /// (`rangeFrom...rangeTo`, `purchaseFrom...purchaseTo`); "" for a plain range.
+    public var rangeList = ""
+    public var purchaseList = ""
 
     public init() {}
 
@@ -57,6 +61,7 @@ public struct SharedSettings: Codable, Sendable, Equatable {
         case threads, intervalMin, intervalMax, maxRetries, requestTimeoutSeconds, pageLoadTimeoutSeconds, formats
         case rangeFrom, rangeTo, useCache, cacheImages, numberChapters, separateTXT, skipPaid, imageWorkers
         case generateOnStop, chapterTiming, namingMode, appendRange, autoPurchase, purchaseFrom, purchaseTo
+        case rangeList, purchaseList
     }
 
     /// Every key is optional, so settings stored before a field existed (the queue keeps a copy
@@ -85,6 +90,8 @@ public struct SharedSettings: Codable, Sendable, Equatable {
         autoPurchase = try c.decodeIfPresent(Bool.self, forKey: .autoPurchase) ?? autoPurchase
         purchaseFrom = try c.decodeIfPresent(Int.self, forKey: .purchaseFrom)
         purchaseTo = try c.decodeIfPresent(Int.self, forKey: .purchaseTo)
+        rangeList = try c.decodeIfPresent(String.self, forKey: .rangeList) ?? rangeList
+        purchaseList = try c.decodeIfPresent(String.self, forKey: .purchaseList) ?? purchaseList
     }
 
     /// Desktop `_normalize_interval_range`: each bound clamped to 0...300 s, swapped when
@@ -363,6 +370,17 @@ extension SharedSettings {
         let from = purchaseFrom ?? 1
         return from...Swift.max(purchaseTo ?? Int.max, from)
     }
+
+    /// True when the chapter range (and its comma list) keeps chapter `index`.
+    public func keepsChapter(_ index: Int) -> Bool {
+        chapterRange.contains(index) && ChapterRangeText.inList(from: rangeFrom, to: rangeTo, list: rangeList, index: index)
+    }
+
+    /// True when auto purchase may unlock chapter `index`.
+    public func purchasesChapter(_ index: Int) -> Bool {
+        guard let range = purchaseRange else { return false }
+        return range.contains(index) && ChapterRangeText.inList(from: purchaseFrom, to: purchaseTo, list: purchaseList, index: index)
+    }
 }
 
 /// A chapter range typed in one field, the way a print dialog takes pages: `4` or `4-7` (desktop
@@ -418,5 +436,78 @@ public enum ChapterRangeText {
         let low = from ?? 1
         guard let to else { return "\(low)-end" }
         return to <= low ? "\(low)" : "\(low)-\(to)"
+    }
+
+    /// What a typed field means: the span it names and, for separate ranges (`4,7`), their comma
+    /// list (else "").
+    public struct Typed: Equatable, Sendable {
+        public var from: Int?
+        public var to: Int?
+        public var list: String
+
+        public init(from: Int?, to: Int?, list: String) {
+            self.from = from
+            self.to = to
+            self.list = list
+        }
+    }
+
+    /// Every range in a comma list such as `4,7` or `1-3,9`, in order, with overlapping and
+    /// touching ones joined. Each part is read like a single range.
+    public static func parseList(_ text: String) -> [ClosedRange<Int>] {
+        let separators: Set<Character> = [",", ";", "\u{FF0C}", "\u{3001}"]
+        var ranges: [ClosedRange<Int>] = []
+        for part in text.split(whereSeparator: { separators.contains($0) }) {
+            let parsed = parse(String(part))
+            if let low = parsed.from, let high = parsed.to { ranges.append(low...high) }
+        }
+        ranges.sort { ($0.lowerBound, $0.upperBound) < ($1.lowerBound, $1.upperBound) }
+        var joined: [ClosedRange<Int>] = []
+        for range in ranges {
+            if let last = joined.last, range.lowerBound <= last.upperBound + 1 {
+                joined[joined.count - 1] = last.lowerBound...Swift.max(last.upperBound, range.upperBound)
+            } else {
+                joined.append(range)
+            }
+        }
+        return joined
+    }
+
+    /// `4,7` or `1-3,9` for two or more ranges; "" for one or none (a plain range needs no list).
+    public static func listText(_ ranges: [ClosedRange<Int>]) -> String {
+        guard ranges.count > 1 else { return "" }
+        return ranges.map { text(from: $0.lowerBound, to: $0.upperBound) }.joined(separator: ",")
+    }
+
+    public static func read(_ text: String) -> Typed {
+        let ranges = parseList(text)
+        guard let first = ranges.first, let last = ranges.last else { return Typed(from: nil, to: nil, list: "") }
+        return Typed(from: first.lowerBound, to: last.upperBound, list: listText(ranges))
+    }
+
+    /// The ranges of `list` when it belongs to `from...to`. It is stored beside the range and is
+    /// stale once the range was changed without it; then it counts for nothing.
+    private static func listed(from: Int?, to: Int?, list: String) -> [ClosedRange<Int>] {
+        let ranges = list.isEmpty ? [] : parseList(list)
+        guard ranges.count > 1, ranges.first?.lowerBound == from, ranges.last?.upperBound == to else { return [] }
+        return ranges
+    }
+
+    /// True when chapter `index` is named by the comma list; a range without a list names all of its span.
+    public static func inList(from: Int?, to: Int?, list: String, index: Int) -> Bool {
+        let ranges = listed(from: from, to: to, list: list)
+        return ranges.isEmpty || ranges.contains { $0.contains(index) }
+    }
+
+    /// The field's text for a stored range and list.
+    public static func shown(from: Int?, to: Int?, list: String) -> String {
+        let ranges = listed(from: from, to: to, list: list)
+        return ranges.isEmpty ? text(from: from, to: to) : listText(ranges)
+    }
+
+    /// The range and list as file names and logs show them: `4`, `4-7`, `4,7`, `4-end`.
+    public static func named(from: Int?, to: Int?, list: String) -> String {
+        let ranges = listed(from: from, to: to, list: list)
+        return ranges.isEmpty ? label(from: from, to: to) : listText(ranges)
     }
 }

@@ -237,18 +237,19 @@ struct CompactNumber: View {
     }
 }
 
-/// One small box for a chapter range, typed like pages in a print dialog: `4` or `4-7`
+/// One small box for a chapter range, typed like pages in a print dialog: `4`, `4-7` or `4,7`
 /// (`ChapterRangeText`). The range is saved as it is typed; leaving the box tidies the text, so
-/// "7-3" and "3-" show the one chapter they keep.
+/// "7-3" and "3-" show the one chapter they keep. `list` holds the comma list of separate ranges.
 struct CompactRange: View {
     let placeholder: String
     @Binding var from: Int?
     @Binding var to: Int?
-    var width: CGFloat = 92
+    @Binding var list: String
+    var width: CGFloat = 118
     @State private var text: String?
     @FocusState private var focused: Bool
 
-    private var shown: String { text ?? ChapterRangeText.text(from: from, to: to) }
+    private var shown: String { text ?? ChapterRangeText.shown(from: from, to: to, list: list) }
 
     var body: some View {
         TextField(placeholder, text: Binding(
@@ -257,9 +258,10 @@ struct CompactRange: View {
                 // The field also sets its text when it is drawn; only typing may change the range.
                 guard new != shown else { return }
                 text = new
-                let parsed = ChapterRangeText.parse(new)
-                if parsed.from != from { from = parsed.from }
-                if parsed.to != to { to = parsed.to }
+                let typed = ChapterRangeText.read(new)
+                if typed.from != from { from = typed.from }
+                if typed.to != to { to = typed.to }
+                if typed.list != list { list = typed.list }
             }
         ))
         .keyboardType(.numbersAndPunctuation)

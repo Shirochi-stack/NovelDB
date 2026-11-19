@@ -115,7 +115,7 @@ class QueuePage(QWidget):
         self.upload.clicked.connect(self._upload)
         self.upload.setToolTip("Upload the selected downloads' files (several go up together as ZIPs).")
         self.upload_chapters = QPushButton("Upload chapters...")
-        self.upload_chapters.setToolTip("Upload only some chapters of the selected downloads, such as 4 or 4-7, "
+        self.upload_chapters.setToolTip("Upload only some chapters of the selected downloads, such as 4, 4-7 or 4,7, "
                                         "in the output formats selected on the Download page.")
         self.upload_chapters.clicked.connect(self._upload_chapters)
         self.select_finished = QPushButton("Select finished")
@@ -303,9 +303,9 @@ class QueuePage(QWidget):
         books = "this book" if len(jobs) == 1 else f"each of the {len(jobs)} selected books"
         typed, ok = QInputDialog.getText(
             self, "Upload chapters",
-            f"Chapters of {books} to upload, such as 4 or 4-7.\n"
+            f"Chapters of {books} to upload, such as 4, 4-7 or 4,7.\n"
             "They are written in the output formats selected on the Download page.")
-        low, high = chapter_range.parse(typed) if ok else (None, None)
+        low, high, listed = chapter_range.read(typed) if ok else (None, None, "")
         if low is None:
             return
         if not ensure_agreement(self.context, self):
@@ -317,7 +317,7 @@ class QueuePage(QWidget):
                 continue
             seen.add(job.input)
             fresh.append(Job(job.input, source=job.source, engine=job.engine, title=job.title,
-                             output_dir=job.output_dir, upload_range=[low, high]))
+                             output_dir=job.output_dir, upload_range=[low, high, listed]))
         self.runner.submit(fresh)
         self.reload()
 

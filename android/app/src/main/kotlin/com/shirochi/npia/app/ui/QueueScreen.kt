@@ -273,9 +273,9 @@ private fun QueueJobs(
     }
     reading?.let { file -> LibraryReader(file, model) { reading = null } }
     uploadChapters?.let { ids ->
-        UploadChaptersDialog(ids.size, onDismiss = { uploadChapters = null }) { from, to ->
+        UploadChaptersDialog(ids.size, onDismiss = { uploadChapters = null }) { from, to, list ->
             uploadChapters = null
-            model.requestUpload { if (!manager.uploadChapters(ids, from, to)) manager.message("Nothing to upload chapters of.") }
+            model.requestUpload { if (!manager.uploadChapters(ids, from, to, list)) manager.message("Nothing to upload chapters of.") }
             if (selection.active) onSelection(selection.clear())
         }
     }
@@ -301,20 +301,22 @@ private fun QueueJobs(
 }
 
 /**
- * Asks which chapters to upload (`4` or `4-7`). The books are written again for just those chapters,
- * in the output formats selected on the Add tab, and uploaded.
+ * Asks which chapters to upload (`4`, `4-7` or `4,7`). The books are written again for just those
+ * chapters, in the output formats selected on the Add tab, and uploaded.
  */
 @Composable
-fun UploadChaptersDialog(books: Int, onDismiss: () -> Unit, onUpload: (Int, Int) -> Unit) {
+fun UploadChaptersDialog(books: Int, onDismiss: () -> Unit, onUpload: (Int, Int, String) -> Unit) {
     var text by remember { mutableStateOf("") }
-    val (from, to) = ChapterRangeText.parse(text)
+    val typed = ChapterRangeText.read(text)
+    val from = typed.from
+    val to = typed.to
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Upload chapters") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Chapters of ${if (books == 1) "this book" else "each of the $books books"} to upload, such as 4 or 4-7. " +
+                    "Chapters of ${if (books == 1) "this book" else "each of the $books books"} to upload, such as 4, 4-7 or 4,7. " +
                         "They are written in the output formats selected on the Add tab; chapters already downloaded are not fetched again.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -323,14 +325,14 @@ fun UploadChaptersDialog(books: Int, onDismiss: () -> Unit, onUpload: (Int, Int)
                     onValueChange = { text = it },
                     singleLine = true,
                     label = { Text("Chapters") },
-                    placeholder = { Text("4 or 4-7") },
+                    placeholder = { Text("4, 4-7 or 4,7") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    supportingText = { if (from != null && to != null) Text("Uploads chapter${if (to > from) "s" else ""} ${ChapterRangeText.label(from, to)}") },
+                    supportingText = { if (from != null && to != null) Text("Uploads chapter${if (to > from) "s" else ""} ${ChapterRangeText.named(from, to, typed.list)}") },
                 )
             }
         },
         confirmButton = {
-            TextButton(enabled = from != null && to != null, onClick = { if (from != null && to != null) onUpload(from, to) }) { Text("Upload") }
+            TextButton(enabled = from != null && to != null, onClick = { if (from != null && to != null) onUpload(from, to, typed.list) }) { Text("Upload") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

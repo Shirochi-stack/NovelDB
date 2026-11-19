@@ -614,6 +614,10 @@ class NpiaPipelineMixin:
                 "error": "No chapters found",
             }
 
+        listed = getattr(self, "var_range_list", None)
+        if listed is not None and listed.get() and self.var_from_enabled.get() and self.var_to_enabled.get():
+            self.log_message(f"Chapter list {listed.get()}: npia downloads the whole span "
+                             f"{self.var_from_num.get()}-{self.var_to_num.get()}.")
         start_idx = (self.var_from_num.get() - 1) if self.var_from_enabled.get() else 0
         end_idx = self.var_to_num.get() if self.var_to_enabled.get() else len(chapters)
         start_idx = max(0, start_idx)

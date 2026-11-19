@@ -139,16 +139,17 @@ private fun StepButton(symbol: String, enabled: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * One small box for a chapter range, typed like pages in a print dialog: `4` or `4-7`
+ * One small box for a chapter range, typed like pages in a print dialog: `4`, `4-7` or `4,7`
  * (`ChapterRangeText`). `onChange` gets the range as it is typed; leaving the box tidies the text.
  */
 @Composable
-fun MiniRangeField(from: Int?, to: Int?, placeholder: String, width: Int = 84, enabled: Boolean = true, onChange: (Int?, Int?) -> Unit) {
-    var text by remember { mutableStateOf(ChapterRangeText.text(from, to)) }
+fun MiniRangeField(from: Int?, to: Int?, list: String, placeholder: String, width: Int = 112, enabled: Boolean = true, onChange: (ChapterRangeText.Typed) -> Unit) {
+    val stored = ChapterRangeText.Typed(from, to, if (ChapterRangeText.shown(from, to, list).contains(',')) list else "")
+    var text by remember { mutableStateOf(ChapterRangeText.shown(from, to, list)) }
     var focused by remember { mutableStateOf(false) }
     // A range set elsewhere (another screen, an import) replaces the text; the user's own typing does not.
-    LaunchedEffect(from, to) {
-        if (ChapterRangeText.parse(text) != (from to to)) text = ChapterRangeText.text(from, to)
+    LaunchedEffect(from, to, list) {
+        if (ChapterRangeText.read(text) != stored) text = ChapterRangeText.shown(from, to, list)
     }
     val focus = LocalFocusManager.current
     val alpha = if (enabled) 1f else 0.38f
@@ -159,8 +160,8 @@ fun MiniRangeField(from: Int?, to: Int?, placeholder: String, width: Int = 84, e
                 value = text,
                 onValueChange = { new ->
                     text = new
-                    val (low, high) = ChapterRangeText.parse(new)
-                    if (low != from || high != to) onChange(low, high)
+                    val typed = ChapterRangeText.read(new)
+                    if (typed != stored) onChange(typed)
                 },
                 enabled = enabled,
                 singleLine = true,
@@ -171,11 +172,11 @@ fun MiniRangeField(from: Int?, to: Int?, placeholder: String, width: Int = 84, e
                 keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
                 modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
                     // An untouched box changes nothing (an open-ended range of older settings stays as it is).
-                    if (focused && !state.isFocused && text != ChapterRangeText.text(from, to)) {
+                    if (focused && !state.isFocused && text != ChapterRangeText.shown(from, to, list)) {
                         // "7-3" and "3-" keep their first number; show what was understood.
-                        val (low, high) = ChapterRangeText.parse(text)
-                        if (low != from || high != to) onChange(low, high)
-                        text = ChapterRangeText.text(low, high)
+                        val typed = ChapterRangeText.read(text)
+                        if (typed != stored) onChange(typed)
+                        text = ChapterRangeText.shown(typed.from, typed.to, typed.list)
                     }
                     focused = state.isFocused
                 },

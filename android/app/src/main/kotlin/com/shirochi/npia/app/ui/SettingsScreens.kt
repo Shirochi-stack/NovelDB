@@ -137,11 +137,15 @@ fun GeneralSettingsScreen(model: AppViewModel) {
         SwitchRow("Number chapters", shared.numberChapters, { v -> set { it.copy(numberChapters = v) } })
 
         SectionHeader("Chapter Range")
-        RangeRow("Chapters", shared.rangeFrom, shared.rangeTo, "all") { low, high -> set { it.copy(rangeFrom = low, rangeTo = high) } }
-        Footnote("One chapter (4) or a range (4-7). A download of a range is named after it, such as \"Title (4-7)\", so it never replaces the whole book.")
+        RangeRow("Chapter range", shared.rangeFrom, shared.rangeTo, shared.rangeList, "all, 4-7, 4,7") { typed ->
+            set { it.copy(rangeFrom = typed.from, rangeTo = typed.to, rangeList = typed.list) }
+        }
+        Footnote("One chapter (4), a range (4-7) or a list (4,7). A download of a range is named after it, such as \"Title (4-7)\", so it never replaces the whole book.")
         SwitchRow("Auto purchase", shared.autoPurchase, { v -> set { it.copy(autoPurchase = v) } })
         if (shared.autoPurchase) {
-            RangeRow("Chapters to purchase", shared.purchaseFrom, shared.purchaseTo, "4 or 4-7") { low, high -> set { it.copy(purchaseFrom = low, purchaseTo = high) } }
+            RangeRow("Chapters to purchase", shared.purchaseFrom, shared.purchaseTo, shared.purchaseList, "4, 4-7, 4,7") { typed ->
+                set { it.copy(purchaseFrom = typed.from, purchaseTo = typed.to, purchaseList = typed.list) }
+            }
         }
         Footnote("Unlocks the locked chapters in its range with the account's free tickets before downloading them: a gift ticket first, then wait-for-free, then tickets you already hold. It never pays. kpage only for now.")
         SwitchRow("Skip paid", shared.skipPaid, { v -> set { it.copy(skipPaid = v) } })

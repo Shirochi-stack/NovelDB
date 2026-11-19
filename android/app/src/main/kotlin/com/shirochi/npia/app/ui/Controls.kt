@@ -120,12 +120,12 @@ fun IntField(title: String, value: Int, onChange: (Int) -> Unit, enabled: Boolea
 
 fun formatNumber(value: Double): String = if (value == Math.floor(value) && value < 1e9) value.toLong().toString() else value.toString()
 
-/** A settings row with one chapter range box (`MiniRangeField`): `4` or `4-7`. */
+/** A settings row with one chapter range box (`MiniRangeField`): `4`, `4-7` or `4,7`. */
 @Composable
-fun RangeRow(title: String, from: Int?, to: Int?, placeholder: String, onChange: (Int?, Int?) -> Unit) {
+fun RangeRow(title: String, from: Int?, to: Int?, list: String, placeholder: String, onChange: (com.shirochi.npia.core.ChapterRangeText.Typed) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f))
-        MiniRangeField(from, to, placeholder, width = 110, onChange = onChange)
+        MiniRangeField(from, to, list, placeholder, width = 130, onChange = onChange)
     }
 }
 

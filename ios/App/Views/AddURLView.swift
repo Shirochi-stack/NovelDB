@@ -106,22 +106,24 @@ struct AddURLView: View {
                 // One box each, typed like pages in a print dialog (4 or 4-7), so both fit on a row.
                 FlowLayout(spacing: 14) {
                     HStack(spacing: 6) {
-                        Text("Chapters").font(.subheadline)
-                        CompactRange(placeholder: "all", from: rangeBinding(\.rangeFrom, \.rangeFrom), to: rangeBinding(\.rangeTo, \.rangeTo))
+                        Text("Chapter range").font(.subheadline)
+                        CompactRange(placeholder: "all, 4-7, 4,7", from: rangeBinding(\.rangeFrom, \.rangeFrom),
+                                     to: rangeBinding(\.rangeTo, \.rangeTo), list: sharedOnly(\.rangeList))
                     }
                     HStack(spacing: 6) {
                         ChipToggle(title: "Auto purchase", isOn: sharedOnly(\.autoPurchase))
-                        CompactRange(placeholder: "4 or 4-7", from: sharedOnly(\.purchaseFrom), to: sharedOnly(\.purchaseTo))
+                        CompactRange(placeholder: "4, 4-7, 4,7", from: sharedOnly(\.purchaseFrom), to: sharedOnly(\.purchaseTo),
+                                     list: sharedOnly(\.purchaseList))
                             .disabled(!model.settings.shared.autoPurchase)
                             .opacity(model.settings.shared.autoPurchase ? 1 : 0.4)
                     }
                 }
                 if model.settings.shared.autoPurchase {
                     if model.settings.shared.purchaseRange == nil {
-                        Text("Auto purchase needs its chapters, such as 4 or 4-7.")
+                        Text("Auto purchase needs its chapters, such as 4, 4-7 or 4,7.")
                             .font(.caption).foregroundStyle(.red)
                     } else {
-                        Text("Locked chapters \(ChapterRangeText.label(from: model.settings.shared.purchaseFrom, to: model.settings.shared.purchaseTo)) are unlocked with free tickets first (a gift, then wait-for-free). Never pays. kpage only for now.")
+                        Text("Locked chapters \(ChapterRangeText.named(from: model.settings.shared.purchaseFrom, to: model.settings.shared.purchaseTo, list: model.settings.shared.purchaseList)) are unlocked with free tickets first (a gift, then wait-for-free). Never pays. kpage only for now.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

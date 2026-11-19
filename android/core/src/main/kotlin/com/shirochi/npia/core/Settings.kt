@@ -73,7 +73,22 @@ data class SharedSettings(
     val autoPurchase: Boolean = false,
     val purchaseFrom: Int? = null,
     val purchaseTo: Int? = null,
+    /**
+     * A comma list typed in a range field ("4,7", "1-3,9"), kept beside the range it spans
+     * (`rangeFrom..rangeTo`, `purchaseFrom..purchaseTo`); "" for a plain range.
+     */
+    val rangeList: String = "",
+    val purchaseList: String = "",
 ) {
+    /** True when the chapter range (and its comma list) keeps chapter `index`. */
+    fun keepsChapter(index: Int): Boolean = index in chapterRange && ChapterRangeText.inList(rangeFrom, rangeTo, rangeList, index)
+
+    /** True when auto purchase may unlock chapter `index`. */
+    fun purchasesChapter(index: Int): Boolean {
+        val range = purchaseRange ?: return false
+        return index in range && ChapterRangeText.inList(purchaseFrom, purchaseTo, purchaseList, index)
+    }
+
     /** The chapters auto purchase may unlock, or null when it is off or has no range. */
     val purchaseRange: IntRange?
         get() {
@@ -148,6 +163,60 @@ object ChapterRangeText {
         to <= (from ?: 1) -> "${from ?: 1}"
         else -> "${from ?: 1}-$to"
     }
+
+    /** What a typed field means: the span it names and, for separate ranges (`4,7`), their comma list (else ""). */
+    data class Typed(val from: Int?, val to: Int?, val list: String)
+
+    private val separators = Regex("[,;，、]")
+
+    /**
+     * Every range in a comma list such as `4,7` or `1-3,9`, in order, with overlapping and touching
+     * ones joined. Each part is read like a single range.
+     */
+    fun parseList(text: String): List<IntRange> {
+        val ranges = text.split(separators).mapNotNull { part ->
+            val (low, high) = parse(part)
+            if (low != null && high != null) low..high else null
+        }.sortedWith(compareBy({ it.first }, { it.last }))
+        val joined = mutableListOf<IntRange>()
+        for (range in ranges) {
+            val last = joined.lastOrNull()
+            if (last != null && range.first <= last.last + 1) joined[joined.size - 1] = last.first..maxOf(last.last, range.last)
+            else joined += range
+        }
+        return joined
+    }
+
+    /** `4,7` or `1-3,9` for two or more ranges; "" for one or none (a plain range needs no list). */
+    fun listText(ranges: List<IntRange>): String =
+        if (ranges.size < 2) "" else ranges.joinToString(",") { text(it.first, it.last) }
+
+    fun read(text: String): Typed {
+        val ranges = parseList(text)
+        if (ranges.isEmpty()) return Typed(null, null, "")
+        return Typed(ranges.first().first, ranges.last().last, listText(ranges))
+    }
+
+    /**
+     * The ranges of `list` when it belongs to `from..to`. It is stored beside the range and is
+     * stale once the range was changed without it; then it counts for nothing.
+     */
+    private fun listed(from: Int?, to: Int?, list: String): List<IntRange> {
+        val ranges = if (list.isEmpty()) emptyList() else parseList(list)
+        return if (ranges.size > 1 && ranges.first().first == from && ranges.last().last == to) ranges else emptyList()
+    }
+
+    /** True when chapter `index` is named by the comma list; a range without a list names all of its span. */
+    fun inList(from: Int?, to: Int?, list: String, index: Int): Boolean {
+        val ranges = listed(from, to, list)
+        return ranges.isEmpty() || ranges.any { index in it }
+    }
+
+    /** The field's text for a stored range and list. */
+    fun shown(from: Int?, to: Int?, list: String): String = listed(from, to, list).let { if (it.isEmpty()) text(from, to) else listText(it) }
+
+    /** The range and list as file names and logs show them: `4`, `4-7`, `4,7`, `4-end`. */
+    fun named(from: Int?, to: Int?, list: String): String = listed(from, to, list).let { if (it.isEmpty()) label(from, to) else listText(it) }
 }
 
 /** Optional replacements for `SharedSettings` fields on one source; null keeps the shared value. */

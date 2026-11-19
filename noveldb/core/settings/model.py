@@ -144,6 +144,10 @@ class SharedSettings:
     auto_purchase: bool = False
     purchase_from: Optional[int] = None
     purchase_to: Optional[int] = None
+    # A comma list typed in a range field ("4,7", "1-3,9"), kept beside the range it spans
+    # (range_from..range_to, purchase_from..purchase_to); "" for a plain range. See chapter_range.
+    range_list: str = ""
+    purchase_list: str = ""
 
     @property
     def interval_range(self) -> tuple[float, float]:
@@ -446,6 +450,8 @@ class AppSettings:
             auto_purchase=nxt.auto_purchase,
             purchase_from=nxt.purchase_from,
             purchase_to=nxt.purchase_to,
+            range_list=nxt.range_list,
+            purchase_list=nxt.purchase_list,
         )
         o = existing
         for name in OVERRIDABLE:

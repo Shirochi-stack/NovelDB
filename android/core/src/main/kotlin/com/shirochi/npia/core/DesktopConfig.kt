@@ -52,6 +52,8 @@ object DesktopConfig {
             autoPurchase = c.bool("auto_purchase") ?: b.autoPurchase,
             purchaseFrom = if (c.bool("auto_purchase") != null) c.int("purchase_from") else b.purchaseFrom,
             purchaseTo = if (c.bool("auto_purchase") != null) c.int("purchase_to") else b.purchaseTo,
+            rangeList = c.string("ext_range_list") ?: "",
+            purchaseList = c.string("purchase_list") ?: "",
         )
 
         val npia = SharedOverrides(
@@ -209,6 +211,8 @@ object DesktopConfig {
         put("auto_purchase", shared.autoPurchase)
         shared.purchaseFrom?.let { put("purchase_from", it) }
         shared.purchaseTo?.let { put("purchase_to", it) }
+        put("ext_range_list", shared.rangeList)
+        put("purchase_list", shared.purchaseList)
 
         put("thread_num", npia.threads)
         put("interval_num", npia.intervalMin)

@@ -240,8 +240,9 @@ class SpinBox(QSpinBox):
 
 
 class RangeField(QLineEdit):
-    """One field for a chapter range, typed like pages in a print dialog: `4` or `4-7`
-    (noveldb.core.chapter_range). `on_change(first, last)` runs when the typed range changes."""
+    """One field for a chapter range, typed like pages in a print dialog: `4`, `4-7` or `4,7`
+    (noveldb.core.chapter_range). `on_change(first, last, list)` runs when the typed range changes;
+    `list` is the comma list ("4,7") when the field names separate ranges, else ""."""
 
     def __init__(self, on_change: Callable, placeholder: str = "") -> None:
         super().__init__()
@@ -250,33 +251,33 @@ class RangeField(QLineEdit):
 
         self._ranges = chapter_range
         self._on_change = on_change
-        self._range = (None, None)
+        self._range = (None, None, "")
         self.setPlaceholderText(placeholder or chapter_range.PLACEHOLDER)
-        self.setToolTip("One chapter (4) or a range (4-7). Empty: no range.")
+        self.setToolTip("One chapter (4), a range (4-7) or a list (4,7). Empty: no range.")
         self.setClearButtonEnabled(True)
-        bind_size(self, min_width=120, max_width=170)
+        bind_size(self, min_width=150, max_width=190)
         self.editingFinished.connect(self._edited)
         self.textChanged.connect(self._cleared)
 
     def _edited(self) -> None:
-        parsed = self._ranges.parse(self.text())
-        if self.text().strip() == self._ranges.text(*self._range):
+        parsed = self._ranges.read(self.text())
+        if self.text().strip() == self._ranges.shown(*self._range):
             return  # untouched (an open-ended range of older settings stays as it is)
         self.set_range(*parsed, force=True)
         self._on_change(*parsed)
 
     def _cleared(self, value: str) -> None:
         # The clear button empties the field without the focus leaving it.
-        if not value and self._range != (None, None) and not self.signalsBlocked():
-            self._range = (None, None)
-            self._on_change(None, None)
+        if not value and self._range[:2] != (None, None) and not self.signalsBlocked():
+            self._range = (None, None, "")
+            self._on_change(None, None, "")
 
-    def set_range(self, low, high, force: bool = False) -> None:
+    def set_range(self, low, high, listed: str = "", force: bool = False) -> None:
         """Show a stored range (not while the user is typing in the field)."""
-        self._range = (low, high)
+        self._range = (low, high, listed or "")
         if self.hasFocus() and not force:
             return
-        value = self._ranges.text(low, high)
+        value = self._ranges.shown(low, high, listed or "")
         if value != self.text():
             self.blockSignals(True)
             self.setText(value)

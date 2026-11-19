@@ -62,7 +62,7 @@ public enum Writers {
         var name = settings.namingMode == .id ? book.id : book.title
         if settings.rangeFrom != nil || settings.rangeTo != nil {
             let to = settings.rangeTo == nil ? nil : settings.chapterRange.upperBound
-            name += " (\(ChapterRangeText.label(from: settings.rangeFrom, to: to)))"
+            name += " (\(ChapterRangeText.named(from: settings.rangeFrom, to: to, list: settings.rangeList)))"
         }
         let illegal = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters)
         let cleaned = name.unicodeScalars.map { illegal.contains($0) ? "_" : String($0) }.joined()

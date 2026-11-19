@@ -237,6 +237,8 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         auto_purchase=_first_bool(c, "auto_purchase", b.auto_purchase),
         purchase_from=_int(c.get("purchase_from")) if "purchase_from" in c or "auto_purchase" in c else b.purchase_from,
         purchase_to=_int(c.get("purchase_to")) if "purchase_to" in c or "auto_purchase" in c else b.purchase_to,
+        range_list=_str(c.get("ext_range_list")) or "",
+        purchase_list=_str(c.get("purchase_list")) or "",
     )
 
     overrides = {
@@ -513,6 +515,8 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["auto_purchase"] = shared.auto_purchase
     c["purchase_from"] = shared.purchase_from
     c["purchase_to"] = shared.purchase_to
+    c["ext_range_list"] = shared.range_list
+    c["purchase_list"] = shared.purchase_list
 
     c["thread_num"] = npia.threads
     c["interval_num"] = npia.interval_min

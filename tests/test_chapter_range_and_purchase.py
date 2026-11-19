@@ -34,6 +34,41 @@ def test_a_stored_range_shows_as_the_text_that_gives_it_back():
     assert not chapter_range.contains(None, None, 1)
 
 
+@pytest.mark.parametrize("typed, expected", [
+    ("4,7", (4, 7, "4,7")), ("7, 4", (4, 7, "4,7")), ("1-3,9", (1, 9, "1-3,9")), ("4-7", (4, 7, "")),
+    ("4", (4, 4, "")), ("4,5,6", (4, 6, "")), ("1-3,2-5", (1, 5, "")), ("4,,x,7-6", (4, 7, "4,7")),
+    ("", (None, None, "")), ("4，7", (4, 7, "4,7")),
+])
+def test_a_comma_list_names_separate_chapters(typed, expected):
+    assert chapter_range.read(typed) == expected
+
+
+def test_a_list_chooses_only_its_chapters_and_is_ignored_once_the_range_moved():
+    assert [n for n in range(1, 10) if chapter_range.selects(4, 7, "4,7", n)] == [4, 7]
+    assert [n for n in range(1, 10) if chapter_range.selects(1, 9, "1-3,9", n)] == [1, 2, 3, 9]
+    assert chapter_range.shown(4, 7, "4,7") == "4,7" and chapter_range.named(4, 7, "4,7") == "4,7"
+    # The range was changed elsewhere without the list: the list no longer belongs to it.
+    assert [n for n in range(1, 10) if chapter_range.selects(2, 5, "4,7", n)] == [2, 3, 4, 5]
+    assert chapter_range.shown(2, 5, "4,7") == "2-5"
+
+
+def test_a_list_leaves_out_the_chapters_between_its_parts(tmp_path):
+    settings = AppSettings(shared=replace(SharedSettings(), range_from=4, range_to=7, range_list="4,7"))
+    job = SimpleNamespace(**external_values(settings, "https://example.com/b"))
+    assert ExternalPipelineMixin._range_label(job) == "4,7"
+    span = _chapters(8)[3:7]
+    assert ExternalPipelineMixin._chapters_left_out(job, span, 3) == [1, 2]
+    plain = SimpleNamespace(**external_values(AppSettings(shared=replace(SharedSettings(), range_from=4, range_to=7)), "u"))
+    assert ExternalPipelineMixin._chapters_left_out(plain, span, 3) == []
+
+
+def test_auto_purchase_follows_a_list():
+    job = Purchaser(low=4, high=7)
+    job._var_purchase_list = Value("4,7")
+    ExternalPipelineMixin._auto_purchase(job, _chapters(8), 0, [None] * 8)
+    assert job.bought == ["c4", "c7"]
+
+
 def test_auto_purchase_settings_survive_the_config_file():
     settings = AppSettings(shared=replace(SharedSettings(), auto_purchase=True, purchase_from=4, purchase_to=4))
     again = import_config(export_config(settings))
@@ -136,10 +171,10 @@ def test_upload_chapters_runs_the_book_for_just_that_range():
     base = AppSettings(shared=replace(SharedSettings(), range_from=1, range_to=2, use_cache=False,
                                       auto_purchase=True, formats=("txt", "epub")))
     dispatcher = JobDispatcher(lambda: base, None, Browser(), lambda job: None, external_job_factory=External)
-    job = Job("https://example.com/b", source="kpage", upload_range=[4, 7])
+    job = Job("https://example.com/b", source="kpage", upload_range=[4, 7, "4,7"])
     dispatcher(job, SimpleNamespace(cancelled=False))
     shared = seen["shared"]
-    assert (shared.range_from, shared.range_to) == (4, 7)
+    assert (shared.range_from, shared.range_to, shared.range_list) == (4, 7, "4,7")
     assert shared.use_cache is True and shared.auto_purchase is False
     assert shared.formats == ("txt", "epub")
-    assert Job.from_dict(job.to_dict()).upload_range == [4, 7]
+    assert Job.from_dict(job.to_dict()).upload_range == [4, 7, "4,7"]

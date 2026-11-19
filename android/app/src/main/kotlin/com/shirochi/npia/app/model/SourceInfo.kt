@@ -79,7 +79,8 @@ fun AppSettings.editRunSettings(source: SourceId?, change: (SharedSettings) -> S
     val existing = source?.let { overrides[it.raw] } ?: SharedOverrides()
     val toOverride = { has: Boolean -> source != null && (source == SourceId.NPIA || has) }
     var base = shared.copy(skipPaid = next.skipPaid, imageWorkers = next.imageWorkers, generateOnStop = next.generateOnStop,
-        autoPurchase = next.autoPurchase, purchaseFrom = next.purchaseFrom, purchaseTo = next.purchaseTo)
+        autoPurchase = next.autoPurchase, purchaseFrom = next.purchaseFrom, purchaseTo = next.purchaseTo,
+        rangeList = next.rangeList, purchaseList = next.purchaseList)
     var o = existing
     fun route(changed: Boolean, has: Boolean, toO: () -> Unit, toShared: () -> Unit) {
         if (!changed) return

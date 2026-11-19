@@ -361,6 +361,28 @@ class ExternalPipelineMixin:
                 )
         return result
 
+    def _range_parts(self):
+        """(first, last, comma list) of this download's chapter range, each None or "" when unset."""
+        def value(enabled, number):
+            try:
+                return int(getattr(self, number).get()) if getattr(self, enabled).get() else None
+            except (AttributeError, TypeError, ValueError):
+                return None
+
+        listed = getattr(self, '_var_range_list', None)
+        return (value('_var_from_enabled', '_var_from'), value('_var_to_enabled', '_var_to'),
+                (listed.get() or "") if listed is not None else "")
+
+    def _chapters_left_out(self, selected, start):
+        """Positions in `selected` that a comma list ("4,7") does not name."""
+        from noveldb.core import chapter_range
+
+        low, high, listed = ExternalPipelineMixin._range_parts(self)
+        if not listed or low is None:
+            return []
+        return [index for index, chapter in enumerate(selected)
+                if not chapter.get('isNotice') and not chapter_range.selects(low, high, listed, start + index + 1)]
+
     def _auto_purchase(self, selected, start, results):
         """Auto purchase: unlock the paid chapters inside its range before they are downloaded.
 
@@ -375,16 +397,18 @@ class ExternalPipelineMixin:
             return
         low = getattr(self, '_var_purchase_from').get()
         high = getattr(self, '_var_purchase_to').get()
+        listed = getattr(self, '_var_purchase_list', None)
+        listed = listed.get() if listed is not None else ""
         if low is None and high is None:
             self._log("Auto purchase is on but has no chapter range; nothing is purchased.")
             return
         wanted = [
             (index, chapter) for index, chapter in enumerate(selected)
             if results[index] is None and not chapter.get('isNotice')
-            and chapter_range.contains(low, high, start + index + 1)
+            and chapter_range.selects(low, high, listed, start + index + 1)
             and (chapter.get('isVIP') or chapter.get('isPaid')) and not chapter.get('isAccessible')
         ]
-        label = chapter_range.label(low, high)
+        label = chapter_range.named(low, high, listed)
         if not wanted:
             self._log(f"Auto purchase ({label}): no locked chapter in that range to unlock.")
             return
@@ -641,6 +665,17 @@ class ExternalPipelineMixin:
                 )
             completed = 0
 
+            # A comma list ("4,7") leaves out the chapters between its parts. They keep their place
+            # in the span, so chapter numbers and cache keys stay those of the book.
+            left_out = ExternalPipelineMixin._chapters_left_out(self, selected, start)
+            for i in left_out:
+                results[i] = {'_locked': True, '_excluded': True,
+                              'chapterName': selected[i].get('name', ''),
+                              '_chapter_number': start + i + 1}
+            if left_out:
+                self._log(f"Chapters {ExternalPipelineMixin._range_label(self)}: "
+                          f"{total - len(left_out)} of the {total} in that span are downloaded.")
+
             ExternalPipelineMixin._auto_purchase(self, selected, start, results)
 
             # Pre-filter paid chapters if the user opted to skip them.
@@ -652,6 +687,8 @@ class ExternalPipelineMixin:
                 skipped = 0
                 unavailable = 0
                 for i, ch in enumerate(selected):
+                    if results[i] and results[i].get('_excluded'):
+                        continue  # left out by a comma list, not skipped as paid
                     if is_mpia:
                         inaccessible = ch.get('isAccessible') is False
                         should_skip = inaccessible or (
@@ -935,7 +972,7 @@ class ExternalPipelineMixin:
             ad_required = sum(1 for r in results
                               if r and r.get('_ad_required'))
             locked = sum(1 for r in results
-                         if r and r.get('_locked')
+                         if r and r.get('_locked') and not r.get('_excluded')
                          and not r.get('_ad_required'))
             succeeded = sum(1 for r in results
                             if r and not r.get('_locked'))
@@ -1492,13 +1529,7 @@ class ExternalPipelineMixin:
         """The chapter range of this download as file names show it ("4", "4-7", "4-end"), or ""."""
         from noveldb.core import chapter_range
 
-        def value(enabled, number):
-            try:
-                return int(getattr(self, number).get()) if getattr(self, enabled).get() else None
-            except (AttributeError, TypeError, ValueError):
-                return None
-
-        return chapter_range.label(value('_var_from_enabled', '_var_from'), value('_var_to_enabled', '_var_to'))
+        return chapter_range.named(*ExternalPipelineMixin._range_parts(self))
 
     def _generate_output(self):
         """Generate every selected format from downloaded chapter data."""

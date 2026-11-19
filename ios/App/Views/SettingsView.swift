@@ -75,13 +75,15 @@ struct SharedSettingsForm: View {
                 Toggle("Number chapters", isOn: $model.settings.shared.numberChapters)
             }
             Section {
-                LabeledContent("Chapters") {
-                    CompactRange(placeholder: "all", from: $model.settings.shared.rangeFrom, to: $model.settings.shared.rangeTo, width: 120)
+                LabeledContent("Chapter range") {
+                    CompactRange(placeholder: "all, 4-7, 4,7", from: $model.settings.shared.rangeFrom, to: $model.settings.shared.rangeTo,
+                                 list: $model.settings.shared.rangeList, width: 130)
                 }
                 Toggle("Auto purchase", isOn: $model.settings.shared.autoPurchase)
                 if model.settings.shared.autoPurchase {
                     LabeledContent("Chapters to purchase") {
-                        CompactRange(placeholder: "4 or 4-7", from: $model.settings.shared.purchaseFrom, to: $model.settings.shared.purchaseTo, width: 120)
+                        CompactRange(placeholder: "4, 4-7, 4,7", from: $model.settings.shared.purchaseFrom, to: $model.settings.shared.purchaseTo,
+                                     list: $model.settings.shared.purchaseList, width: 130)
                     }
                 }
                 Toggle("Skip paid", isOn: $model.settings.shared.skipPaid)
@@ -89,7 +91,7 @@ struct SharedSettingsForm: View {
             } header: {
                 Text("Chapters")
             } footer: {
-                Text("One chapter (4) or a range (4-7). A download of a range is named after it, such as \"Title (4-7)\", so it never replaces the whole book. Auto purchase unlocks the locked chapters in its range with the account's free tickets before downloading them: a gift ticket first, then wait-for-free, then tickets you already hold. It never pays. kpage only for now.")
+                Text("One chapter (4), a range (4-7) or a list (4,7). A download of a range is named after it, such as \"Title (4-7)\", so it never replaces the whole book. Auto purchase unlocks the locked chapters in its range with the account's free tickets before downloading them: a gift ticket first, then wait-for-free, then tickets you already hold. It never pays. kpage only for now.")
             }
             Section("Speed (external downloader)") {
                 Stepper("Threads: \(model.settings.shared.threads)", value: $model.settings.shared.threads, in: 1...16)

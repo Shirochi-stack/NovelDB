@@ -146,7 +146,7 @@ class DownloadPipeline(
         var selected = select(book.chapters.map { if (it.id in unlocked) it.copy(isPaid = false) else it }, shared)
         if (owner.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
         onBook?.invoke(selected)
-        val range = listOfNotNull(shared.rangeFrom?.let { "from $it" }, shared.rangeTo?.let { "to $it" }).joinToString(" ")
+        val range = ChapterRangeText.named(shared.rangeFrom, shared.rangeTo, shared.rangeList).let { if (it.isEmpty()) "" else "chapters $it" }
         // Notices are not chapters of the book: counted apart, so the line never reads "157 of 154".
         val notices = selected.count { it.isNotice }
         logger.log(
@@ -183,13 +183,12 @@ class DownloadPipeline(
      */
     private suspend fun autoPurchase(adapter: SourceAdapter, book: BookInfo, shared: SharedSettings, context: SourceContext): Set<String> {
         if (!shared.autoPurchase) return emptySet()
-        val range = shared.purchaseRange
-        if (range == null) {
+        if (shared.purchaseRange == null) {
             logger.log(LogLevel.INFO, "Auto purchase is on but has no chapter range; nothing is purchased.")
             return emptySet()
         }
-        val label = ChapterRangeText.label(shared.purchaseFrom, shared.purchaseTo)
-        val wanted = book.chapters.filter { it.isPaid && !it.isNotice && it.index in range && it.index in shared.chapterRange }
+        val label = ChapterRangeText.named(shared.purchaseFrom, shared.purchaseTo, shared.purchaseList)
+        val wanted = book.chapters.filter { it.isPaid && !it.isNotice && shared.purchasesChapter(it.index) && shared.keepsChapter(it.index) }
         if (wanted.isEmpty()) {
             logger.log(LogLevel.INFO, "Auto purchase ($label): no locked chapter in that range to unlock.")
             return emptySet()
@@ -520,8 +519,7 @@ class DownloadPipeline(
 
         /** Applies the chapter range and paid filter. */
         fun select(chapters: List<ChapterRef>, shared: SharedSettings): List<ChapterRef> {
-            val range = shared.chapterRange
-            return chapters.filter { c -> c.index in range && !(shared.skipPaid && c.isPaid) }
+            return chapters.filter { c -> shared.keepsChapter(c.index) && !(shared.skipPaid && c.isPaid) }
         }
     }
 }

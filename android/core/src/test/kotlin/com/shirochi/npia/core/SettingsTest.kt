@@ -280,6 +280,27 @@ class SettingsTest {
     }
 
     @Test
+    fun aCommaListNamesSeparateChapters() {
+        assertEquals(ChapterRangeText.Typed(4, 7, "4,7"), ChapterRangeText.read("4,7"))
+        assertEquals(ChapterRangeText.Typed(4, 7, "4,7"), ChapterRangeText.read("7, 4"))
+        assertEquals(ChapterRangeText.Typed(1, 9, "1-3,9"), ChapterRangeText.read("1-3,9"))
+        assertEquals(ChapterRangeText.Typed(4, 7, ""), ChapterRangeText.read("4-7"))
+        assertEquals(ChapterRangeText.Typed(4, 6, ""), ChapterRangeText.read("4,5,6"))
+        assertEquals(ChapterRangeText.Typed(null, null, ""), ChapterRangeText.read(""))
+        val listed = SharedSettings(rangeFrom = 4, rangeTo = 7, rangeList = "4,7")
+        assertEquals(listOf(4, 7), (1..9).filter(listed::keepsChapter))
+        assertEquals("4,7", ChapterRangeText.shown(4, 7, "4,7"))
+        assertEquals("4,7", ChapterRangeText.named(4, 7, "4,7"))
+        // The range was changed elsewhere without the list: the list no longer belongs to it.
+        assertEquals(listOf(2, 3, 4, 5), (1..9).filter(SharedSettings(rangeFrom = 2, rangeTo = 5, rangeList = "4,7")::keepsChapter))
+        val purchase = SharedSettings(autoPurchase = true, purchaseFrom = 4, purchaseTo = 7, purchaseList = "4,7")
+        assertEquals(listOf(4, 7), (1..9).filter(purchase::purchasesChapter))
+        assertEquals(emptyList<Int>(), (1..9).filter(purchase.copy(autoPurchase = false)::purchasesChapter))
+        val again = DesktopConfig.import(DesktopConfig.export(AppSettings(shared = listed)).toString()).first.shared
+        assertEquals("4,7", again.rangeList)
+    }
+
+    @Test
     fun autoPurchaseNeedsItsRangeAndMovesThroughTheDesktopConfig() {
         assertEquals(null, SharedSettings(autoPurchase = true).purchaseRange)
         assertEquals(null, SharedSettings(purchaseFrom = 4, purchaseTo = 4).purchaseRange)

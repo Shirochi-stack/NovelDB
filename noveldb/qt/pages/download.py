@@ -198,20 +198,24 @@ class DownloadPage(QWidget):
                         field_group("Retries", self.retries), spacing=18)
 
         # One field each, typed like pages in a print dialog (4 or 4-7), so both fit on a row.
-        self.range = RangeField(lambda low, high: self._run(range_from=low, range_to=high))
+        self.range = RangeField(lambda low, high, listed: self._run(range_from=low, range_to=high, range_list=listed))
         self.auto_purchase = Chip("Auto purchase", on_change=lambda on: self._run(auto_purchase=on))
         self.auto_purchase.setToolTip(
             "Unlocks the paid chapters in its range with the account's free tickets before downloading "
             "them: a gift ticket first, then a wait-for-free ticket, then tickets you already hold. "
             "It never pays with cash. kpage only for now.")
-        self.purchase_range = RangeField(lambda low, high: self._run(purchase_from=low, purchase_to=high), "4 or 4-7")
+        from noveldb.core import chapter_range
+
+        self.purchase_range = RangeField(
+            lambda low, high, listed: self._run(purchase_from=low, purchase_to=high, purchase_list=listed),
+            chapter_range.PURCHASE_PLACEHOLDER)
         purchase_group = QWidget()
         pl = QHBoxLayout(purchase_group)
         pl.setContentsMargins(0, 0, 0, 0)
         pl.setSpacing(6)
         pl.addWidget(self.auto_purchase)
         pl.addWidget(self.purchase_range)
-        range_row = flow(field_group("Chapters", self.range), purchase_group, spacing=18)
+        range_row = flow(field_group("Chapter range", self.range), purchase_group, spacing=18)
 
         self.skip_paid = Chip("Skip paid", on_change=lambda on: self._run(skip_paid=on))
         self.number_chapters = Chip("Number chapters", on_change=lambda on: self._run(number_chapters=on))
@@ -427,9 +431,9 @@ class DownloadPage(QWidget):
         set_quietly(self.interval_min, lo)
         set_quietly(self.interval_max, hi)
         set_quietly(self.retries, run.max_retries)
-        self.range.set_range(run.range_from, run.range_to)
+        self.range.set_range(run.range_from, run.range_to, run.range_list)
         self.auto_purchase.set_quietly(run.auto_purchase)
-        self.purchase_range.set_range(run.purchase_from, run.purchase_to)
+        self.purchase_range.set_range(run.purchase_from, run.purchase_to, run.purchase_list)
         self.purchase_range.setEnabled(run.auto_purchase)
         self.skip_paid.set_quietly(run.skip_paid)
         self.number_chapters.set_quietly(run.number_chapters)

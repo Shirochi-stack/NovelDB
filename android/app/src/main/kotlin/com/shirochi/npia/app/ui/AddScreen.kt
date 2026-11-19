@@ -164,20 +164,22 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
         FieldFlow {
             // One box each, typed like pages in a print dialog (4 or 4-7), so both fit on a row.
             FieldGroup {
-                MiniLabel("Chapters")
-                MiniRangeField(run.rangeFrom, run.rangeTo, "all") { low, high -> edit { it.copy(rangeFrom = low, rangeTo = high) } }
+                MiniLabel("Chapter range")
+                MiniRangeField(run.rangeFrom, run.rangeTo, run.rangeList, "all, 4-7, 4,7") { typed ->
+                    edit { it.copy(rangeFrom = typed.from, rangeTo = typed.to, rangeList = typed.list) }
+                }
             }
             FieldGroup {
                 ToggleChip("Auto purchase", run.autoPurchase) { v -> edit { it.copy(autoPurchase = v) } }
-                MiniRangeField(run.purchaseFrom, run.purchaseTo, "4 or 4-7", enabled = run.autoPurchase) { low, high ->
-                    edit { it.copy(purchaseFrom = low, purchaseTo = high) }
+                MiniRangeField(run.purchaseFrom, run.purchaseTo, run.purchaseList, "4, 4-7, 4,7", enabled = run.autoPurchase) { typed ->
+                    edit { it.copy(purchaseFrom = typed.from, purchaseTo = typed.to, purchaseList = typed.list) }
                 }
             }
         }
         if (run.autoPurchase) {
             Text(
-                if (run.purchaseRange == null) "Auto purchase needs its chapters, such as 4 or 4-7."
-                else "Locked chapters ${ChapterRangeText.label(run.purchaseFrom, run.purchaseTo)} are unlocked with free tickets first (a gift, then wait-for-free). Never pays. kpage only for now.",
+                if (run.purchaseRange == null) "Auto purchase needs its chapters, such as 4, 4-7 or 4,7."
+                else "Locked chapters ${ChapterRangeText.named(run.purchaseFrom, run.purchaseTo, run.purchaseList)} are unlocked with free tickets first (a gift, then wait-for-free). Never pays. kpage only for now.",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (run.purchaseRange == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),

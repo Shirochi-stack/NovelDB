@@ -495,7 +495,7 @@ class OverridesForm(Form):
         self.add(self.format_toggle)
         self.add(flow(*self.format_chips.values()))
         self.range_toggle = QCheckBox("Chapter range (4 or 4-7; empty for every chapter)")
-        self.range = RangeField(lambda _low, _high: self._range())
+        self.range = RangeField(lambda _low, _high, _listed: self._range(), "4 or 4-7")
         self.range_toggle.toggled.connect(lambda _on: self._range())
         holder = QWidget()
         row = QHBoxLayout(holder)

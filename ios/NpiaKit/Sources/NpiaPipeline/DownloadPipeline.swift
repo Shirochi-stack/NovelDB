@@ -399,13 +399,12 @@ public struct DownloadPipeline: Sendable {
     /// range, before they are downloaded. Returns the ids of the chapters that opened.
     private func autoPurchase(_ adapter: any SourceAdapter, book: BookInfo, shared: SharedSettings, context: SourceContext) async throws -> Set<String> {
         guard shared.autoPurchase else { return [] }
-        guard let range = shared.purchaseRange else {
+        guard shared.purchaseRange != nil else {
             logger.log(.info, "Auto purchase is on but has no chapter range; nothing is purchased.")
             return []
         }
-        let label = ChapterRangeText.label(from: shared.purchaseFrom, to: shared.purchaseTo)
-        let chapterRange = shared.chapterRange
-        let wanted = book.chapters.filter { $0.isPaid && !$0.isNotice && range.contains($0.index) && chapterRange.contains($0.index) }
+        let label = ChapterRangeText.named(from: shared.purchaseFrom, to: shared.purchaseTo, list: shared.purchaseList)
+        let wanted = book.chapters.filter { $0.isPaid && !$0.isNotice && shared.purchasesChapter($0.index) && shared.keepsChapter($0.index) }
         if wanted.isEmpty {
             logger.log(.info, "Auto purchase (\(label)): no locked chapter in that range to unlock.")
             return []
@@ -440,9 +439,8 @@ public struct DownloadPipeline: Sendable {
     }
 
     public static func select(_ chapters: [ChapterRef], shared: SharedSettings) -> [ChapterRef] {
-        let range = shared.chapterRange
         return chapters.filter { chapter in
-            if !range.contains(chapter.index) { return false }
+            if !shared.keepsChapter(chapter.index) { return false }
             if shared.skipPaid, chapter.isPaid { return false }
             return true
         }
