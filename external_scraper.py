@@ -2694,6 +2694,29 @@ class ExternalScraper(SiteEnginesMixin):
             self.log(f"[SFC] App API login failed: {e}")
         return ""
 
+    # The Enter Browser profile in use (Download page: "Profile #1", "Profile #2"...). Each profile
+    # is its own browser data folder, so its own sign-in sessions. Profile 1 is the folder every
+    # earlier build used.
+    browser_profile = 1
+
+    def use_profile(self, number):
+        """Switch this scraper to Enter Browser profile `number` (call on the browser thread).
+
+        An open browser belongs to the profile it was started with, so it is closed first.
+        """
+        try:
+            number = max(1, int(number or 1))
+        except (TypeError, ValueError):
+            number = 1
+        if number != ExternalScraper.browser_profile:
+            try:
+                self.cleanup()
+            except Exception:
+                pass
+            ExternalScraper.browser_profile = number
+            self.log(f"Browser profile #{number} in use.")
+        return number
+
     @staticmethod
     def _get_user_data_dir():
         """Get persistent browser data directory for cookies/localStorage.
@@ -2703,6 +2726,13 @@ class ExternalScraper(SiteEnginesMixin):
         read-only install location, so new builds use a stable per-user app
         data path and migrate the old folder once when possible.
         """
+        profile = ExternalScraper.browser_profile
+        if profile > 1:
+            # Further profiles live beside the first one and were never next to the exe.
+            for root in (_get_app_data_dir(), os.path.join(os.path.expanduser("~"), f".{APP_DATA_NAME}")):
+                folder = os.path.join(root, f'browser_data_{profile}')
+                if _is_writable_dir(folder):
+                    return folder
         legacy_dir = os.path.join(_get_base_dir(), 'browser_data')
         stable_dir = os.path.join(_get_app_data_dir(), 'browser_data')
 

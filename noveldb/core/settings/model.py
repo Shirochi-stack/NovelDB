@@ -268,6 +268,10 @@ class SourceOptions:
     nweb_store_cover: bool = False
     kobo_horizontal_layout: bool = True
     regular_browser: bool = False
+    # Enter Browser profiles: how many there are, and the one in use. Each has its own sign-in
+    # sessions; downloads use the selected one.
+    browser_profiles: int = 1
+    browser_profile: int = 1
 
 
 @dataclass(frozen=True)

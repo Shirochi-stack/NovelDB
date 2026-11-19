@@ -70,6 +70,10 @@ class ExternalJob(ExternalPipelineMixin):
     def run(self, scraper) -> dict:
         """Fetch and download the book with `scraper` (call on the browser worker thread)."""
         self._scraper = scraper
+        # The Enter Browser profile selected when this job started: its sign-in sessions are used.
+        switch = getattr(scraper, "use_profile", None)
+        if callable(switch):
+            switch(self._var_browser_profile.get())
         previous_timing = getattr(scraper, "chapter_timing", False)
         scraper.chapter_timing = bool(self._var_chapter_timing.get())
         refresh = getattr(scraper, "refresh_net_timeouts", None)

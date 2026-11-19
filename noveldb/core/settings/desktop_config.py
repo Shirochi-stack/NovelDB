@@ -332,6 +332,9 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         nweb_store_cover=_first_bool(c, "ext_syosetu_amazon_cover", s.nweb_store_cover),
         kobo_horizontal_layout=_first_bool(c, "ext_kobo_horizontal_layout", s.kobo_horizontal_layout),
         regular_browser=_first_bool(c, "ext_regular_browser", s.regular_browser),
+        browser_profiles=max(1, min(99, _int(c.get("ext_browser_profiles")) or s.browser_profiles)),
+        browser_profile=max(1, min(max(1, _int(c.get("ext_browser_profiles")) or s.browser_profiles),
+                                   _int(c.get("ext_browser_profile")) or s.browser_profile)),
     )
 
     o = base.output
@@ -586,6 +589,8 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["ext_syosetu_amazon_cover"] = src.nweb_store_cover
     c["ext_kobo_horizontal_layout"] = src.kobo_horizontal_layout
     c["ext_regular_browser"] = src.regular_browser
+    c["ext_browser_profiles"] = src.browser_profiles
+    c["ext_browser_profile"] = src.browser_profile
 
     c["quick_enable"] = not s.output.ask_each_time
     c["quick_path"] = s.output.output_dir

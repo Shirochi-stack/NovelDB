@@ -182,8 +182,15 @@ class Tools(QObject):
                                               detect_source(url) if url else None)
         self.context.hub.log("", message)
         start = url or "https://www.google.com"
-        self._submit("enter_browser",
-                     lambda scraper: scraper.open_visible_browser(start_url=start, regular_browser=regular))
+        profile = self.context.settings.sources.browser_profile
+
+        def open_browser(scraper):
+            scraper.use_profile(profile)  # the selected profile's sign-in sessions
+            return scraper.open_visible_browser(start_url=start, regular_browser=regular)
+
+        if not regular:
+            self.context.hub.log("", f"Enter Browser: profile #{profile}.")
+        self._submit("enter_browser", open_browser)
 
     def _sfc_app(self) -> None:
         dialog = SfcSessionDialog(self.window)

@@ -29,7 +29,7 @@ from noveldb.core.sources import BROWSER, detect_source, engine_for, split_input
 from noveldb.qt.context import AppContext
 from noveldb.qt import icons
 from noveldb.qt.scale import bind_size, bind_title, on_scale
-from noveldb.qt.widgets import Chip, RangeField, dspin, field_group, flow, hint, section, set_quietly, spin
+from noveldb.qt.widgets import Chip, ComboBox, RangeField, dspin, field_group, flow, hint, section, set_quietly, spin
 
 NL = chr(10)
 FORMAT_LABELS = {"epub": "EPUB", "txt": "TXT", "pdf": "PDF", "cbz": "CBZ", "folder": "Folder", "zip": "ZIP"}
@@ -142,7 +142,14 @@ class DownloadPage(QWidget):
                                         "downloader's own browser.")
         self.regular_browser.toggled.connect(lambda on: context.update_settings(
             lambda s: replace(s, sources=replace(s.sources, regular_browser=on))))
-        browser_row = flow(enter_browser, self.regular_browser, spacing=10)
+        # Enter Browser profiles: each keeps its own sign-in sessions, so several accounts of one site
+        # can stay signed in. Downloads use the profile selected here.
+        self.profile = ComboBox()
+        self.profile.setToolTip("The Enter Browser profile in use. Each profile keeps its own sign-in sessions; "
+                                "downloads use the selected one. \"New Profile\" adds another.")
+        bind_size(self.profile, min_width=130)
+        self.profile.activated.connect(self._profile_chosen)
+        browser_row = flow(enter_browser, self.profile, self.regular_browser, spacing=10)
         # The run button sits with the box it acts on, not at the bottom of the page.
         self.download = QPushButton("Download")
         icons.set_icon(self.download, icons.DOWNLOAD)
@@ -444,7 +451,39 @@ class DownloadPage(QWidget):
             self.folder.setText(s.output.output_dir)
         set_quietly(self.ask_each_time, s.output.ask_each_time)
         set_quietly(self.regular_browser, s.sources.regular_browser)
+        self._show_profiles(s.sources.browser_profiles, s.sources.browser_profile)
         set_quietly(self.shutdown, s.output.shutdown_after_success)
+
+    def _show_profiles(self, count: int, current: int) -> None:
+        count = max(1, count)
+        current = min(max(1, current), count)
+        box = self.profile
+        if box.count() != count + 1:
+            box.blockSignals(True)
+            box.clear()
+            for number in range(1, count + 1):
+                box.addItem(f"Profile #{number}", number)
+            box.addItem("New Profile", 0)
+            box.blockSignals(False)
+        if box.currentIndex() != current - 1:
+            box.blockSignals(True)
+            box.setCurrentIndex(current - 1)
+            box.blockSignals(False)
+
+    def _profile_chosen(self, index: int) -> None:
+        """A profile was picked; "New Profile" (the last entry) adds one and selects it."""
+        number = self.profile.itemData(index)
+
+        def change(s):
+            count = s.sources.browser_profiles
+            if not number:
+                count = min(99, count + 1)
+                return replace(s, sources=replace(s.sources, browser_profiles=count, browser_profile=count))
+            return replace(s, sources=replace(s.sources, browser_profile=int(number)))
+
+        self.context.update_settings(change)
+        chosen = self.context.settings.sources.browser_profile
+        self.context.hub.log("", f"Browser profile #{chosen} selected" + ("" if number else " (new: sign in with Enter Browser)") + ".")
 
     def _run(self, **changes) -> None:
         source = self._source
