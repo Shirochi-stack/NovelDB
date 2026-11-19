@@ -122,6 +122,11 @@ def test_download_queues_the_links_above_and_the_link_cart(window, context):
     assert sorted(context.ran) == ["11111", "12345", "67890"]
     assert context.cart.urls == []
     assert page.input.toPlainText() == "12345\n11111"  # the links above stay
+    # While the downloads ran the button was Stop; the jobs ending (a queued signal) turn it back.
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.processEvents()
+    page._update_download_button()
     assert page.download.text() == "Download 2"
 
 
