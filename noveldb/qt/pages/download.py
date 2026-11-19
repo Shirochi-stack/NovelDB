@@ -29,7 +29,7 @@ from noveldb.core.sources import BROWSER, detect_source, engine_for, split_input
 from noveldb.qt.context import AppContext
 from noveldb.qt import icons
 from noveldb.qt.scale import bind_size, bind_title, on_scale
-from noveldb.qt.widgets import Chip, ComboBox, RangeField, dspin, field_group, flow, hint, section, set_quietly, spin
+from noveldb.qt.widgets import Chip, RangeField, dspin, field_group, flow, hint, section, set_quietly, spin
 
 NL = chr(10)
 FORMAT_LABELS = {"epub": "EPUB", "txt": "TXT", "pdf": "PDF", "cbz": "CBZ", "folder": "Folder", "zip": "ZIP"}
@@ -144,11 +144,16 @@ class DownloadPage(QWidget):
             lambda s: replace(s, sources=replace(s.sources, regular_browser=on))))
         # Enter Browser profiles: each keeps its own sign-in sessions, so several accounts of one site
         # can stay signed in. Downloads use the profile selected here.
-        self.profile = ComboBox()
+        # A menu button like Tools (a combo box's popup came up one row tall under the app's style).
+        self.profile = QToolButton()
+        self.profile.setProperty("menu", True)
+        self.profile.setPopupMode(QToolButton.InstantPopup)
         self.profile.setToolTip("The Enter Browser profile in use. Each profile keeps its own sign-in sessions; "
                                 "downloads use the selected one. \"New Profile\" adds another.")
-        bind_size(self.profile, min_width=130)
-        self.profile.activated.connect(self._profile_chosen)
+        self.profile_menu = QMenu(self)
+        bind_size(self.profile_menu, min_width=180)
+        self.profile.setMenu(self.profile_menu)
+        self._profiles_shown = (0, 0)
         browser_row = flow(enter_browser, self.profile, self.regular_browser, spacing=10)
         # The run button sits with the box it acts on, not at the bottom of the page.
         self.download = QPushButton("Download")
@@ -457,22 +462,22 @@ class DownloadPage(QWidget):
     def _show_profiles(self, count: int, current: int) -> None:
         count = max(1, count)
         current = min(max(1, current), count)
-        box = self.profile
-        if box.count() != count + 1:
-            box.blockSignals(True)
-            box.clear()
-            for number in range(1, count + 1):
-                box.addItem(f"Profile #{number}", number)
-            box.addItem("New Profile", 0)
-            box.blockSignals(False)
-        if box.currentIndex() != current - 1:
-            box.blockSignals(True)
-            box.setCurrentIndex(current - 1)
-            box.blockSignals(False)
+        if self._profiles_shown == (count, current):
+            return
+        self._profiles_shown = (count, current)
+        self.profile.setText(f"Profile #{current}")
+        menu = self.profile_menu
+        menu.clear()
+        for number in range(1, count + 1):
+            action = menu.addAction(f"Profile #{number}")
+            action.setCheckable(True)
+            action.setChecked(number == current)
+            action.triggered.connect(lambda _=False, n=number: self._profile_chosen(n))
+        menu.addSeparator()
+        menu.addAction("New Profile").triggered.connect(lambda _=False: self._profile_chosen(0))
 
-    def _profile_chosen(self, index: int) -> None:
-        """A profile was picked; "New Profile" (the last entry) adds one and selects it."""
-        number = self.profile.itemData(index)
+    def _profile_chosen(self, number: int) -> None:
+        """Profile `number` was picked; 0 is "New Profile", which adds one and selects it."""
 
         def change(s):
             count = s.sources.browser_profiles

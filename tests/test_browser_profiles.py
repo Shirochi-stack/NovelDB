@@ -60,11 +60,16 @@ def test_new_profile_adds_one_and_selects_it(tmp_path, monkeypatch, qtbot):
     context = AppContext(start_workers=False)
     window = MainWindow(context)
     qtbot.addWidget(window)
-    box = window.download.profile
-    assert [box.itemText(i) for i in range(box.count())] == ["Profile #1", "New Profile"]
-    window.download._profile_chosen(1)
-    assert [box.itemText(i) for i in range(box.count())] == ["Profile #1", "Profile #2", "New Profile"]
-    assert box.currentText() == "Profile #2" and context.settings.sources.browser_profile == 2
-    window.download._profile_chosen(0)
-    assert context.settings.sources.browser_profile == 1 and box.currentText() == "Profile #1"
+    button = window.download.profile
+
+    def entries():
+        return [action.text() for action in window.download.profile_menu.actions() if not action.isSeparator()]
+
+    assert entries() == ["Profile #1", "New Profile"] and button.text() == "Profile #1"
+    window.download.profile_menu.actions()[-1].trigger()  # New Profile
+    assert entries() == ["Profile #1", "Profile #2", "New Profile"]
+    assert button.text() == "Profile #2" and context.settings.sources.browser_profile == 2
+    window.download.profile_menu.actions()[0].trigger()  # back to the first
+    assert context.settings.sources.browser_profile == 1 and button.text() == "Profile #1"
+    assert [a.isChecked() for a in window.download.profile_menu.actions()[:2]] == [True, False]
     context._save_timer.stop()
