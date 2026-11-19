@@ -210,6 +210,10 @@ def stylesheet_for(scheme: dict) -> str:
     QPushButton[primary="true"]:hover {{ background: {s['primary']}; border-color: {s['onSurface']}; }}
     QPushButton[primary="true"]:disabled {{ background: transparent; color: {s['outline']};
                                              border-color: {s['outlineVariant']}; font-weight: 400; }}
+    /* Stop (the Download button while downloads run): the same pill in the error colour. */
+    QPushButton[danger="true"] {{ background: {s['error']}; color: {s['onError']}; border: 1px solid {s['error']};
+                                   border-radius: 16px; padding: 6px 20px; font-weight: 600; }}
+    QPushButton[danger="true"]:hover {{ background: {s['error']}; border-color: {s['onSurface']}; }}
     QLabel#toast {{ background: {s['inverseSurface']}; color: {s['inverseOnSurface']}; border-radius: 10px;
                     padding: 10px 18px; }}
     QFrame#groupBox {{ background: {s['surfaceContainerLow']}; border: 1px solid {s['outlineVariant']}; border-radius: 10px; }}

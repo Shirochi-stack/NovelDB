@@ -51,6 +51,42 @@ def test_the_selected_profile_is_saved_and_reaches_the_download():
     assert import_config({}).sources.browser_profile == 1
 
 
+def test_download_is_a_red_stop_while_downloads_run(tmp_path, monkeypatch, qtbot):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
+    from noveldb.core.queue.model import QUEUED, Job
+    from noveldb.qt.context import AppContext
+    from noveldb.qt.main_window import MainWindow
+
+    context = AppContext(start_workers=False)
+    window = MainWindow(context)
+    qtbot.addWidget(window)
+    page = window.download
+    button = page.download
+    assert button.text().startswith("Download") and button.property("primary") is True
+
+    job = Job("https://example.com/b", source="kpage", state=QUEUED)
+    context.runner._jobs.append(job)  # a download waiting or running
+    stopped = []
+    monkeypatch.setattr(context.runner, "cancel_all", lambda: stopped.append(True))
+    page._update_download_button()
+    assert button.text() == "Stop" and button.isEnabled()
+    assert button.property("danger") is True and button.property("primary") is False
+    button.click()
+    assert stopped == [True]  # Stop stops; it does not queue anything
+
+    # New links typed while downloads run can still be queued: the button is Download again.
+    page.input.setPlainText("https://example.com/another")
+    page._text_changed()
+    assert button.text().startswith("Download") and button.property("danger") is False
+
+    page.input.setPlainText("")
+    context.runner._jobs.clear()
+    page._update_download_button()
+    assert button.text().startswith("Download") and button.property("primary") is True
+    context._save_timer.stop()
+
+
 def test_new_profile_adds_one_and_selects_it(tmp_path, monkeypatch, qtbot):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))

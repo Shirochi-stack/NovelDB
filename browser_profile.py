@@ -82,19 +82,99 @@ def _select_profile_processes(records, user_data_dir):
     return [record for pid, record in browsers.items() if pid in selected]
 
 
-def _psutil_records():
-    records = []
-    for process in psutil.process_iter(['pid', 'ppid', 'name', 'cmdline', 'create_time']):
+# (pid, start time) -> command line. A process's command line never changes, and reading one is
+# the costly part of a scan (it opens the process), so each is read once.
+_COMMANDS = {}
+
+
+def _windows_browser_processes():
+    """(pid, parent pid, name) of the running browser processes, from one system snapshot.
+
+    The Toolhelp snapshot lists every process with its name and parent in a single pass of native
+    calls (which do not hold up Python's other threads); psutil's walk opens each process in turn.
+    """
+    from ctypes import wintypes
+
+    class Entry(ctypes.Structure):
+        _fields_ = [
+            ('dwSize', wintypes.DWORD), ('cntUsage', wintypes.DWORD), ('th32ProcessID', wintypes.DWORD),
+            ('th32DefaultHeapID', ctypes.c_size_t), ('th32ModuleID', wintypes.DWORD),
+            ('cntThreads', wintypes.DWORD), ('th32ParentProcessID', wintypes.DWORD),
+            ('pcPriClassBase', ctypes.c_long), ('dwFlags', wintypes.DWORD),
+            ('szExeFile', ctypes.c_wchar * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(Entry)]
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(Entry)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    if snapshot in (None, wintypes.HANDLE(-1).value):
+        raise OSError('process snapshot unavailable')
+    found = []
+    try:
+        entry = Entry()
+        entry.dwSize = ctypes.sizeof(Entry)
+        more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while more:
+            if _is_browser_name(entry.szExeFile):
+                found.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID), entry.szExeFile))
+            more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return found
+
+
+def _browser_processes():
+    """(psutil process, pid, parent pid, name, start time) of each running browser process."""
+    if sys.platform == 'win32':
+        try:
+            listed = _windows_browser_processes()
+        except Exception:
+            listed = None
+        if listed is not None:
+            for pid, parent, name in listed:
+                try:
+                    process = psutil.Process(pid)
+                    yield process, pid, parent, name, process.create_time()
+                except (psutil.Error, OSError):
+                    continue
+            return
+    for process in psutil.process_iter(['pid', 'ppid', 'name', 'create_time']):
         info = process.info
-        if not _is_browser_name(info.get('name')):
-            continue
+        if _is_browser_name(info.get('name')):
+            yield process, info['pid'], info.get('ppid') or 0, info.get('name') or '', info.get('create_time')
+
+
+def _psutil_records():
+    """Every running browser process. Only browsers are looked at closely: asking every process
+    on the machine for its command line, several times a second while Enter Browser is open, held
+    the interpreter long enough to make the app's window stutter."""
+    records = []
+    alive = set()
+    for process, pid, parent, name, created in _browser_processes():
+        info = {'pid': pid, 'ppid': parent, 'name': name, 'create_time': created}
+        key = (info['pid'], info.get('create_time'))
+        alive.add(key)
+        command = _COMMANDS.get(key)
+        if command is None:
+            try:
+                command = _command_line(process.cmdline())
+            except (psutil.Error, OSError):
+                command = ''
+            if command:
+                _COMMANDS[key] = command
         records.append({
             'pid': info['pid'],
             'parent': info.get('ppid') or 0,
             'name': info.get('name') or '',
-            'command': _command_line(info.get('cmdline')),
+            'command': command,
             'created': info.get('create_time'),
         })
+    for key in [key for key in _COMMANDS if key not in alive]:
+        del _COMMANDS[key]
     return records
 
 

@@ -1,4 +1,5 @@
 import queue
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -178,13 +179,35 @@ def test_terminate_skips_a_recycled_pid(monkeypatch):
 
 def test_psutil_records_finds_this_profile(monkeypatch, tmp_path):
     profile = str(tmp_path / 'p')
+    read = []
+
+    def proc(pid, ppid, name, cmdline, created):
+        def command():
+            read.append(pid)
+            return cmdline
+        return SimpleNamespace(info={'pid': pid, 'ppid': ppid, 'name': name, 'create_time': created}, cmdline=command)
+
     procs = [
-        SimpleNamespace(info={'pid': 40, 'ppid': 1, 'name': 'msedge.exe',
-                              'cmdline': ['msedge.exe', f'--user-data-dir={profile}'], 'create_time': 1.0}),
-        SimpleNamespace(info={'pid': 41, 'ppid': 40, 'name': 'msedge.exe',
-                              'cmdline': ['msedge.exe', '--type=gpu-process'], 'create_time': 2.0}),
-        SimpleNamespace(info={'pid': 50, 'ppid': 1, 'name': 'python.exe', 'cmdline': [], 'create_time': 3.0}),
+        proc(40, 1, 'msedge.exe', ['msedge.exe', f'--user-data-dir={profile}'], 1.0),
+        proc(41, 40, 'msedge.exe', ['msedge.exe', '--type=gpu-process'], 2.0),
+        proc(50, 1, 'python.exe', [], 3.0),
     ]
-    fake = SimpleNamespace(process_iter=lambda attrs: procs)
+    fake = SimpleNamespace(process_iter=lambda attrs: procs, Error=Exception)
     monkeypatch.setattr(browser_profile, 'psutil', fake)
+    # The walk every platform can do (Windows normally lists processes from one native snapshot).
+    monkeypatch.setattr(browser_profile, '_windows_browser_processes',
+                        lambda: (_ for _ in ()).throw(OSError('no snapshot')))
+    browser_profile._COMMANDS.clear()
     assert [r['pid'] for r in browser_profile.profile_processes(profile)] == [40, 41]
+    # Only browsers have their command line read, and each only once.
+    assert read == [40, 41]
+    assert [r['pid'] for r in browser_profile.profile_processes(profile)] == [40, 41]
+    assert read == [40, 41]
+    browser_profile._COMMANDS.clear()
+
+
+def test_windows_lists_browser_processes_from_one_snapshot():
+    if sys.platform != 'win32':
+        return
+    listed = browser_profile._windows_browser_processes()
+    assert all(browser_profile._is_browser_name(name) for _pid, _parent, name in listed)

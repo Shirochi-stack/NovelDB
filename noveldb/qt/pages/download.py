@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -337,8 +337,9 @@ class DownloadPage(QWidget):
         self._detect_timer.timeout.connect(self._detect)
         self.input.textChanged.connect(self._detect_timer.start)
         # Clickable right away; `_download` detects again before queueing.
-        self.input.textChanged.connect(
-            lambda: self.download.setEnabled(bool(self.input.toPlainText().strip()) or len(self.context.cart) > 0))
+        self.input.textChanged.connect(self._text_changed)
+        # Downloads starting and ending turn the button into Stop and back.
+        context.hub.jobChanged.connect(lambda _job_id: self._update_download_button())
         context.settingsChanged.connect(self.refresh)
         context.cartChanged.connect(self._refresh_cart)
         self._refresh_cart()
@@ -581,16 +582,50 @@ class DownloadPage(QWidget):
                 else "Open a browser window to sign in to the site of the first link, then close it before "
                      "downloading."))
 
+    def _text_changed(self) -> None:
+        if self._stop_mode() or getattr(self, "_showing_stop", False):
+            self._update_download_button()  # new links in the box: Download again; the queued ones: Stop
+        if not self._stop_mode():
+            self.download.setEnabled(bool(self.input.toPlainText().strip()) or len(self.context.cart) > 0)
+
+    def _stop_mode(self) -> bool:
+        """True while the button is Stop: downloads are running and the box holds nothing new to
+        queue (the links stay in the box after Download, so only a changed box means more to add)."""
+        if not any(job.active for job in self.context.runner.jobs):
+            return False
+        text = self.input.toPlainText().strip()
+        return (not text or text == getattr(self, "_queued_text", None)) and len(self.context.cart) == 0
+
     def _update_download_button(self) -> None:
+        stop = self._stop_mode()
+        if stop != getattr(self, "_showing_stop", False):
+            self._showing_stop = stop
+            # Red Stop while downloads run, the primary Download button otherwise.
+            self.download.setProperty("primary", not stop)
+            self.download.setProperty("danger", stop)
+            icons.set_icon(self.download, icons.DOWNLOAD) if not stop else self.download.setIcon(QIcon())
+            self.download.style().unpolish(self.download)
+            self.download.style().polish(self.download)
+        if stop:
+            self.download.setEnabled(True)
+            self.download.setText("Stop")
+            self.download.setToolTip("Stop every running and waiting download.")
+            return
         count = len(self._download_lines())
         self.download.setEnabled(count > 0)
         self.download.setText(f"Download {count}" if count > 1 else "Download")
+        self.download.setToolTip("Queue the links above and everything in the link cart.")
 
     def _download(self) -> None:
+        if self._stop_mode():
+            self.context.runner.cancel_all()
+            return
         # One press queues the links above and the link cart; queued links leave the cart. The
         # links stay in the box, so a book can be queued again with other settings.
         self._detect()
+        self._queued_text = self.input.toPlainText().strip()
         self.queue_lines(self._download_lines())
+        self._update_download_button()
 
     def _refresh_cart(self) -> None:
         count = len(self.context.cart)
