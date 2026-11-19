@@ -83,10 +83,12 @@ def finish_jobs(context, queue, *inputs):
 def select_rows(queue, *rows):
     from PySide6.QtCore import QItemSelectionModel
 
+    # `rows` count jobs in the order they were queued; the table lists the newest first.
     model = queue.table.selectionModel()
     model.clearSelection()
+    last = queue.table.rowCount() - 1
     for row in rows:
-        model.select(queue.table.model().index(row, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        model.select(queue.table.model().index(last - row, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
 
 
 def test_upload_is_available_for_finished_jobs_only(context, queue):

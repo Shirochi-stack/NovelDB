@@ -37,6 +37,11 @@ class Job:
     # "Upload chapters": [first, last] of the chapters this job writes (from the cache where it has
     # them) in the selected formats and uploads, whatever the chapter range and auto upload say.
     upload_range: list = field(default_factory=list)
+    # [first, last, comma list] of the chapter range this job downloaded (empty: the whole book), so
+    # "Upload chapters" can tell when the files it would make are the ones already here.
+    chapters: list = field(default_factory=list)
+    # Share links of this job's uploads, oldest first.
+    links: list = field(default_factory=list)
     outputs: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     created: float = field(default_factory=time.time)

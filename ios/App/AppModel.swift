@@ -218,12 +218,22 @@ final class AppModel {
             return
         }
         var seen: Set<URL> = []
-        let books = jobs.filter { ids.contains($0.id) && !$0.state.isActive && $0.libraryTarget == nil && seen.insert($0.url).inserted }
+        let picked = jobs.filter { ids.contains($0.id) && !$0.state.isActive && $0.libraryTarget == nil && seen.insert($0.url).inserted }
+        let label = ChapterRangeText.named(from: from, to: to, list: list)
+        // A download that already is exactly these chapters uploads its files as they are; nothing is fetched again.
+        let ready = picked.filter { old in
+            let had = old.source.map { old.settings.effective(for: $0) } ?? old.settings.shared
+            return had.rangeFrom == from && had.rangeTo == to
+                && ChapterRangeText.named(from: had.rangeFrom, to: had.rangeTo, list: had.rangeList) == label
+                && isUploadable(old)
+        }
+        if !ready.isEmpty { upload(jobs: Set(ready.map(\.id))) }
+        let readyIDs = Set(ready.map(\.id))
+        let books = picked.filter { !readyIDs.contains($0.id) }
         guard !books.isEmpty else {
-            message = "There is nothing to upload chapters of."
+            if ready.isEmpty { message = "There is nothing to upload chapters of." }
             return
         }
-        let label = ChapterRangeText.named(from: from, to: to, list: list)
         for old in books.reversed() {
             var adjusted = settings
             adjusted.shared = old.source.map { settings.effective(for: $0) } ?? settings.shared

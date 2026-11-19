@@ -46,6 +46,9 @@ class JobDispatcher:
         settings = self._settings()
         requested = settings.effective(job.source)
         job.download_ranged = requested.range_from is not None or requested.range_to is not None
+        if not job.library_target and not job.upload_range:
+            job.chapters = ([requested.range_from, requested.range_to, requested.range_list]
+                            if job.download_ranged else [])
         if job.library_target:
             settings = replace(settings, overrides={}, shared=replace(requested, formats=("epub",),
                                range_from=None, range_to=None, append_range=False, use_cache=True,
@@ -55,6 +58,7 @@ class JobDispatcher:
             low, high = job.upload_range[:2]
             listed = str(job.upload_range[2]) if len(job.upload_range) > 2 else ""
             job.download_ranged = True
+            job.chapters = [low, high, listed]
             settings = replace(settings, overrides={}, shared=replace(
                 requested, range_from=low, range_to=high, range_list=listed, use_cache=True,
                 auto_purchase=False, generate_on_stop=False))

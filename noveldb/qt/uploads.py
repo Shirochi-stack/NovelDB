@@ -237,4 +237,27 @@ def upload_jobs(context: AppContext, jobs, parent: Optional[QWidget] = None) -> 
         return
     if not ensure_agreement(context, parent):
         return
-    UploadDialog(context, items, parent).exec()
+    dialog = UploadDialog(context, items, parent)
+    dialog.exec()
+    remember_links(context, jobs, dialog.outcomes)
+
+
+def remember_links(context: AppContext, jobs, outcomes) -> None:
+    """Keep each upload's link on the jobs whose files it carries (Queue: Copy links)."""
+    changed = False
+    for outcome in outcomes:
+        if not outcome.link:
+            continue
+        titles = set(outcome.titles or [])
+        owners = [job for job in jobs
+                  if (job.title and job.title in titles)
+                  or any(os.path.basename(path) == outcome.name for path in job.outputs)
+                  or any(os.path.splitext(os.path.basename(path))[0] in titles for path in job.outputs)]
+        for job in owners or list(jobs):
+            if outcome.link not in job.links:
+                job.links.append(outcome.link)
+                changed = True
+    if changed:
+        save = getattr(context.runner, "_save", None)
+        if callable(save):
+            save()

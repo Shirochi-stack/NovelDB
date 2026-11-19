@@ -215,6 +215,9 @@ class QueueRunner:
             with self._lock:
                 job.outputs = list(result.get("outputs") or job.outputs)
                 job.warnings = list(result.get("warnings") or job.warnings)
+                for link in result.get("links") or []:
+                    if link not in job.links:
+                        job.links.append(link)
                 if result.get("title"):
                     job.title = result["title"]
                 if state == FAILED:

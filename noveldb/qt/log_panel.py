@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 from collections import deque
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QGuiApplication, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -25,6 +26,7 @@ from noveldb.qt.context import AppContext
 from noveldb.qt.widgets import ComboBox
 
 MAX_LINES = 20_000
+WEB_LINK = re.compile(r"https?://[^\s<>\"']+")
 
 
 class LogView(QPlainTextEdit):
@@ -48,9 +50,15 @@ class LogView(QPlainTextEdit):
         path = QUrl(href).toLocalFile()
         return path or None
 
+    def web_link_at(self, pos) -> Optional[str]:
+        """The web address under `pos` (a share link an upload wrote to the log), if any."""
+        href = self.anchorAt(pos)
+        return href if href and href.startswith(("http://", "https://")) else None
+
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
-        over = self.path_at(event.position().toPoint()) is not None
+        point = event.position().toPoint()
+        over = self.path_at(point) is not None or self.web_link_at(point) is not None
         self.viewport().setCursor(Qt.PointingHandCursor if over else Qt.IBeamCursor)
 
     def mousePressEvent(self, event):
@@ -63,13 +71,26 @@ class LogView(QPlainTextEdit):
         if (event.button() == Qt.LeftButton and self._press is not None
                 and (pos - self._press).manhattanLength() < 4 and not self.textCursor().hasSelection()):
             path = self.path_at(pos)
+            link = self.web_link_at(pos)
             if path:
                 platform_services.open_path(path)
+            elif link:
+                QDesktopServices.openUrl(QUrl(link))
         self._press = None
 
     def _menu(self, pos):
         menu = self.createStandardContextMenu()
         path = self.path_at(pos)
+        link = self.web_link_at(pos)
+        if link:
+            first = menu.actions()[0] if menu.actions() else None
+            for text, slot in (("Copy link", lambda: QGuiApplication.clipboard().setText(link)),
+                               ("Open link", lambda: QDesktopServices.openUrl(QUrl(link)))):
+                action = QAction(text, menu)
+                action.triggered.connect(slot)
+                menu.insertAction(first, action)
+            if first is not None:
+                menu.insertSeparator(first)
         if path:
             first = menu.actions()[0] if menu.actions() else None
             is_dir = os.path.isdir(path)
@@ -191,6 +212,21 @@ class LogPanel(QWidget):
                 fmt.setForeground(self.palette().link())
                 fmt.setFontUnderline(True)
                 link.mergeCharFormat(fmt)
+                cursor.setCharFormat(plain)
+            # Web addresses (the share link of an upload) are links too: click to open, right-click to copy.
+            if "http" in line:
+                block = cursor.block()
+                for match in WEB_LINK.finditer(line):
+                    address = match.group(0).rstrip(".,;:)]}'\"")
+                    link = QTextCursor(block)
+                    link.setPosition(block.position() + _utf16(line[:match.start()]))
+                    link.setPosition(block.position() + _utf16(line[:match.start() + len(address)]), QTextCursor.KeepAnchor)
+                    fmt = QTextCharFormat()
+                    fmt.setAnchor(True)
+                    fmt.setAnchorHref(address)
+                    fmt.setForeground(self.palette().link())
+                    fmt.setFontUnderline(True)
+                    link.mergeCharFormat(fmt)
                 cursor.setCharFormat(plain)
         if at_end:
             bar.setValue(bar.maximum())

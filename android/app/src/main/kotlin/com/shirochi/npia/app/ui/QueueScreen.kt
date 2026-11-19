@@ -317,7 +317,7 @@ fun UploadChaptersDialog(books: Int, onDismiss: () -> Unit, onUpload: (Int, Int,
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "Chapters of ${if (books == 1) "this book" else "each of the $books books"} to upload, such as 4, 4-7 or 4,7. " +
-                        "They are written in the output formats selected on the Add tab; chapters already downloaded are not fetched again.",
+                        "A download that already is those chapters uploads its files as they are. Otherwise they are downloaded again and written in the output formats selected on the Add tab.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(

@@ -118,6 +118,9 @@ class QueuePage(QWidget):
         self.upload_chapters.setToolTip("Upload only some chapters of the selected downloads, such as 4, 4-7 or 4,7, "
                                         "in the output formats selected on the Download page.")
         self.upload_chapters.clicked.connect(self._upload_chapters)
+        self.copy_links = QPushButton("Copy links")
+        self.copy_links.setToolTip("Copy the share links of the selected downloads' uploads, one per line.")
+        self.copy_links.clicked.connect(self._copy_links)
         self.select_finished = QPushButton("Select finished")
         self.select_finished.setToolTip("Select every finished download that has files")
         self.select_finished.clicked.connect(self._select_finished)
@@ -125,7 +128,7 @@ class QueuePage(QWidget):
         for button in (self.stop, self.retry, self.remove, self.select_finished):
             actions.addWidget(button)
         actions.addStretch(1)
-        for button in (self.open, self.reveal, self.upload, self.upload_chapters):
+        for button in (self.open, self.reveal, self.upload, self.upload_chapters, self.copy_links):
             actions.addWidget(button)
         self.detail = hint("")
         self.detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -150,7 +153,8 @@ class QueuePage(QWidget):
     # -- table ---------------------------------------------------------------------------
 
     def reload(self) -> None:
-        jobs = self.runner.jobs
+        # Newest first, like the mobile queue. The queue still runs in the order jobs were added.
+        jobs = list(reversed(self.runner.jobs))
         selected = {job.id for job in self._selected_jobs()}
         self.table.setUpdatesEnabled(False)
         self.table.setRowCount(len(jobs))
@@ -206,10 +210,11 @@ class QueuePage(QWidget):
         bar.setToolTip(f"{job.value} / {job.total}" if job.total else "")
 
     def _selected_jobs(self):
-        """The selected jobs in table order (not the order they were clicked in)."""
+        """The selected jobs in the order they were queued, oldest first (the table lists the newest
+        first), not the order they were clicked in: uploads and ZIPs keep the order of the downloads."""
         ids = []
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
-        for index in sorted(rows, key=lambda i: i.row()):
+        for index in sorted(rows, key=lambda i: -i.row()):
             item = self.table.item(index.row(), 0)
             if item is not None:
                 ids.append(item.data(Qt.UserRole))
@@ -235,12 +240,15 @@ class QueuePage(QWidget):
         self.reveal.setEnabled(has_outputs or any(job.output_dir for job in jobs))
         self.upload.setEnabled(has_outputs)
         self.upload_chapters.setEnabled(any(self._can_upload_chapters(job) for job in jobs))
+        self.copy_links.setEnabled(any(job.links for job in jobs))
         self.select_finished.setEnabled(any(job.state == DONE and job.outputs for job in self.runner.jobs))
         if len(jobs) == 1:
             job = jobs[0]
             lines = [job.input]
             if job.outputs:
                 lines.append("Saved: " + ", ".join(os.path.basename(path) for path in job.outputs))
+            if job.links:
+                lines.append("Link: " + "   ".join(job.links))
             if job.error:
                 lines.append(job.error)
             if job.warnings:
@@ -304,7 +312,8 @@ class QueuePage(QWidget):
         typed, ok = QInputDialog.getText(
             self, "Upload chapters",
             f"Chapters of {books} to upload, such as 4, 4-7 or 4,7.\n"
-            "They are written in the output formats selected on the Download page.")
+            "A download that already is those chapters uploads its files as they are. Otherwise they are\n"
+            "rebuilt from the saved chapters in the output formats selected on the Download page.")
         low, high, listed = chapter_range.read(typed) if ok else (None, None, "")
         if low is None:
             return
@@ -312,14 +321,33 @@ class QueuePage(QWidget):
             return
         seen = set()
         fresh = []
+        ready = []
         for job in jobs:
             if job.input in seen:
                 continue
             seen.add(job.input)
+            # The download already is exactly these chapters: its files go up as they are.
+            if list(job.chapters or []) == [low, high, listed] and self._existing_outputs(job):
+                ready.append(job)
+                continue
             fresh.append(Job(job.input, source=job.source, engine=job.engine, title=job.title,
                              output_dir=job.output_dir, upload_range=[low, high, listed]))
-        self.runner.submit(fresh)
+        if fresh:
+            self.runner.submit(fresh)
         self.reload()
+        if ready:
+            upload_jobs(self.context, ready, self)
+            self.reload()
+
+    def _copy_links(self) -> None:
+        links = []
+        for job in self._selected_jobs():
+            links.extend(link for link in job.links if link not in links)
+        if links:
+            from PySide6.QtGui import QGuiApplication
+
+            QGuiApplication.clipboard().setText("\n".join(links))
+            self.context.hub.message.emit(f"{len(links)} link{'s' if len(links) != 1 else ''} copied to the clipboard.")
 
     def _reveal(self) -> None:
         """Show the selected jobs' files, selected in their folders (one window per folder)."""
@@ -338,7 +366,7 @@ class QueuePage(QWidget):
     def _menu(self, pos) -> None:
         menu = QMenu(self)
         for button in (self.stop, self.retry, self.remove, None, self.open, self.reveal, self.upload,
-                       self.upload_chapters, None,
+                       self.upload_chapters, self.copy_links, None,
                        self.select_finished):
             if button is None:
                 menu.addSeparator()

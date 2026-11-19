@@ -311,7 +311,10 @@ class AppContext(QObject):
             )
             errors = [item.error for item in outcomes if item.error]
             links = links_text(outcomes)
-            if links and self.settings.upload.copy_link:
+            # The job keeps its links (Queue: Copy links). "Upload chapters" was asked for the link,
+            # so it is copied whatever the "copy links" setting says.
+            result["links"] = [item.link for item in outcomes if item.link]
+            if links and (self.settings.upload.copy_link or job.upload_range):
                 self._uploadLinksReady.emit(links)
             result["status"] = "Downloaded; automatic upload failed" if errors else "Done; uploaded"
         except Exception as exc:

@@ -564,6 +564,13 @@ class ExternalPipelineMixin:
                 )
             else:
                 cache_entries, cache_path = {}, None
+                # "Use cache" off reads nothing from the cache, but what is downloaded is still
+                # saved: "Upload chapters" rebuilds from it instead of scraping the book again.
+                if not is_kobo_desktop:
+                    try:
+                        cache_path = ExternalPipelineMixin._external_cache_path(self)
+                    except Exception:
+                        cache_path = None
             checkpoint = ChapterCache(cache_path) if cache_path else None
             cache_write_failed = False
 

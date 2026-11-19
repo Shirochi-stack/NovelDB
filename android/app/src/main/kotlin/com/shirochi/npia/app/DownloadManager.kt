@@ -337,8 +337,18 @@ class DownloadManager(private val app: Application) {
      * named after the range, and uploaded. False when none of the jobs can be queued.
      */
     fun uploadChapters(ids: Collection<String>, from: Int, to: Int, list: String = ""): Boolean {
-        val books = ids.mapNotNull(::job).filter { !it.state.isActive && it.libraryTarget == null }.distinctBy { it.url }
-        if (books.isEmpty()) return false
+        val picked = ids.mapNotNull(::job).filter { !it.state.isActive && it.libraryTarget == null }.distinctBy { it.url }
+        // A download that already is exactly these chapters uploads its files as they are; nothing is fetched again.
+        val wanted = com.shirochi.npia.core.ChapterRangeText.named(from, to, list)
+        val ready = picked.filter { old ->
+            val had = old.source?.let(old.settings::effective) ?: old.settings.shared
+            had.rangeFrom == from && had.rangeTo == to &&
+                com.shirochi.npia.core.ChapterRangeText.named(had.rangeFrom, had.rangeTo, had.rangeList) == wanted &&
+                old.files(outputDirectory).any { it.exists() }
+        }
+        val uploading = ready.isNotEmpty() && uploadJobs(ready.map { it.id })
+        val books = picked - ready.toSet()
+        if (books.isEmpty()) return uploading
         val current = _settings.value
         val added = books.map { old ->
             val shared = (old.source?.let(current::effective) ?: current.shared).copy(
