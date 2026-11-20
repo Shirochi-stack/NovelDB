@@ -39,13 +39,14 @@ jobs:
       - name: Install metadata dependencies
         run: |
           pip install requests beautifulsoup4 'curl_cffi>=0.14,<0.15' playwright pillow psutil
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chrome
+          sudo apt-get install -y xvfb xauth
       - name: Resume NovelUpdates metadata collection
         id: collect
         continue-on-error: true
         # Every series in a language is listed (about 14,000 Korean): the first sweeps take weeks of
         # daily runs, after which a run reads only the series added since.
-        run: python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --max-seconds 2700 --browser-fallback
+        run: xvfb-run -a python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --max-seconds 2700 --browser-fallback
       - name: Record verified titles beside the catalogue and restore machine titles
         # A verified title is kept for search and Details; the displayed title is the machine translation.
         run: python scripts/nu_titles.py record --source all --rebuild --report .cache/nu-title-migration.json

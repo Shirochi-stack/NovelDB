@@ -343,19 +343,25 @@ class Collector:
         if self.browser is not None:
             return self.browser_fetch(url)
         response = self.session.get(nu_url(url), timeout=35)
-        if response.status_code in (403, 503) and self.browser_fallback:
+        challenged = response.status_code in (403, 503) or bool(re.search(
+            r'<title[^>]*>\s*(?:Just a moment|Attention Required)', response.text, re.I))
+        if challenged and self.browser_fallback:
             from external_scraper import ExternalScraper
             self.browser = ExternalScraper(logger=lambda message: print(message, flush=True))
-            return self.browser_fetch(url)
+            return self.browser_document(url)
         response.raise_for_status()
         return response.text
 
     def browser_fetch(self, url):
         page = self.browser._site_page(url)
-        result = page.evaluate("""async url => {
-            const response = await fetch(url, {signal: AbortSignal.timeout(35000)});
-            return {status: response.status, text: await response.text()};
-        }""", url)
+        try:
+            result = page.evaluate("""async url => {
+                const response = await fetch(url, {signal: AbortSignal.timeout(35000)});
+                return {status: response.status, text: await response.text()};
+            }""", url)
+        except Exception:
+            # A challenge can replace the document while its fetch is still running.
+            return self.browser_document(url)
         if result["status"] == 200:
             try:
                 if "/series/" in urlsplit(url).path or parse_qs(urlsplit(url).query).get("p"):
@@ -365,7 +371,12 @@ class Collector:
                 return result["text"]
             except ValueError:
                 pass
-        html = self.browser.render_html(url)
+        return self.browser_document(url)
+
+    def browser_document(self, url):
+        # A challenge needs a document navigation in installed Chrome. Fetching its
+        # HTML, or rendering it again in the same headless browser, cannot run it.
+        html = self.browser.render_html(url, real_browser=True)
         if not html:
             raise RuntimeError("NovelUpdates browser request failed")
         return html
