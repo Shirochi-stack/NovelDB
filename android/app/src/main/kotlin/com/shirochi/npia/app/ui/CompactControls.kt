@@ -155,7 +155,8 @@ fun MiniRangeField(from: Int?, to: Int?, list: String, placeholder: String, widt
     val alpha = if (enabled) 1f else 0.38f
     Surface(shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = alpha))) {
         Box(Modifier.width(width.dp).height(32.dp).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
-            if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha), maxLines = 1)
+            // A hint, not a value: clearly dimmer than typed text.
+            if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f * alpha), maxLines = 1)
             BasicTextField(
                 value = text,
                 onValueChange = { new ->
@@ -197,7 +198,7 @@ fun MiniNumberField(value: String, placeholder: String, decimal: Boolean, width:
     val outline = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
     Surface(shape = RoundedCornerShape(8.dp), border = BorderStroke(if (error) 2.dp else 1.dp, outline)) {
         Box(Modifier.width(width.dp).height(32.dp).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
-            if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
             BasicTextField(
                 value = text,
                 onValueChange = { new -> text = new; onChange(new) },

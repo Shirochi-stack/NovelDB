@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -200,6 +202,10 @@ fun RootScreen(model: AppViewModel) {
         Box(
             Modifier
                 .padding(padding)
+                // The window draws edge to edge, so the keyboard covers the page unless the page
+                // gives it room; a scrolling page then keeps the box being typed in above it.
+                .consumeWindowInsets(padding)
+                .imePadding()
                 .fillMaxSize()
                 .pointerInput(focusManager) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
         ) {
