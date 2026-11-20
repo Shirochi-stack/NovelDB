@@ -329,7 +329,7 @@ def restore_state(state, restore=None):
 
 
 class Collector:
-    def __init__(self, delay=1.1, browser_fallback=False):
+    def __init__(self, delay=2.5, browser_fallback=False):
         from curl_cffi import requests
         self.session = requests.Session(impersonate="chrome")
         self.delay = max(1.0, delay)
@@ -346,45 +346,29 @@ class Collector:
         challenged = response.status_code in (403, 503) or bool(re.search(
             r'<title[^>]*>\s*(?:Just a moment|Attention Required)', response.text, re.I))
         if challenged and self.browser_fallback:
-            from external_scraper import ExternalScraper
-            self.browser = ExternalScraper(logger=lambda message: print(message, flush=True))
-            return self.browser_document(url)
+            try:
+                from .nu_browser import Browser
+            except ImportError:
+                from nu_browser import Browser
+            self.browser = Browser()
+            return self.browser_fetch(url)
         response.raise_for_status()
         return response.text
 
-    def browser_fetch(self, url):
-        page = self.browser._site_page(url)
-        try:
-            result = page.evaluate("""async url => {
-                const response = await fetch(url, {signal: AbortSignal.timeout(35000)});
-                return {status: response.status, text: await response.text()};
-            }""", url)
-        except Exception:
-            # A challenge can replace the document while its fetch is still running.
-            return self.browser_document(url)
-        if result["status"] == 200:
-            try:
-                if "/series/" in urlsplit(url).path or parse_qs(urlsplit(url).query).get("p"):
-                    parse_series(result["text"], url)
-                else:
-                    parse_listing(result["text"], url)
-                return result["text"]
-            except ValueError:
-                pass
-        return self.browser_document(url)
+    @staticmethod
+    def validate(html, url):
+        if "/series/" in urlsplit(url).path or parse_qs(urlsplit(url).query).get("p"):
+            parse_series(html, url)
+        else:
+            parse_listing(html, url)
 
-    def browser_document(self, url):
-        # A challenge needs a document navigation in installed Chrome. Fetching its
-        # HTML, or rendering it again in the same headless browser, cannot run it.
-        html = self.browser.render_html(url, real_browser=True)
-        if not html:
-            raise RuntimeError("NovelUpdates browser request failed")
-        return html
+    def browser_fetch(self, url):
+        return self.browser.fetch(url, self.validate)
 
     def close(self):
         self.session.close()
         if self.browser:
-            self.browser.cleanup()
+            self.browser.close()
 
 
 def parse_listing(html, url):
@@ -406,7 +390,8 @@ def parse_listing(html, url):
     return entries, next_url
 
 
-def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fallback=False, max_seconds=1800):
+def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fallback=False, max_seconds=1800,
+            report_path=None):
     """Checkpoint each successful request. Failed pages are read again later.
 
     Each language's listing is swept twice over: the recently updated, restarted daily and
@@ -423,6 +408,7 @@ def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fal
         cache["parser_version"] = PARSER_VERSION
     cache["publishers"] = {}  # Publisher indexes gave way to the listings: few series name a publisher.
     series = cache["series"]
+    initial_series = len(series)
     listings = cache.setdefault("listings", {})
     deferred = cache.setdefault("deferred", {})
     numbers = {}
@@ -526,6 +512,12 @@ def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fal
     finally:
         if client:
             client.close()
+    report = {"requests": requested, "succeeded": requested - len(errors), "failed": len(errors),
+              "new_series": len(series) - initial_series, "cached_series": len(series),
+              "stopped_after_failures": in_a_row >= TURNED_AWAY}
+    print("NovelUpdates collection: " + source_names.dumps(report), flush=True)
+    if report_path:
+        atomic_json(report_path, report)
     if errors:
         raise RuntimeError(f"NovelUpdates collection incomplete. {len(errors)} pages failed: " + " | ".join(errors[:5]))
     return cache
@@ -703,7 +695,7 @@ def main():
             import sys
             sys.path.insert(0, str(ROOT))
         collect(sources, args.cache, args.max_requests, browser_fallback=args.browser_fallback,
-                max_seconds=args.max_seconds)
+                max_seconds=args.max_seconds, report_path=args.report)
     elif args.command == "import-snapshot":
         if not all((args.snapshot, args.snapshot_url, args.snapshot_date)):
             parser.error("Snapshot path, attribution URL and date are required")

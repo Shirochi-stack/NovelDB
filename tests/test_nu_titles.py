@@ -1,7 +1,6 @@
 import gzip
 import hashlib
 import json
-import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -25,11 +24,11 @@ def cache():
 
 @pytest.mark.parametrize("status", [200, 403, 503])
 def test_challenge_opens_installed_browser_and_reuses_it(monkeypatch, status):
+    from scripts import nu_browser
     browser = Mock()
-    browser.render_html.return_value = HTML
-    browser._site_page.return_value.evaluate.return_value = {"status": 200, "text": HTML}
+    browser.fetch.return_value = HTML
     factory = Mock(return_value=browser)
-    monkeypatch.setitem(sys.modules, "external_scraper", SimpleNamespace(ExternalScraper=factory))
+    monkeypatch.setattr(nu_browser, "Browser", factory)
     monkeypatch.setattr(nu_titles.time, "sleep", lambda _: None)
     client = nu_titles.Collector(browser_fallback=True)
     client.session.close()
@@ -38,34 +37,13 @@ def test_challenge_opens_installed_browser_and_reuses_it(monkeypatch, status):
         status_code=status, text="<title>Just a moment...</title>")
     try:
         assert client.fetch(URL) == HTML
-        browser.render_html.assert_called_once_with(URL, real_browser=True)
+        browser.fetch.assert_called_once_with(URL, client.validate)
         assert client.fetch(URL) == HTML
         assert client.session.get.call_count == 1
         assert factory.call_count == 1
     finally:
         client.close()
-    browser.cleanup.assert_called_once()
-
-
-@pytest.mark.parametrize("reply", [
-    {"status": 403, "text": "<title>Just a moment...</title>"},
-    {"status": 200, "text": "<title>Just a moment...</title>"},
-    RuntimeError("Execution context was destroyed"),
-])
-def test_browser_challenge_renavigates_in_installed_browser(reply):
-    client = nu_titles.Collector(browser_fallback=True)
-    client.browser = Mock()
-    page = client.browser._site_page.return_value
-    if isinstance(reply, Exception):
-        page.evaluate.side_effect = reply
-    else:
-        page.evaluate.return_value = reply
-    client.browser.render_html.return_value = HTML
-    try:
-        assert client.browser_fetch(URL) == HTML
-        client.browser.render_html.assert_called_once_with(URL, real_browser=True)
-    finally:
-        client.close()
+    browser.close.assert_called_once()
 
 
 def test_snapshot_import_retains_live_titles_and_all_historical_aliases(tmp_path):

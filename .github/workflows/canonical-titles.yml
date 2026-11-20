@@ -38,7 +38,7 @@ jobs:
         run: python scripts/data_branch.py checkout
       - name: Install metadata dependencies
         run: |
-          pip install requests beautifulsoup4 'curl_cffi>=0.14,<0.15' playwright pillow psutil
+          pip install requests beautifulsoup4 'curl_cffi>=0.14,<0.15' playwright pillow psutil websocket-client
           python -m playwright install --with-deps chrome
           sudo apt-get install -y xvfb xauth
       - name: Resume NovelUpdates metadata collection
@@ -46,7 +46,7 @@ jobs:
         continue-on-error: true
         # Every series in a language is listed (about 14,000 Korean): the first sweeps take weeks of
         # daily runs, after which a run reads only the series added since.
-        run: xvfb-run -a python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --max-seconds 2700 --browser-fallback
+        run: xvfb-run -a python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --max-seconds 2700 --browser-fallback --report .cache/nu-collection.json
       - name: Record verified titles beside the catalogue and restore machine titles
         # A verified title is kept for search and Details; the displayed title is the machine translation.
         run: python scripts/nu_titles.py record --source all --rebuild --report .cache/nu-title-migration.json
@@ -62,6 +62,7 @@ jobs:
             metadata/state/nu_titles.json.gz
             metadata/state/nu_title_addresses.json.gz
             .cache/nu-title-migration.json
+            .cache/nu-collection.json
           retention-days: 30
           if-no-files-found: error
       - name: Publish verified titles and cache
@@ -81,4 +82,11 @@ jobs:
               output.write(f"NovelUpdates collection completed with status {os.environ['NU_COLLECTION_OUTCOME']}. Failed pages remain queued for retry.\n\n")
               for report in reports:
                   output.write(f"- {report['source']} matched {report['matched']} of {report['rows']} titles, restored {report['restored']} machine titles, {report['pending']} left to translate.\n")
+              collection = Path('.cache/nu-collection.json')
+              if collection.exists():
+                  stats = json.loads(collection.read_text(encoding='utf-8'))
+                  output.write(f"\nCollection: {stats['succeeded']}/{stats['requests']} requests succeeded, {stats['failed']} failed, {stats['new_series']} new series.\n")
           PY
+      - name: Report incomplete collection after preserving progress
+        if: steps.collect.outcome == 'failure'
+        run: exit 1
