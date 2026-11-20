@@ -23,7 +23,12 @@ def connection(target):
         nonlocal number
         number += 1
         ws.send(json.dumps({"id": number, "method": method, "params": params or {}}))
+        deadline = time.monotonic() + 10
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"NU browser command timed out: {method}")
+            ws.settimeout(min(5, remaining))
             reply = json.loads(ws.recv())
             if reply.get("id") == number:
                 if "error" in reply:
@@ -109,6 +114,7 @@ class Browser:
         return json.loads(raw) if raw.startswith(("{", "[")) else raw
 
     def fetch(self, url, validate, timeout=90):
+        print(f"NovelUpdates opening: {url}", flush=True)
         target = self.request("/json/new?" + quote(url, safe=""), "PUT")
         deadline = time.monotonic() + timeout
         clicked = {}

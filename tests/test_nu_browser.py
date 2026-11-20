@@ -1,9 +1,30 @@
 from contextlib import contextmanager
 from unittest.mock import Mock
+import json
 
 import pytest
 
 from scripts import nu_browser, nu_titles
+
+
+def test_cdp_event_stream_cannot_extend_command_deadline(monkeypatch):
+    import websocket
+
+    clock = [100.0]
+    monkeypatch.setattr(nu_browser.time, "monotonic", lambda: clock[0])
+    ws = Mock()
+
+    def event():
+        clock[0] += 3
+        return json.dumps({"method": "DOM.documentUpdated"})
+
+    ws.recv.side_effect = event
+    monkeypatch.setattr(websocket, "create_connection", Mock(return_value=ws))
+    with pytest.raises(TimeoutError, match="DOM.getDocument"):
+        with nu_browser.connection({"webSocketDebuggerUrl": "ws://localhost/test"}) as call:
+            call("DOM.getDocument")
+    assert ws.recv.call_count == 4
+    ws.close.assert_called_once()
 
 
 def test_checkbox_uses_actual_frame_dom_and_geometry(monkeypatch):
