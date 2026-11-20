@@ -469,7 +469,11 @@ class ExternalPipelineMixin:
                             spent.add(profile)
                             continue
                         current = profile
+                    if not self._downloading:
+                        break  # Stop pressed while that browser opened: no ticket is used after it
                     outcome = purchase(chapter)
+                    if not self._downloading:
+                        break
                     if outcome is True:
                         self._log(f"  Profile #{profile} unlocked {name}; downloading it with that profile.")
                         data = self._scraper.parse_chapter(start + index, chapter, log_errors=False)
@@ -483,16 +487,25 @@ class ExternalPipelineMixin:
                         break
                     spent.add(profile)  # no ticket for this book, or signed out
                 else:
-                    self._log(f"  No profile has a ticket for {name}.")
-                if len(spent) >= count:
+                    if self._downloading:
+                        self._log(f"  No profile has a ticket for {name}.")
+                if len(spent) >= count and self._downloading:
                     self._log("  Every profile is out of tickets for this book.")
                     break
         finally:
-            if current != selected:
+            # A stopped download has nothing left to read, so it does not go back to the selected
+            # profile first (the next download or Enter Browser picks its own profile).
+            if current != selected and self._downloading:
                 try:
                     switch(selected)
                 except Exception as exc:
                     self._log(f"⚠ Could not return to profile #{selected}: {exc}")
+            release = getattr(self._scraper, 'kpage_release_profiles', None)
+            if callable(release):
+                try:
+                    release()  # the other profiles' browsers were kept open for the rotation
+                except Exception:
+                    pass
         return fetched
 
     def _do_download(self, chapters, start, end, interval, num_threads=1,
@@ -593,6 +606,15 @@ class ExternalPipelineMixin:
                     except Exception:
                         pass
             self._apply_scraper_options()
+            if self._book_data and self._book_data.get('_kpage'):
+                # Which account this profile is signed in with: said in the log, and noted for the
+                # Download page's profile list.
+                account = getattr(self._scraper, 'kpage_account', None)
+                if callable(account):
+                    try:
+                        account(fresh=True)
+                    except Exception:
+                        pass
 
             if is_npia:
                 notices = [ch for ch in chapters if ch.get('isNotice')]

@@ -62,6 +62,9 @@ class ExternalJob(ExternalPipelineMixin):
         self._start_time = time.time()
 
     def stop(self) -> None:
+        if self._downloading:
+            # Said at once: the step in hand (a page load, a browser opening) still has to end.
+            self._log("Stopping... the step in progress ends first.")
         self._downloading = False
         self._download_cancelled = True
         if self._scraper is not None:

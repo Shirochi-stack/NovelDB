@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from time import monotonic
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -154,6 +155,9 @@ class DownloadPage(QWidget):
         bind_size(self.profile_menu, min_width=180)
         self.profile.setMenu(self.profile_menu)
         self._profiles_shown = (0, 0)
+        # The account each profile is signed in with appears once a download has seen it.
+        self.profile_menu.aboutToShow.connect(self._refresh_profiles)
+        context.hub.jobChanged.connect(self._profiles_after_job)
         browser_row = flow(enter_browser, self.profile, self.regular_browser, spacing=10)
         # The run button sits with the box it acts on, not at the bottom of the page.
         self.download = QPushButton("Download")
@@ -461,21 +465,44 @@ class DownloadPage(QWidget):
         set_quietly(self.shutdown, s.output.shutdown_after_success)
 
     def _show_profiles(self, count: int, current: int) -> None:
+        from noveldb.core.external import profile_accounts
+
         count = max(1, count)
         current = min(max(1, current), count)
-        if self._profiles_shown == (count, current):
+        accounts = profile_accounts.load()
+        shown = (count, current, tuple(sorted(accounts.items())))
+        if self._profiles_shown == shown:
             return
-        self._profiles_shown = (count, current)
-        self.profile.setText(f"Profile #{current}")
+        self._profiles_shown = shown
+        account = accounts.get(current, "")
+        # The button stays short; the menu and the tooltip have the whole name.
+        short = account if len(account) <= 26 else account[:25] + "…"
+        self.profile.setText(f"Profile #{current} ({short})" if account else f"Profile #{current}")
+        self.profile.setToolTip(
+            (f"Profile #{current} is signed in to kpage as {account}. " if account else "")
+            + "The Enter Browser profile in use. Each profile keeps its own sign-in sessions; downloads use the "
+              "selected one. \"New Profile\" adds another. The account shows once a kpage download has used the profile.")
         menu = self.profile_menu
         menu.clear()
         for number in range(1, count + 1):
-            action = menu.addAction(f"Profile #{number}")
+            action = menu.addAction(profile_accounts.label(number, accounts))
             action.setCheckable(True)
             action.setChecked(number == current)
             action.triggered.connect(lambda _=False, n=number: self._profile_chosen(n))
         menu.addSeparator()
         menu.addAction("New Profile").triggered.connect(lambda _=False: self._profile_chosen(0))
+
+    def _refresh_profiles(self) -> None:
+        sources = self.context.settings.sources
+        self._show_profiles(sources.browser_profiles, sources.browser_profile)
+
+    def _profiles_after_job(self, _job_id: str) -> None:
+        # A running download reports progress many times a second; look for a newly seen account
+        # at most every two seconds.
+        now = monotonic()
+        if now - getattr(self, "_profiles_read", 0.0) >= 2.0:
+            self._profiles_read = now
+            self._refresh_profiles()
 
     def _profile_chosen(self, number: int) -> None:
         """Profile `number` was picked; 0 is "New Profile", which adds one and selects it."""

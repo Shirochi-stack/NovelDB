@@ -330,6 +330,9 @@ class ExternalScraper(SiteEnginesMixin):
         self._global_npia_ad_profile = None
         self._qdn_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
+        # Browsers of other Enter Browser profiles kept open while auto purchase rotates over them:
+        # {profile number: {'context', 'page', 'worker_pages', 'claimed'}}.
+        self._profile_pool = {}
         self._floo_pages = []    # Reused Floo reader pages
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
@@ -2714,8 +2717,19 @@ class ExternalScraper(SiteEnginesMixin):
             except Exception:
                 pass
             ExternalScraper.browser_profile = number
-            self.log(f"Browser profile #{number} in use.")
+            self.log(f"Browser {self._profile_name(number)} in use.")
         return number
+
+    @staticmethod
+    def _profile_name(number):
+        """"profile #3 (name@example.com)": the profile and the account last seen in it."""
+        try:
+            from noveldb.core.external import profile_accounts
+
+            account = profile_accounts.load(_get_app_data_dir()).get(int(number), "")
+        except Exception:
+            account = ""
+        return f"profile #{number} ({account})" if account else f"profile #{number}"
 
     @staticmethod
     def _get_user_data_dir():
@@ -4094,7 +4108,9 @@ class ExternalScraper(SiteEnginesMixin):
         user_data_dir = self._get_user_data_dir()
         self.log("Launching headless browser...")
         self.log(f"Browser profile: {user_data_dir}")
-        self._playwright = sync_playwright().start()
+        if not self._playwright:
+            # One driver serves every profile's browser (profiles kept open share it).
+            self._playwright = sync_playwright().start()
         self._context = self._playwright.chromium.launch_persistent_context(
             user_data_dir,
             headless=True,
@@ -4946,6 +4962,7 @@ class ExternalScraper(SiteEnginesMixin):
 
     def cleanup(self):
         """Release browser resources."""
+        self.kpage_release_profiles()
         self._fnp_close_browser()
         self._ntk_clear_webtoon_pages()
         self._global_npia_shutdown_ad_worker()
@@ -16717,9 +16734,81 @@ async (ids) => {
     }
     """
 
+    # How many other profiles' browsers stay open at once while auto purchase rotates.
+    _PROFILE_POOL_LIMIT = 6
+
+    def _close_parked_profile(self, number, parked):
+        """Close a profile's kept-open browser, saving its storage backup as cleanup() does."""
+        current = ExternalScraper.browser_profile
+        try:
+            ExternalScraper.browser_profile = number
+            try:
+                parked['context'].storage_state(path=self._get_storage_state_path())
+            except Exception:
+                pass
+        finally:
+            ExternalScraper.browser_profile = current
+        for page in list(parked.get('worker_pages') or []) + [parked.get('page')]:
+            try:
+                if page:
+                    page.close()
+            except Exception:
+                pass
+        try:
+            parked['context'].close()
+        except Exception:
+            pass
+
+    def kpage_release_profiles(self):
+        """Close the browsers of the other profiles; the profile in use keeps its own."""
+        pool, self._profile_pool = getattr(self, '_profile_pool', None) or {}, {}
+        for number, parked in pool.items():
+            self._close_parked_profile(number, parked)
+        self._kpage_account_logged = set()
+
     def kpage_switch_profile(self, number):
-        """Use Enter Browser profile `number` from here on: its browser, its sign-in sessions."""
-        self.use_profile(number)
+        """Use Enter Browser profile `number` from here on: its browser, its sign-in sessions.
+
+        Opening a browser and the site again for every switch is what made rotating slow, so the
+        browser of the profile being left stays open (kpage_release_profiles closes them); coming
+        back to a profile is then immediate.
+        """
+        try:
+            number = max(1, int(number or 1))
+        except (TypeError, ValueError):
+            number = 1
+        current = ExternalScraper.browser_profile
+        if number == current and self._context and self._page:
+            return True
+        if number != current:
+            plain = (self._context and self._page and not self._browser
+                     and not self._chrome_process)
+            if plain:
+                while len(self._profile_pool) >= self._PROFILE_POOL_LIMIT:
+                    oldest = next(iter(self._profile_pool))
+                    self._close_parked_profile(oldest, self._profile_pool.pop(oldest))
+                self._profile_pool[current] = {
+                    'context': self._context, 'page': self._page,
+                    'worker_pages': self._worker_pages,
+                    'claimed': getattr(self, '_kpage_claimed', None) or {},
+                }
+                self._context = self._page = None
+                self._worker_pages = []
+            else:
+                self.cleanup()
+            ExternalScraper.browser_profile = number
+        self.log(f"Browser {self._profile_name(number)} in use.")
+        parked = self._profile_pool.pop(number, None)
+        if parked:
+            try:
+                parked['page'].evaluate('1')
+            except Exception:
+                self._close_parked_profile(number, parked)
+            else:
+                self._context, self._page = parked['context'], parked['page']
+                self._worker_pages = list(parked.get('worker_pages') or [])
+                self._kpage_claimed = parked.get('claimed') or {}
+                return True
         self._kpage_claimed = {}  # the other account has its own gift and waiting tickets
         self.prepare_download_browser()
         self.start()
@@ -16728,6 +16817,74 @@ async (ids) => {
             self.log(f"[Kpage] Restored {restored} session login cookie(s) "
                      "from Enter Browser.")
         return bool(self._page)
+
+    _KPAGE_ACCOUNT_JS = r"""
+    async () => {
+        // The request the site's own account page makes for the signed-in user.
+        const api = 'https://bff-' + location.host.replace(/^bff-/, '') + '/api/gateway/api/v1';
+        try {
+            const response = await fetch(api + '/user/get_profile', { method: 'POST', credentials: 'include' });
+            let data = null;
+            try { data = await response.json(); } catch (e) {}
+            const seen = new Set();
+            const find = (value) => {
+                if (!value || typeof value !== 'object' || seen.has(value)) return null;
+                seen.add(value);
+                if (typeof value.email === 'string' || typeof value.nickname === 'string') return value;
+                for (const child of Object.values(value)) {
+                    const found = find(child);
+                    if (found) return found;
+                }
+                return null;
+            };
+            const user = find(data) || {};
+            return { status: response.status, email: String(user.email || ''),
+                     nickname: String(user.nickname || ''),
+                     id: String(user.user_id || user.account_id || '') };
+        } catch (e) {
+            return { status: 0, error: String(e) };
+        }
+    }
+    """
+
+    def kpage_account(self, fresh=False):
+        """The account the profile in use is signed in with on kpage: its email, else its nickname.
+
+        "" when signed out or not known (the page is not on the site yet). What is found is noted
+        for the Download page's profile list and said once in the log.
+        """
+        if fresh:
+            self._kpage_account_logged = set()
+        page = self._page
+        if page is None:
+            return ''
+        try:
+            host = urllib.parse.urlparse(page.url or '').hostname or ''
+        except Exception:
+            return ''
+        if not (host.startswith('page.') and host.endswith(self._KPAGE_COOKIE_DOMAIN)):
+            return ''
+        try:
+            answer = page.evaluate(self._KPAGE_ACCOUNT_JS) or {}
+        except Exception:
+            return ''
+        account = (answer.get('email') or answer.get('nickname') or '').strip()
+        if not account:
+            return ''
+        number = ExternalScraper.browser_profile
+        try:
+            from noveldb.core.external import profile_accounts
+
+            profile_accounts.remember(number, account, _get_app_data_dir())
+        except Exception:
+            pass
+        logged = getattr(self, '_kpage_account_logged', None)
+        if logged is None:
+            logged = self._kpage_account_logged = set()
+        if (number, account) not in logged:
+            logged.add((number, account))
+            self.log(f"[Kpage] Browser profile #{number} is signed in as {account}.")
+        return account
 
     def kpage_auto_purchase(self, chapter):
         """Unlock one paid episode with a ticket the account already holds; True when it opened.
@@ -16752,10 +16909,12 @@ async (ids) => {
             try:
                 target.goto(f'{site}/content/{series}', wait_until='domcontentloaded',
                             timeout=_page_ms(30000))
-                target.wait_for_timeout(1000)
+                target.wait_for_timeout(200)
             except Exception as e:
                 self.log(f"  [Kpage] Auto purchase: could not open the book page: {e}")
                 return False
+        if self._stop_requested:
+            return False
         claimed = getattr(self, '_kpage_claimed', None)
         if claimed is None:
             claimed = self._kpage_claimed = {}
@@ -16767,10 +16926,18 @@ async (ids) => {
             self.log(f"  [Kpage] Auto purchase failed for {name}: {e}")
             return False
         if answer.get('login'):
-            self.log("  [Kpage] Auto purchase needs a signed-in account. Sign in with Enter Browser, "
+            self.log(f"  [Kpage] Browser profile #{ExternalScraper.browser_profile} is signed out: "
+                     "auto purchase needs a signed-in account. Sign in with Enter Browser, "
                      "then download again.")
+            try:
+                from noveldb.core.external import profile_accounts
+
+                profile_accounts.remember(ExternalScraper.browser_profile, "", _get_app_data_dir())
+            except Exception:
+                pass
             return 'login'
         if first:
+            self.kpage_account()
             claimed[series] = list(answer.get('claimed') or [])
             if claimed[series]:
                 self.log(f"  [Kpage] Received {len(claimed[series])} free ticket(s) for this book.")
@@ -23017,7 +23184,10 @@ async (items) => {
                 )
                 results.append(data)
                 if i < len(batch_info) - 1:
-                    self._sleep_interval(interval, interval_max)
+                    # The rate-limit wait ends at once when Stop is pressed.
+                    deadline = time.monotonic() + self._random_interval_delay(interval, interval_max)
+                    while not self._stop_requested and time.monotonic() < deadline:
+                        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
             return results
         # Yeduji: sequential urllib fetches (no browser needed)
         if self._book_data and self._book_data.get('_yeduji'):

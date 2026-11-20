@@ -90,6 +90,7 @@ def test_download_is_a_red_stop_while_downloads_run(tmp_path, monkeypatch, qtbot
 def test_new_profile_adds_one_and_selects_it(tmp_path, monkeypatch, qtbot):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("NPIA_BROWSER_DATA_DIR", str(tmp_path / "data"))  # no accounts seen yet
     from noveldb.qt.context import AppContext
     from noveldb.qt.main_window import MainWindow
 
@@ -109,3 +110,29 @@ def test_new_profile_adds_one_and_selects_it(tmp_path, monkeypatch, qtbot):
     assert context.settings.sources.browser_profile == 1 and button.text() == "Profile #1"
     assert [a.isChecked() for a in window.download.profile_menu.actions()[:2]] == [True, False]
     context._save_timer.stop()
+
+
+def test_a_profile_shows_the_account_a_download_saw_in_it(tmp_path, monkeypatch, qtbot):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("NPIA_BROWSER_DATA_DIR", str(tmp_path / "data"))
+    from dataclasses import replace
+
+    from noveldb.core.external import profile_accounts
+    from noveldb.qt.context import AppContext
+    from noveldb.qt.main_window import MainWindow
+
+    context = AppContext(start_workers=False)
+    context.update_settings(lambda s: replace(s, sources=replace(s.sources, browser_profiles=2, browser_profile=2)))
+    window = MainWindow(context)
+    qtbot.addWidget(window)
+    page = window.download
+    assert page.profile.text() == "Profile #2"
+    profile_accounts.remember(2, "name@example.com")  # a download asked the site who is signed in
+    page.profile_menu.aboutToShow.emit()  # opening the menu looks again
+    assert page.profile.text() == "Profile #2 (name@example.com)"
+    assert [a.text() for a in page.profile_menu.actions()[:2]] == ["Profile #1", "Profile #2 (name@example.com)"]
+    assert "name@example.com" in page.profile.toolTip()
+    profile_accounts.remember(2, "a-very-long-account-name-that-would-push-the-row@example.com")
+    page._refresh_profiles()
+    assert page.profile.text().endswith("…)") and len(page.profile.text()) < 45
