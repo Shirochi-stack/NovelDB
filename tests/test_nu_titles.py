@@ -124,6 +124,28 @@ def test_missing_native_metadata_is_cached_without_a_match():
     assert nu_titles.TitleIndex(data).match(RAW, AUTHOR, "kpage") is None
 
 
+def test_title_that_sources_give_to_different_authors_is_not_taken_alone(tmp_path):
+    data = cache()
+    data["series"][URL]["authors"] = ["Baek Deok-su"]
+    index = nu_titles.TitleIndex(data)
+    metadata_common.atomic_json(tmp_path / "kpage_novels.json", [["1", RAW, AUTHOR], ["2", "다른 작품", "다른 작가"]])
+    metadata_common.atomic_json(tmp_path / "nweb_novels.json", [["7", RAW, AUTHOR]])
+    # The same author on two sources: one work, confirmed on each.
+    holders = nu_titles.catalog_holders(index, tmp_path)
+    assert [row[0] for row, match in index.match_rows([["1", RAW, AUTHOR]], "kpage", holders)] == ["1"]
+    assert [row[0] for row, match in index.match_rows([["7", RAW, AUTHOR]], "nweb", holders)] == ["7"]
+    # Another author's work of that title on any source leaves both unconfirmed.
+    metadata_common.atomic_json(tmp_path / "nweb_novels.json", [["7", RAW, "다른 작가"]])
+    holders = nu_titles.catalog_holders(index, tmp_path)
+    assert list(index.match_rows([["1", RAW, AUTHOR]], "kpage", holders)) == []
+    assert list(index.match_rows([["7", RAW, "다른 작가"]], "nweb", holders)) == []
+    # The other language's catalog is a different title space.
+    metadata_common.atomic_json(tmp_path / "sfc_novels.json", [["9", RAW, "다른 작가"]])
+    metadata_common.atomic_json(tmp_path / "nweb_novels.json", [["7", RAW, AUTHOR]])
+    holders = nu_titles.catalog_holders(index, tmp_path)
+    assert [row[0] for row, match in index.match_rows([["1", RAW, AUTHOR]], "kpage", holders)] == ["1"]
+
+
 def verified(original=RAW, english="Debut or Die"):
     """A title translation as written while verified titles replaced machine titles."""
     return {"original": original, "english": english, "author": AUTHOR, "origin": "novelupdates",
@@ -202,36 +224,52 @@ def test_legacy_extraction_keeps_machine_titles(tmp_path, monkeypatch, source):
     assert corpus["2"][1] == "" and corpus["3"][1] == ""
 
 
+def listing(*entries, next_page=None):
+    """A listing page of (series number, address) entries, as the language listings show them."""
+    boxes = "".join(f'<div class="search_title"><span class="rl_icons_en" id="sid{number}"></span>'
+                    f'<a href="{url}">Title</a></div>' for number, url in entries)
+    pager = f'<div class="digg_pagination"><a class="next_page" rel="next" href="{next_page}"> →</a></div>'
+    return boxes + (pager if next_page else "")
+
+
+def series_page(url, title, number):
+    return HTML.replace(URL, url).replace("Debut or Die", title) + f'<input id="mypostid" value="{number}">'
+
+
 def test_collector_resumes_failed_request_and_does_not_cache_missing(tmp_path):
     path = tmp_path / "cache.json.gz"
-    listing = f'<div class="search_title"><a href="{URL}">Debut or Die</a></div>'
-    calls = []
 
     def fetch(url):
-        calls.append(url)
-        return listing if "/opublisher/" in url else "<title>Just a moment</title>"
+        return listing((45, URL)) if "/language/" in url else "<title>Just a moment</title>"
 
     with pytest.raises(RuntimeError, match="incomplete"):
         nu_titles.collect(("kpage",), path, 3, fetch=fetch)
     stored = nu_titles.read_cache(path)
     assert stored["series"] == {}
-    progress = next(iter(stored["publishers"].values()))
-    assert URL in progress["deferred"]
-    progress["deferred"][URL]["retry_after"] = 0
+    assert stored["deferred"][URL]["failures"] == 1
+    # A page that failed is not queued again by the listings: it waits for its retry.
+    assert all(progress["complete"] and not progress["pending"] for progress in stored["listings"].values())
+    stored["deferred"][URL]["retry_after"] = 0
+    nu_titles.write_cache(path, stored)
+    with pytest.raises(RuntimeError):
+        nu_titles.collect(("kpage",), path, 3, fetch=fetch)
+    stored = nu_titles.read_cache(path)
+    # Each failure waits longer than the last.
+    assert stored["deferred"][URL]["failures"] == 2
+    stored["deferred"][URL]["retry_after"] = 0
     nu_titles.write_cache(path, stored)
     resumed = nu_titles.collect(("kpage",), path, 3, fetch=lambda url: HTML)
     assert resumed["series"][URL]["title"] == "Debut or Die"
-    assert next(iter(resumed["publishers"].values()))["complete"]
+    assert resumed["deferred"] == {}
 
 
 def test_collector_continues_to_a_valid_series_after_an_unavailable_one(tmp_path):
     path = tmp_path / "cache.json.gz"
     failed = URL.replace("debut-or-die", "unavailable-series")
-    listing = f'<div class="search_title"><a href="{failed}">Unavailable</a><a href="{URL}">Debut or Die</a></div>'
 
     def fetch(url):
-        if "/opublisher/" in url:
-            return listing
+        if "/language/" in url:
+            return listing((44, failed), (45, URL))
         return HTML if url == URL else "<title>Just a moment</title>"
 
     with pytest.raises(RuntimeError):
@@ -239,6 +277,123 @@ def test_collector_continues_to_a_valid_series_after_an_unavailable_one(tmp_path
     stored = nu_titles.read_cache(path)
     assert stored["series"][URL]["title"] == "Debut or Die"
     assert failed not in stored["series"]
+
+
+def test_sweeps_follow_each_language_listing_and_read_only_series_never_held(tmp_path):
+    path = tmp_path / "cache.json.gz"
+    snapshot = "https://www.novelupdates.com/?p=45"
+    stored = cache()
+    # Held from a snapshot under its number alone: the listing names it by address.
+    stored["series"] = {snapshot: {**stored["series"][URL], "url": snapshot, "nu_id": "45",
+                                   "checked_at": "2025-08-21T00:00:00Z"}}
+    nu_titles.write_cache(path, stored)
+    second, third = (URL.replace("debut-or-die", slug) for slug in ("second-work", "third-work"))
+    recent = "https://www.novelupdates.com/language/korean/?sort=8&order=2&status=1"
+    by_title = "https://www.novelupdates.com/language/korean/?sort=7&order=1&status=1"
+    pages = {
+        recent: listing((45, URL), (46, second), next_page="//www.novelupdates.com/language/korean/"
+                                                           "?sort=8&order=2&status=1&pg=2"),
+        recent + "&pg=2": listing((47, third)),
+        by_title: listing((45, URL), (46, second), (47, third)),
+        second: series_page(second, "Second Work", 46), third: series_page(third, "Third Work", 47),
+    }
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return pages[url]
+
+    result = nu_titles.collect(("npia", "kpage"), path, 20, fetch=fetch)
+    # The recently updated first, page by page; then every series by title, with nothing left to read.
+    assert calls == [recent, second, recent + "&pg=2", third, by_title]
+    assert set(result["series"]) == {snapshot, second, third}
+    assert result["series"][third]["nu_id"] == "47"
+    assert set(result["listings"]) == {"Korean/recent", "Korean/all"}
+    assert all(progress["complete"] for progress in result["listings"].values())
+    # Nothing is due again the same day.
+    calls.clear()
+    nu_titles.collect(("npia",), path, 20, fetch=fetch)
+    assert calls == []
+    # The other language has its own listing.
+    with pytest.raises(RuntimeError, match="language/chinese/"):
+        nu_titles.collect(("sfc",), path, 1, fetch=lambda url: "<title>Just a moment</title>")
+
+
+def test_recent_sweep_ends_once_its_pages_hold_nothing_new(tmp_path, monkeypatch):
+    path = tmp_path / "cache.json.gz"
+    stored = cache()
+    stored["series"][URL]["nu_id"] = "45"
+    nu_titles.write_cache(path, stored)
+    monkeypatch.setattr(nu_titles, "ORDERS", {"recent": nu_titles.ORDERS["recent"]})
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return listing((45, URL), next_page=f"//www.novelupdates.com/language/korean/?pg={len(calls) + 1}")
+
+    result = nu_titles.collect(("npia",), path, 50, fetch=fetch)
+    assert len(calls) == nu_titles.QUIET_PAGES
+    assert result["listings"]["Korean/recent"]["complete"]
+
+
+def test_monthly_sweep_reads_old_series_again_from_its_second_pass(tmp_path, monkeypatch):
+    path = tmp_path / "cache.json.gz"
+    snapshot = "https://www.novelupdates.com/?p=45"
+    stored = cache()
+    stored["series"] = {snapshot: {**stored["series"][URL], "url": snapshot, "nu_id": "45", "aliases": ["이전 제목"],
+                                   "checked_at": "2025-08-21T00:00:00Z"}}
+    stored["parser_version"] = nu_titles.PARSER_VERSION
+    stored["listings"] = {"Korean/all": {"next": None, "pending": [], "complete": True, "completed_at": 1}}
+    nu_titles.write_cache(path, stored)
+    monkeypatch.setattr(nu_titles, "ORDERS", {"all": nu_titles.ORDERS["all"]})
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return listing((45, URL)) if "/language/" in url else series_page(URL, "Debut or Die", 45)
+
+    result = nu_titles.collect(("npia",), path, 5, fetch=fetch)
+    assert calls[1:] == [URL]
+    index = nu_titles.TitleIndex(result)
+    # The fresh page and the snapshot are one series: both titles lead to its address.
+    assert index.match(RAW, AUTHOR, "npia")["url"] == index.match("이전 제목", AUTHOR, "npia")["url"] == URL
+    assert result["listings"]["Korean/all"]["completed_at"] > 1
+
+
+def test_collection_stops_when_every_request_is_turned_away(tmp_path):
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return "<title>Just a moment</title>"
+
+    with pytest.raises(RuntimeError, match="incomplete"):
+        nu_titles.collect(("npia", "sfc"), tmp_path / "cache.json.gz", 100, fetch=fetch)
+    assert len(calls) == nu_titles.TURNED_AWAY
+
+
+def test_long_title_held_once_matches_a_series_without_a_native_author():
+    data = cache()
+    record = data["series"][URL]
+    record["authors"] = ["Baek Deok-su"]
+    index = nu_titles.TitleIndex(data)
+    assert index.match(RAW, AUTHOR, "kpage") is None
+    assert [row[0] for row, match in index.match_rows([["1", RAW, AUTHOR], ["2", "다른 작품", AUTHOR]], "kpage")
+            if match["url"] == URL] == ["1"]
+    # Two authors hold that title in the catalog: the series cannot say which work it is.
+    assert list(index.match_rows([["1", RAW, AUTHOR], ["2", RAW, "다른 작가"]], "kpage")) == []
+    # One author's two editions are the same work.
+    assert len(list(index.match_rows([["1", RAW, AUTHOR], ["2", RAW, f"[{AUTHOR}]"]], "kpage"))) == 2
+    # No author to compare is not enough for a short title, which many works share.
+    record["aliases"] = ["짧은 제목"]
+    assert list(nu_titles.TitleIndex(data).match_rows([["1", "짧은 제목", AUTHOR]], "kpage")) == []
+    # A native author that differs is never set aside, nor are two series of one title.
+    data = cache()
+    assert list(nu_titles.TitleIndex(data).match_rows([["1", RAW, "다른 작가"]], "kpage")) == []
+    data["series"][URL]["authors"] = []
+    second = URL.replace("debut-or-die", "another-edition")
+    data["series"][second] = {**data["series"][URL], "url": second}
+    assert list(nu_titles.TitleIndex(data).match_rows([["1", RAW, AUTHOR]], "kpage")) == []
 
 
 def test_record_keeps_addresses_and_restores_machine_titles_in_corpus_and_bundles(tmp_path):

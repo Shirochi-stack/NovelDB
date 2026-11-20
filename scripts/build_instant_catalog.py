@@ -13,10 +13,10 @@ from zipfile import ZipFile, ZipInfo, ZIP_STORED
 
 try:
     from .source_names import dumps
-    from .nu_titles import TitleIndex, PUBLISHERS, raw_path
+    from .nu_titles import TitleIndex, SOURCES, catalog_holders, raw_path
 except ImportError:
     from source_names import dumps
-    from nu_titles import TitleIndex, PUBLISHERS, raw_path
+    from nu_titles import TitleIndex, SOURCES, catalog_holders, raw_path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,13 +26,13 @@ def build(data, destination):
     with tempfile.TemporaryDirectory(prefix="instant-", dir=ROOT / "artifacts") as temporary:
         folder = Path(temporary)
         index = TitleIndex.load()
+        holders = catalog_holders(index, data)
         aliases = {}
-        for source in PUBLISHERS:
-            for row in json.loads(raw_path(source, data).read_text(encoding="utf-8")):
-                match = index.match(row[1], row[2], source)
-                if match:
-                    # The verified title is searched like the other names, never displayed.
-                    aliases[f"{source}/{row[0]}"] = list(dict.fromkeys([*match["aliases"], match["title"]]))
+        for source in SOURCES:
+            rows = json.loads(raw_path(source, data).read_text(encoding="utf-8"))
+            for row, match in index.match_rows(rows, source, holders):
+                # The verified title is searched like the other names, never displayed.
+                aliases[f"{source}/{row[0]}"] = list(dict.fromkeys([*match["aliases"], match["title"]]))
         alias_file = folder / "aliases.input"
         alias_file.write_text(dumps(aliases, ensure_ascii=False), encoding="utf-8")
         subprocess.run(["node", "--max-old-space-size=8192", str(ROOT / "scripts/noveldb_index/instant.cjs"),

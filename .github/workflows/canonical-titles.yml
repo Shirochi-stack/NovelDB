@@ -7,7 +7,7 @@ on:
     inputs:
       max_requests:
         description: 'Maximum sequential NovelUpdates requests. Collection resumes from its checkpoint.'
-        default: '250'
+        default: '1500'
         type: string
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       PYTHONUNBUFFERED: '1'
-      NU_MAX_REQUESTS: ${{ inputs.max_requests || '250' }}
+      NU_MAX_REQUESTS: ${{ inputs.max_requests || '1500' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,7 +43,9 @@ jobs:
       - name: Resume NovelUpdates metadata collection
         id: collect
         continue-on-error: true
-        run: python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --browser-fallback
+        # Every series in a language is listed (about 14,000 Korean): the first sweeps take weeks of
+        # daily runs, after which a run reads only the series added since.
+        run: python scripts/nu_titles.py collect --max-requests "$NU_MAX_REQUESTS" --max-seconds 2700 --browser-fallback
       - name: Record verified titles beside the catalogue and restore machine titles
         # A verified title is kept for search and Details; the displayed title is the machine translation.
         run: python scripts/nu_titles.py record --source all --rebuild --report .cache/nu-title-migration.json

@@ -1,9 +1,12 @@
 """Cache verified NovelUpdates titles and record them beside the catalog.
 
-Collection is an explicit, resumable network operation. Matching and recording
-are offline. Native titles and author aliases must both match. A verified title
-never replaces the displayed machine title: it is kept with its address for
-search and for the Details view.
+Collection is an explicit, resumable network operation. It walks the listing of
+every series in a language, so a series is found whether or not its page names
+a publisher. Matching and recording are offline. Native titles and author
+aliases must both match; where a series names no author in native script, a
+long title held once on each side is enough. A verified title never replaces
+the displayed machine title: it is kept with its address for search and for
+the Details view.
 """
 from __future__ import annotations
 
@@ -32,17 +35,20 @@ ADDRESSES_NAME = "nu_title_addresses.json.gz"
 RESTORE_NAME = "nu_title_restore.json.gz"
 BASE = "https://www.novelupdates.com/"
 PARSER_VERSION = 2
-PUBLISHERS = {
-    "npia": "\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061",
-    "kpage": "\u006b\u0061\u006b\u0061\u006f\u0070\u0061\u0067\u0065",
-    "sfc": "\u0073\u0066\u0061\u0063\u0067",
-    "nweb": "\u006e\u0061\u0076\u0065\u0072",
-    "jara": "\u006a\u006f\u0061\u0072\u0061",
-    "mpia": "\u006d\u0075\u006e\u0070\u0069\u0061",
-    "rbooks": "\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073",
-    "nseries": "\u006e\u0061\u0076\u0065\u0072",
-}
+SOURCES = ("npia", "kpage", "sfc", "nweb", "jara", "mpia", "rbooks", "nseries")
 NATIVE = re.compile(r"[\u3400-\u9fff\uac00-\ud7af]")
+# Every series in a language is listed here, 25 to a page, each with its series number.
+LISTINGS = {"Korean": "language/korean/", "Chinese": "language/chinese/"}
+# The listings have no order by date added. A newly added series shows among the recently
+# updated; the order by title is the one whose pages hold still while a sweep runs for days.
+ORDERS = {"recent": "?sort=8&order=2&status=1", "all": "?sort=7&order=1&status=1"}
+RESTART = {"recent": 20 * 3600, "all": 30 * 86400}
+RECENT_PAGES = 120   # the most a sweep of the recently updated reads
+QUIET_PAGES = 4      # ...and it ends after this many pages in a row with nothing new
+REREAD = 180 * 86400
+TURNED_AWAY = 8      # failures in a row that end a run
+# A title this long (spaces aside) names one work: enough where a series names no native author.
+DISTINCT_TITLE = 8
 
 
 def normalized(value):
@@ -60,6 +66,15 @@ def author_keys(value):
     names = aliases.groups() if aliases else (text,)
     return {normalized(name).rstrip(".") if NATIVE.search(name) else normalized(name)
             for name in names if normalized(name)}
+
+
+def observed(record):
+    """When a cached series was read, in seconds."""
+    return datetime.fromisoformat(record["checked_at"].replace("Z", "+00:00")).timestamp()
+
+
+def language_of(source):
+    return "Chinese" if source == "sfc" else "Korean"
 
 
 def valid_title(value):
@@ -190,8 +205,6 @@ class TitleIndex:
             identity = str(record.get("nu_id") or parse_qs(urlsplit(url).query).get("p", [url])[0])
             previous = identities.get(identity)
             if previous:
-                def observed(value):
-                    return datetime.fromisoformat(value["checked_at"].replace("Z", "+00:00")).timestamp()
                 newer = record if observed(record) > observed(previous) else previous
                 record = {**newer, "aliases": list(dict.fromkeys(previous.get("aliases", []) + record.get("aliases", []))),
                           "authors": list(dict.fromkeys(previous.get("authors", []) + record.get("authors", [])))}
@@ -204,15 +217,52 @@ class TitleIndex:
     def load(cls, path=CACHE):
         return cls(read_cache(path))
 
-    def match(self, title, author, source):
+    def match(self, title, author, source, lone=False):
+        """The one series with this native title and author.
+
+        `lone`: the catalog names one author for this title. Then a series that names no
+        author in native script (only a romanized one, or none: nothing to compare) is
+        taken on a long title alone, when it is the only series with that title.
+        """
         if not NATIVE.search(str(title or "")) or not author_keys(author):
             return None
-        language = "Chinese" if source == "sfc" else "Korean"
-        candidates = [record for record in self.aliases.get(normalized(title), [])
-                      if record.get("language") == language
-                      and author_keys(author).intersection(
+        language = language_of(source)
+        native = normalized(title)
+        titled = [record for record in self.aliases.get(native, []) if record.get("language") == language]
+        candidates = [record for record in titled
+                      if author_keys(author).intersection(
                           key for alias in record.get("authors", []) for key in author_keys(alias))]
-        return candidates[0] if len(candidates) == 1 else None
+        if len(candidates) == 1:
+            return candidates[0]
+        if (lone and len(titled) == 1 and len(native) >= DISTINCT_TITLE
+                and not any(NATIVE.search(name) for name in titled[0].get("authors", []))):
+            return titled[0]
+        return None
+
+    def holders(self, rows, source, into=None):
+        """{(language, native title): the authors these rows name for it}, for titles a series holds."""
+        into = defaultdict(set) if into is None else into
+        language = language_of(source)
+        for row in rows:
+            title = normalized(row[1])
+            if title in self.aliases:
+                into[language, title].add(frozenset(author_keys(row[2])))
+        return into
+
+    def match_rows(self, rows, source, holders=None):
+        """(row, series) for each confirmed catalog row [id, title, author, ...].
+
+        `holders` (catalog_holders) counts each title's authors over every source, so that a
+        title two sources give to different authors is not taken on the title alone. Without
+        it only these rows are counted.
+        """
+        holders = self.holders(rows, source) if holders is None else holders
+        language = language_of(source)
+        for row in rows:
+            match = self.match(row[1], row[2], source,
+                               lone=len(holders.get((language, normalized(row[1])), ())) == 1)
+            if match:
+                yield row, match
 
 
 def read_restore(path):
@@ -320,103 +370,146 @@ class Collector:
 
 
 def parse_listing(html, url):
+    """A listing page: {series address: its series number, or ""} in page order, and the next page."""
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
-    links = [nu_url(link["href"], series=True) for link in soup.select(".search_title a[href]")]
-    if not links:
-        raise ValueError("Empty or challenged NovelUpdates publisher page")
+    entries = {}
+    for box in soup.select(".search_title"):
+        mark = box.select_one('span[id^="sid"]')
+        number = re.fullmatch(r"sid([1-9][0-9]*)", mark.get("id", "")) if mark else None
+        for link in box.select("a[href]"):
+            entries.setdefault(nu_url(link["href"], series=True), number[1] if number else "")
+    if not entries:
+        raise ValueError("Empty or challenged NovelUpdates listing page")
     next_link = soup.select_one('.digg_pagination a[rel="next"]')
     next_url = nu_url(urljoin(url, next_link["href"])) if next_link else None
     if next_url and urlsplit(next_url).path != urlsplit(url).path:
-        raise ValueError("Unexpected publisher pagination")
-    return list(dict.fromkeys(links)), next_url
+        raise ValueError("Unexpected listing pagination")
+    return entries, next_url
 
 
 def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fallback=False, max_seconds=1800):
-    """Checkpoint each successful request. Failed pages remain pending."""
+    """Checkpoint each successful request. Failed pages are read again later.
+
+    Each language's listing is swept twice over: the recently updated, restarted daily and
+    ended once its pages hold nothing new, and every series by title, restarted monthly. A
+    sweep reads the series the cache has never held (the listing gives each one's number);
+    the monthly one, from its second pass, also those last read long ago. The recently
+    updated come first, so a series that is being translated now is not kept waiting.
+    """
     cache = read_cache(cache_path)
     if cache.get("parser_version") != PARSER_VERSION:
-        # Recheck old pages when alias extraction changes. Keep confirmed values
-        # available to offline translation jobs throughout the refresh.
-        cache["publishers"] = {}
+        # Sweep again when alias extraction changes. Confirmed values stay available to
+        # offline jobs throughout the refresh.
+        cache["listings"] = {}
         cache["parser_version"] = PARSER_VERSION
+    cache["publishers"] = {}  # Publisher indexes gave way to the listings: few series name a publisher.
+    series = cache["series"]
+    listings = cache.setdefault("listings", {})
+    deferred = cache.setdefault("deferred", {})
+    numbers = {}
+    for url, record in series.items():
+        number = str(record.get("nu_id") or "")
+        if number and (number not in numbers or observed(record) > observed(series[numbers[number]])):
+            numbers[number] = url
+
+    started = time.time()
+
+    def due(url, number="", reread=False):
+        """Whether to read a series: never read (or by an older parser), or read long ago."""
+        found = [record for record in (series.get(url), series.get(numbers.get(number)))
+                 if record and record.get("parser_version", PARSER_VERSION) == PARSER_VERSION]
+        return not found or (reread and started - max(map(observed, found)) >= REREAD)
+
+    feeds = {}
+    for order in ORDERS:
+        for language in dict.fromkeys(language_of(source) for source in sources):
+            progress = listings.setdefault(f"{language}/{order}", {"next": None, "pending": [], "complete": True})
+            if progress["complete"] and started - progress.get("completed_at", 0) > RESTART[order]:
+                progress.update(next=urljoin(BASE, LISTINGS[language] + ORDERS[order]), complete=False,
+                                pages=0, quiet=0)
+            feeds[f"{language}/{order}"] = order
+    retries = [url for url, details in deferred.items() if details["retry_after"] <= started]
     client = Collector(browser_fallback=browser_fallback) if fetch is None else None
     fetch = fetch or client.fetch
-    publishers = list(dict.fromkeys(PUBLISHERS[source] for source in sources))
-    for publisher in publishers:
-        cache["publishers"].setdefault(publisher, {
-            "next": urljoin(BASE, f"opublisher/{publisher}/"), "pending": [], "complete": False,
-        })
-        progress = cache["publishers"][publisher]
-        deferred = progress.setdefault("deferred", {})
-        due = [url for url, details in deferred.items() if details["retry_after"] <= time.time()]
-        if due:
-            progress["pending"] = list(dict.fromkeys([*due, *progress["pending"]]))
-            progress["complete"] = False
-            for url in due:
-                deferred.pop(url)
-    requested = 0
-    blocked = set()
     errors = []
-    failures = defaultdict(int)
+
+    def failed(url, error):
+        errors.append(f"{url}: {error}")
+        print(f"NovelUpdates page remains pending: {url}: {error}", flush=True)
+
+    def read(url):
+        """Cache one series page. A page that fails is deferred, each time for longer."""
+        try:
+            record = parse_series(fetch(url), url)
+        except Exception as error:
+            count = deferred.get(url, {}).get("failures", 0) + 1
+            deferred[url] = {"reason": str(error), "failures": count,
+                             "retry_after": time.time() + min(30, 2 ** (count - 1)) * 86400}
+            failed(url, error)
+            return False
+        series[url] = record
+        deferred.pop(url, None)
+        if record["nu_id"]:
+            numbers[record["nu_id"]] = url
+        return True
+
+    def turn_page(name):
+        """Queue what a listing page holds that is new, or due to be read again."""
+        progress, order = listings[name], feeds[name]
+        try:
+            entries, next_url = parse_listing(fetch(progress["next"]), progress["next"])
+        except Exception as error:
+            failed(progress["next"], error)
+            return False
+        reread = order == "all" and bool(progress.get("completed_at"))
+        wanted = [url for url, number in entries.items() if url not in deferred and due(url, number, reread)]
+        progress["pages"] = progress.get("pages", 0) + 1
+        progress["quiet"] = 0 if wanted else progress.get("quiet", 0) + 1
+        if order == "recent" and (progress["quiet"] >= QUIET_PAGES or progress["pages"] >= RECENT_PAGES):
+            next_url = None
+        progress.update(pending=wanted, next=next_url)
+        return True
+
+    requested = 0
+    # Failures since the last success. Some series pages never load, so a few in a row are
+    # ordinary; this many mean the site is turning every request away.
+    in_a_row = 0
+    stalled = defaultdict(int)
     deadline = time.monotonic() + max_seconds
     try:
-        while requested < max_requests and time.monotonic() < deadline:
-            progressed = False
-            for publisher in publishers:
-                progress = cache["publishers"][publisher]
-                # Completed indexes restart after 30 days to discover newly listed works.
-                if progress["complete"] and time.time() - progress.get("completed_at", 0) > 30 * 86400:
-                    progress.update(next=urljoin(BASE, f"opublisher/{publisher}/"), complete=False)
-                if (publisher in blocked or progress["complete"] or requested >= max_requests
-                        or time.monotonic() >= deadline):
-                    continue
-                while progress["pending"]:
-                    existing = cache["series"].get(progress["pending"][0], {})
-                    checked = existing.get("checked_at")
-                    if (existing.get("parser_version") != PARSER_VERSION or not checked
-                            or time.time() - datetime.fromisoformat(checked).timestamp() >= 30 * 86400):
-                        break
-                    progress["pending"].pop(0)
-                url = progress["pending"][0] if progress["pending"] else progress["next"]
-                if not url:
-                    progress.update(complete=True, completed_at=time.time())
-                    write_cache(cache_path, cache)
-                    continue
+        while requested < max_requests and time.monotonic() < deadline and in_a_row < TURNED_AWAY:
+            name = next((name for name in feeds if stalled[name] < 3 and not listings[name]["complete"]), None)
+            made, failures = requested, len(errors)
+            if retries:
+                # A page that failed before may be gone for good: failing again says nothing of the site.
                 requested += 1
-                try:
-                    html = fetch(url)
-                    if progress["pending"]:
-                        cache["series"][url] = parse_series(html, url)
-                        progress["pending"].pop(0)
-                    else:
-                        links, next_url = parse_listing(html, url)
-                        progress.update(pending=links, next=next_url)
-                except Exception as error:
-                    errors.append(f"{url}: {error}")
-                    failures[publisher] += 1
-                    if progress["pending"]:
-                        progress.setdefault("deferred", {})[url] = {
-                            "reason": str(error), "retry_after": time.time() + 86400,
-                        }
-                        progress["pending"].pop(0)
-                        progressed = True
-                    if failures[publisher] >= 3 or not progress["pending"]:
-                        blocked.add(publisher)
-                    write_cache(cache_path, cache)
-                    print(f"NovelUpdates page remains pending: {url}: {error}", flush=True)
-                    continue
-                failures[publisher] = 0
-                write_cache(cache_path, cache)
-                progressed = True
-                print(f"NovelUpdates request {requested}: {len(cache['series'])} cached series", flush=True)
-            if not progressed:
+                if read(retries.pop(0)):
+                    in_a_row = 0
+            elif name is None:
                 break
+            else:
+                progress = listings[name]
+                # Another sweep may have read a queued series since.
+                while progress["pending"] and not due(progress["pending"][0], reread=True):
+                    progress["pending"].pop(0)
+                if progress["pending"]:
+                    requested += 1
+                    in_a_row = 0 if read(progress["pending"].pop(0)) else in_a_row + 1
+                elif progress["next"]:
+                    requested += 1
+                    stalled[name] = 0 if turn_page(name) else stalled[name] + 1
+                    in_a_row = 0 if not stalled[name] else in_a_row + 1
+                if not progress["pending"] and not progress["next"]:
+                    progress.update(complete=True, completed_at=time.time())
+            write_cache(cache_path, cache)
+            if requested > made and len(errors) == failures:
+                print(f"NovelUpdates request {requested}: {len(series)} cached series", flush=True)
     finally:
         if client:
             client.close()
     if errors:
-        raise RuntimeError("NovelUpdates collection incomplete. " + " | ".join(errors))
+        raise RuntimeError(f"NovelUpdates collection incomplete. {len(errors)} pages failed: " + " | ".join(errors[:5]))
     return cache
 
 
@@ -426,6 +519,16 @@ def corpus_path(source, data_dir):
 
 def raw_path(source, data_dir):
     return Path(data_dir) / ("novels.json" if source == "npia" else f"{source}_novels.json")
+
+
+def catalog_holders(index, data_dir, sources=SOURCES):
+    """TitleIndex.holders over every source's rows."""
+    holders = defaultdict(set)
+    for source in sources:
+        path = raw_path(source, data_dir)
+        if path.exists():
+            index.holders(json.loads(path.read_text(encoding="utf-8")), source, holders)
+    return holders
 
 
 def repack(source, data_dir, replacements, verified):
@@ -492,7 +595,7 @@ def write_addresses(path, source, matches):
     write_cache(path, data)
 
 
-def record_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False):
+def record_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False, index=None, holders=None):
     """Record each confirmed work's verified title and address; never display it.
 
     The displayed English title is the machine translation. A corpus row that
@@ -503,16 +606,14 @@ def record_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False)
         from . import metadata_common, metadata_pipeline
     except ImportError:
         import metadata_common, metadata_pipeline
-    index = TitleIndex.load(cache_path)
+    # A run over every source passes these in: built once, they are the same for each.
+    index = index or TitleIndex.load(cache_path)
+    holders = catalog_holders(index, data_dir) if holders is None else holders
     restore = read_restore(Path(state_dir) / RESTORE_NAME)
     known = restore.get(source, {})
     rows = json.loads(raw_path(source, data_dir).read_text(encoding="utf-8"))
-    matches = {}
-    for row in rows:
-        match = index.match(row[1], row[2], source)
-        if match:
-            matches[str(row[0])] = {"original": row[1], "author": row[2],
-                                    "english": match["title"], "url": match["url"]}
+    matches = {str(row[0]): {"original": row[1], "author": row[2], "english": match["title"], "url": match["url"]}
+               for row, match in index.match_rows(rows, source, holders)}
     path = corpus_path(source, data_dir)
     lines = []
     changes = {}
@@ -562,7 +663,7 @@ def record_catalog(source, data_dir, state_dir, cache_path=CACHE, rebuild=False)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("collect", "record", "import-snapshot"))
-    parser.add_argument("--source", choices=(*PUBLISHERS, "all"), default="all")
+    parser.add_argument("--source", choices=(*SOURCES, "all"), default="all")
     parser.add_argument("--cache", type=Path, default=CACHE)
     parser.add_argument("--max-requests", type=int, default=100)
     parser.add_argument("--max-seconds", type=int, default=1800)
@@ -575,7 +676,7 @@ def main():
     parser.add_argument("--snapshot-url")
     parser.add_argument("--snapshot-date")
     args = parser.parse_args()
-    sources = tuple(PUBLISHERS) if args.source == "all" else (args.source,)
+    sources = SOURCES if args.source == "all" else (args.source,)
     if args.command == "collect":
         if args.max_requests <= 0 or args.max_seconds <= 0:
             parser.error("Collection limits must be positive")
@@ -592,8 +693,10 @@ def main():
         print(source_names.dumps(report))
     else:
         reports = []
+        index = TitleIndex.load(args.cache)
+        holders = catalog_holders(index, args.data_dir)
         for source in sources:
-            report = record_catalog(source, args.data_dir, args.state_dir, args.cache, args.rebuild)
+            report = record_catalog(source, args.data_dir, args.state_dir, args.cache, args.rebuild, index, holders)
             reports.append(report)
             print(f"{source}: {report['matched']} confirmed of {report['rows']}, {report['restored']} machine titles restored, "
                   f"{report['pending']} left to translate", flush=True)
