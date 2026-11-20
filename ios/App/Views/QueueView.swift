@@ -81,7 +81,7 @@ struct QueueView: View {
             }
             Button("Cancel", role: .cancel) { chapterJobs = [] }
         } message: {
-            Text("Chapters of \(chapterJobs.count == 1 ? "this book" : "each of the \(chapterJobs.count) books") to upload, such as 4, 4-7 or 4,7. A download that already is those chapters uploads its files as they are. Otherwise they are downloaded again and written in the output formats selected on the Add tab.")
+            Text("Chapters of \(chapterJobs.count == 1 ? "this book" : "each of the \(chapterJobs.count) books") to upload, such as 4, 4-7 or 4,7. They are taken from the saved files. Nothing is downloaded again.")
         }
     }
 

@@ -1,3 +1,4 @@
+import NpiaOutput
 import NpiaSources
 import NpiaCore
 import SwiftUI
@@ -61,14 +62,20 @@ struct LibraryBook: Identifiable, Sendable {
             } else if !extensions.contains(url.pathExtension.lowercased()) {
                 continue
             }
-            let name = isFolder && url.pathExtension.lowercased() != "folder" ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
+            // A ranged download ("Title (4-7).epub") is the same book as "Title.epub": one card for both.
+            let name = ChapterCut.baseName(isFolder && url.pathExtension.lowercased() != "folder" ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent)
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             var group = groups[name.lowercased()] ?? (name, [], .distantPast)
             group.files.append(url)
             group.modified = max(group.modified, date)
             groups[name.lowercased()] = group
         }
-        return groups.values.map { LibraryBook(name: $0.name, files: $0.files.sorted { $0.lastPathComponent < $1.lastPathComponent }, modified: $0.modified) }
+        return groups.values.map { LibraryBook(name: $0.name, files: $0.files.sorted { a, b in
+            // The whole book before its ranged parts, so the cover and reading use it.
+            let partA = ChapterCut.baseName(a.deletingPathExtension().lastPathComponent) != a.deletingPathExtension().lastPathComponent
+            let partB = ChapterCut.baseName(b.deletingPathExtension().lastPathComponent) != b.deletingPathExtension().lastPathComponent
+            return partA == partB ? a.lastPathComponent < b.lastPathComponent : !partA
+        }, modified: $0.modified) }
             .sorted { $0.modified > $1.modified }
     }
 }

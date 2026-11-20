@@ -217,44 +217,53 @@ final class AppModel {
             message = "Upload a finished file once and accept the sharing notice first."
             return
         }
-        var seen: Set<URL> = []
-        let picked = jobs.filter { ids.contains($0.id) && !$0.state.isActive && $0.libraryTarget == nil && seen.insert($0.url).inserted }
-        let label = ChapterRangeText.named(from: from, to: to, list: list)
-        // A download that already is exactly these chapters uploads its files as they are; nothing is fetched again.
-        let ready = picked.filter { old in
-            let had = old.source.map { old.settings.effective(for: $0) } ?? old.settings.shared
-            return had.rangeFrom == from && had.rangeTo == to
-                && ChapterRangeText.named(from: had.rangeFrom, to: had.rangeTo, list: had.rangeList) == label
-                && isUploadable(old)
-        }
-        if !ready.isEmpty { upload(jobs: Set(ready.map(\.id))) }
-        let readyIDs = Set(ready.map(\.id))
-        let books = picked.filter { !readyIDs.contains($0.id) }
-        guard !books.isEmpty else {
-            if ready.isEmpty { message = "There is nothing to upload chapters of." }
+        let picked = jobs.filter { ids.contains($0.id) && !$0.state.isActive && $0.libraryTarget == nil && isUploadable($0) }
+        guard !picked.isEmpty else {
+            message = "There is nothing to upload chapters of."
             return
         }
-        for old in books.reversed() {
-            var adjusted = settings
-            adjusted.shared = old.source.map { settings.effective(for: $0) } ?? settings.shared
+        let label = ChapterRangeText.named(from: from, to: to, list: list)
+        // The chapters are copied out of the files each download saved. Nothing is downloaded again.
+        var ready: Set<UUID> = []
+        var missing: [String] = []
+        for old in picked {
+            var names: [String] = []
+            for (name, file) in zip(old.fileNames, old.files(in: outputDirectory)) {
+                guard let made = ChapterCut.cut(file, from: from, to: to, list: list) else { continue }
+                let folder = (name as NSString).deletingLastPathComponent
+                let cutName = folder.isEmpty ? made.lastPathComponent : (folder as NSString).appendingPathComponent(made.lastPathComponent)
+                if !names.contains(cutName) { names.append(cutName) }
+            }
+            if names.isEmpty {
+                missing.append(old.displayTitle)
+                continue
+            }
+            if Set(names) == Set(old.fileNames) {
+                ready.insert(old.id)  // the download already is exactly these chapters
+                continue
+            }
+            var adjusted = old.settings
+            adjusted.shared = old.source.map { old.settings.effective(for: $0) } ?? old.settings.shared
             adjusted.overrides = [:]
             adjusted.shared.rangeFrom = from
             adjusted.shared.rangeTo = to
             adjusted.shared.rangeList = list
-            adjusted.shared.useCache = true
-            adjusted.shared.autoPurchase = false
-            adjusted.shared.generateOnStop = false
-            adjusted.upload.autoUpload = true
-            var job = JobItem(url: old.url, source: old.source, title: old.title, bookID: old.bookID, settings: adjusted)
-            job.uploadChapters = true
-            jobs.insert(job, at: 0)
-            runJobIDs.append(job.id)
-            log(job.id, .info, "Queued to upload chapters \(label): \(old.url.absoluteString)")
+            var part = JobItem(url: old.url, source: old.source, title: old.title, bookID: old.bookID, settings: adjusted)
+            part.state = .finished
+            part.status = "Done"
+            part.fraction = 1
+            part.fileNames = names
+            part.finishedAt = Date()
+            jobs.insert(part, at: 0)
+            log(part.id, .info, "Chapters \(label) taken from the saved files of \(old.displayTitle)")
+            ready.insert(part.id)
         }
         persistJobs()
-        startNext()
+        if !missing.isEmpty {
+            message = "Chapters \(label) are not in the saved files of \(missing.joined(separator: ", ")). Nothing was downloaded."
+        }
+        if !ready.isEmpty { upload(jobs: ready) }
     }
-
     func cancel(_ id: UUID) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         if let task = tasks[id] {

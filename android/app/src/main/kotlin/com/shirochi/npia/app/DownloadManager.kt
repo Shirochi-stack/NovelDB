@@ -337,36 +337,46 @@ class DownloadManager(private val app: Application) {
      * named after the range, and uploaded. False when none of the jobs can be queued.
      */
     fun uploadChapters(ids: Collection<String>, from: Int, to: Int, list: String = ""): Boolean {
-        val picked = ids.mapNotNull(::job).filter { !it.state.isActive && it.libraryTarget == null }.distinctBy { it.url }
-        // A download that already is exactly these chapters uploads its files as they are; nothing is fetched again.
-        val wanted = com.shirochi.npia.core.ChapterRangeText.named(from, to, list)
-        val ready = picked.filter { old ->
-            val had = old.source?.let(old.settings::effective) ?: old.settings.shared
-            had.rangeFrom == from && had.rangeTo == to &&
-                com.shirochi.npia.core.ChapterRangeText.named(had.rangeFrom, had.rangeTo, had.rangeList) == wanted &&
-                old.files(outputDirectory).any { it.exists() }
+        val picked = ids.mapNotNull(::job).filter { old ->
+            !old.state.isActive && old.libraryTarget == null && old.files(outputDirectory).any { it.exists() }
         }
-        val uploading = ready.isNotEmpty() && uploadJobs(ready.map { it.id })
-        val books = picked - ready.toSet()
-        if (books.isEmpty()) return uploading
-        val current = _settings.value
-        val added = books.map { old ->
-            val shared = (old.source?.let(current::effective) ?: current.shared).copy(
-                rangeFrom = from, rangeTo = to, rangeList = list, useCache = true, autoPurchase = false, generateOnStop = false,
-            )
-            JobItem(
-                url = old.url, source = old.source, title = old.title, bookId = old.bookId, uploadChapters = true,
-                settings = current.copy(overrides = emptyMap(), shared = shared),
-            )
-        }
-        _jobs.update { added + it }
+        if (picked.isEmpty()) return false
         val label = com.shirochi.npia.core.ChapterRangeText.named(from, to, list)
-        added.forEach { jobLog(it.id, LogLevel.INFO, "Queued to upload chapters $label: ${it.url}") }
-        persistJobs()
-        startNext()
+        // The chapters are copied out of the files each download saved. Nothing is downloaded again.
+        scope.launch {
+            val ready = mutableListOf<String>()
+            val missing = mutableListOf<String>()
+            for (old in picked) {
+                val cut = com.shirochi.npia.output.ChapterCut.cut(old.files(outputDirectory).filter { it.exists() }, from, to, list)
+                if (cut.files.isEmpty()) {
+                    missing += old.displayTitle
+                    continue
+                }
+                val names = cut.files.map { it.relativeTo(outputDirectory).path }
+                if (names.toSet() == old.fileNames.toSet()) {
+                    ready += old.id  // the download already is exactly these chapters
+                    continue
+                }
+                val shared = (old.source?.let(old.settings::effective) ?: old.settings.shared)
+                    .copy(rangeFrom = from, rangeTo = to, rangeList = list)
+                val part = JobItem(
+                    url = old.url, source = old.source, title = old.title, bookId = old.bookId,
+                    settings = old.settings.copy(overrides = emptyMap(), shared = shared),
+                    state = JobState.FINISHED, status = "Done", fraction = 1.0, fileNames = names,
+                    finishedAt = System.currentTimeMillis(),
+                )
+                _jobs.update { listOf(part) + it }
+                jobLog(part.id, LogLevel.INFO, "Chapters $label taken from the saved files of ${old.displayTitle}")
+                ready += part.id
+            }
+            persistJobs()
+            if (missing.isNotEmpty()) {
+                message("Chapters $label are not in the saved files of ${missing.joinToString()}. Nothing was downloaded.")
+            }
+            if (ready.isNotEmpty()) uploadJobs(ready)
+        }
         return true
     }
-
     fun cancel(id: String) {
         val task = running[id]
         if (task != null) {

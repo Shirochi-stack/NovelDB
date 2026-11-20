@@ -301,8 +301,8 @@ private fun QueueJobs(
 }
 
 /**
- * Asks which chapters to upload (`4`, `4-7` or `4,7`). The books are written again for just those
- * chapters, in the output formats selected on the Add tab, and uploaded.
+ * Asks which chapters to upload (`4`, `4-7` or `4,7`). They are cut out of the saved files
+ * (`ChapterCut`) and uploaded; nothing is downloaded again.
  */
 @Composable
 fun UploadChaptersDialog(books: Int, onDismiss: () -> Unit, onUpload: (Int, Int, String) -> Unit) {
@@ -317,7 +317,7 @@ fun UploadChaptersDialog(books: Int, onDismiss: () -> Unit, onUpload: (Int, Int,
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "Chapters of ${if (books == 1) "this book" else "each of the $books books"} to upload, such as 4, 4-7 or 4,7. " +
-                        "A download that already is those chapters uploads its files as they are. Otherwise they are downloaded again and written in the output formats selected on the Add tab.",
+                        "They are taken from the saved files. Nothing is downloaded again.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(

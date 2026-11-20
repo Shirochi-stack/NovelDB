@@ -70,12 +70,14 @@ def _cut_archive(source: Path, target: Path, wanted: Callable[[int], bool]) -> i
     kept = set()
     with zipfile.ZipFile(source) as archive, zipfile.ZipFile(staging, "w") as output:
         for info in archive.infolist():
-            if "/" not in info.filename:
+            if info.is_dir():
                 continue
-            number = _chapter_of(info.filename.split("/", 1)[0])
-            if number is None or not wanted(number):
-                continue
-            kept.add(number)
+            # Files beside the chapter folders (a cover, the comic's info) stay.
+            if "/" in info.filename:
+                number = _chapter_of(info.filename.split("/", 1)[0])
+                if number is None or not wanted(number):
+                    continue
+                kept.add(number)
             output.writestr(info, archive.read(info.filename), compress_type=info.compress_type)
     if not kept:
         staging.unlink(missing_ok=True)

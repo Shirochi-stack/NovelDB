@@ -95,9 +95,11 @@ fun scanLibrary(folder: File): List<LibraryBook> {
             else -> file.extension.lowercase() in BOOK_EXTENSIONS
         }
     }
-    fun title(file: File) = if (file.isDirectory && !file.extension.equals("folder", ignoreCase = true)) file.name else file.nameWithoutExtension
+    fun named(file: File) = if (file.isDirectory && !file.extension.equals("folder", ignoreCase = true)) file.name else file.nameWithoutExtension
+    // A ranged download ("Title (4-7).epub") is the same book as "Title.epub": one card for both, the whole book first.
+    fun title(file: File) = com.shirochi.npia.output.ChapterCut.baseName(named(file))
     return entries.groupBy { title(it).lowercase() }
-        .map { (_, files) -> LibraryBook(title(files.first()), files) }
+        .map { (_, files) -> LibraryBook(title(files.first()), files.sortedBy { title(it) != named(it) }) }
         .sortedByDescending { it.modified }
 }
 
