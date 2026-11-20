@@ -2,6 +2,9 @@
 import os
 import re
 import zipfile
+from types import SimpleNamespace
+
+import pytest
 
 from noveldb.core import chapter_cut, chapter_range, library
 
@@ -150,3 +153,58 @@ def test_upload_chapters_uploads_a_cut_of_the_saved_files_and_queues_no_download
     page._upload_chapters()
     assert uploaded[1] == [job]
     context._save_timer.stop()
+
+
+def test_several_formats_ask_which_to_upload_and_links_are_clickable(tmp_path, monkeypatch, qtbot):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
+    from PySide6.QtWidgets import QDialog
+
+    from noveldb.core.upload import UploadItem, UploadOutcome
+    from noveldb.qt import uploads
+
+    outputs = _book(tmp_path, "Book", [1, 2])
+    items = [UploadItem(path) for path in outputs]
+    assert [uploads.format_of(path) for path in outputs] == ["EPUB", "Folder", "ZIP"]
+    # One format: nothing to ask.
+    monkeypatch.setattr(uploads.FormatDialog, "exec", lambda self: pytest.fail("asked about one format"))
+    assert uploads.choose_formats(items[:1]) == items[:1]
+
+    def untick_zip(dialog):
+        qtbot.addWidget(dialog)
+        assert list(dialog.boxes) == ["EPUB", "Folder", "ZIP"] and dialog.upload.isEnabled()
+        for box in dialog.boxes.values():
+            box.setChecked(False)
+        assert not dialog.upload.isEnabled()  # nothing ticked uploads nothing
+        dialog.boxes["EPUB"].setChecked(True)
+        dialog.boxes["Folder"].setChecked(True)
+        return QDialog.Accepted
+
+    monkeypatch.setattr(uploads.FormatDialog, "exec", untick_zip)
+    assert uploads.choose_formats(items) == items[:2]
+    # The choice is remembered for the next upload, and Cancel uploads nothing.
+    monkeypatch.setattr(uploads.FormatDialog, "exec", lambda dialog: QDialog.Accepted)
+    assert uploads.choose_formats(items) == items[:2]
+    monkeypatch.setattr(uploads.FormatDialog, "exec", lambda dialog: QDialog.Rejected)
+    assert uploads.choose_formats(items) == []
+    uploads._last_formats.clear()
+
+    monkeypatch.setattr(uploads.UploadTask, "start", lambda self: None)
+    from noveldb.qt.context import AppContext
+
+    context = AppContext(start_workers=False)
+    dialog = uploads.UploadDialog(context, items[:1])
+    qtbot.addWidget(dialog)
+    dialog._outcome(UploadOutcome("Book <1>.epub", result=SimpleNamespace(link="https://example.com/f?a=1&b=2")))
+    assert dialog.results.openExternalLinks()
+    assert 'href="https://example.com/f?a=1&amp;b=2"' in dialog.results.toHtml()
+    assert "Book <1>.epub" in dialog.results.toPlainText() and "https://example.com/f?a=1&b=2" in dialog.results.toPlainText()
+    context._save_timer.stop()
+
+
+def test_the_library_says_which_chapters_each_file_of_a_book_is(tmp_path):
+    _book(tmp_path, "Book (4-7)", [4, 5, 6, 7])
+    _book(tmp_path, "Book (2)", [2])
+    _book(tmp_path, "Book", [1, 2])
+    book = library.scan(tmp_path)[0]
+    assert [library.file_range(f.path) for f in book.files] == ["", "", "", "2", "2", "2", "4-7", "4-7", "4-7"]

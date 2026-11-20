@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import threading
 from dataclasses import replace
@@ -15,7 +16,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
+    QTextBrowser,
     QProgressBar,
     QPushButton,
     QVBoxLayout,
@@ -127,8 +128,8 @@ class UploadDialog(QDialog):
         self.detail.setProperty("hint", True)
         self.bar = QProgressBar()
         self.bar.setRange(0, 0)
-        self.results = QPlainTextEdit()
-        self.results.setReadOnly(True)
+        self.results = QTextBrowser()  # links open in the browser when clicked
+        self.results.setOpenExternalLinks(True)
         self.results.setPlaceholderText("Links appear here.")
         self.copy = QPushButton("Copy links")
         self.copy.setEnabled(False)
@@ -175,14 +176,15 @@ class UploadDialog(QDialog):
 
     def _outcome(self, outcome: UploadOutcome) -> None:
         self.outcomes.append(outcome)
-        lines = [outcome.label]
+        lines = [html.escape(outcome.label)]
         if outcome.link:
-            lines.append(outcome.link)
+            link = html.escape(outcome.link, quote=True)
+            lines.append(f'<a href="{link}">{link}</a>')
         else:
-            lines.append(f"Not uploaded: {outcome.error}")
+            lines.append(html.escape(f"Not uploaded: {outcome.error}"))
         if outcome.is_zip:
-            lines.extend(f"    {title}" for title in outcome.titles)
-        self.results.appendPlainText("\n".join(lines) + "\n")
+            lines.extend("&nbsp;&nbsp;&nbsp;&nbsp;" + html.escape(title) for title in outcome.titles)
+        self.results.append("<br>".join(lines) + "<br>")
 
     def _finished(self) -> None:
         self.bar.setRange(0, 1)
@@ -230,12 +232,80 @@ def items_for_jobs(jobs) -> list[UploadItem]:
     return items
 
 
+def format_of(path: str) -> str:
+    """The output format a saved file is, as the choice shows it: EPUB, ZIP, Folder, TXT folder..."""
+    if os.path.isdir(path):
+        if path.lower().endswith(".folder"):
+            return "Folder"
+        kinds = {os.path.splitext(name)[1].lower() for name in os.listdir(path)}
+        return "TXT folder" if kinds and kinds <= {".txt"} else "Folder"
+    suffix = os.path.splitext(path)[1].lower()
+    return {".htm": "HTML"}.get(suffix, suffix[1:].upper() or "File")
+
+
+_last_formats: set = set()  # the formats left unticked the last time, for the next upload
+
+
+class FormatDialog(QDialog):
+    """Asks which of the saved output formats to upload."""
+
+    def __init__(self, counts: dict, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Upload and share")
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("These downloads were saved in several formats. Upload which?"))
+        self.boxes = {}
+        for name, count in counts.items():
+            box = QCheckBox(f"{name}  ({count} file{'s' if count != 1 else ''})")
+            box.setChecked(name not in _last_formats)
+            box.toggled.connect(self._changed)
+            self.boxes[name] = box
+            layout.addWidget(box)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.upload = buttons.addButton("Upload", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        if not self.chosen():
+            for box in self.boxes.values():
+                box.setChecked(True)
+        self._changed()
+
+    def chosen(self) -> set:
+        return {name for name, box in self.boxes.items() if box.isChecked()}
+
+    def _changed(self) -> None:
+        self.upload.setEnabled(bool(self.chosen()))
+
+
+def choose_formats(items: list, parent: Optional[QWidget] = None) -> list:
+    """The items to upload: all of them when they are one format, else the formats the user ticks
+    (nothing when the question is cancelled)."""
+    counts: dict = {}
+    for item in items:
+        name = format_of(item.path)
+        counts[name] = counts.get(name, 0) + 1
+    if len(counts) < 2:
+        return items
+    dialog = FormatDialog(counts, parent)
+    if dialog.exec() != QDialog.Accepted:
+        return []
+    chosen = dialog.chosen()
+    _last_formats.clear()
+    _last_formats.update(set(counts) - chosen)
+    return [item for item in items if format_of(item.path) in chosen]
+
+
 def upload_jobs(context: AppContext, jobs, parent: Optional[QWidget] = None) -> None:
     """Agreement (once), then upload every existing output of `jobs`, bundled as the settings say."""
     items = items_for_jobs(jobs)
     if not items:
         return
     if not ensure_agreement(context, parent):
+        return
+    items = choose_formats(items, parent)
+    if not items:
         return
     dialog = UploadDialog(context, items, parent)
     dialog.exec()

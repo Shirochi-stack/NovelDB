@@ -202,8 +202,15 @@ def scan(folder: Path, progress=None, found=None) -> List[LibraryBook]:
                     titled.add(name.lower())
     for book in books.values():
         # The whole book before its ranged parts, so reading and the cover use it (the sort is stable).
-        book.files.sort(key=lambda f: f.path in partial)
+        book.files.sort(key=lambda f: (f.path in partial, chapter_range.parse(file_range(f.path))[0] or 0, file_range(f.path)))
     return sorted(books.values(), key=lambda b: b.modified, reverse=True)
+
+
+def file_range(path: Path) -> str:
+    """The chapters a ranged download holds, as its name says them ("4-7"); "" for a whole book."""
+    path = Path(path)
+    name = path.name if path.is_dir() and path.suffix.lower() != ".folder" else path.stem
+    return chapter_range.split_name(name)[1]
 
 
 def description(book: LibraryBook) -> str:

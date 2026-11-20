@@ -662,7 +662,10 @@ class LibraryPage(QWidget):
         if book.readable() is not None:
             menu.addAction("Read in the app", lambda: self._read(book))
         for file in book.files:
-            menu.addAction(f"Open {file.format}  ({_size_text(file.size)})",
+            # A ranged download says which chapters it is: "Open EPUB, chapters 4-7  (13.6 MB)".
+            ranged = library.file_range(file.path)
+            part = f", chapter{'' if ranged.isdigit() else 's'} {ranged}" if ranged else ""
+            menu.addAction(f"Open {file.format}{part}  ({_size_text(file.size)})",
                            lambda f=file: QDesktopServices.openUrl(QUrl.fromLocalFile(str(f.path))))
         # The book in the Catalog, to download what an unfinished or outdated copy is missing.
         menu.addAction("Open in Catalog", lambda: self.openInCatalog.emit(
