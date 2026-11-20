@@ -13,6 +13,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -413,7 +414,9 @@ private fun DownloadSwitch(tab: Tab, onSelect: (Tab) -> Unit, actions: (@Composa
  */
 @Composable
 private fun FloatingTabBar(items: List<BarItem>, selected: BarItem, badge: (BarItem) -> Int, onSelect: (BarItem) -> Unit) {
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)) {
+        // An unfolded phone or a tablet has room for every tab's name; a phone names only the open one.
+        val named = maxWidth >= 600.dp
         Surface(
             shape = RoundedCornerShape(30.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -438,7 +441,7 @@ private fun FloatingTabBar(items: List<BarItem>, selected: BarItem, badge: (BarI
                             .clip(RoundedCornerShape(22.dp))
                             .background(background)
                             .clickable(role = Role.Tab) { onSelect(item) }
-                            .padding(horizontal = if (on) 16.dp else 12.dp, vertical = 10.dp),
+                            .padding(horizontal = if (on || named) 16.dp else 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         val count = badge(item)
@@ -447,7 +450,7 @@ private fun FloatingTabBar(items: List<BarItem>, selected: BarItem, badge: (BarI
                         } else {
                             Icon(item.icon, contentDescription = item.title, tint = tint)
                         }
-                        AnimatedVisibility(on, enter = fadeIn() + expandHorizontally(), exit = fadeOut() + shrinkHorizontally()) {
+                        AnimatedVisibility(on || named, enter = fadeIn() + expandHorizontally(), exit = fadeOut() + shrinkHorizontally()) {
                             Row {
                                 Spacer(Modifier.width(8.dp))
                                 Text(item.title, style = MaterialTheme.typography.labelLarge, color = tint, maxLines = 1)
