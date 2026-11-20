@@ -9,11 +9,14 @@ from pathlib import Path
 
 PAGES_LIMIT = 1_000_000_000
 BULK_DESCRIPTIONS = re.compile(r"(?:[a-z]+_)?descriptions(?:(?:_chunk_\d+)?\.txt(?:\.gz)?|_chunk_manifest\.json)$")
+# Title shards (scripts/chunk_titles.py) serve readers outside the website, from the data branch.
+TITLE_SHARDS = re.compile(r"[a-z]+_titles_shard_(?:\d+\.json\.gz|manifest\.json)$")
 
 
 def site_files(source):
     return [path for path in source.rglob("*") if path.is_file()
-            and not (path.parent == source / "data" and BULK_DESCRIPTIONS.fullmatch(path.name))]
+            and not (path.parent == source / "data"
+                     and (BULK_DESCRIPTIONS.fullmatch(path.name) or TITLE_SHARDS.fullmatch(path.name)))]
 
 
 def validate_references(source, files):
@@ -55,7 +58,7 @@ def stage(source, output, limit=PAGES_LIMIT):
         shutil.copy2(path, target)
     original = sum(path.stat().st_size for path in source.rglob("*") if path.is_file())
     print(f"Pages site: {len(files):,} files, {size:,} bytes (limit {limit:,}).")
-    print(f"Bulk synopsis exports excluded from the deployment: {original - size:,} bytes.")
+    print(f"Bulk synopsis exports and title shards excluded from the deployment: {original - size:,} bytes.")
     return size
 
 

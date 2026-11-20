@@ -49,6 +49,9 @@ jobs:
       - name: Record verified titles beside the catalogue and restore machine titles
         # A verified title is kept for search and Details; the displayed title is the machine translation.
         run: python scripts/nu_titles.py record --source all --rebuild --report .cache/nu-title-migration.json
+      - name: Build title shards for readers that look up one work
+        # Each work's displayed and verified English titles by source and ID, about a thousand to a file.
+        run: python scripts/chunk_titles.py
       - name: Preserve title provenance and migration backup
         uses: actions/upload-artifact@v4
         with:
@@ -64,7 +67,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          python scripts/publish_metadata.py --message 'Record verified canonical titles' --paths metadata/state/nu_titles.json.gz 'metadata/state/*.json.gz' 'docs/data/*titles_en.txt*' 'docs/data/*chunk_*.json.gz' 'docs/data/*chunk_manifest.json' 'docs/data/*top.json.gz'
+          python scripts/publish_metadata.py --message 'Record verified canonical titles' --paths metadata/state/nu_titles.json.gz 'metadata/state/*.json.gz' 'docs/data/*titles_en.txt*' 'docs/data/*titles_shard_*' 'docs/data/*chunk_*.json.gz' 'docs/data/*chunk_manifest.json' 'docs/data/*top.json.gz'
       - name: Summarize canonical coverage
         env:
           NU_COLLECTION_OUTCOME: ${{ steps.collect.outcome }}

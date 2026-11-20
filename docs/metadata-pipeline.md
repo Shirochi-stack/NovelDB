@@ -213,6 +213,27 @@ The example row is abbreviated, not a complete source schema. Mapping keys are s
 
 The synopsis manifest example abbreviates `files` and uses illustrative counts. Actual manifests list all 128 files. Prefixes are `descriptions_shard`, `kpage_descriptions_shard`, and `sfc_descriptions_shard`. The builder removes existing files matching its chosen shard prefix before replacing them, so building in the live served directory is not an atomic whole-generation update.
 
+[chunk_titles.py](../scripts/chunk_titles.py) writes title shards for readers outside the website that look up one work (an embed, a bot): each work's English titles by source and ID, with the same shard algorithm and count as the synopsis shards. Every source, Npia included, uses the prefix `{source}_titles_shard`:
+
+```json
+{
+  "titles": {"419368": "Machine-translated title, as the catalog displays it"},
+  "nu": {"419368": {"title": "Title on NovelUpdates", "url": "https://www.novelupdates.com/series/..."}}
+}
+```
+
+`nu` holds only works confirmed on NovelUpdates; a work with neither title is absent, and all 128 files exist even when empty. A source's manifest (`{source}_titles_shard_manifest.json`) has `shards`, `titles`, `verified`, `algorithm`, `"format": "id-to-title-json"` and `files`. The largest shard is about 45 KB compressed (115 KB of JSON), all sources together about 20 MB. They are rebuilt daily by [canonical-titles.yml](../.github/workflows/canonical-titles.yml), so a new translation appears within a day. The website does not read them, and [stage_pages.py](../scripts/stage_pages.py) leaves them out of the Pages deployment: read them from the data branch.
+
+```js
+// One work's titles: https://raw.githubusercontent.com/Shirochi-stack/NovelDB/data/docs/data/<file>
+async function titles(source, id) {
+    const shard = String(Math.abs(Number(id)) % 128).padStart(3, "0");
+    const response = await fetch(`${DATA}/${source}_titles_shard_${shard}.json.gz`);
+    const data = await new Response(response.body.pipeThrough(new DecompressionStream("gzip"))).json();
+    return {title: data.titles[id], nu: data.nu[id]};   // either may be undefined
+}
+```
+
 [build_npia_top.py](../scripts/build_npia_top.py) and [build_sfc_top.py](../scripts/build_sfc_top.py) write up to 100 ranked rows with both English-title and synopsis maps in `npia_top.json.gz` and `sfc_top.json.gz`. Npia sorts by all-audience weekly rank; SFC sorts by popularity rank. Other-ranked rows tie behind those and retain input order. There is no Kpage top-builder script. These small bundles provide initial results while the full catalog loads.
 
 Catalog chunks, synopsis shards, shared tag gzip, and the generic gzip utility use deterministic gzip timestamps. The two top builders and SFC synopsis extractor do not explicitly fix gzip `mtime`, so byte changes alone can occur even when their logical input has not changed. Individual chunk writes use temporary files and replacement retries for Windows locks; manifests are written separately.
@@ -316,12 +337,13 @@ The translator sends `claude-*` models to the Claude Messages API through the `a
 
 Legacy source mergers usually retain existing English by source ID even if original text changes. The three new sources instead bind English to the exact original and reject stale patches through normalized state. Importing `translate_with_grok.py` also initializes `tiktoken`'s encoder. Do not discover these scripts' behavior by importing the modules: twelve extractor/merger modules above perform filesystem writes at import time, and some can exit if files are missing.
 
-### Browser packaging — 5 scripts
+### Browser packaging — 6 scripts
 
 | Script | Inputs and dependencies | Outputs / side effects | Current role |
 | --- | --- | --- | --- |
 | [chunk_and_compress.py](../scripts/chunk_and_compress.py) | Catalog JSON; optional titles/descriptions; stdlib | Gzip catalog chunks and manifest; replaces chunks using temporary files | Shared progressive catalog packaging; default input is SFC, so pass explicit source options |
 | [chunk_descriptions.py](../scripts/chunk_descriptions.py) | Synopsis text/gzip, required prefix and shard count; stdlib | Removes matching old shards, writes gzip ID maps and manifest | Shared on-demand synopsis packaging |
+| [chunk_titles.py](../scripts/chunk_titles.py) | Title corpora, verified title addresses; stdlib | Gzip ID maps of displayed and verified English titles, and a manifest, per source | On-demand title lookup for readers outside the website |
 | [gzip_text_files.py](../scripts/gzip_text_files.py) | One or more file paths; stdlib | Deterministic sibling `.gz` files through temporary replacement; skips missing inputs | Shared compression utility |
 | [build_npia_top.py](../scripts/build_npia_top.py) | Npia catalog, title and synopsis text; stdlib | `npia_top.json.gz`; removes old uncompressed top file if present | Initial ranked results |
 | [build_sfc_top.py](../scripts/build_sfc_top.py) | SFC catalog, title/synopsis text or gzip; stdlib | `sfc_top.json.gz` | Initial ranked results |

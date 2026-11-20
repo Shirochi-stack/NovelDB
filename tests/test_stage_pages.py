@@ -22,7 +22,9 @@ def source_site(tmp_path):
 def test_staging_excludes_bulk_synopses_and_keeps_runtime_data(tmp_path):
     source = source_site(tmp_path)
     excluded = ["descriptions.txt", "descriptions.txt.gz", "sfc_descriptions.txt.gz",
-                "sfc_descriptions_chunk_0.txt.gz", "sfc_descriptions_chunk_manifest.json"]
+                "sfc_descriptions_chunk_0.txt.gz", "sfc_descriptions_chunk_manifest.json",
+                # Read from the data branch by readers outside the website.
+                "sfc_titles_shard_000.json.gz", "npia_titles_shard_127.json.gz", "sfc_titles_shard_manifest.json"]
     for name in excluded:
         (source / "data" / name).write_bytes(b"bulk")
     output = tmp_path / "site"
