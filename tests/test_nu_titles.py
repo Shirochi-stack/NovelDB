@@ -367,9 +367,12 @@ def test_collection_stops_when_every_request_is_turned_away(tmp_path):
         calls.append(url)
         return "<title>Just a moment</title>"
 
-    with pytest.raises(RuntimeError, match="incomplete"):
+    # The failure names the page that came back, which tells a challenge from a changed layout.
+    with pytest.raises(RuntimeError, match='incomplete.*listing page \\(page titled "Just a moment"\\)'):
         nu_titles.collect(("npia", "sfc"), tmp_path / "cache.json.gz", 100, fetch=fetch)
     assert len(calls) == nu_titles.TURNED_AWAY
+    with pytest.raises(ValueError, match="untitled page"):
+        nu_titles.parse_series("<p>Nothing</p>", URL)
 
 
 def test_long_title_held_once_matches_a_series_without_a_native_author():

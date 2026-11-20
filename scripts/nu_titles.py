@@ -153,6 +153,12 @@ def import_snapshot(path, cache_path, origin_url, captured_at):
     return {"imported": imported, "snapshot_sha256": digest, "captured_at": captured_at}
 
 
+def page_title(soup):
+    """What a page that could not be read calls itself: a challenge, an error, or the site's own page."""
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    return f' (page titled "{title[:80]}")' if title else " (untitled page)"
+
+
 def parse_series(html, expected_url):
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
@@ -166,7 +172,8 @@ def parse_series(html, expected_url):
     missing = [name for name, element in (("heading", heading), ("language", language), ("canonical", canonical))
                if not element]
     if missing:
-        raise ValueError("Incomplete or challenged NovelUpdates series page. Missing " + ", ".join(missing))
+        raise ValueError("Incomplete or challenged NovelUpdates series page. Missing " + ", ".join(missing)
+                         + page_title(soup))
     url = nu_url(canonical.get("href", ""), series=True)
     expected = nu_url(expected_url, series=True)
     expected_id = parse_qs(urlsplit(expected).query).get("p", [])
@@ -380,7 +387,7 @@ def parse_listing(html, url):
         for link in box.select("a[href]"):
             entries.setdefault(nu_url(link["href"], series=True), number[1] if number else "")
     if not entries:
-        raise ValueError("Empty or challenged NovelUpdates listing page")
+        raise ValueError("Empty or challenged NovelUpdates listing page" + page_title(soup))
     next_link = soup.select_one('.digg_pagination a[rel="next"]')
     next_url = nu_url(urljoin(url, next_link["href"])) if next_link else None
     if next_url and urlsplit(next_url).path != urlsplit(url).path:
