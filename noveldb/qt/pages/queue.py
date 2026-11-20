@@ -116,7 +116,7 @@ class QueuePage(QWidget):
         self.upload.setToolTip("Upload the selected downloads' files (several go up together as ZIPs).")
         self.upload_chapters = QPushButton("Upload chapters...")
         self.upload_chapters.setToolTip("Upload only some chapters of the selected downloads, such as 4, 4-7 or 4,7, "
-                                        "in the output formats selected on the Download page.")
+                                        "taken from the saved files. Nothing is downloaded again.")
         self.upload_chapters.clicked.connect(self._upload_chapters)
         self.copy_links = QPushButton("Copy links")
         self.copy_links.setToolTip("Copy the share links of the selected downloads' uploads, one per line.")
@@ -294,47 +294,72 @@ class QueuePage(QWidget):
 
     @staticmethod
     def _can_upload_chapters(job) -> bool:
-        return job.state in FINISHED and bool(job.input) and not job.library_target
+        return job.state in FINISHED and not job.library_target and any(
+            path and os.path.exists(path) for path in job.outputs)
 
     def _upload_chapters(self) -> None:
-        """Ask for a chapter range, then queue each selected book again for just those chapters:
-        written in the selected output formats (cached chapters are not downloaded again) and uploaded."""
-        from PySide6.QtWidgets import QInputDialog
+        """Ask for a chapter range, then upload those chapters of each selected download. They are
+        copied out of the files the download saved; nothing is downloaded again."""
+        import time
 
-        from noveldb.core import chapter_range
+        from PySide6.QtGui import QGuiApplication
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+        from noveldb.core import chapter_cut, chapter_range
         from noveldb.core.queue.model import Job
         from noveldb.qt.uploads import ensure_agreement
 
         jobs = [job for job in self._selected_jobs() if self._can_upload_chapters(job)]
         if not jobs:
             return
-        books = "this book" if len(jobs) == 1 else f"each of the {len(jobs)} selected books"
+        books = "this download" if len(jobs) == 1 else f"each of the {len(jobs)} selected downloads"
         typed, ok = QInputDialog.getText(
             self, "Upload chapters",
             f"Chapters of {books} to upload, such as 4, 4-7 or 4,7.\n"
-            "A download that already is those chapters uploads its files as they are. Otherwise they are\n"
-            "rebuilt from the saved chapters in the output formats selected on the Download page.")
-        low, high, listed = chapter_range.read(typed) if ok else (None, None, "")
+            "Leave it empty to upload the saved files as they are.\n"
+            "The chapters are taken from the saved files; nothing is downloaded again.")
+        if not ok:
+            return
+        low, high, listed = chapter_range.read(typed)
         if low is None:
+            upload_jobs(self.context, jobs, self)
+            self.reload()
             return
         if not ensure_agreement(self.context, self):
             return
-        seen = set()
-        fresh = []
         ready = []
-        for job in jobs:
-            if job.input in seen:
-                continue
-            seen.add(job.input)
-            # The download already is exactly these chapters: its files go up as they are.
-            if list(job.chapters or []) == [low, high, listed] and self._existing_outputs(job):
-                ready.append(job)
-                continue
-            fresh.append(Job(job.input, source=job.source, engine=job.engine, title=job.title,
-                             output_dir=job.output_dir, upload_range=[low, high, listed]))
-        if fresh:
-            self.runner.submit(fresh)
+        problems = []
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for job in jobs:
+                # The download already is exactly these chapters: its files go up as they are.
+                if list(job.chapters or []) == [low, high, listed]:
+                    ready.append(job)
+                    continue
+                made, failed = chapter_cut.cut_outputs(self._existing_outputs(job), low, high, listed)
+                if not made:
+                    problems.append(job.display_title)
+                    continue
+                if set(made) == set(self._existing_outputs(job)):
+                    ready.append(job)
+                    continue
+                part = Job(job.input, source=job.source, engine=job.engine, title=job.title, state=DONE,
+                           output_dir=job.output_dir, chapters=[low, high, listed], outputs=made,
+                           status="Done", download_ranged=True, value=1, total=1, finished_at=time.time())
+                if failed:
+                    part.warnings = ["Not cut (one undivided file): " + ", ".join(failed)]
+                self.runner.submit([part])
+                ready.append(part)
+        finally:
+            QGuiApplication.restoreOverrideCursor()
         self.reload()
+        if problems:
+            named = chapter_range.named(low, high, listed)
+            QMessageBox.information(
+                self, "Upload chapters",
+                f"Chapters {named} are not in the saved files of:\n\n" + "\n".join(problems[:10]) +
+                "\n\nNothing was downloaded. Download those chapters first, or pick a download that has them."
+                "\n(PDF, single TXT and HTML files cannot be split into chapters.)")
         if ready:
             upload_jobs(self.context, ready, self)
             self.reload()

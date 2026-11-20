@@ -77,6 +77,18 @@ def named(low: Optional[int], high: Optional[int], spec: str = "") -> str:
     return list_text(ranges) if ranges else label(low, high)
 
 
+_NAMED = re.compile(r"\s*\((\d+(?:-(?:\d+|end))?(?:,\d+(?:-\d+)?)*)\)$")
+
+
+def split_name(name: str) -> Tuple[str, str]:
+    """`("Title", "4-7")` for a file name `Title (4-7)` a ranged download was saved under;
+    `(name, "")` for a name without a range."""
+    found = _NAMED.search(name or "")
+    if found is None or not name[:found.start()].strip():
+        return name, ""
+    return name[:found.start()], found.group(1)
+
+
 def parse(text: str) -> Range:
     """`(first, last)` of the chapters `text` names, or `(None, None)` when it names none."""
     first = _FIRST.search(text or "")

@@ -1,7 +1,8 @@
 """The Library: the books in the save folder, for the Library page (no Qt here).
 
 A book is every output that shares a name in the folder: "Title.epub", "Title.pdf", "Title.txt" and a
-separate-TXT folder "Title/" are one book with four formats. EPUBs give the title, author and cover
+separate-TXT folder "Title/" are one book with four formats. Ranged downloads ("Title (4-7).epub")
+belong to the same book. EPUBs give the title, author and cover
 (read from the package file, cached by size and date), the other formats only their file name.
 """
 
@@ -17,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from xml.etree import ElementTree
+
+from noveldb.core import chapter_range
 
 BOOK_FORMATS = (".epub", ".pdf", ".txt", ".html", ".htm", ".cbz", ".zip")
 READER_FORMATS = (".epub", ".txt")
@@ -147,6 +150,8 @@ def scan(folder: Path, progress=None, found=None) -> List[LibraryBook]:
     if not folder.is_dir():
         return []
     books: Dict[str, LibraryBook] = {}
+    partial: set = set()   # files of ranged downloads
+    titled: set = set()    # books whose title came from a whole-book EPUB
     # Newest first, so the books shown while the folder is read come in the order they end up in.
     entries = list(folder.iterdir())
     try:
@@ -178,13 +183,26 @@ def scan(folder: Path, progress=None, found=None) -> List[LibraryBook]:
                 name = path.stem
         except OSError:
             continue
+        # A ranged download ("Title (4-7).epub") is the same book as "Title.epub": one card for both.
+        name, ranged = chapter_range.split_name(name)
         book = books.setdefault(name.lower(), LibraryBook(name=name, title=_title_from_name(name)))
         book.files.append(LibraryFile(path, kind, size, modified))
+        if ranged:
+            partial.add(path)
         if kind == "EPUB":
             meta = _epub_meta(path, size, modified)
-            book.title = meta.get("title") or book.title
-            book.author = meta.get("author") or book.author
-            book.url = meta.get("url") or book.url
+            whole = not ranged or name.lower() not in titled
+            if whole or not book.author:
+                book.author = meta.get("author") or book.author
+            if whole or not book.url:
+                book.url = meta.get("url") or book.url
+            if whole and meta.get("title"):
+                book.title = chapter_range.split_name(meta["title"])[0] if ranged else meta["title"]
+                if not ranged:
+                    titled.add(name.lower())
+    for book in books.values():
+        # The whole book before its ranged parts, so reading and the cover use it (the sort is stable).
+        book.files.sort(key=lambda f: f.path in partial)
     return sorted(books.values(), key=lambda b: b.modified, reverse=True)
 
 
