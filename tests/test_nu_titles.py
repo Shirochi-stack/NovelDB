@@ -262,6 +262,89 @@ def series_page(url, title, number):
     return HTML.replace(URL, url).replace("Debut or Die", title) + f'<input id="mypostid" value="{number}">'
 
 
+def test_catch_up_resumes_then_switches_off_without_restarting_completed_feeds(tmp_path, monkeypatch):
+    path, report = tmp_path / "cache.gz", tmp_path / "report.json"
+    clock = [1800000000]
+    monkeypatch.setattr(nu_titles.time, "time", lambda: clock[0])
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return listing((45, URL)) if "/language/" in url else series_page(URL, "Debut or Die", 45)
+
+    nu_titles.collect(("npia",), path, 1, fetch=fetch, catch_up=True, report_path=report)
+    assert json.loads(report.read_text())["continue_required"] is True
+    assert nu_titles.read_cache(path)["catch_up_active"] is True
+    # A continuation gets its mode from the published cache, not another enable flag.
+    nu_titles.collect(("npia",), path, 1, fetch=fetch, report_path=report)
+    assert calls[-1] == URL
+    assert json.loads(report.read_text())["continue_required"] is True
+    clock[0] += 2 * 86400
+    calls.clear()
+    nu_titles.collect(("npia",), path, 10, fetch=fetch, report_path=report)
+    assert calls == [nu_titles.BASE + nu_titles.LISTINGS["Korean"] + nu_titles.ORDERS["all"]]
+    stats = json.loads(report.read_text())
+    assert stats["unfinished_feeds"] == []
+    assert stats["continue_required"] is False
+    assert nu_titles.read_cache(path)["catch_up_active"] is False
+    # Normal daily refresh resumes, without turning catch-up back on.
+    calls.clear()
+    nu_titles.collect(("npia",), path, 10, fetch=fetch, report_path=report)
+    assert calls == [nu_titles.BASE + nu_titles.LISTINGS["Korean"] + nu_titles.ORDERS["recent"]]
+    assert json.loads(report.read_text())["continue_required"] is False
+
+
+def test_failed_catch_up_pauses_dispatch_but_keeps_mode_for_daily_retry(tmp_path):
+    path, report = tmp_path / "cache.gz", tmp_path / "report.json"
+    with pytest.raises(RuntimeError, match="incomplete"):
+        nu_titles.collect(("npia",), path, 1, fetch=lambda _: "<title>Just a moment</title>",
+                          catch_up=True, report_path=report)
+    stats = json.loads(report.read_text())
+    assert stats["catch_up_active"] is True and stats["continue_required"] is False
+    nu_titles.collect(("npia",), path, 1, fetch=lambda _: listing((45, URL)), report_path=report)
+    assert json.loads(report.read_text())["continue_required"] is True
+
+
+def test_future_deferred_pages_do_not_keep_catch_up_running(tmp_path):
+    path, report = tmp_path / "cache.gz", tmp_path / "report.json"
+    stored = cache()
+    stored["parser_version"] = nu_titles.PARSER_VERSION
+    stored["deferred"] = {URL: {"retry_after": nu_titles.time.time() + 86400, "failures": 1}}
+    nu_titles.write_cache(path, stored)
+    nu_titles.collect(("npia",), path, 10, fetch=lambda _: listing((45, URL)),
+                      catch_up=True, report_path=report)
+    stats = json.loads(report.read_text())
+    assert stats["deferred_series"] == 1
+    assert stats["catch_up_active"] is False and stats["continue_required"] is False
+
+
+def test_catch_up_dispatch_guards_and_normal_batch_size():
+    import subprocess
+
+    script = r'''
+    const assert = require('node:assert/strict');
+    const { continueCatchUp } = require('./scripts/nu_continuation.cjs');
+    (async () => {
+        const calls = [];
+        const github = { rest: { actions: { createWorkflowDispatch: async x => calls.push(x) } } };
+        const context = { repo: {owner:'test', repo:'test'}, ref:'refs/heads/main',
+            payload: {repository: {default_branch:'main'}} };
+        const report = {catch_up_active:true, continue_required:true, failed:0,
+            succeeded:2, stopped_after_failures:false};
+        assert.equal(await continueCatchUp({github, context, report}), true);
+        assert.equal(calls[0].workflow_id, 'canonical-titles.yml');
+        assert.deepEqual(calls[0].inputs, {max_requests:'1500'});
+        for (const change of [{catch_up_active:false}, {continue_required:false}, {failed:1},
+                              {succeeded:0}, {stopped_after_failures:true}]) {
+            assert.equal(await continueCatchUp({github, context, report:{...report,...change}}), false);
+        }
+        assert.equal(await continueCatchUp({github, context:{...context,ref:'refs/heads/other'}, report}), false);
+        assert.equal(calls.length, 1);
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+    '''
+    subprocess.run(["node", "-e", script], cwd=nu_titles.ROOT, check=True, capture_output=True, text=True)
+
+
 def test_collector_resumes_failed_request_and_does_not_cache_missing(tmp_path):
     path = tmp_path / "cache.json.gz"
 

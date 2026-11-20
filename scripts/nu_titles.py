@@ -16,6 +16,7 @@ from datetime import datetime
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -391,7 +392,7 @@ def parse_listing(html, url):
 
 
 def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fallback=False, max_seconds=1800,
-            report_path=None):
+            report_path=None, catch_up=False):
     """Checkpoint each successful request. Failed pages are read again later.
 
     Each language's listing is swept twice over: the recently updated, restarted daily and
@@ -401,6 +402,8 @@ def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fal
     updated come first, so a series that is being translated now is not kept waiting.
     """
     cache = read_cache(cache_path)
+    catching_up = catch_up or cache.get("catch_up_active", False)
+    cache["catch_up_active"] = catching_up
     if cache.get("parser_version") != PARSER_VERSION:
         # Sweep again when alias extraction changes. Confirmed values stay available to
         # offline jobs throughout the refresh.
@@ -429,7 +432,10 @@ def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fal
     for order in ORDERS:
         for language in dict.fromkeys(language_of(source) for source in sources):
             progress = listings.setdefault(f"{language}/{order}", {"next": None, "pending": [], "complete": True})
-            if progress["complete"] and started - progress.get("completed_at", 0) > RESTART[order]:
+            # Finish this catch-up pass before restarting any completed feed. Otherwise
+            # recent feeds can keep restarting while the full sweep is still unfinished.
+            restart = not catching_up or not progress.get("completed_at")
+            if restart and progress["complete"] and started - progress.get("completed_at", 0) > RESTART[order]:
                 progress.update(next=urljoin(BASE, LISTINGS[language] + ORDERS[order]), complete=False,
                                 pages=0, quiet=0)
             feeds[f"{language}/{order}"] = order
@@ -512,9 +518,15 @@ def collect(sources, cache_path=CACHE, max_requests=100, fetch=None, browser_fal
     finally:
         if client:
             client.close()
+    unfinished = [name for name in feeds if not listings[name]["complete"]]
+    cache["catch_up_active"] = bool(catching_up and (unfinished or retries))
+    write_cache(cache_path, cache)
     report = {"requests": requested, "succeeded": requested - len(errors), "failed": len(errors),
               "new_series": len(series) - initial_series, "cached_series": len(series),
-              "stopped_after_failures": in_a_row >= TURNED_AWAY}
+              "stopped_after_failures": in_a_row >= TURNED_AWAY,
+              "catch_up_active": cache["catch_up_active"], "unfinished_feeds": unfinished,
+              "deferred_series": len(deferred),
+              "continue_required": bool(cache["catch_up_active"] and requested > 0 and not errors)}
     print("NovelUpdates collection: " + source_names.dumps(report), flush=True)
     if report_path:
         atomic_json(report_path, report)
@@ -678,6 +690,8 @@ def main():
     parser.add_argument("--max-requests", type=int, default=100)
     parser.add_argument("--max-seconds", type=int, default=1800)
     parser.add_argument("--browser-fallback", action="store_true")
+    parser.add_argument("--catch-up", action="store_true", default=os.environ.get("NU_CATCH_UP") == "true",
+                        help="Continue the current sweeps in consecutive workflow runs, then return to daily runs")
     parser.add_argument("--data-dir", type=Path, default=ROOT / "docs/data")
     parser.add_argument("--state-dir", type=Path, default=ROOT / "metadata/state")
     parser.add_argument("--rebuild", action="store_true")
@@ -695,7 +709,7 @@ def main():
             import sys
             sys.path.insert(0, str(ROOT))
         collect(sources, args.cache, args.max_requests, browser_fallback=args.browser_fallback,
-                max_seconds=args.max_seconds, report_path=args.report)
+                max_seconds=args.max_seconds, report_path=args.report, catch_up=args.catch_up)
     elif args.command == "import-snapshot":
         if not all((args.snapshot, args.snapshot_url, args.snapshot_date)):
             parser.error("Snapshot path, attribution URL and date are required")

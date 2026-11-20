@@ -224,6 +224,8 @@ The synopsis manifest example abbreviates `files` and uses illustrative counts. 
 
 `nu` holds only works confirmed on NovelUpdates; a work with neither title is absent, and all 128 files exist even when empty. A source's manifest (`{source}_titles_shard_manifest.json`) has `shards`, `titles`, `verified`, `algorithm`, `"format": "id-to-title-json"` and `files`. The largest shard is about 45 KB compressed (115 KB of JSON), all sources together about 20 MB. They are rebuilt daily by [canonical-titles.yml](../.github/workflows/canonical-titles.yml), so a new translation appears within a day. The website does not read them, and [stage_pages.py](../scripts/stage_pages.py) leaves them out of the Pages deployment: read them from the data branch.
 
+The workflow's `catch_up` input enables consecutive collection batches. Each batch publishes its checkpoint before queuing another run with the normal 1,500-request / 45-minute limits. The checkpoint retains catch-up mode, so a daily run can resume a chain interrupted by a collection or dispatch failure. Completed feeds are not restarted during catch-up. Once all current feeds and currently due retries are finished, catch-up switches off automatically and only the daily schedule remains. Failed series whose retry dates are still in the future wait for daily runs; they do not create an idle continuation loop. A failed or non-progressing batch never immediately queues another batch.
+
 ```js
 // One work's titles: https://raw.githubusercontent.com/Shirochi-stack/NovelDB/data/docs/data/<file>
 async function titles(source, id) {
