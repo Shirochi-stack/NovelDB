@@ -1,0 +1,17 @@
+{
+  "chunks": 10,
+  "totalRows": 275074,
+  "files": [
+    "sfc_descriptions_chunk_0.txt.gz",
+    "sfc_descriptions_chunk_1.txt.gz",
+    "sfc_descriptions_chunk_2.txt.gz",
+    "sfc_descriptions_chunk_3.txt.gz",
+    "sfc_descriptions_chunk_4.txt.gz",
+    "sfc_descriptions_chunk_5.txt.gz",
+    "sfc_descriptions_chunk_6.txt.gz",
+    "sfc_descriptions_chunk_7.txt.gz",
+    "sfc_descriptions_chunk_8.txt.gz",
+    "sfc_descriptions_chunk_9.txt.gz"
+  ],
+  "source": "docs/data/sfc_descriptions.txt"
+}

@@ -1,0 +1,12 @@
+{
+  "chunks": 5,
+  "totalRows": 65895,
+  "files": [
+    "kpage_descriptions_chunk_0.txt.gz",
+    "kpage_descriptions_chunk_1.txt.gz",
+    "kpage_descriptions_chunk_2.txt.gz",
+    "kpage_descriptions_chunk_3.txt.gz",
+    "kpage_descriptions_chunk_4.txt.gz"
+  ],
+  "source": "docs/data/kpage_descriptions.txt"
+}
