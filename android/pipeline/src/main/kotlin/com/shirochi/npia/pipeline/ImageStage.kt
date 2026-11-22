@@ -38,6 +38,8 @@ class ImageStage(
     private val logger: JobLogging = NullLogger,
     /** Where encoded bytes wait until the book is written; without one they stay in memory. */
     private val store: ImageStore? = null,
+    /** Images that started downloading while the chapters were read: waited for, then taken from the store. */
+    private val prefetch: ImagePrefetch? = null,
 ) {
     class Output(
         val chapters: List<ChapterContent>,
@@ -145,9 +147,11 @@ class ImageStage(
      */
     private suspend fun download(ref: ImageRef, page: String? = null, label: String = ref.filename): ByteArray? {
         coroutineContext.ensureActive()
-        // Bytes that came with the chapter were already read: no request, no speed.
+        if (ref.data == null) prefetch?.await(ref.filename)
+        // Bytes that came with the chapter, or that were downloaded while the chapters were read: no request, no speed.
         (ref.data ?: store?.held(ref.filename))?.let { held ->
-            logger.log(LogLevel.DEBUG, "  ✓ $label: ${formatSize(held.size.toLong())}")
+            // An image downloaded early has its line (with its speed) from when it arrived.
+            if (prefetch?.brought(ref.filename) != true) logger.log(LogLevel.DEBUG, "  ✓ $label: ${formatSize(held.size.toLong())}")
             return held
         }
         val started = System.nanoTime()

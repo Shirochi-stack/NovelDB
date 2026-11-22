@@ -66,6 +66,68 @@ def test_reopening_same_epub_address_reads_new_bytes_and_chapters(browser, asset
         assert page.evaluate("fileReads") == 2
 
 
+@pytest.mark.parametrize("assets", MOBILE, ids=["android", "ios"])
+def test_a_big_epub_is_read_in_parts_and_a_file_that_cannot_open_is_not_called_blocked(browser, assets, tmp_path):
+    """A comic's EPUB is hundreds of megabytes: the page reads its directory, then one file of it at a time."""
+    from zipfile import ZIP_DEFLATED, ZIP_STORED
+
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+    path = epub(tmp_path / "big.epub", 3)
+    with ZipFile(path) as archive:
+        entries = {name: archive.read(name) for name in archive.namelist()}
+    entries["0.xhtml"] = b'<html><body><p>The first page.</p><img src="images/p.png"/></body></html>'
+    with ZipFile(path, "w") as archive:
+        # Pages before everything else, as a comic has them: the book's own files end up far from its end.
+        archive.writestr("images/p.png", png, ZIP_STORED)
+        archive.writestr("images/filler.bin", bytes(range(256)) * 2400, ZIP_STORED)  # 600 KB, more than the tail
+        for name, data in entries.items():
+            archive.writestr(name, data, ZIP_DEFLATED)
+        archive.writestr("images/more.bin", bytes(range(256)) * 1600, ZIP_STORED)  # the directory's neighbours
+    size = path.stat().st_size
+    with browser.new_context(viewport={"width": 390, "height": 800}) as context:
+        page = context.new_page()
+        def serve(route):
+            name = route.request.url.rsplit("/", 1)[-1]
+            if name in {"index.html", "catalog-start.js", "generic.js", "generic-lib.js", "catalog-app.js"}:
+                route.fulfill(path=assets / name)
+            elif name.endswith(".json"):
+                route.fulfill(json={})
+            else:
+                route.fulfill(body="")
+        page.route("**/*", serve)
+        # The app's answer: the part asked for (a negative offset counts from the end), where it starts, the size.
+        page.add_init_script("""window.parts=[];
+            window.NovelDBTransport=request=>{
+                if(request.op!=='file')return Promise.resolve({skip:true});
+                if(window.fileError)return Promise.resolve({error:window.fileError});
+                const bytes=Uint8Array.from(atob(window.fileBytes),c=>c.charCodeAt(0));
+                const start=Math.max(0,Math.min(request.offset<0?bytes.length+request.offset:request.offset,bytes.length));
+                const part=bytes.subarray(start,Math.min(bytes.length,start+request.length));
+                parts.push(part.length);
+                let binary='';
+                for(let i=0;i<part.length;i+=0x8000)binary+=String.fromCharCode.apply(null,part.subarray(i,i+0x8000));
+                return Promise.resolve({status:200,size:bytes.length,offset:start,responseBase64:btoa(binary)});
+            };""")
+        page.goto("https://catalog.test/index.html")
+        page.evaluate("bytes=>window.fileBytes=bytes", base64.b64encode(path.read_bytes()).decode())
+        page.evaluate("NovelDBGeneric.readLocal({url:'file:///library/book.epub',title:'Book'})")
+        page.wait_for_function("document.getElementById('rChapterNo').textContent==='Chapter 1 of 3'")
+        page.wait_for_selector("#flow img")
+        assert "The first page." in page.locator("#flow").inner_text()
+        assert page.locator("#flow img").first.get_attribute("src").startswith("data:image/png;base64,")
+        parts = page.evaluate("parts")
+        # The end of the book (its directory), then its own small files and the one picture: never the whole book.
+        assert len(parts) >= 4 and max(parts) <= 262144 < size and sum(parts) < size, (parts, size)
+        page.click("#rClose")
+
+        # A book the app cannot hand over: its own reason, and no sign-in button (a file is not a site).
+        page.evaluate("window.fileError='this file is too big to read here (over 80 MB)'")
+        page.evaluate("NovelDBGeneric.readLocal({url:'file:///library/other.epub',title:'Other'})")
+        page.wait_for_function("document.getElementById('flow').textContent.includes('too big to read here')")
+        assert "blocked" not in page.locator("#flow").inner_text()
+        assert page.locator("#rLogin").count() == 0
+
+
 @pytest.mark.parametrize("assets", [DESKTOP, *MOBILE], ids=["desktop", "android", "ios"])
 @pytest.mark.parametrize("inserted", [False, True])
 @pytest.mark.parametrize("layout", ["paged", "scroll"])

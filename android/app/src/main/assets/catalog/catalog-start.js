@@ -5615,7 +5615,7 @@ window.__GEN_READY = true;
         return engines;
     }
     function builtInComic(url) {
-        return ['comix.to', 'comix.ws', 'mangak.io'].includes(host(url));
+        return ['comix.to', 'comix.ws', 'mangak.io', 'manga.bilibili.com'].includes(host(url));
     }
     function parseJson(text) {
         var value = typeof text === 'string' ? JSON.parse(text) : text;
@@ -5623,15 +5623,32 @@ window.__GEN_READY = true;
         return value;
     }
     // -- Library files in the reader (the app hands over their bytes) ----------------
-    /** The files of a ZIP (an EPUB is one): name -> {method, size, local}. */
-    function zipEntries(bytes) {
-        var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), end = -1;
-        for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
-            if (view.getUint32(i, true) === 0x06054b50) { end = i; break; }
-        }
-        if (end < 0) throw new Error('not an EPUB (no ZIP directory)');
-        var count = view.getUint16(end + 10, true), at = view.getUint32(end + 16, true), out = new Map();
-        for (var n = 0; n < count && view.getUint32(at, true) === 0x02014b50; n++) {
+    // A book is read in pieces: a comic's EPUB is hundreds of megabytes (one chapter's pages are tens), far
+    // more than the page can take at once. The app answers {op: 'file', offset, length} with those bytes
+    // (a negative offset counts from the end), the offset they start at and the file's size; a small book,
+    // or an app that only hands over whole files, comes whole (no offset in the answer) and is kept.
+    var ZIP_TAIL = 262144, ZIP_SLACK = 1024;
+    function fileRange(url, offset, length) {
+        return appAsk({op: 'file', url: url, offset: offset, length: length}).then(function (reply) {
+            if (!reply || reply.error || typeof reply.responseBase64 !== 'string') {
+                throw new Error((reply && reply.error) || 'the book could not be opened');
+            }
+            var whole = typeof reply.offset !== 'number';
+            return {bytes: bytesOf(reply.responseBase64), offset: whole ? 0 : reply.offset, whole: whole};
+        });
+    }
+    /** `length` bytes of the book from `offset`: from the kept bytes, else asked for. */
+    function zipBytes(epub, offset, length) {
+        if (epub.bytes) return Promise.resolve(epub.bytes.subarray(offset, offset + length));
+        return fileRange(epub.url, offset, length).then(function (part) {
+            if (part.whole) epub.bytes = part.bytes;
+            return part.bytes.subarray(offset - part.offset, offset - part.offset + length);
+        });
+    }
+    /** The files of a ZIP (an EPUB is one), from its directory: name -> {method, size, local}. */
+    function zipEntries(bytes, count) {
+        var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), at = 0, out = new Map();
+        for (var n = 0; n < count && at + 46 <= bytes.length && view.getUint32(at, true) === 0x02014b50; n++) {
             var nameLength = view.getUint16(at + 28, true), extra = view.getUint16(at + 30, true), comment = view.getUint16(at + 32, true);
             var name = new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nameLength));
             out.set(name, {method: view.getUint16(at + 10, true), size: view.getUint32(at + 20, true), local: view.getUint32(at + 42, true)});
@@ -5639,15 +5656,39 @@ window.__GEN_READY = true;
         }
         return out;
     }
+    /** The book's end holds its directory's place: the directory is read from there. */
+    function zipOpen(url) {
+        return fileRange(url, -ZIP_TAIL, ZIP_TAIL).then(function (tail) {
+            var epub = {url: url, bytes: tail.whole ? tail.bytes : null}, bytes = tail.bytes, end = -1;
+            var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+                if (view.getUint32(i, true) === 0x06054b50) { end = i; break; }
+            }
+            if (end < 0) throw new Error('not an EPUB (no ZIP directory)');
+            var count = view.getUint16(end + 10, true), size = view.getUint32(end + 12, true), at = view.getUint32(end + 16, true);
+            var directory = at >= tail.offset && at - tail.offset + size <= bytes.length
+                ? Promise.resolve(bytes.subarray(at - tail.offset, at - tail.offset + size)) : zipBytes(epub, at, size);
+            return directory.then(function (listed) {
+                epub.entries = zipEntries(listed, count);
+                return epub;
+            });
+        });
+    }
     function zipRead(epub, name) {
         var entry = epub.entries.get(name);
         if (!entry) return Promise.resolve(null);
-        var view = new DataView(epub.bytes.buffer, epub.bytes.byteOffset, epub.bytes.byteLength);
-        var start = entry.local + 30 + view.getUint16(entry.local + 26, true) + view.getUint16(entry.local + 28, true);
-        var data = epub.bytes.subarray(start, start + entry.size);
-        if (entry.method === 0) return Promise.resolve(data);
-        return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()
-            .then(function (buffer) { return new Uint8Array(buffer); });
+        // The entry's own header (30 bytes, its name, an extra field of unknown length), then its data.
+        return zipBytes(epub, entry.local, 30 + ZIP_SLACK + entry.size).then(function (part) {
+            if (part.length < 30) throw new Error('the book is damaged (' + name + ')');
+            var view = new DataView(part.buffer, part.byteOffset, part.byteLength);
+            var start = 30 + view.getUint16(26, true) + view.getUint16(28, true);
+            if (start + entry.size <= part.length) return part.subarray(start, start + entry.size);
+            return zipBytes(epub, entry.local + start, entry.size);
+        }).then(function (data) {
+            if (entry.method === 0) return data;
+            return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()
+                .then(function (buffer) { return new Uint8Array(buffer); });
+        });
     }
     function zipText(epub, name) { return zipRead(epub, name).then(function (data) { return data ? new TextDecoder().decode(data) : ''; }); }
     function epubPath(base, href) {
@@ -5667,9 +5708,7 @@ window.__GEN_READY = true;
     /** The EPUB at a file: address: its spine (reading order), with names from its table of contents. */
     function epubOpen(url) {
         if (epubs.has(url)) return epubs.get(url);
-        var opened = bookFileBytes(url).then(function (bytes) {
-            var epub = {bytes: bytes};
-            epub.entries = zipEntries(epub.bytes);
+        var opened = zipOpen(url).then(function (epub) {
             return zipText(epub, 'META-INF/container.xml').then(function (container) {
                 var rootfile = xmlDoc(container).querySelector('rootfile');
                 epub.opf = rootfile ? rootfile.getAttribute('full-path') : '';
@@ -5986,9 +6025,13 @@ window.__GEN_READY = true;
             call('fetched', id, value);
         }, function (error) {
             var message = String((error && error.message) || error).slice(0, 300);
-            var siteReader = builtInComic(url);
-            var blocked = !siteReader || /human verification|http 403|sign in|locked/i.test(message);
-            call('fetched', id, {error: message, blocked: blocked, message: siteReader ? message : BLOCKED});
+            // A Library file is not a site: nothing to sign in to, and its own reason is the one to show
+            // (a book too big to open read "This page is blocked: the site may need you to sign in").
+            var local = /^file:/i.test(url || '');
+            var siteReader = local || builtInComic(url);
+            var blocked = !local && (!siteReader || /human verification|http 403|sign in|locked/i.test(message));
+            call('fetched', id, {error: message, blocked: blocked,
+                                 message: local ? 'This book could not be opened: ' + message + '.' : siteReader ? message : BLOCKED});
         }).then(function () { if (reading.id === id) reading.id = null; });
     }
 

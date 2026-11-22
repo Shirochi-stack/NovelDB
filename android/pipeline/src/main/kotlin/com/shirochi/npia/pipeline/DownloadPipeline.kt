@@ -157,12 +157,20 @@ class DownloadPipeline(
         )
         onPhase(JobPhase.FetchingChapters(0, selected.size))
         val completed = ConcurrentHashMap<String, ChapterResult>()
-        val chapterRun = chapterContext(context, selected.size, onPhase, store) { result -> completed[result.ref.id] = result }
+        // A chapter's images start downloading as soon as it is read, not after the last chapter (ImagePrefetch).
+        val prefetch = if (settings.images.saveImageUrlsOnly) null
+            else ImagePrefetch(http, store, shared.imageWorkers, coroutineContext, logger = logger)
+        val chapterRun = chapterContext(context, selected.size, onPhase, store) { result ->
+            completed[result.ref.id] = result
+            prefetch?.offer(result)
+        }
         try {
             val results = adapter.parseChapters(selected, book, chapterRun).toMutableList()
             retryFailed(adapter, book, chapterRun, results, shared.maxRetries)
-            return finishDownload(book, results, owner.id, shared, settings, http, url, store, started, onPhase)
+            return finishDownload(book, results, owner.id, shared, settings, http, url, store, started, onPhase, prefetch = prefetch)
         } catch (cancelled: CancellationException) {
+            // A stop ends the image downloads on their way too; what already arrived is used below.
+            prefetch?.close()
             if (!(generateOnStop?.invoke() ?: shared.generateOnStop) || completed.values.none { it is ChapterResult.Content }) throw cancelled
             val results = selected.mapNotNull { completed[it.id] }
             logger.log(LogLevel.INFO, "Stopped: generating files from ${results.count { it is ChapterResult.Content }} downloaded chapters")
@@ -172,8 +180,10 @@ class DownloadPipeline(
             }
             return withContext(NonCancellable) {
                 finishDownload(book, results, owner.id, shared, settings.copy(upload = settings.upload.copy(autoUpload = false)),
-                    offline, url, store, started, onPhase, stopped = true)
+                    offline, url, store, started, onPhase, stopped = true, prefetch = prefetch)
             }
+        } finally {
+            prefetch?.close()
         }
     }
 
@@ -227,7 +237,7 @@ class DownloadPipeline(
     private suspend fun finishDownload(
         book: BookInfo, results: List<ChapterResult>, source: SourceId, shared: SharedSettings, settings: AppSettings,
         http: HttpFetching, url: String, store: ImageStore, started: Long, onPhase: (JobPhase) -> Unit,
-        stopped: Boolean = false,
+        stopped: Boolean = false, prefetch: ImagePrefetch? = null,
     ): JobOutcome {
 
         val chapters = mutableListOf<ChapterContent>()
@@ -250,7 +260,7 @@ class DownloadPipeline(
             FolderWriter.Prepared(outputDirectory, settings.images, images)
         } else null
         return chapterExport.use { prepared ->
-            writeOutputs(book, chapters, skipped, source, shared, settings, http, url, store, started, onPhase, prepared, stopped)
+            writeOutputs(book, chapters, skipped, source, shared, settings, http, url, store, started, onPhase, prepared, stopped, prefetch)
         }
     }
 
@@ -260,23 +270,26 @@ class DownloadPipeline(
         url: String, store: ImageStore, started: Long, onPhase: (JobPhase) -> Unit,
         prepared: FolderWriter.Prepared?,
         stopped: Boolean,
+        prefetch: ImagePrefetch? = null,
     ): JobOutcome {
         val compressAfter = prepared != null && settings.images.compressAfterStitch
         val otherImageOutputs = shared.formats.any { it == OutputFormat.EPUB || it == OutputFormat.CBZ || it == OutputFormat.PDF }
         val stage = ImageStage(http, settings, source,
-            if (compressAfter && !otherImageOutputs) PassthroughImages else images, logger, store)
-        // The image step follows the chapters and can be far longer than them (an illustrated book
+            if (compressAfter && !otherImageOutputs) PassthroughImages else images, logger, store, prefetch)
+        // The image step finishes after the chapters and can be far longer than them (an illustrated book
         // has several images a chapter). Say so in the log: without these lines the progress bar keeps
         // counting "Images n/total" after the last chapter line, with nothing to show what it counts.
         val imageRefs = chapters.flatMap { it.images }
         val imageFiles = imageRefs.distinctBy { it.filename }.size
         if (imageFiles > 0 && !settings.images.saveImageUrlsOnly) {
             val addresses = imageRefs.distinctBy { it.url }.size
+            val early = prefetch?.started ?: 0
             logger.log(
                 LogLevel.INFO,
                 "Downloading $imageFiles image${if (imageFiles == 1) "" else "s"} from " +
                     "${chapters.count { it.images.isNotEmpty() }} of ${chapters.size} chapters" +
-                    (if (addresses < imageFiles) " ($addresses different addresses)" else ""),
+                    (if (addresses < imageFiles) " ($addresses different addresses)" else "") +
+                    (if (early > 0) "; $early started while the chapters were read" else ""),
             )
         }
         // Each image then gets its own line (ImageStage), as on the desktop.

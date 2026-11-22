@@ -95,6 +95,38 @@ final class ImageStageTests: XCTestCase {
         XCTAssertEqual(http.requests.filter { $0 == url("a") }.count, 1)
     }
 
+    func testImagesDownloadedWhileTheChaptersAreReadAreTakenByTheImageStep() async throws {
+        let png = makePNG()
+        let early = StubHTTP([url("a"): (200, png), url("b"): (200, png)])
+        let prefetch = ImagePrefetch(http: early, workers: 2)
+        defer { prefetch.close() }
+        let content = chapter(1, images: [
+            ImageRef(url: url("a"), filename: "images/0001_01.png"),
+            ImageRef(url: url("b"), filename: "images/0001_02.png"),
+            ImageRef(url: url("gone"), filename: "images/0001_03.png"),
+        ])
+        // A chapter that was just read: its images start at once; offered again, nothing starts twice.
+        prefetch.offer(.content(content))
+        prefetch.offer(.content(content))
+        XCTAssertEqual(prefetch.started, 3)
+        // The image step's own client: asked only for the image the early download could not get.
+        let later = StubHTTP([url("gone"): (200, png)])
+        var stage = ImageStage(http: later, settings: AppSettings(), source: .reader)
+        stage.prefetch = prefetch
+        let output = try await stage.run([content])
+        XCTAssertEqual(output.failed, 0)
+        XCTAssertEqual(output.images.count, 3)
+        XCTAssertEqual(early.requests.count, 3)
+        XCTAssertEqual(later.requests, [url("gone")])
+        XCTAssertTrue(prefetch.brought("images/0001_01.png"))
+        XCTAssertFalse(prefetch.brought("images/0001_03.png"))
+
+        // After a stop nothing new starts.
+        prefetch.close()
+        prefetch.offer(.content(chapter(2, images: [ImageRef(url: url("late"), filename: "images/0002_01.png")])))
+        XCTAssertEqual(prefetch.started, 3)
+    }
+
     func testKeepsNamesWhenExtensionMatches() async throws {
         let http = StubHTTP([url("a"): (200, makePNG())])
         var settings = AppSettings()

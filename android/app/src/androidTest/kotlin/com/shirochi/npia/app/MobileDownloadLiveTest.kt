@@ -59,6 +59,97 @@ class MobileDownloadLiveTest {
         }
     }
 
+    /** Bilibili Manga: one open chapter with its pages (fetched as the chapter is read) and one locked chapter. */
+    @Test
+    fun aBiliComicBookDownloadsWithItsPagesThroughTheQueue() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("live") == "true")
+        val app = instrumentation.targetContext.applicationContext as NpiaApplication
+        val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        lateinit var model: AppViewModel
+        instrumentation.runOnMainSync { model = ViewModelProvider(activity)[AppViewModel::class.java] }
+        val manager = model.manager
+        val settings = AppSettings(shared = SharedSettings(rangeFrom = 22, rangeTo = 24, appendRange = true,
+            threads = 2, intervalMin = 1.0, intervalMax = 2.0, formats = listOf(OutputFormat.EPUB)))
+        try {
+            manager.updateSettings { settings }
+            manager.enqueue(listOf("https://manga.bilibili.com/detail/mc29839")) { settings }
+            val id = manager.jobs.value.first().id
+            instrumentation.runOnMainSync { model.openJob(id) }
+            try {
+                withTimeout(420_000) {
+                    while (manager.jobs.value.first { it.id == id }.state.isActive) delay(500)
+                }
+            } finally {
+                manager.jobs.value.first { it.id == id }.log.forEach { android.util.Log.i("BiliComicLive", it) }
+            }
+            val finished = manager.jobs.value.first { it.id == id }
+            val log = finished.log.joinToString("\n")
+            assertEquals(log, JobState.FINISHED, finished.state)
+            assertTrue(log, finished.log.any { "Starting bilicomic download" in it })
+            assertTrue(log, finished.log.any { "Chapters: 2 downloaded" in it })
+            val book = finished.files(manager.outputDirectory).single()
+            val pages = java.util.zip.ZipFile(book).use { zip ->
+                zip.entries().asSequence().count { it.name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp", "avif") && it.size > 10_000 }
+            }
+            android.util.Log.i("BiliComicLive", "book ${book.name}: ${book.length()} bytes, $pages pages")
+            assertTrue("$pages pages in ${book.name}\n$log", pages >= 80)
+            // The book is far over what the reader's page takes at once: it is handed over in parts.
+            assertTrue("${book.length()} bytes", book.length() > 80L * 1024 * 1024)
+            val tail = com.shirochi.npia.sources.reader.CatalogTransport.handle(
+                """{"op":"file","url":"${book.toURI()}","offset":-262144,"length":262144}""",
+                object : com.shirochi.npia.core.HttpFetching {
+                    override suspend fun send(request: com.shirochi.npia.core.HttpRequest) = error("no request for a Library file")
+                }, com.shirochi.npia.core.UnavailableWebEngine)
+            assertTrue(tail.take(200), tail.contains("\"offset\":${book.length() - 262144}") && tail.contains("\"size\":${book.length()}"))
+        } finally {
+            manager.cancelAll()
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
+    /**
+     * A book with pictures at `-e url <address>` (chapters `-e from`..`-e to`, 1-3 by default): its images
+     * start downloading while the later chapters are still being read, not after the last one.
+     */
+    @Test
+    fun imagesStartDownloadingWhileTheChaptersAreRead() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue(arguments.getString("live") == "true" && !arguments.getString("url").isNullOrBlank())
+        val app = instrumentation.targetContext.applicationContext as NpiaApplication
+        val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        lateinit var model: AppViewModel
+        instrumentation.runOnMainSync { model = ViewModelProvider(activity)[AppViewModel::class.java] }
+        val manager = model.manager
+        val settings = AppSettings(shared = SharedSettings(
+            rangeFrom = arguments.getString("from")?.toIntOrNull() ?: 1, rangeTo = arguments.getString("to")?.toIntOrNull() ?: 3,
+            appendRange = true, threads = 1, intervalMin = 2.0, intervalMax = 3.0, formats = listOf(OutputFormat.EPUB)))
+        try {
+            manager.updateSettings { settings }
+            manager.enqueue(listOf(arguments.getString("url")!!)) { settings }
+            val id = manager.jobs.value.first().id
+            instrumentation.runOnMainSync { model.openJob(id) }
+            try {
+                withTimeout(420_000) {
+                    while (manager.jobs.value.first { it.id == id }.state.isActive) delay(500)
+                }
+            } finally {
+                manager.jobs.value.first { it.id == id }.log.forEach { android.util.Log.i("EarlyImagesLive", it) }
+            }
+            val finished = manager.jobs.value.first { it.id == id }
+            val log = finished.log.joinToString("\n")
+            assertEquals(log, JobState.FINISHED, finished.state)
+            assertTrue(log, finished.log.any { "started while the chapters were read" in it })
+            val firstImage = finished.log.indexOfFirst { "  ✓ " in it }
+            val lastChapter = finished.log.indexOfLast { Regex("\\] Chapter \\d+: ").containsMatchIn(it) }
+            assertTrue("an image arrives before the last chapter is read\n$log", firstImage in 0 until lastChapter)
+        } finally {
+            manager.cancelAll()
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
     @Test
     fun configuredRangeIsRespectedByTheQueue() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

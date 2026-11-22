@@ -40,8 +40,16 @@ class ImageStore private constructor(private val dir: File) : Closeable {
         return ChapterResult.Content(result.content.copy(images = images))
     }
 
-    /** Bytes a source already handed over for `filename` (see `keep`). */
+    /** Bytes a source already handed over for `filename` (see `keep`), or that were downloaded early (`ImagePrefetch`). */
     fun held(filename: String): ByteArray? = get(HELD + filename)
+
+    fun holds(filename: String): Boolean = files.containsKey(HELD + filename)
+
+    /** Keeps `data` for `filename` until the image stage takes it. */
+    fun hold(filename: String, data: ByteArray) = put(HELD + filename, data)
+
+    /** Room left where the images are kept. */
+    fun freeBytes(): Long = dir.usableSpace
 
     fun dropHeld(filename: String) = drop(HELD + filename)
 

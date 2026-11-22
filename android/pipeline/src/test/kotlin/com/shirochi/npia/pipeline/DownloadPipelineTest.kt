@@ -112,6 +112,50 @@ class DownloadPipelineTest {
     }
 
     @Test
+    fun aChaptersImagesStartDownloadingBeforeTheNextChapterIsRead() = runTest {
+        val url = "https://novelfull.com/the-legendary-mechanic.html"
+        val imageAsked = CompletableDeferred<Unit>()
+        val http = object : HttpFetching {
+            val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+            override suspend fun send(request: HttpRequest): HttpResponse {
+                requests += request.url
+                if (request.url == "https://img.example/a.png") imageAsked.complete(Unit)
+                return HttpResponse(request.url, 200, emptyMap(), PNG)
+            }
+        }
+        val page = W2ePage(
+            book = """{"api":1,"engine":"webtoepub","parser":"NovelFullParser","match":"site","bookUrl":"$url","bookname":"The Legendary Mechanic",
+                "author":"Writer","introduction":"","coverUrl":null,"tags":[],"language":"en","chapterCount":2,
+                "chapters":[{"url":"https://novelfull.com/the-legendary-mechanic/chapter-1.html","name":"Chapter 1","number":1,"isVIP":false,"isPaid":false},
+                            {"url":"https://novelfull.com/the-legendary-mechanic/chapter-2.html","name":"Chapter 2","number":2,"isVIP":false,"isPaid":false}],
+                "warnings":[]}""",
+            chapters = mapOf(
+                "chapter-1" to """{"chapterName":"Chapter 1","contentHtml":"<p>One.</p><p><img src=\"https://img.example/a.png\"></p>","contentText":"One.","imageCount":0,"images":[]}""",
+                "chapter-2" to """{"chapterName":"Chapter 2","contentHtml":"<p>Two.</p>","contentText":"Two.","imageCount":0,"images":[]}""",
+            ),
+            // The second chapter is not read until the first chapter's image was asked for: an image step
+            // that waits for the last chapter would never get there.
+            beforeChapter = { body -> if (body.contains("chapter-2")) withTimeout(10_000) { imageAsked.await() } },
+        )
+        val output = Files.createTempDirectory("early-images").toFile()
+        try {
+            val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val settings = AppSettings(shared = SharedSettings(intervalMin = 0.0, intervalMax = 0.0, threads = 1))
+            val outcome = DownloadPipeline(InMemorySecretStore(), output, web = WebOf(page), httpFactory = { http },
+                logger = JobLogging { _, message -> lines += message }).run(url, settings)
+            assertEquals(emptyList<Any>(), outcome.skipped)
+            // Asked for once: the image step takes what was downloaded early.
+            assertEquals(listOf("https://img.example/a.png"), http.requests)
+            assertTrue(lines.toString(), lines.any { it.contains("1 started while the chapters were read") })
+            val epub = outcome.files.single { it.extension == "epub" }
+            val entries = java.util.zip.ZipFile(epub).use { zip -> zip.entries().toList().map { it.name } }
+            assertTrue(entries.toString(), entries.any { it.contains("images/") && it.endsWith(".png") })
+        } finally {
+            output.deleteRecursively()
+        }
+    }
+
+    @Test
     fun autoPurchaseAsksOnlyForLockedChaptersInItsRangeAndNeverFailsTheDownload() = runTest {
         val fixture = mechanicPage()
         val output = Files.createTempDirectory("purchase").toFile()

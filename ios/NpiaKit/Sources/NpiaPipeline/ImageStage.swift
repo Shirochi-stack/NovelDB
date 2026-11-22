@@ -9,6 +9,8 @@ public struct ImageStage: Sendable {
     public var settings: AppSettings
     public var source: SourceID
     public var logger: any JobLogging
+    /// Images that started downloading while the chapters were read: waited for, then taken from it.
+    var prefetch: ImagePrefetch? = nil
 
     public init(http: any HTTPFetching, settings: AppSettings, source: SourceID, logger: any JobLogging = NullLogger()) {
         self.http = http
@@ -153,9 +155,14 @@ public struct ImageStage: Sendable {
                        preserveSource: Bool) async throws -> (ProcessedImage?, ProcessedImage?) {
         try Task.checkCancellation()
         let data: Data
-        if let bytes = ref.data {
-            // Bytes that came with the chapter were already read: no request, no speed.
-            logger.log(.debug, "  ✓ \(label): \(Self.formatSize(bytes.count))")
+        var held = ref.data
+        if held == nil, let early = prefetch { held = await early.take(ref.filename) }
+        if let bytes = held {
+            // Bytes that came with the chapter, or that were downloaded while the chapters were read: no
+            // request, no speed. An image downloaded early has its line (with its speed) from when it arrived.
+            if prefetch?.brought(ref.filename) != true {
+                logger.log(.debug, "  ✓ \(label): \(Self.formatSize(bytes.count))")
+            }
             data = bytes
         } else {
             let started = Date()

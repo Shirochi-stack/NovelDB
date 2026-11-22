@@ -26,17 +26,46 @@ object CatalogTransport {
     /** The app's download folder: the one place the reader may open files from. */
     @Volatile var libraryFolder: File? = null
 
-    private fun libraryFile(url: String): String {
+    /** A file this small goes to the page whole, whatever part it asked for: one request reads the book. */
+    private const val WHOLE_BYTES = 8L * 1024 * 1024
+    /** The most one answer carries (as base64): the page asks for a book's files one at a time. */
+    private const val PART_BYTES = 48L * 1024 * 1024
+
+    /**
+     * A Library EPUB or TXT for the reader's page. With `offset` (negative: from the end) and `length`
+     * the answer is that part, with the `offset` it starts at and the file's `size`: a comic's EPUB is
+     * hundreds of megabytes, and the page reads its directory and then one file of it at a time.
+     * Without them (a TXT), or for a small file, the whole file (no `offset` in the answer).
+     */
+    internal fun libraryFile(url: String, offset: Long? = null, length: Long? = null): String {
         val folder = libraryFolder?.canonicalFile ?: return error("no Library folder")
         val file = runCatching { File(URI(url)).canonicalFile }.getOrNull() ?: return error("not a file address")
         if (file.extension.lowercase() !in setOf("epub", "txt") || !file.path.startsWith(folder.path + File.separator) || !file.isFile) {
             return error("only EPUB and TXT files in the Library can be opened")
         }
-        // The whole book goes to the page at once (as base64): a huge one would not fit.
-        if (file.length() > 80L * 1024 * 1024) return error("this file is too big to read here (over 80 MB)")
-        val bytes = runCatching { file.readBytes() }.getOrNull() ?: return error("the book could not be opened")
+        val size = file.length()
+        if (offset == null || size <= WHOLE_BYTES) {
+            // The whole book goes to the page at once (as base64): a huge one would not fit.
+            if (size > 80L * 1024 * 1024) return error("this file is too big to read here (over 80 MB)")
+            val bytes = runCatching { file.readBytes() }.getOrNull() ?: return error("the book could not be opened")
+            return buildJsonObject {
+                put("status", 200)
+                put("size", size)
+                put("responseBase64", Base64.getEncoder().encodeToString(bytes))
+            }.toString()
+        }
+        val start = (if (offset < 0) size + offset else offset).coerceIn(0, size)
+        val count = (length ?: (size - start)).coerceIn(0, minOf(size - start, PART_BYTES)).toInt()
+        val bytes = runCatching {
+            java.io.RandomAccessFile(file, "r").use { input ->
+                input.seek(start)
+                ByteArray(count).also { input.readFully(it) }
+            }
+        }.getOrNull() ?: return error("the book could not be opened")
         return buildJsonObject {
             put("status", 200)
+            put("size", size)
+            put("offset", start)
             put("responseBase64", Base64.getEncoder().encodeToString(bytes))
         }.toString()
     }
@@ -54,7 +83,10 @@ object CatalogTransport {
         if (details != null && op == "catalogData") return CatalogData.handle(details)
         if (details != null && op == "libraryLive") return LibraryLive.handle(details)
         if (details != null && context != null && (op == "book" || op == "chapter")) return BuiltInReader.handle(op, details, context)
-        if (details != null && op == "file") return libraryFile((details["url"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+        if (details != null && op == "file") {
+            fun number(name: String) = (details[name] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()?.toLong()
+            return libraryFile((details["url"] as? JsonPrimitive)?.contentOrNull.orEmpty(), number("offset"), number("length"))
+        }
         return WebToEpubTransport.handle(requestJson, http, web)
     }
 }

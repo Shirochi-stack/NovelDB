@@ -204,7 +204,11 @@ public struct DownloadPipeline: Sendable {
         }
         onBook?(selected)
         onPhase(.fetchingChapters(done: 0, total: selected.count))
-        let chapterRun = chapterContext(context, total: selected.count, onPhase: onPhase)
+        // A chapter's images start downloading as soon as it is read, not after the last chapter (ImagePrefetch).
+        let prefetch = settings.images.saveImageURLsOnly ? nil
+            : ImagePrefetch(http: client, workers: shared.imageWorkers, logger: logger)
+        defer { prefetch?.close() }
+        let chapterRun = chapterContext(context, total: selected.count, onPhase: onPhase, prefetch: prefetch)
         var results = try await adapter.parseChapters(selected, book: book, context: chapterRun)
         // Failed chapters (not refused ones) get more passes, each after a longer pause.
         let passes = min(max(shared.maxRetries, 0), Self.maxRetryPasses)
@@ -238,12 +242,16 @@ public struct DownloadPipeline: Sendable {
         let otherImageOutputs = shared.formats.contains { $0 == .epub || $0 == .cbz || $0 == .pdf }
         var stageSettings = settings
         if compressAfter && !otherImageOutputs { stageSettings.images.compress = false }
-        let stage = ImageStage(http: client, settings: stageSettings, source: source, logger: logger)
-        // The image step follows the chapters and can be far longer than them: say what it counts.
+        var staged = ImageStage(http: client, settings: stageSettings, source: source, logger: logger)
+        staged.prefetch = prefetch
+        let stage = staged
+        // The image step finishes after the chapters and can be far longer than them: say what it counts.
         let imageFiles = Set(chapters.flatMap { $0.images.map { $0.filename } }).count
         if imageFiles > 0 && !settings.images.saveImageURLsOnly {
             let withImages = chapters.filter { !$0.images.isEmpty }.count
-            logger.log(.info, "Downloading \(imageFiles) image\(imageFiles == 1 ? "" : "s") from \(withImages) of \(chapters.count) chapters")
+            let early = prefetch?.started ?? 0
+            logger.log(.info, "Downloading \(imageFiles) image\(imageFiles == 1 ? "" : "s") from \(withImages) of \(chapters.count) chapters"
+                + (early > 0 ? "; \(early) started while the chapters were read" : ""))
         }
         let progress: @Sendable (Int, Int) -> Void = { done, total in
             onPhase(.downloadingImages(done: done, total: total))
@@ -346,12 +354,14 @@ public struct DownloadPipeline: Sendable {
 
     /// Logs each chapter result and advances progress immediately, including results from retries.
     private func chapterContext(_ base: SourceContext, total: Int,
-                                onPhase: @escaping @Sendable (JobPhase) -> Void) -> SourceContext {
+                                onPhase: @escaping @Sendable (JobPhase) -> Void,
+                                prefetch: ImagePrefetch? = nil) -> SourceContext {
         var context = base
         let counter = ChapterCounter()
         let timings = ChapterTimings()
         context.onChapterTiming = { ref, seconds in timings.record(ref.id, seconds) }
         context.onChapter = { result in
+            prefetch?.offer(result)
             onChapter?(result)
             let elapsed = timings.take(result.ref.id)
             let suffix = base.settings.shared.chapterTiming ? elapsed.map { String(format: " (%.2f s)", $0) } ?? "" : ""

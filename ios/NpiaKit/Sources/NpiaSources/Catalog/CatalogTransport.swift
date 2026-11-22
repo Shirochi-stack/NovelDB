@@ -10,7 +10,16 @@ public enum CatalogTransport {
     /// The app's download folder: the one place the reader may open files from.
     nonisolated(unsafe) public static var libraryFolder: URL?
 
-    static func libraryFile(_ address: String) -> String {
+    /// A file this small goes to the page whole, whatever part it asked for: one request reads the book.
+    private static let wholeBytes = 8 * 1024 * 1024
+    /// The most one answer carries (as base64): the page asks for a book's files one at a time.
+    private static let partBytes = 48 * 1024 * 1024
+
+    /// A Library EPUB or TXT for the reader's page. With `offset` (negative: from the end) and `length`
+    /// the answer is that part, with the `offset` it starts at and the file's `size`: a comic's EPUB is
+    /// hundreds of megabytes, and the page reads its directory and then one file of it at a time.
+    /// Without them (a TXT), or for a small file, the whole file (no `offset` in the answer).
+    static func libraryFile(_ address: String, offset: Int? = nil, length: Int? = nil) -> String {
         func failure(_ message: String) -> String {
             let data = (try? JSONSerialization.data(withJSONObject: ["error": message])) ?? Data()
             return String(decoding: data, as: UTF8.self)
@@ -23,10 +32,25 @@ public enum CatalogTransport {
               properties.isRegularFile == true else {
             return failure("only EPUB and TXT files in the Library can be opened")
         }
-        // The whole book goes to the page at once (as base64): a huge one would not fit.
-        guard (properties.fileSize ?? 0) <= 80 * 1024 * 1024 else { return failure("this file is too big to read here (over 80 MB)") }
-        guard let bytes = try? Data(contentsOf: file) else { return failure("the book could not be opened") }
-        return "{\"status\":200,\"responseBase64\":\"" + bytes.base64EncodedString() + "\"}"
+        let size = properties.fileSize ?? 0
+        guard let offset, size > wholeBytes else {
+            // The whole book goes to the page at once (as base64): a huge one would not fit.
+            guard size <= 80 * 1024 * 1024 else { return failure("this file is too big to read here (over 80 MB)") }
+            guard let bytes = try? Data(contentsOf: file) else { return failure("the book could not be opened") }
+            return "{\"status\":200,\"size\":\(size),\"responseBase64\":\"" + bytes.base64EncodedString() + "\"}"
+        }
+        let start = min(max(offset < 0 ? size + offset : offset, 0), size)
+        let count = min(max(length ?? (size - start), 0), min(size - start, partBytes))
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return failure("the book could not be opened") }
+        defer { try? handle.close() }
+        var bytes = Data()
+        if count > 0 {
+            guard (try? handle.seek(toOffset: UInt64(start))) != nil, let part = try? handle.read(upToCount: count) else {
+                return failure("the book could not be opened")
+            }
+            bytes = part
+        }
+        return "{\"status\":200,\"size\":\(size),\"offset\":\(start),\"responseBase64\":\"" + bytes.base64EncodedString() + "\"}"
     }
 
     public static func handle(_ json: String, context: SourceContext) async -> String {
@@ -47,7 +71,8 @@ public enum CatalogTransport {
         if let data = json.data(using: .utf8),
            let details = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
            details["op"] as? String == "file" {
-            return libraryFile(details["url"] as? String ?? "")
+            return libraryFile(details["url"] as? String ?? "", offset: (details["offset"] as? NSNumber)?.intValue,
+                               length: (details["length"] as? NSNumber)?.intValue)
         }
         if let data = json.data(using: .utf8),
            let details = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
