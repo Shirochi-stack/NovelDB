@@ -45,6 +45,21 @@ class JobDispatcher:
     def __call__(self, job: Job, token: CancelToken, output_dir=None) -> dict:
         settings = self._settings()
         requested = settings.effective(job.source)
+        widened = ""
+        if job.source == "kpage" and requested.auto_purchase and not job.library_target and not job.upload_range:
+            # Auto purchase only unlocks chapters the download reads, so its range is downloaded
+            # too: "1-3" with auto purchase "4-12" is chapters 1 to 12, not 1 to 3 and no purchase.
+            from noveldb.core import chapter_range
+
+            before = (requested.range_from, requested.range_to, requested.range_list)
+            low, high, listed = chapter_range.together(
+                *before, requested.purchase_from, requested.purchase_to, requested.purchase_list)
+            if (low, high, listed) != before:
+                widened = (f"Auto purchase {chapter_range.named(requested.purchase_from, requested.purchase_to, requested.purchase_list)} "
+                           f"is outside the chapter range {chapter_range.named(*before)}: "
+                           f"downloading chapters {chapter_range.named(low, high, listed)}.")
+                requested = replace(requested, range_from=low, range_to=high, range_list=listed)
+                settings = replace(settings, overrides={}, shared=requested)
         job.download_ranged = requested.range_from is not None or requested.range_to is not None
         if not job.library_target and not job.upload_range:
             job.chapters = ([requested.range_from, requested.range_to, requested.range_list]
@@ -64,6 +79,8 @@ class JobDispatcher:
                 auto_purchase=False, generate_on_stop=False))
         net_timeouts.configure_from(settings)  # the minimum waits this job runs with
         events = self._events_for(job)
+        if widened:
+            events.log(widened)
         output_dir = output_dir or job.output_dir or None
         if job.engine == NPIA_NATIVE:
             return self._npia_job(job.input, settings, self._auth, events, self._prompts, token, output_dir).run()

@@ -209,6 +209,51 @@ def test_a_ranged_download_is_named_after_its_range(tmp_path):
     assert ExternalPipelineMixin._range_label(whole) == ""
 
 
+@pytest.mark.parametrize("ranges, expected", [
+    ((1, 3, "", 4, 12, ""), (1, 12, "")),            # the range beside it joins on
+    ((1, 3, "", 10, 12, ""), (1, 12, "1-3,10-12")),  # a gap stays a gap
+    ((1, 12, "", 4, 6, ""), (1, 12, "")),            # already inside
+    ((4, 7, "4,7", 5, 5, ""), (4, 7, "4-5,7")),
+    ((None, None, "", 4, 12, ""), (None, None, "")),  # the whole book already has them
+    ((1, 3, "", None, None, ""), (1, 3, "")),         # no purchase range
+    ((5, 9, "", 2, 3, ""), (2, 9, "2-3,5-9")),
+])
+def test_two_ranges_together(ranges, expected):
+    assert chapter_range.together(*ranges) == expected
+
+
+def test_the_auto_purchase_range_is_downloaded_as_well_as_the_chapter_range():
+    seen = {}
+
+    class External:
+        def __init__(self, url, settings, source, events, token, output_dir):
+            seen[source] = settings.effective(source)
+            self._log = lambda text: None
+
+        def run(self, scraper):
+            return {"ok": True}
+
+    class Browser:
+        def submit(self, call, log=None):
+            return SimpleNamespace(result=lambda timeout=None: call(None))
+
+    lines = []
+    base = AppSettings(shared=replace(SharedSettings(), range_from=1, range_to=3, auto_purchase=True,
+                                      purchase_from=4, purchase_to=12))
+    dispatcher = JobDispatcher(lambda: base, None, Browser(), lambda job: SimpleNamespace(log=lines.append),
+                               external_job_factory=External)
+    job = Job("https://example.com/b", source="kpage")
+    dispatcher(job, SimpleNamespace(cancelled=False))
+    shared = seen["kpage"]
+    assert (shared.range_from, shared.range_to, shared.range_list) == (1, 12, "")
+    assert (shared.purchase_from, shared.purchase_to) == (4, 12)  # what is unlocked does not change
+    assert job.chapters == [1, 12, ""] and any("downloading chapters 1-12" in line for line in lines)
+    # A source without auto purchase keeps its chapter range.
+    other = Job("https://example.com/b", source="qdn")
+    dispatcher(other, SimpleNamespace(cancelled=False))
+    assert (seen["qdn"].range_from, seen["qdn"].range_to) == (1, 3) and other.chapters == [1, 3, ""]
+
+
 def test_upload_chapters_runs_the_book_for_just_that_range():
     seen = {}
 

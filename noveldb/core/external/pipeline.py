@@ -486,6 +486,8 @@ class ExternalPipelineMixin:
                         pointer = profile % count + 1  # the next chapter goes to the next profile
                         break
                     spent.add(profile)  # no ticket for this book, or signed out
+                    self._log(f"  Profile #{profile} {'is signed out' if outcome == 'login' else 'has no ticket'}; "
+                              f"{count - len(spent)} of {count} profiles left to ask.")
                 else:
                     if self._downloading:
                         self._log(f"  No profile has a ticket for {name}.")

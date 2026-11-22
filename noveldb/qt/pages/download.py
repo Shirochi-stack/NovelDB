@@ -219,7 +219,8 @@ class DownloadPage(QWidget):
         self.auto_purchase.setToolTip(
             "Unlocks the paid chapters in its range with the account's free tickets before downloading "
             "them: a gift ticket first, then a wait-for-free ticket, then tickets you already hold. "
-            "It never pays with cash. kpage only for now.")
+            "It never pays with cash. Its chapters are downloaded as well as the chapter range: "
+            "1-3 with auto purchase 4-12 downloads chapters 1 to 12. kpage only for now.")
         from noveldb.core import chapter_range
 
         self.purchase_range = RangeField(

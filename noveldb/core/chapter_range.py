@@ -77,6 +77,23 @@ def named(low: Optional[int], high: Optional[int], spec: str = "") -> str:
     return list_text(ranges) if ranges else label(low, high)
 
 
+def together(low: Optional[int], high: Optional[int], spec: str,
+             other_low: Optional[int], other_high: Optional[int], other_spec: str = "") -> tuple:
+    """The chapters of two ranges as one: `(first, last, list)`.
+
+    `1-3` with `4-12` is `1-12`; `1-3` with `10-12` is `1-12` with the list `1-3,10-12`. A range
+    that is not set changes nothing, and one without an end (`4-`) keeps the result open-ended.
+    """
+    if low is None and high is None or other_low is None and other_high is None:
+        return low, high, spec
+    if high is None or other_high is None:
+        return min(low or 1, other_low or 1), None, ""
+    parts = (_listed(low, high, spec) or [(low or 1, high)]) + \
+            (_listed(other_low, other_high, other_spec) or [(other_low or 1, other_high)])
+    ranges = parse_list(",".join(text(first, last) for first, last in parts))
+    return ranges[0][0], ranges[-1][1], list_text(ranges)
+
+
 _NAMED = re.compile(r"\s*\((\d+(?:-(?:\d+|end))?(?:,\d+(?:-\d+)?)*)\)$")
 
 
