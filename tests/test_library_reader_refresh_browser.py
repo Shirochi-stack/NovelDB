@@ -121,11 +121,23 @@ def test_a_big_epub_is_read_in_parts_and_a_file_that_cannot_open_is_not_called_b
         page.click("#rClose")
 
         # A book the app cannot hand over: its own reason, and no sign-in button (a file is not a site).
-        page.evaluate("window.fileError='this file is too big to read here (over 80 MB)'")
+        page.evaluate("window.fileError='the book could not be opened'")
         page.evaluate("NovelDBGeneric.readLocal({url:'file:///library/other.epub',title:'Other'})")
-        page.wait_for_function("document.getElementById('flow').textContent.includes('too big to read here')")
+        page.wait_for_function("document.getElementById('flow').textContent.includes('the book could not be opened')")
         assert "blocked" not in page.locator("#flow").inner_text()
         assert page.locator("#rLogin").count() == 0
+        page.click("#rClose")
+
+        # A big TXT is read a part after the other, and none is refused for its size.
+        rule = "─" * 12
+        chapter = "A line of a very long book.\n" * 330  # about 9 KB a chapter
+        text = "".join(f"{rule}\nChapter {n}\n{rule}\n{chapter}\n" for n in range(1, 1001))  # about 9 MB: two parts
+        page.evaluate("data=>{window.fileError='';window.parts=[];window.fileBytes=data}", base64.b64encode(text.encode()).decode())
+        page.evaluate("NovelDBGeneric.readLocal({url:'file:///library/long.txt',title:'Long'})")
+        page.wait_for_function("document.getElementById('rChapterNo').textContent==='Chapter 1 of 1000'", timeout=60000)
+        assert "A line of a very long book." in page.locator("#flow").inner_text()
+        parts = page.evaluate("parts")
+        assert len(parts) == 2 and parts[0] == 8388608 and sum(parts) == len(text.encode()), parts
 
 
 @pytest.mark.parametrize("assets", [DESKTOP, *MOBILE], ids=["desktop", "android", "ios"])

@@ -69,15 +69,19 @@ class MobileDownloadLiveTest {
         lateinit var model: AppViewModel
         instrumentation.runOnMainSync { model = ViewModelProvider(activity)[AppViewModel::class.java] }
         val manager = model.manager
-        val settings = AppSettings(shared = SharedSettings(rangeFrom = 22, rangeTo = 24, appendRange = true,
-            threads = 2, intervalMin = 1.0, intervalMax = 2.0, formats = listOf(OutputFormat.EPUB)))
+        // Chapters 22-24 by default (22 and 23 are open, 24 is locked); `-e from`/`-e to` pick others.
+        val arguments = InstrumentationRegistry.getArguments()
+        val chosen = arguments.getString("from") != null || arguments.getString("to") != null
+        val settings = AppSettings(shared = SharedSettings(
+            rangeFrom = arguments.getString("from")?.toIntOrNull() ?: 22, rangeTo = arguments.getString("to")?.toIntOrNull() ?: 24,
+            appendRange = true, threads = 2, intervalMin = 1.0, intervalMax = 2.0, formats = listOf(OutputFormat.EPUB)))
         try {
             manager.updateSettings { settings }
             manager.enqueue(listOf("https://manga.bilibili.com/detail/mc29839")) { settings }
             val id = manager.jobs.value.first().id
             instrumentation.runOnMainSync { model.openJob(id) }
             try {
-                withTimeout(420_000) {
+                withTimeout(900_000) {
                     while (manager.jobs.value.first { it.id == id }.state.isActive) delay(500)
                 }
             } finally {
@@ -87,7 +91,7 @@ class MobileDownloadLiveTest {
             val log = finished.log.joinToString("\n")
             assertEquals(log, JobState.FINISHED, finished.state)
             assertTrue(log, finished.log.any { "Starting bilicomic download" in it })
-            assertTrue(log, finished.log.any { "Chapters: 2 downloaded" in it })
+            if (!chosen) assertTrue(log, finished.log.any { "Chapters: 2 downloaded" in it })
             val book = finished.files(manager.outputDirectory).single()
             val pages = java.util.zip.ZipFile(book).use { zip ->
                 zip.entries().asSequence().count { it.name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp", "avif") && it.size > 10_000 }

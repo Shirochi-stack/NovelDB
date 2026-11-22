@@ -5634,7 +5634,27 @@ window.__GEN_READY = true;
                 throw new Error((reply && reply.error) || 'the book could not be opened');
             }
             var whole = typeof reply.offset !== 'number';
-            return {bytes: bytesOf(reply.responseBase64), offset: whole ? 0 : reply.offset, whole: whole};
+            return {bytes: bytesOf(reply.responseBase64), offset: whole ? 0 : reply.offset, whole: whole, size: reply.size};
+        });
+    }
+    /** A whole Library file (a TXT), read a part at a time: no answer is ever a whole big file, and none is refused. */
+    var FILE_PART = 8388608;
+    function bookFileBytes(url) {
+        return fileRange(url, 0, FILE_PART).then(function (first) {
+            if (first.whole || typeof first.size !== 'number' || first.bytes.length >= first.size) return first.bytes;
+            var all = new Uint8Array(first.size), at = first.bytes.length;
+            all.set(first.bytes, 0);
+            function next() {
+                if (at >= all.length) return all;
+                return fileRange(url, at, Math.min(FILE_PART, all.length - at)).then(function (part) {
+                    if (part.whole) return part.bytes;
+                    if (!part.bytes.length) throw new Error('the book could not be opened');
+                    all.set(part.bytes.subarray(0, all.length - at), at);
+                    at += part.bytes.length;
+                    return next();
+                });
+            }
+            return next();
         });
     }
     /** `length` bytes of the book from `offset`: from the kept bytes, else asked for. */
@@ -5698,12 +5718,6 @@ window.__GEN_READY = true;
     }
     function folderOf(path) { return path.indexOf('/') >= 0 ? path.replace(/\/[^\/]*$/, '') : ''; }
     function xmlDoc(text) { return new DOMParser().parseFromString(text, 'application/xml'); }
-    function bookFileBytes(url) {
-        return appAsk({op: 'file', url: url}).then(function (reply) {
-            if (!reply || reply.error || !reply.responseBase64) throw new Error((reply && reply.error) || 'the book could not be opened');
-            return bytesOf(reply.responseBase64);
-        });
-    }
     var epubs = new Map();
     /** The EPUB at a file: address: its spine (reading order), with names from its table of contents. */
     function epubOpen(url) {

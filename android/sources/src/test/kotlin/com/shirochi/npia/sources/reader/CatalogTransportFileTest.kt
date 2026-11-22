@@ -56,10 +56,27 @@ class CatalogTransportFileTest {
         assertEquals(0, reply(CatalogTransport.libraryFile(url, size + 50L, 10)).bytes().size)
         assertEquals(0, reply(CatalogTransport.libraryFile(url, -1000, 0)).bytes().size)
 
-        // No part asked for (a TXT, or an older page): the whole file, without an offset.
+        // No part asked for: the whole file, without an offset.
         val whole = reply(CatalogTransport.libraryFile(url))
         assertNull(whole.long("offset"))
         assertEquals(size, whole.bytes().size)
+    }
+
+    @Test
+    fun noBookIsRefusedForItsSize() {
+        val library = temp.newFolder("library")
+        CatalogTransport.libraryFolder = library
+        // 90 MB: the reader used to refuse anything over 80 MB.
+        val book = File(library, "huge.epub")
+        java.io.RandomAccessFile(book, "rw").use { file ->
+            file.setLength(90L * 1024 * 1024)
+            file.seek(90L * 1024 * 1024 - 4)
+            file.write(byteArrayOf(1, 2, 3, 4))
+        }
+        val tail = reply(CatalogTransport.libraryFile(book.toURI().toString(), -4, 4))
+        assertNull(tail.text("error"))
+        assertEquals(90L * 1024 * 1024, tail.long("size"))
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4), tail.bytes())
     }
 
     @Test

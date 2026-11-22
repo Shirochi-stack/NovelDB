@@ -34,8 +34,9 @@ object CatalogTransport {
     /**
      * A Library EPUB or TXT for the reader's page. With `offset` (negative: from the end) and `length`
      * the answer is that part, with the `offset` it starts at and the file's `size`: a comic's EPUB is
-     * hundreds of megabytes, and the page reads its directory and then one file of it at a time.
-     * Without them (a TXT), or for a small file, the whole file (no `offset` in the answer).
+     * hundreds of megabytes, and the page reads its directory and then one file of it at a time (a TXT:
+     * a part after the other). No book is refused for its size. Without them, or for a small file, the
+     * whole file (no `offset` in the answer).
      */
     internal fun libraryFile(url: String, offset: Long? = null, length: Long? = null): String {
         val folder = libraryFolder?.canonicalFile ?: return error("no Library folder")
@@ -45,8 +46,6 @@ object CatalogTransport {
         }
         val size = file.length()
         if (offset == null || size <= WHOLE_BYTES) {
-            // The whole book goes to the page at once (as base64): a huge one would not fit.
-            if (size > 80L * 1024 * 1024) return error("this file is too big to read here (over 80 MB)")
             val bytes = runCatching { file.readBytes() }.getOrNull() ?: return error("the book could not be opened")
             return buildJsonObject {
                 put("status", 200)
