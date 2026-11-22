@@ -16049,6 +16049,13 @@ async (ids) => {
             self.log(f"ERROR: Page load failed: {e}")
             return None
 
+        # Any download notes who the profile is signed in as (the Download page's profile list
+        # shows it), not only an auto purchase.
+        try:
+            self.kpage_account()
+        except Exception:
+            pass
+
         self.log("[Kpage] Extracting metadata...")
 
         # --- Extract metadata via JS ---
@@ -16734,9 +16741,6 @@ async (ids) => {
     }
     """
 
-    # How many other profiles' browsers stay open at once while auto purchase rotates.
-    _PROFILE_POOL_LIMIT = 6
-
     def _close_parked_profile(self, number, parked):
         """Close a profile's kept-open browser, saving its storage backup as cleanup() does."""
         current = ExternalScraper.browser_profile
@@ -16784,9 +16788,7 @@ async (ids) => {
             plain = (self._context and self._page and not self._browser
                      and not self._chrome_process)
             if plain:
-                while len(self._profile_pool) >= self._PROFILE_POOL_LIMIT:
-                    oldest = next(iter(self._profile_pool))
-                    self._close_parked_profile(oldest, self._profile_pool.pop(oldest))
+                # Every profile of the rotation keeps its browser, however many there are.
                 self._profile_pool[current] = {
                     'context': self._context, 'page': self._page,
                     'worker_pages': self._worker_pages,

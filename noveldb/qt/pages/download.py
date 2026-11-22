@@ -510,7 +510,7 @@ class DownloadPage(QWidget):
         def change(s):
             count = s.sources.browser_profiles
             if not number:
-                count = min(99, count + 1)
+                count += 1  # as many profiles as wanted
                 return replace(s, sources=replace(s.sources, browser_profiles=count, browser_profile=count))
             return replace(s, sources=replace(s.sources, browser_profile=int(number)))
 

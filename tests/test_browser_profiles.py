@@ -49,6 +49,9 @@ def test_the_selected_profile_is_saved_and_reaches_the_download():
     odd = import_config({"ext_browser_profiles": 2, "ext_browser_profile": 9})
     assert (odd.sources.browser_profiles, odd.sources.browser_profile) == (2, 2)
     assert import_config({}).sources.browser_profile == 1
+    # There is no upper limit on how many profiles there are.
+    many = import_config({"ext_browser_profiles": 250, "ext_browser_profile": 180})
+    assert (many.sources.browser_profiles, many.sources.browser_profile) == (250, 180)
 
 
 def test_download_is_a_red_stop_while_downloads_run(tmp_path, monkeypatch, qtbot):

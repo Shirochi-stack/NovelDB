@@ -333,7 +333,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         kobo_horizontal_layout=_first_bool(c, "ext_kobo_horizontal_layout", s.kobo_horizontal_layout),
         regular_browser=_first_bool(c, "ext_regular_browser", s.regular_browser),
         disable_profile_rotation=_first_bool(c, "ext_disable_profile_rotation", s.disable_profile_rotation),
-        browser_profiles=max(1, min(99, _int(c.get("ext_browser_profiles")) or s.browser_profiles)),
+        browser_profiles=max(1, _int(c.get("ext_browser_profiles")) or s.browser_profiles),
         browser_profile=max(1, min(max(1, _int(c.get("ext_browser_profiles")) or s.browser_profiles),
                                    _int(c.get("ext_browser_profile")) or s.browser_profile)),
     )
