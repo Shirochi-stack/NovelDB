@@ -38,6 +38,7 @@ _build_info.py
 /data/library-reading.json
 /data/library-updates.json
 /data/link-cart.json
+/data/download-box.txt
 /data/queue.json
 /data/upload-history.json
 /data/webengine/

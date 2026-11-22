@@ -221,6 +221,13 @@ enum KpageParsing {
         return false
     }
 
+    /// A video entry of the episode list (a trailer, a teaser, a PV): named as one, a single page.
+    static func isVideo(title: String, pageCount: Int) -> Bool {
+        pageCount <= 1 && WebRegex.matches(
+            "(영상|트레일러|티저|\\bPV)\\s*$", in: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            options: [.caseInsensitive])
+    }
+
     static func parseEpisodes(json: Data) -> [KpageEpisode] {
         guard let root = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { return [] }
         let result = KpageJSON.dict(root["result"]) ?? [:]
@@ -233,6 +240,9 @@ enum KpageParsing {
             if productId == 0 { continue }
             let order = KpageJSON.int(item["order_value"])
             let fullTitle = KpageJSON.string(item["title"])
+            // A trailer video sits in the list like an episode, but the reader has nothing for it:
+            // it failed as a chapter and moved every chapter number up by one.
+            if isVideo(title: fullTitle, pageCount: KpageJSON.int(item["page_count"])) { continue }
             var shortName = fullTitle
             if let match = WebRegex.capture("([0-9]+화.*)$", in: fullTitle) {
                 shortName = match

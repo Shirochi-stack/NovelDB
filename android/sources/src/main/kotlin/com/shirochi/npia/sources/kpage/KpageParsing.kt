@@ -236,6 +236,10 @@ internal object KpageParsing {
         return false
     }
 
+    /** A video entry of the episode list (a trailer, a teaser, a PV): named as one, a single page. */
+    fun isVideo(title: String, pageCount: Int): Boolean =
+        pageCount <= 1 && WebRegex.matches("(영상|트레일러|티저|\\bPV)\\s*$", title.trim(), RegexOption.IGNORE_CASE)
+
     fun parseEpisodes(json: ByteArray): List<KpageEpisode> {
         val root = KpageJson.parse(json) as? JsonObject ?: return emptyList()
         val result = KpageJson.dict(root["result"]) ?: JsonObject(emptyMap())
@@ -248,6 +252,9 @@ internal object KpageParsing {
             if (productId == 0) continue
             val order = KpageJson.int(item["order_value"])
             val fullTitle = KpageJson.string(item["title"])
+            // A trailer video sits in the list like an episode, but the reader has nothing for it:
+            // it failed as a chapter and moved every chapter number up by one.
+            if (isVideo(fullTitle, KpageJson.int(item["page_count"]))) continue
             var shortName = fullTitle
             val match = WebRegex.capture("([0-9]+화.*)$", fullTitle)
             if (match != null) {

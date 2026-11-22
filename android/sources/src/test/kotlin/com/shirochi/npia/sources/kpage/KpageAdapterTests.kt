@@ -180,6 +180,23 @@ class KpageAdapterTests {
     }
 
     @Test
+    fun aTrailerVideoIsNotAnEpisode() {
+        val json = """
+{"result":{"list":[
+ {"item":{"product_id":201,"title":"Test Novel 트레일러 영상","order_value":1,"is_free":true,"page_count":1,"slide_type":"SD01"}},
+ {"item":{"product_id":202,"title":"Test Novel 1화","order_value":2,"is_free":true,"page_count":98}},
+ {"item":{"product_id":203,"title":"Test Novel 2화","order_value":3,"is_free":false,"page_count":1}}
+]}}
+"""
+        // The trailer is left out; a one-page chapter is still a chapter.
+        assertEquals(listOf(202, 203), KpageParsing.parseEpisodes(utf8(json)).map { it.productId })
+        assertTrue(KpageParsing.isVideo("Title 티저", 0))
+        assertTrue(KpageParsing.isVideo("Title pv ", 1))
+        assertFalse(KpageParsing.isVideo("Title 트레일러 영상", 40)) // named so, but has pages to read
+        assertFalse(KpageParsing.isVideo("Title 1화", 1))
+    }
+
+    @Test
     fun hasUserAccessFlag() {
         fun check(json: String): Boolean = KpageParsing.hasUserAccessFlag(Json.parseToJsonElement(json))
         assertTrue(check("""{"a":{"purchased":true}}"""))

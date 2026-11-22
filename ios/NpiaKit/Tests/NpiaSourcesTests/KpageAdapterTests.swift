@@ -183,6 +183,22 @@ final class KpageAdapterTests: XCTestCase {
         XCTAssertTrue(episodes[0].isFree)
     }
 
+    func testATrailerVideoIsNotAnEpisode() {
+        let json = #"""
+{"result":{"list":[
+ {"item":{"product_id":201,"title":"Test Novel 트레일러 영상","order_value":1,"is_free":true,"page_count":1,"slide_type":"SD01"}},
+ {"item":{"product_id":202,"title":"Test Novel 1화","order_value":2,"is_free":true,"page_count":98}},
+ {"item":{"product_id":203,"title":"Test Novel 2화","order_value":3,"is_free":false,"page_count":1}}
+]}}
+"""#
+        // The trailer is left out; a one-page chapter is still a chapter.
+        XCTAssertEqual(KpageParsing.parseEpisodes(json: Data(json.utf8)).map { $0.productId }, [202, 203])
+        XCTAssertTrue(KpageParsing.isVideo(title: "Title 티저", pageCount: 0))
+        XCTAssertTrue(KpageParsing.isVideo(title: "Title pv ", pageCount: 1))
+        XCTAssertFalse(KpageParsing.isVideo(title: "Title 트레일러 영상", pageCount: 40))  // named so, but has pages to read
+        XCTAssertFalse(KpageParsing.isVideo(title: "Title 1화", pageCount: 1))
+    }
+
     func testHasUserAccessFlag() throws {
         func check(_ json: String) throws -> Bool {
             let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
