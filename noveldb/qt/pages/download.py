@@ -352,8 +352,38 @@ class DownloadPage(QWidget):
         context.hub.jobChanged.connect(lambda _job_id: self._update_download_button())
         context.settingsChanged.connect(self.refresh)
         context.cartChanged.connect(self._refresh_cart)
+        # The box keeps its links across restarts: saved a moment after each change and when the
+        # app closes, put back when it opens.
+        self._box_path = paths.data_dir() / "download-box.txt"
+        self._restore_box()
+        self._box_timer = QTimer(self)
+        self._box_timer.setSingleShot(True)
+        self._box_timer.setInterval(600)
+        self._box_timer.timeout.connect(self._save_box)
+        self.input.textChanged.connect(self._box_timer.start)
+        application = QGuiApplication.instance()
+        if application is not None:
+            application.aboutToQuit.connect(self._save_box)
         self._refresh_cart()
         self._detect()
+
+    def _restore_box(self) -> None:
+        try:
+            text = self._box_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return
+        if text.strip():
+            self.input.setPlainText(text)
+
+    def _save_box(self) -> None:
+        try:
+            text = self.input.toPlainText()
+            if text.strip():
+                self._box_path.write_text(text, encoding="utf-8")
+            else:
+                self._box_path.unlink(missing_ok=True)
+        except (OSError, RuntimeError):  # the folder is gone, or the page is (the app is closing)
+            pass
 
     def _fit_split(self) -> None:
         """Give the log its fixed share of the page (at least its minimum width), the options the rest."""

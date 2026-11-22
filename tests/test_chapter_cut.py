@@ -236,6 +236,36 @@ def test_the_download_page_uploads_the_folders_that_are_ticked(tmp_path, monkeyp
     context._save_timer.stop()
 
 
+def test_the_download_box_keeps_its_links_across_restarts(tmp_path, monkeypatch, qtbot):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
+    from noveldb.qt.context import AppContext
+    from noveldb.qt.pages.download import DownloadPage
+
+    def opened():
+        context = AppContext(start_workers=False)
+        page = DownloadPage(context)
+        qtbot.addWidget(page)
+        context._save_timer.stop()
+        return page
+
+    page = opened()
+    assert page.input.toPlainText() == ""
+    links = "https://example.com/content/1\nhttps://example.com/content/2"
+    page.input.setPlainText(links)
+    qtbot.waitUntil(lambda: page._box_path.exists(), timeout=3000)  # saved a moment after the change
+    page._box_timer.stop()
+
+    again = opened()  # the app started again
+    assert again.input.toPlainText() == links
+    assert again.download.text() == "Download 2"
+
+    again.input.clear()  # an emptied box stays empty
+    again._save_box()
+    again._box_timer.stop()
+    assert opened().input.toPlainText() == ""
+
+
 def test_several_formats_ask_which_to_upload_and_links_are_clickable(tmp_path, monkeypatch, qtbot):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))

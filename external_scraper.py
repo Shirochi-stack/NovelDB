@@ -16226,6 +16226,15 @@ async (ids) => {
         if not episodes:
             self.log("WARNING: No episodes found on page.")
 
+        # A trailer video sits in the list like an episode, but the reader has nothing for it:
+        # it failed every retry, counted as a failed chapter and shifted the chapter numbers.
+        videos = [ep for ep in episodes or [] if self._kpage_is_video(ep)]
+        if videos:
+            episodes = [ep for ep in episodes if not self._kpage_is_video(ep)]
+            self.log(f"[Kpage] Left out {len(videos)} video(s) that are not chapters: "
+                     + ", ".join(str(ep.get('fullName') or ep.get('name') or '') for ep in videos[:3])
+                     + ("..." if len(videos) > 3 else "") + ".")
+
         # Sort oldest-to-newest like Kpage's first-episode-first option. Some Kpage
         # responses mix cursor order, missing order_value, and title-only
         # numbering, so use every stable signal we have.
@@ -16304,6 +16313,19 @@ async (ids) => {
             except Exception:
                 return 0
         return 0
+
+    # How a video in a book's episode list is named: "... 트레일러 영상" (trailer video), a teaser, a PV.
+    _KPAGE_VIDEO_NAME = re.compile(r'(영상|트레일러|티저|\bPV)\s*$', re.IGNORECASE)
+
+    @classmethod
+    def _kpage_is_video(cls, episode):
+        """True for a video entry of the episode list (a trailer): named as one, a single page."""
+        name = str(episode.get('fullName') or episode.get('name') or '').strip()
+        try:
+            pages = int(episode.get('pageCount') or 0)
+        except (TypeError, ValueError):
+            pages = 0
+        return pages <= 1 and bool(cls._KPAGE_VIDEO_NAME.search(name))
 
     def _kpage_episode_sort_key(self, ep):
         """Oldest-to-newest sort key for Kpage episode rows."""
@@ -16716,6 +16738,7 @@ async (ids) => {
                             order: item.order_value || 0,
                             productId: item.product_id || 0,
                             slideType: item.slide_type || '',
+                            pageCount: Number(item.page_count || 0),
                         };
                     });
                 }
@@ -16983,11 +17006,15 @@ async (ids) => {
     }
     """
 
-    def kpage_sign_in(self, user, password, wait=40.0):
-        """Sign the profile in use in to kpage with a saved account.
+    def kpage_sign_in(self, user='', password='', wait=40.0):
+        """Sign the profile in use in to kpage again.
+
+        The account its browser remembers on the site's sign-in page is chosen (nothing is
+        typed); when the site asks for the password after all, the account saved for the
+        profile is filled in, if there is one.
 
         Returns "" once the site shows the profile as signed in, else a short reason. Only the
-        site's own sign-in form is filled in, with "stay signed in" ticked. A check that needs a
+        site's own sign-in pages are used, with "stay signed in" ticked. A check that needs a
         person (a captcha, a confirmation on the phone) is never answered here: it is reported,
         and Enter Browser is where to finish it.
         """
@@ -17006,7 +17033,8 @@ async (ids) => {
             return bool(self.kpage_account(fresh=True)) or (
                 host().startswith('page.') and not self._kpage_signed_out and typed)
 
-        typed = False
+        typed = False  # something was sent to the sign-in page (an account chosen, the form filled in)
+        picked = filled = False
         try:
             page.goto(f'https://page.{domain}/account/info/', wait_until='domcontentloaded',
                       timeout=_page_ms(30000))
@@ -17032,19 +17060,48 @@ async (ids) => {
                     continue
                 if current != f'accounts.{domain}':
                     continue
-                if not typed:
-                    account = page.locator('input[name="loginId"]')
-                    if not account.count():
+                if not picked and urllib.parse.urlparse(page.url or '').path.startswith('/login/simple'):
+                    # The accounts this browser remembers: choosing one signs in with nothing
+                    # typed. A remembered account has a delete button beside it, which tells it
+                    # from "log in with a new account"; that button is never pressed.
+                    remembered = page.locator('li:has(button.btn_delete) a.wrap_profile')
+                    count = remembered.count()
+                    if not count:
+                        other = page.locator('a.wrap_profile')
+                        if not other.count():
+                            continue  # the list is not drawn yet
+                        if not (user and password):
+                            return 'the sign-in page remembers no account for this browser'
+                        other.last.click()  # on to the account form
+                        picked = True
                         continue
-                    account.first.fill(user)
-                    page.locator('input[name="password"]').first.fill(password)
-                    page.evaluate("""() => {
-                        const keep = document.querySelector('input[name="saveSignedIn"]');
-                        if (keep && !keep.checked) keep.click();
-                    }""")
-                    page.locator('button[type="submit"].submit').first.click()
-                    typed, submitted = True, time.monotonic()
+                    choice = remembered.first
+                    for index in range(count if user else 0):
+                        if user.lower() in (remembered.nth(index).inner_text() or '').lower():
+                            choice = remembered.nth(index)
+                            break
+                    choice.click()
+                    picked = typed = True
+                    submitted = time.monotonic()
                     continue
+                if not filled:
+                    account = page.locator('input[name="loginId"]')
+                    if account.count():
+                        if not (user and password):
+                            return ("the site asked for the account's password, and none is saved for "
+                                    "this profile (Settings, Saved sessions)")
+                        filled = True
+                        account.first.fill(user)
+                        page.locator('input[name="password"]').first.fill(password)
+                        page.evaluate("""() => {
+                            const keep = document.querySelector('input[name="saveSignedIn"]');
+                            if (keep && !keep.checked) keep.click();
+                        }""")
+                        page.locator('button[type="submit"].submit').first.click()
+                        typed, submitted = True, time.monotonic()
+                        continue
+                    if not picked:
+                        continue  # neither the account list nor the form is drawn yet
                 if time.monotonic() - submitted < 3:
                     continue
                 state = page.evaluate(self._KPAGE_SIGN_IN_STATE_JS) or {}
@@ -17063,7 +17120,8 @@ async (ids) => {
                 if typed else 'the sign-in form did not come up')
 
     def kpage_restore_sign_in(self):
-        """Sign the profile in use in again with the account saved for it (Settings, Saved sessions).
+        """Sign the profile in use in again: with the account its browser remembers on the site's
+        sign-in page, else with the account saved for it (Settings, Saved sessions).
 
         True when it is signed in afterwards. Tried once per profile for a download, so a refused
         account is not sent again and again.
@@ -17081,11 +17139,15 @@ async (ids) => {
             saved = saved_logins.get('kpage', number, _get_app_data_dir())
         except Exception:
             saved = None
-        if not saved:
-            return False
-        user, password = saved
-        self.log(f"[Kpage] Browser profile #{number} is signed out; signing in again as {user}...")
+        user, password = saved or ('', '')
+        self.log(f"[Kpage] Browser profile #{number} is signed out; signing in again "
+                 + (f"as {user}..." if user else "with the account its browser remembers..."))
         reason = self.kpage_sign_in(user, password)
+        if reason and not user and ('remembers no account' in reason or 'none is saved' in reason):
+            # Never signed in here, or the site wants the password again: nothing went wrong.
+            self.log(f"[Kpage] Browser profile #{number} has no account to sign in with by itself; "
+                     "only free chapters can be read. Sign in with Enter Browser.")
+            return False
         if reason:
             self.log(f"[Kpage] Automatic sign-in did not finish: {reason}. "
                      "Sign in once with Enter Browser.")

@@ -336,6 +336,17 @@ def test_the_profile_in_use_says_which_locked_chapters_it_already_has_open(scrap
     assert scraper.kpage_open_episodes(chapters) == set()
 
 
+def test_a_trailer_video_in_the_episode_list_is_not_a_chapter(scraper):
+    video = scraper._kpage_is_video
+    assert video({"fullName": "Title 트레일러 영상", "pageCount": 1})
+    assert video({"fullName": "Title 티저", "pageCount": 0}) and video({"fullName": "Title PV", "pageCount": 1})
+    assert not video({"fullName": "Title 1화", "pageCount": 98})
+    assert not video({"fullName": "Title 1화", "pageCount": 1})  # a one-page chapter is a chapter
+    assert not video({"fullName": "Title 트레일러 영상", "pageCount": 40})  # named so, but has pages to read
+    assert not video({"fullName": "", "name": "Episode 3"})
+    assert "pageCount" in scraper._KPAGE_EPISODES_JS
+
+
 def test_the_account_is_only_asked_for_on_the_site(scraper):
     scraper._page = SimpleNamespace(url="about:blank", evaluate=lambda *_: pytest.fail("asked off the site"))
     assert scraper.kpage_account() == ""

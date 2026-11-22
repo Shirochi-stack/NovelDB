@@ -175,12 +175,80 @@ def test_a_sign_in_that_needs_a_person_is_reported_not_forced(scraper, outcome, 
     assert said in scraper.kpage_sign_in("name@example.com", "pw")
 
 
+class RememberedPage(SignInPage):
+    """The sign-in host lists the accounts this browser remembers, then "log in with a new account"."""
+
+    def __init__(self, scraper, remembered=("first@example.com", "second@example.com"), then="in"):
+        super().__init__(scraper)
+        self.remembered = list(remembered)
+        self.then = then
+        self.chosen = []
+
+    def get_by_role(self, role, name, exact):
+        def click(timeout=None):
+            self.url = f"https://accounts.{self.domain}/login/simple/?continue=x"
+
+        return SimpleNamespace(last=SimpleNamespace(click=click))
+
+    def locator(self, selector):
+        if "wrap_profile" not in selector:
+            return super().locator(selector)
+        names = self.remembered + ([] if "btn_delete" in selector else ["Log in with a new account"])
+
+        def entry(name):
+            def click():
+                self.chosen.append(name)
+                if name in self.remembered and self.then == "in":
+                    self.signed_in, self.url = True, f"https://page.{self.domain}/"
+                else:  # the site wants the password after all, or a new account: its form
+                    self.url = f"https://accounts.{self.domain}/login/?continue=x"
+
+            return SimpleNamespace(click=click, inner_text=lambda: f"{name} Nickname")
+
+        entries = [entry(name) for name in names]
+        return SimpleNamespace(count=lambda: len(entries), first=entries[0] if entries else None,
+                               last=entries[-1] if entries else None, nth=lambda index: entries[index])
+
+
+def test_the_account_the_browser_remembers_is_chosen_and_nothing_is_typed(scraper):
+    page = scraper._page = RememberedPage(scraper)
+    assert scraper.kpage_sign_in() == ""
+    assert page.chosen == ["first@example.com"] and page.typed == {}
+
+
+def test_the_saved_account_is_the_one_chosen_among_the_remembered(scraper):
+    page = scraper._page = RememberedPage(scraper)
+    assert scraper.kpage_sign_in("second@example.com", "pw") == ""
+    assert page.chosen == ["second@example.com"] and page.typed == {}
+
+
+def test_a_remembered_account_that_wants_its_password_needs_the_saved_one(scraper):
+    page = scraper._page = RememberedPage(scraper, then="form")
+    assert "password" in scraper.kpage_sign_in()  # nothing saved: said, not guessed
+    assert page.typed == {}
+    page = scraper._page = RememberedPage(scraper, then="form")
+    assert scraper.kpage_sign_in("first@example.com", "pw") == ""
+    assert page.typed == {'input[name="loginId"]': "first@example.com", 'input[name="password"]': "pw"}
+
+
+def test_a_browser_that_remembers_no_account_goes_to_the_form_only_with_a_saved_account(scraper):
+    page = scraper._page = RememberedPage(scraper, remembered=())
+    assert "remembers no account" in scraper.kpage_sign_in()
+    assert page.chosen == []
+    page = scraper._page = RememberedPage(scraper, remembered=())
+    assert scraper.kpage_sign_in("name@example.com", "pw") == ""
+    assert page.chosen == ["Log in with a new account"] and page.typed['input[name="password"]'] == "pw"
+
+
 @protected
 def test_restoring_uses_the_account_saved_for_the_profile_once_per_download(scraper):
     base = os.environ["NPIA_BROWSER_DATA_DIR"]
     asked = []
     scraper.kpage_sign_in = lambda user, password: asked.append((user, password)) or ""
-    assert scraper.kpage_restore_sign_in() is False and asked == []  # nothing saved for profile 3
+    # Nothing saved for profile 3: the account its browser remembers is tried all the same.
+    assert scraper.kpage_restore_sign_in() is True and asked == [("", "")]
+    assert any("browser remembers" in line for line in scraper.lines)
+    asked.clear()
     saved_logins.save("kpage", 3, "name@example.com", "pw", base)
     scraper._kpage_sign_in_tried = set()
     assert scraper.kpage_restore_sign_in() is True
