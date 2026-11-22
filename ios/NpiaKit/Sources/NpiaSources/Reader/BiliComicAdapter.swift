@@ -107,9 +107,37 @@ enum BiliComicPages {
         return .content(content)
     }
 
-    /// One page's image bytes, or nil: two tries (the image host needs no sign-in).
+    /// A page request still running after this long gets a second one beside it.
+    static let hedgeNanoseconds: UInt64 = 6_000_000_000
+
+    /// One page's image bytes, or nil (the image host needs no sign-in).
+    ///
+    /// Now and then the host answers a request very slowly, while the same page comes at once when it
+    /// is asked again: a chapter of a hundred pages then waited many seconds for its last two or three.
+    /// A request that is still running after `hedgeNanoseconds` gets a second one beside it; the first
+    /// answer wins. Android's `BiliComicAdapter` does the same.
     static func page(_ image: ImageRef, context: SourceContext) async throws -> Data? {
         if let data = image.data { return data }
+        let began = DispatchTime.now().uptimeNanoseconds
+        return try await withThrowingTaskGroup(of: (first: Bool, data: Data?).self) { group -> Data? in
+            group.addTask { (first: true, data: try await attempts(image, context: context)) }
+            group.addTask {
+                try await Task.sleep(nanoseconds: hedgeNanoseconds)
+                return (first: false, data: try await attempts(image, context: context))
+            }
+            defer { group.cancelAll() }
+            while let answer = try await group.next() {
+                if let data = answer.data { return data }
+                // It failed before the second request was due: a refused page stays refused. One that
+                // failed later leaves the answer to the second request.
+                if answer.first, DispatchTime.now().uptimeNanoseconds - began < hedgeNanoseconds { return nil }
+            }
+            return nil
+        }
+    }
+
+    /// Two tries at one page.
+    private static func attempts(_ image: ImageRef, context: SourceContext) async throws -> Data? {
         for attempt in 0..<2 {
             try Task.checkCancellation()
             if let response = try? await context.http.get(image.url, headers: ["Referer": "https://manga.bilibili.com/"]),

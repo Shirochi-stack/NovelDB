@@ -83,6 +83,24 @@ class BiliComicAdapterTest {
     }
 
     @Test
+    fun aPageRequestThatStaysSilentGetsASecondOneBesideIt() = runBlocking {
+        // The image host now and then answers a request very slowly: the chapter must not wait for it.
+        val never = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val asked = java.util.concurrent.atomic.AtomicInteger()
+        val http = object : com.shirochi.npia.core.HttpFetching {
+            override suspend fun send(request: com.shirochi.npia.core.HttpRequest): com.shirochi.npia.core.HttpResponse {
+                if (asked.incrementAndGet() == 1) never.await()  // the first request never answers
+                return com.shirochi.npia.core.HttpResponse(request.url, 200, emptyMap(), jpeg)
+            }
+        }
+        val context = SourceContext(http, UnavailableWebEngine, InMemorySecretStore(), AppSettings())
+        val adapter = BiliComicAdapter().apply { hedgeMillis = 50 }
+        val result = kotlinx.coroutines.withTimeout(10_000) { adapter.withPages(chapter("slow.jpg"), context) }
+        assertArrayEquals(jpeg, (result as ChapterResult.Content).content.images.single().data)
+        assertEquals(2, asked.get())
+    }
+
+    @Test
     fun aPageThatCannotBeFetchedFailsTheChapterSoItIsReadAgain() = runBlocking {
         val http = RoutedHttp()
         http.onData("a.jpg", jpeg)

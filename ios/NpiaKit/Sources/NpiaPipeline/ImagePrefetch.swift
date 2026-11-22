@@ -53,15 +53,18 @@ final class ImagePrefetch: @unchecked Sendable {
         var bytes = 0
         var began = Date()
         var said = Date()
+        var quarter = 0
     }
 
     private var progress: [String: Progress] = [:]
-    /// A chapter whose images are still coming in says so this often.
-    private static let progressSeconds: TimeInterval = 2
+    /// A chapter whose images are still coming in says so at every quarter of them, and this often
+    /// when a quarter takes longer.
+    private static let progressSeconds: TimeInterval = 3
 
     /// Counts one image of `ref` (`bytes` nil: it could not be downloaded here). While a chapter's
-    /// images come in, a line every two seconds says how far they are, and one more when the last is
-    /// in: without them the log is silent from one chapter line to the next, however long the images
+    /// images come in, a line at every quarter of them (and every three seconds when a quarter takes
+    /// longer) says how far they are, and one more when the last is in: without them the log is
+    /// silent from one chapter line to the next, however long the images
     /// take. `total`: how many images the chapter has here, when the caller knows (zero: as `offer`
     /// counted). Android's `ImagePrefetch` writes the same lines.
     private func count(_ ref: ChapterRef, total: Int, bytes: Int?) {
@@ -79,8 +82,13 @@ final class ImagePrefetch: @unchecked Sendable {
                 state.missed += 1
             }
             let last = state.done + state.missed >= state.total
-            let quiet = last ? state.done == 0 : (bytes == nil || now.timeIntervalSince(state.said) < Self.progressSeconds)
-            if !quiet { state.said = now }
+            let quarter = state.done * 4 / max(state.total, 1)
+            let quiet = last ? state.done == 0
+                : (bytes == nil || (quarter <= state.quarter && now.timeIntervalSince(state.said) < Self.progressSeconds))
+            if !quiet {
+                state.said = now
+                state.quarter = max(quarter, state.quarter)
+            }
             progress[ref.id] = state
             if quiet { return nil }
             let seconds = max(now.timeIntervalSince(state.began), 0.001)

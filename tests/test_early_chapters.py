@@ -244,29 +244,6 @@ def test_a_chapters_images_report_their_progress_while_they_come_in(monkeypatch)
                                                       "    [Bilibili Manga] 03 Name: 2/3 pages"]
 
 
-def test_a_fast_chapter_gets_no_progress_lines():
-    lines = []
-
-    class Job:
-        _download_cancelled = False
-
-        def _log(self, message):
-            lines.append(message)
-
-        def _copy_browser_cookies_to_session(self, session):
-            pass
-
-        def _download_image_python(self, url, **options):
-            return b"x" * 1024
-
-    lookahead = ImageLookahead(Job(), "https://example.test/book", 2)
-    try:
-        lookahead.offer({"chapterName": "Quick", "images": [{"url": f"https://example.test/{n}.png"} for n in range(6)]})
-        assert all(lookahead.read(f"https://example.test/{n}.png") for n in range(6))
-    finally:
-        lookahead.close()
-    assert len(lines) == 1 and lines[0].startswith("  Images of Quick: 6 downloaded")
-
 def test_strips_rendered_side_by_side_come_out_in_order_and_unchanged():
     from noveldb.core.chapter_folder import ExportStopped, stitch_panels, stitch_workers
 
@@ -288,3 +265,73 @@ def test_strips_rendered_side_by_side_come_out_in_order_and_unchanged():
 
     with pytest.raises(ExportStopped):
         list(stitch_panels(iter(pages), 800, compression=("JPEG", 80), stopped=stopped, workers=3))
+
+def test_progress_is_said_at_every_quarter_and_a_slow_page_gets_a_second_request(monkeypatch):
+    import threading
+
+    from noveldb.core.engines import bilicomic
+    from noveldb.core.external import kpage_images
+
+    # No time passes between images here: only the quarters (25%, 50%, 75%) are said.
+    lines = []
+
+    class Job:
+        _download_cancelled = False
+
+        def _log(self, message):
+            lines.append(message)
+
+        def _copy_browser_cookies_to_session(self, session):
+            pass
+
+        def _download_image_python(self, url, **options):
+            return b"x" * 1024
+
+    assert kpage_images.PROGRESS_SECONDS == 3.0 and bilicomic.PROGRESS_SECONDS == 3.0
+    lookahead = ImageLookahead(Job(), "https://example.test/book", 1)
+    try:
+        lookahead.offer({"chapterName": "Twelve", "images": [{"url": f"https://example.test/{n}.png"} for n in range(12)]})
+        assert all(lookahead.read(f"https://example.test/{n}.png") for n in range(12))
+    finally:
+        lookahead.close()
+    assert [line.split(" (")[0] for line in lines] == [
+        "    Images of Twelve: 3/12", "    Images of Twelve: 6/12", "    Images of Twelve: 9/12",
+        "  Images of Twelve: 12 downloaded"]
+
+    said = []
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 2000
+    engine = bilicomic.BiliComicEngine(fetch=None, log=said.append, download=lambda url: jpeg, workers=1)
+    try:
+        engine._save_pages(9, [f"https://example.test/{n}.jpg" for n in range(8)], "Name")
+    finally:
+        engine.close()
+    assert [line.split(" (")[0] for line in said] == [
+        "    [Bilibili Manga] Name: 2/8 pages", "    [Bilibili Manga] Name: 4/8 pages", "    [Bilibili Manga] Name: 6/8 pages"]
+
+    # A page request that stays silent: a second one runs beside it, and its answer is taken.
+    monkeypatch.setattr(bilicomic, "HEDGE_SECONDS", 0.05)
+    release = threading.Event()
+    asked = []
+    engine = bilicomic.BiliComicEngine(fetch=None)
+
+    def request(url, fresh):
+        asked.append(fresh)
+        if not fresh:
+            release.wait(5)  # the first request does not answer
+            return None
+        return jpeg
+
+    engine._request_page = request
+    try:
+        assert engine._http_page("https://example.test/slow.jpg") == jpeg
+        assert asked == [False, True]
+        # A quick answer needs no second request; a refused page stays refused.
+        asked.clear()
+        engine._request_page = lambda url, fresh: (asked.append(fresh), jpeg)[1]
+        assert engine._http_page("https://example.test/quick.jpg") == jpeg and asked == [False]
+        asked.clear()
+        engine._request_page = lambda url, fresh: (asked.append(fresh), None)[1]
+        assert engine._http_page("https://example.test/gone.jpg") is None and asked == [False]
+    finally:
+        release.set()
+        engine.close()

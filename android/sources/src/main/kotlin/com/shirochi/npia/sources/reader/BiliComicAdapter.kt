@@ -14,6 +14,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -86,8 +88,34 @@ internal class BiliComicAdapter : SourceAdapter {
         }
     }
 
-    /** One page's image bytes, or null: two tries (the image host needs no sign-in). */
-    private suspend fun page(url: String, context: SourceContext): ByteArray? {
+    /** A page request still running after this long gets a second one beside it. */
+    internal var hedgeMillis = 6_000L
+
+    /**
+     * One page's image bytes, or null (the image host needs no sign-in).
+     *
+     * Now and then the host answers a request very slowly, while the same page comes at once when it is
+     * asked again: a chapter of a hundred pages then waited many seconds for its last two or three. A
+     * request that is still running after `hedgeMillis` gets a second one beside it; the first answer wins.
+     */
+    private suspend fun page(url: String, context: SourceContext): ByteArray? = coroutineScope {
+        val first = async { attempts(url, context) }
+        val quick = withTimeoutOrNull(hedgeMillis) { first.await() }
+        if (first.isCompleted) return@coroutineScope quick
+        val second = async { attempts(url, context) }
+        val winner = select<ByteArray?> {
+            first.onAwait { it }
+            second.onAwait { it }
+        }
+        // The one that ended first may have failed: then the other one's answer counts.
+        val bytes = winner ?: if (first.isCompleted) second.await() else first.await()
+        first.cancel()
+        second.cancel()
+        bytes
+    }
+
+    /** Two tries at one page. */
+    private suspend fun attempts(url: String, context: SourceContext): ByteArray? {
         repeat(2) { attempt ->
             val body = try {
                 val response = context.http.send(HttpRequest(url, headers = mapOf("Referer" to "https://manga.bilibili.com/")))

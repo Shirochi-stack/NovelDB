@@ -23,8 +23,14 @@ import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 import weakref
 
-# A chapter whose images are still coming in says so this often.
-PROGRESS_SECONDS = 2.0
+# A chapter whose images are still coming in says so at every quarter, and this often when a
+# quarter takes longer.
+PROGRESS_SECONDS = 3.0
+# A page request still running after this long gets a second one beside it.
+HEDGE_SECONDS = 2.0
+# Seconds to connect, then between two pieces of a page. An address of the image host that stays
+# silent is given up after two and a half seconds (the next one is tried), not fifteen.
+PAGE_TIMEOUT = (2.5, 60)
 
 HOST = "manga.bilibili.com"
 BASE = f"https://{HOST}"
@@ -157,6 +163,8 @@ class BiliComicEngine:
         self._folder = None
         self._comic = None
         self._local = threading.local()
+        self._race = None
+        self._pages = None
 
     # -- the API ---------------------------------------------------------------------------------
 
@@ -313,21 +321,70 @@ class BiliComicEngine:
     # -- the pages -------------------------------------------------------------------------------
 
     def _session(self):
-        session = getattr(self._local, "session", None)
-        if session is None:
-            import requests
+        """The one session every page request shares: a few connections, kept open for the whole book.
 
-            session = self._local.session = requests.Session()
-            session.headers.update({"User-Agent": WEB_AGENT, "Accept": "*/*", "Referer": BASE + "/"})
-        return session
+        A new connection to the image host often loses its first packets (the same address answers
+        in 0.02 s one moment and after 3 s, or not within 6 s, the next). With a session per thread,
+        and new threads for every chapter, each chapter opened its own connections and kept running
+        into that: its last pages then came many seconds after the rest. Kept connections are opened
+        once; `pool_block` makes a thread wait for one instead of opening another.
+        """
+        with self._lock:
+            if self._pages is None:
+                import requests
+                from requests.adapters import HTTPAdapter
+
+                session = requests.Session()
+                session.headers.update({"User-Agent": WEB_AGENT, "Accept": "*/*", "Referer": BASE + "/"})
+                adapter = HTTPAdapter(pool_connections=2, pool_maxsize=max(8, self.workers * 2), pool_block=True)
+                session.mount("https://", adapter)
+                session.mount("http://", adapter)
+                self._pages = session
+            return self._pages
 
     def _http_page(self, url):
-        """One page's bytes, or None: three tries (the image host needs no sign-in)."""
+        """One page's bytes, or None (the image host needs no sign-in).
+
+        A request can sit on a connection that is slow to open (see `_session`) while the same page
+        comes at once over one that is already open: a chapter of a hundred pages then waited many
+        seconds for its last two or three. A request that is still running after `HEDGE_SECONDS` gets
+        a second one beside it, and the first answer is taken.
+        """
+        from concurrent.futures import FIRST_COMPLETED, wait
+
+        pool = self._racers()
+        running = {pool.submit(self._request_page, url, False)}
+        done, _ = wait(running, timeout=HEDGE_SECONDS)
+        if not done and not self.stopped():
+            running.add(pool.submit(self._request_page, url, True))
+        while running:
+            done, running = wait(running, timeout=0.5, return_when=FIRST_COMPLETED)
+            for finished in done:
+                data = finished.result()
+                if data:
+                    return data
+            if self.stopped():
+                return None
+        return None
+
+    def _racers(self):
+        """The threads the page requests run on (a slow one stays here until it ends, out of the way)."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        with self._lock:
+            if self._race is None:
+                self._race = ThreadPoolExecutor(max_workers=max(8, self.workers * 4), thread_name_prefix="nd-bili-page")
+            return self._race
+
+    def _request_page(self, url, again):
+        """Three tries at one page, over the shared connections. `again`: the second request for a
+        page whose first is still running; it takes whichever kept connection is free next, which is
+        one that is already open while the first may be waiting for one that is still being opened."""
         for attempt in (1, 2, 3):
             if self.stopped():
                 return None
             try:
-                response = self._session().get(url, timeout=(15, 60))
+                response = self._session().get(url, timeout=PAGE_TIMEOUT)
                 if response.status_code == 200 and response.content:
                     return response.content
                 if response.status_code in (401, 403, 404):
@@ -349,10 +406,10 @@ class BiliComicEngine:
         from concurrent.futures import ThreadPoolExecutor  # here: the phones' Python has no threads
 
         folder = self._pages_folder()
-        # Progress while a chapter's pages come in: a line every two seconds, so a slow chapter does
-        # not leave the log silent until its last page.
+        # Progress while a chapter's pages come in: a line at every quarter of them, and every three
+        # seconds when a quarter takes longer, so the log is never silent until the last page.
         began = time.time()
-        progress = {"pages": 0, "bytes": 0, "said": began}
+        progress = {"pages": 0, "bytes": 0, "said": began, "quarter": 0}
         tick = threading.Lock()
 
         def arrived(size):
@@ -360,9 +417,13 @@ class BiliComicEngine:
                 progress["pages"] += 1
                 progress["bytes"] += size
                 now = time.time()
-                if now - progress["said"] < PROGRESS_SECONDS or progress["pages"] >= len(addresses):
+                if progress["pages"] >= len(addresses):
+                    return  # the chapter's own line follows
+                quarter = progress["pages"] * 4 // len(addresses)
+                if quarter <= progress["quarter"] and now - progress["said"] < PROGRESS_SECONDS:
                     return
                 progress["said"] = now
+                progress["quarter"] = max(quarter, progress["quarter"])
                 pages, megabytes = progress["pages"], progress["bytes"] / 1048576
             self.log(f"    [Bilibili Manga] {name}: {pages}/{len(addresses)} pages "
                      f"({megabytes:.1f} MB, {megabytes / max(now - began, 0.001):.1f} MB/s)")
@@ -409,3 +470,12 @@ class BiliComicEngine:
     def close(self):
         with self._lock:
             self._clear()
+            race, self._race = self._race, None
+            pages, self._pages = self._pages, None
+        if race is not None:
+            race.shutdown(wait=False, cancel_futures=True)
+        if pages is not None:
+            try:
+                pages.close()
+            except Exception:
+                pass

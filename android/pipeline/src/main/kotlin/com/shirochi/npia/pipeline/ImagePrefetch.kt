@@ -68,13 +68,15 @@ class ImagePrefetch(
         var bytes = 0L
         val began = System.nanoTime()
         var said = began
+        var quarter = 0
     }
 
     private val progress = HashMap<String, Progress>()
 
     /**
      * Counts one image of `ref` (`bytes` below zero: it could not be downloaded here). While a chapter's
-     * images come in, a line every two seconds says how far they are, and one more when the last is in:
+     * images come in, a line at every quarter of them (and every three seconds when a quarter takes
+     * longer) says how far they are, and one more when the last is in:
      * without them the log is silent from one chapter line to the next, however long the images take.
      * `total`: how many images the chapter has here, when the caller knows (zero: as `offer` counted).
      */
@@ -91,9 +93,12 @@ class ImagePrefetch(
             } else state.missed += 1
             val now = System.nanoTime()
             val last = state.done + state.missed >= state.total
-            if (!last && (bytes < 0 || now - state.said < PROGRESS_NANOS)) return
+            // A line at every quarter of the chapter's images, and every three seconds when a quarter takes longer.
+            val quarter = state.done * 4 / state.total.coerceAtLeast(1)
+            if (!last && (bytes < 0 || (quarter <= state.quarter && now - state.said < PROGRESS_NANOS))) return
             if (last && state.done == 0) return
             state.said = now
+            state.quarter = maxOf(quarter, state.quarter)
             val seconds = ((now - state.began) / 1e9).coerceAtLeast(0.001)
             val size = "${ImageStage.formatSize(state.bytes)}, ${ImageStage.formatSize((state.bytes / seconds).toLong())}/s"
             val name = "${if (ref.isNotice) "notice" else "chapter"} ${ref.index}"
@@ -155,8 +160,8 @@ class ImagePrefetch(
     }
 
     private companion object {
-        /** A chapter whose images are still coming in says so this often. */
-        const val PROGRESS_NANOS = 2_000_000_000L
+        /** A chapter whose images are still coming in says so this often when a quarter of them takes longer. */
+        const val PROGRESS_NANOS = 3_000_000_000L
     }
 
     /** Waits for `filename`'s download when one was started here; its bytes are then held, unless it failed. */
