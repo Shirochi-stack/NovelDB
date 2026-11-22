@@ -37,6 +37,9 @@ internal object BuiltInReader {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<SourceAdapter, BookInfo>>?) = size > 6
     }
 
+    /** The built-in comic scrapers: their chapters are pictures, shown from their own addresses. */
+    private fun comic(adapter: SourceAdapter): Boolean = adapter is BuiltInComicAdapter || adapter is BiliComicAdapter
+
     /** The built-in scraper that owns the address; `reader` is the rule engines', not a built-in one. */
     private fun adapterFor(url: String): SourceAdapter? =
         SourceCatalog.adapters.firstOrNull { it.id != SourceId.READER && it.matches(url) }
@@ -59,7 +62,7 @@ internal object BuiltInReader {
         val url = (details["url"] as? JsonPrimitive)?.contentOrNull.orEmpty()
         val engines = (details["engines"] as? JsonPrimitive)?.booleanOrNull == true
         val adapter = (if (engines) enginesFor(url, context) else adapterFor(url)?.takeIf {
-            it !is BuiltInComicAdapter || context.settings.engines.isEnabled(SiteEngine.NATIVE)
+            !comic(it) || context.settings.engines.isEnabled(SiteEngine.NATIVE)
         })
             ?: return buildJsonObject { put("error", if (engines) "no site engine lists this site" else "no built-in scraper for this site"); put("skip", true) }.toString()
         val reader = (details["reader"] as? JsonPrimitive)?.contentOrNull
@@ -136,7 +139,7 @@ internal object BuiltInReader {
                 book.chapters.forEach { chapter ->
                     add(buildJsonObject {
                         put("name", chapter.title)
-                        if (adapter is SiteEngineChain || adapter is BuiltInComicAdapter) chapter.url?.let { put("url", it) }
+                        if (adapter is SiteEngineChain || comic(adapter)) chapter.url?.let { put("url", it) }
                     })
                 }
             })
@@ -161,8 +164,8 @@ internal object BuiltInReader {
                 buildJsonObject {
                     put("chapterName", ref.title)
                     put("contentHtml", html)
-                    if (adapter is BuiltInComicAdapter) ref.url?.let { put("imageReferer", it) }
-                    if ((adapter is SiteEngineChain || adapter is BuiltInComicAdapter) && result.content.images.isNotEmpty() &&
+                    if (comic(adapter)) ref.url?.let { put("imageReferer", it) }
+                    if ((adapter is SiteEngineChain || comic(adapter)) && result.content.images.isNotEmpty() &&
                         html.replace(Regex("<[^>]+>"), "").isBlank()
                     ) put("comic", true)
                 }.toString()

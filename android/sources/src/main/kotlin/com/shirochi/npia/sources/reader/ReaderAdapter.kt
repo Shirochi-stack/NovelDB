@@ -331,8 +331,8 @@ internal class ReaderBookSession(
 
         suspend fun openBuiltIn(url: String, context: SourceContext, source: SourceId): ReaderBookSession = when (source) {
             SourceId.COMIX -> openComix(url, context)
-            SourceId.MANGAK -> {
-                val module = PythonEngines.mangaK
+            SourceId.MANGAK, SourceId.BILICOMIC -> {
+                val module = if (source == SourceId.MANGAK) PythonEngines.mangaK else PythonEngines.biliComic
                 pythonSession(PythonEngines.openBook(module, url, context), url, module, context, source)
             }
             else -> throw SourceException.UnsupportedUrl(url)

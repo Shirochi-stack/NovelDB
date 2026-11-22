@@ -21,7 +21,7 @@ actor BuiltInReader {
                 page: Int? = nil, context: SourceContext) async -> String {
         guard let url = URL(string: address) else { return Self.json(["error": "not an address", "skip": true]) }
         let type = SourceCatalog.nativeAdapterType(for: url)
-        let builtInComic = type?.id == .comix || type?.id == .mangak
+        let builtInComic = type?.id == .comix || type?.id == .mangak || type?.id == .bilicomic
         let genericFirst = SiteEngineRouter.genericFirst(url)
         let steps = engines ? SiteEngineRouter.plan(for: url, engines: context.settings.engines).filter {
             if genericFirst { return $0 == .tako && PythonEngines.listsBundled($0, url: url) }

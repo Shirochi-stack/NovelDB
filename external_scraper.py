@@ -22540,12 +22540,24 @@ async (items) => {
     def _mangak_parse_book(self, url):
         return self._python_parse_book("mangak", url)
 
+    @staticmethod
+    def is_bilicomic(url):
+        from noveldb.core.engines.bilicomic import knows
+
+        return knows(url)
+
+    def _bilicomic_parse_book(self, url):
+        return self._python_parse_book("bilicomic", url)
+
     def _native_book_parser(self, url):
         """(log line, parse function) of the built-in scraper for ``url``, or None."""
         if self.is_comix(url):
             return ("[Comix] Using the built-in scraper.", self._comix_parse_book)
         if self.is_mangak(url):
             return ("[MangaK] Using the built-in scraper.", self._mangak_parse_book)
+        if self.is_bilicomic(url):
+            return ("[Bilibili Manga] Using the built-in scraper (the site's app API).",
+                    self._bilicomic_parse_book)
         if self.is_sfc(url):
             return (
                 '[SFC] Detected novel URL, using the native app API scraper.',

@@ -20,6 +20,7 @@ public enum SourceID: String, Codable, CaseIterable, Sendable {
     case kobo
     case comix
     case mangak
+    case bilicomic
     /// Generic sites driven by `rules-lib.js`.
     case reader
 }

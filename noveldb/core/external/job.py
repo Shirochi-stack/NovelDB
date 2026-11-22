@@ -20,7 +20,7 @@ from noveldb.core.settings.model import AppSettings
 _NATIVE_PREDICATES = (
     "is_ntk_novel", "is_qdn", "is_yeduji", "is_1qxs", "is_69shuba", "is_floo", "is_fenrir",
     "is_maru", "is_xiyuwx", "is_global_npia", "is_rbooks", "is_kobo", "is_mpia", "is_jara",
-    "is_nweb_series", "is_nweb_novel", "is_npia",
+    "is_nweb_series", "is_nweb_novel", "is_npia", "is_bilicomic",
 )
 
 

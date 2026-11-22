@@ -105,7 +105,8 @@ PAGE_SCRIPTS = {
 }
 PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_GENERIC)
 PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GDL: "_gallerydl",
-                ENGINE_MANGAPEAK: "_mangapeak", ENGINE_TAKO: "_tako", "mangak": "_mangak", ENGINE_GENERIC: "_generic"}
+                ENGINE_MANGAPEAK: "_mangapeak", ENGINE_TAKO: "_tako", "mangak": "_mangak",
+                "bilicomic": "_bilicomic", ENGINE_GENERIC: "_generic"}
 
 
 def _image_kind(data_base64: str) -> str:
@@ -636,8 +637,11 @@ class SiteEnginesMixin:
         return self._browser_request({"url": url, "method": "GET"}) if url else None
 
     def engine_fetch(self, url: str, *, method: str = "GET", data=None, headers: Optional[dict] = None,
-                     binary: bool = False, referer: str = "") -> Optional[dict]:
-        """One request for the Python engines: {status, url, text | content, headers}, or None."""
+                     binary: bool = False, referer: str = "", cookie: str = "") -> Optional[dict]:
+        """One request for the Python engines: {status, url, text | content, headers}, or None.
+
+        `cookie` ("name=value; ...") goes with the browser profile's cookies for the site, and wins over
+        one of the same name (a Cookie header would replace them all)."""
         work = self.__dict__.get("reader_work")
         if work is not None and not work.wait():
             return None
@@ -658,6 +662,8 @@ class SiteEnginesMixin:
             details["headers"].setdefault("Referer", referer)
         if data is not None:
             details["data"] = data
+        if cookie:
+            details["cookie"] = cookie
         result = self._engine_transport(None, details)
         if not isinstance(result, dict) or result.get("error"):
             return None
@@ -859,6 +865,12 @@ class SiteEnginesMixin:
             elif engine == "mangak":
                 from noveldb.core.engines.mangak import MangaKEngine
                 engines[engine] = MangaKEngine(fetch=self.engine_fetch)
+            elif engine == "bilicomic":
+                from noveldb.core.engines.bilicomic import BiliComicEngine
+                engines[engine] = BiliComicEngine(
+                    fetch=self.engine_fetch, log=self.log,
+                    stopped=lambda: bool(getattr(self, "_stop_requested", False)),
+                    reading=lambda: self.__dict__.get("on_image") is not None)
             elif engine == ENGINE_TAKO:
                 from noveldb.core.engines.tako import TakoEngine
                 engines[engine] = TakoEngine(fetch=self.engine_fetch, log=self.log)

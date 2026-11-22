@@ -23,6 +23,7 @@ import com.shirochi.npia.sources.qdn.QdnAdapter
 import com.shirochi.npia.sources.rbooks.RbooksAdapter
 import com.shirochi.npia.sources.reader.CustomEngines
 import com.shirochi.npia.sources.reader.PythonEngines
+import com.shirochi.npia.sources.reader.BiliComicAdapter
 import com.shirochi.npia.sources.reader.BuiltInComicAdapter
 import com.shirochi.npia.sources.reader.ReaderAdapter
 import com.shirochi.npia.sources.reader.SiteEngineChain
@@ -52,6 +53,7 @@ object SourceCatalog {
         KoboAdapter(),
         BuiltInComicAdapter(SourceId.COMIX),
         BuiltInComicAdapter(SourceId.MANGAK),
+        BiliComicAdapter(),
         ReaderAdapter(),
     )
 

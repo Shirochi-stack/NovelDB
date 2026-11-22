@@ -206,7 +206,8 @@ class ExternalPipelineMixin:
                         and not self._scraper.is_jara(url)
                         and not self._scraper.is_nweb_series(url)
                         and not self._scraper.is_nweb_novel(url)
-                        and not self._scraper.is_npia(url)):
+                        and not self._scraper.is_npia(url)
+                        and not self._scraper.is_bilicomic(url)):
                     self._scraper.start()
             self._apply_scraper_options()
 
@@ -321,7 +322,8 @@ class ExternalPipelineMixin:
 
         Some sites sign each image address for a while ("expires=<Unix time>"; kpage: two
         hours). A chapter saved without its image bytes is then of no use later: every image
-        would be refused, so it is read again for fresh addresses.
+        would be refused, so it is read again for fresh addresses (and, for Bilibili Manga,
+        its pages are saved again as it is read).
         """
         import urllib.parse
 
@@ -329,11 +331,15 @@ class ExternalPipelineMixin:
         for image in (result.get('images') or []) if isinstance(result, dict) else []:
             if not isinstance(image, dict) or image.get('data'):
                 continue
-            query = urllib.parse.urlsplit(html.unescape(str(image.get('url') or ''))).query
-            for value in urllib.parse.parse_qs(query).get('expires', []):
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(html.unescape(str(image.get('url') or ''))).query)
+            for value in query.get('expires', []):
                 if value.isdigit() and len(value) in (10, 13):
                     if int(value) / (1000 if len(value) == 13 else 1) < now + margin:
                         return True
+            # "token=<hash>&ts=<Unix time in hex>" (the Bilibili Manga image host) lasts fifteen minutes:
+            # less than the rest of a download takes, so such an address is never reused.
+            if query.get('token') and any(re.fullmatch(r'[0-9a-f]{8}', value) for value in query.get('ts', [])):
+                return True
         return False
 
     def _cache_external_result_images(self, result):
@@ -698,7 +704,8 @@ class ExternalPipelineMixin:
                     and not is_fenrir and not is_maru
                     and not is_xiyuwx
                     and not is_jara and not is_nweb_novel
-                    and not (self._book_data and self._book_data.get('_qdn'))):
+                    and not (self._book_data and self._book_data.get('_qdn'))
+                    and not (self._book_data and self._book_data.get('_bilicomic'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
                 # originate from the \u006b\u0061\u006b\u0061\u006f.com domain.  The BFF API
@@ -1468,7 +1475,8 @@ class ExternalPipelineMixin:
                         and not self._scraper.is_jara(url)
                         and not self._scraper.is_nweb_series(url)
                         and not self._scraper.is_nweb_novel(url)
-                        and not self._scraper.is_npia(url)):
+                        and not self._scraper.is_npia(url)
+                        and not self._scraper.is_bilicomic(url)):
                     self._scraper.start()
             else:
                 self._scraper.prepare_download_browser()
@@ -1626,6 +1634,7 @@ class ExternalPipelineMixin:
                         and not self._scraper.is_nweb_series(url)
                         and not self._scraper.is_nweb_novel(url)
                         and not self._scraper.is_npia(url)
+                        and not self._scraper.is_bilicomic(url)
                         and not self._scraper._context):
                     self._scraper.start()
                     self._apply_scraper_options()

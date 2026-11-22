@@ -20,6 +20,7 @@ BROWSER = "browser"
 _PREDICATES = (
     ("is_comix", "comix"),
     ("is_mangak", "mangak"),
+    ("is_bilicomic", "bilicomic"),
     ("is_sfc", "sfc"),
     ("is_kobo", "kobo"),
     ("is_xiyuwx", "xiyuwx"),

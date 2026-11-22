@@ -39,6 +39,16 @@ actor PythonEngines {
 
     static let bundled: Set<SiteEngine> = [.mangapeak, .tako]
     static let mangaK = Module(name: "mangak", title: "MangaK reader")
+    static let biliComic = Module(name: "bilicomic", title: "Bilibili Manga reader")
+
+    /// A Bilibili Manga book or chapter page (the engine's own `route`).
+    static func biliComicMatches(_ url: URL) -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host?.lowercased() == "manga.bilibili.com" else { return false }
+        let path = URLComponents(url: url, resolvingAgainstBaseURL: true)?.percentEncodedPath ?? ""
+        return path.range(of: #"^/(m/)?(detail/)?mc[0-9]{1,12}(/[0-9]{1,12})?/?$"#,
+                          options: [.regularExpression, .caseInsensitive]) != nil
+    }
 
     struct Module: Sendable {
         let name: String

@@ -347,8 +347,8 @@ final class ReaderBookSession: @unchecked Sendable {
         switch source {
         case .comix:
             return try await openComix(url, context: context)
-        case .mangak:
-            let module = PythonEngines.mangaK
+        case .mangak, .bilicomic:
+            let module = source == .mangak ? PythonEngines.mangaK : PythonEngines.biliComic
             let payload = try await PythonEngines.shared.openBook(module, url: url, context: context)
             return try pythonSession(payload, url: url, module: module, context: context, source: source)
         default:

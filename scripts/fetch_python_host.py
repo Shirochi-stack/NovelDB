@@ -69,6 +69,7 @@ MODULES = {
     "mangapeak.py": ROOT / "noveldb" / "core" / "engines" / "mangapeak.py",
     "mangak.py": ROOT / "noveldb" / "core" / "engines" / "mangak.py",
     "tako.py": ROOT / "noveldb" / "core" / "engines" / "tako.py",
+    "bilicomic.py": ROOT / "noveldb" / "core" / "engines" / "bilicomic.py",
 }
 BUNDLES = {"lncrawl": ROOT / "lncrawl", "fanficfare": ROOT / "fanficfare", "gallerydl": ROOT / "gallerydl"}
 CACHE = ROOT / "build" / "pyodide-cache"

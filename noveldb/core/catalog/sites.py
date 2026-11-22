@@ -32,6 +32,7 @@ KIND_OTHER = "other"
 BUILTIN_SITES = {
     "comix": ("comix.to", "comix.ws"),
     "mangak": ("mangak.io",),
+    "bilicomic": ("manga.bilibili.com",),
     "npia": ("\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com",),
     "global_npia": ("global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com",),
     "kpage": ("page.\u006b\u0061\u006b\u0061\u006f.com",),

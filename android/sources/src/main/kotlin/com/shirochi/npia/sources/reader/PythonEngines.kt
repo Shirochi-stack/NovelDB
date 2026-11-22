@@ -78,6 +78,15 @@ internal object PythonEngines {
 
     internal val bundled = setOf(SiteEngine.MANGAPEAK, SiteEngine.TAKO)
     val mangaK = Module("mangak", "MangaK reader")
+    val biliComic = Module("bilicomic", "Bilibili Manga reader")
+    private val biliComicPath = Regex("^/(?:m/)?(?:detail/)?mc\\d{1,12}(?:/\\d{1,12})?/?$", RegexOption.IGNORE_CASE)
+
+    /** A Bilibili Manga book or chapter page (the engine's own `route`). */
+    fun biliComicMatches(url: String): Boolean {
+        val uri = runCatching { java.net.URI(url.trim()) }.getOrNull() ?: return false
+        return uri.scheme?.lowercase() in listOf("http", "https") && uri.host?.lowercase() == "manga.bilibili.com" &&
+            biliComicPath.matches(uri.rawPath.orEmpty())
+    }
 
     data class Module(val name: String, val label: String)
     private val mangaKPath = Regex("^/[a-z0-9][a-z0-9-]{0,220}(/chapter-[a-z0-9][a-z0-9.-]{0,220})?/?$")

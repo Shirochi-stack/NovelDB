@@ -24,6 +24,7 @@ enum class SourceId(val raw: String) {
     @SerialName("kobo") KOBO("kobo"),
     @SerialName("comix") COMIX("comix"),
     @SerialName("mangak") MANGAK("mangak"),
+    @SerialName("bilicomic") BILICOMIC("bilicomic"),
     /** Generic sites driven by `rules-lib.js`. */
     @SerialName("reader") READER("reader");
 

@@ -22,6 +22,7 @@ public enum SourceCatalog {
         KoboAdapter.self,
         ComixAdapter.self,
         MangaKAdapter.self,
+        BiliComicAdapter.self,
         ReaderAdapter.self,
     ]
 

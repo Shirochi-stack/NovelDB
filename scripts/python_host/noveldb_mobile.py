@@ -38,12 +38,19 @@ def _transport(request: dict) -> dict:
         return {"error": str(error)[:200]}
 
 
-def fetch(url, method="GET", data=None, headers=None, binary=False, referer="", timeout=30.0, quick=False, **_kwargs):
-    """The engines' fetch: {status, url, content, text, headers} or None (the desktop's engine_fetch shape)."""
+def fetch(url, method="GET", data=None, headers=None, binary=False, referer="", timeout=30.0, quick=False, cookie="",
+          **_kwargs):
+    """The engines' fetch: {status, url, content, text, headers} or None (the desktop's engine_fetch shape).
+
+    `cookie` ("name=value; ...") goes as the request's Cookie header: Android sends it with the web
+    view's cookies for the site (its values win by name); iOS sends it when the site has none there,
+    and the site's own cookies otherwise."""
     sent = {str(k): str(v) for k, v in (headers or {}).items()
             if str(k).lower() not in ("host", "content-length", "accept-encoding", "connection")}
     if referer and not any(k.lower() == "referer" for k in sent):
         sent["Referer"] = referer
+    if cookie and not any(k.lower() == "cookie" for k in sent):
+        sent["Cookie"] = str(cookie)
     request = {"url": str(url), "method": str(method or "GET").upper(), "headers": sent,
                "responseType": "arraybuffer", "timeout": int((8 if quick else float(timeout or 30)) * 1000)}
     if data is not None:
@@ -281,6 +288,12 @@ def _engine(name: str):
             from noveldb.core.engines.mangak import MangaKEngine as Engine
         elif name == "tako":
             from noveldb.core.engines.tako import TakoEngine as Engine
+        elif name == "bilicomic":
+            from noveldb.core.engines.bilicomic import BiliComicEngine
+
+            # The page addresses only: the app fetches a chapter's pages itself, as soon as it is read.
+            _engines[name] = BiliComicEngine(fetch=fetch, reading=lambda: True)
+            return _engines[name]
         else:
             raise ValueError(f"no engine {name}")
         _engines[name] = Engine(fetch=fetch)
