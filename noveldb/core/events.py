@@ -18,8 +18,14 @@ class CancelToken:
 
     def __init__(self) -> None:
         self._event = threading.Event()
+        self.presses = 0  # how many times Stop was asked for (a second press gives up more)
+        self._pressed_at = 0.0
 
     def cancel(self) -> None:
+        now = time.monotonic()
+        if not self.presses or now - self._pressed_at >= 0.7:  # a double click is one press
+            self.presses += 1
+            self._pressed_at = now
         self._event.set()
 
     @property

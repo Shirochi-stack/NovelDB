@@ -56,6 +56,7 @@ class ExternalJob(ExternalPipelineMixin):
         self._chapter_results = []
         self._downloading = True
         self._download_cancelled = False
+        self._output_stopped = False
         self._active_output_formats = self._selected_output_formats()
         self._active_separate_txt = bool(self._var_separate_txt.get())
         self._active_generate_on_stop = bool(self._var_generate_on_stop.get())
@@ -69,6 +70,12 @@ class ExternalJob(ExternalPipelineMixin):
         self._download_cancelled = True
         if self._scraper is not None:
             self._scraper._stop_requested = True
+        # Stop pressed again. With "Generate on stop" the first press ends the download and
+        # builds the output from what was downloaded; the second gives that output up too.
+        if getattr(self.cancel_token, "presses", 0) > 1 and not self._output_stopped:
+            self._output_stopped = True
+            if self._active_generate_on_stop:
+                self._log("Stop pressed again: the partial output is not written.")
 
     def run(self, scraper) -> dict:
         """Fetch and download the book with `scraper` (call on the browser worker thread)."""
@@ -107,7 +114,7 @@ class ExternalJob(ExternalPipelineMixin):
         while not done.is_set():
             if self.cancel_token.wait(0.25):
                 self.stop()
-                return
+                done.wait(0.25)  # keeps watching: a second press of Stop gives up the output too
 
     def queue_result(self) -> dict:
         messages = self._msg_queue.messages

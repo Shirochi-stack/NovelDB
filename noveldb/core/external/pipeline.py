@@ -1194,8 +1194,11 @@ class ExternalPipelineMixin:
                 generate_on_stop = bool(
                     getattr(self, '_active_generate_on_stop', False)
                 )
-                if generate_on_stop and succeeded:
-                    output_status = "Partial output will be generated."
+                if generate_on_stop and getattr(self, '_output_stopped', False):
+                    output_status = "Stop was pressed again: no partial output is generated."
+                elif generate_on_stop and succeeded:
+                    output_status = ("Partial output will be generated (Generate on stop is on). "
+                                     "Press Stop again to skip it.")
                 elif generate_on_stop:
                     output_status = (
                         "No downloaded chapters are available for output."
@@ -1518,6 +1521,7 @@ class ExternalPipelineMixin:
                 and bool(getattr(
                     self, '_active_generate_on_stop', False
                 ))
+                and not getattr(self, '_output_stopped', False)  # Stop pressed a second time
             )
             if self._download_cancelled and not generate_after_stop:
                 return
@@ -1657,6 +1661,7 @@ class ExternalPipelineMixin:
                 and bool(getattr(
                     self, '_active_generate_on_stop', False
                 ))
+                and not getattr(self, '_output_stopped', False)  # Stop pressed a second time
             )
             if self._download_cancelled and not generate_after_stop:
                 break
@@ -1787,9 +1792,14 @@ class ExternalPipelineMixin:
             self._generation_stop_baseline = True
 
     def _generation_stopped(self):
-        """True once Stop is pressed during `_generate_output` (never outside it)."""
-        return (bool(getattr(self, '_download_cancelled', False))
-                and not getattr(self, '_generation_stop_baseline', True))
+        """True once Stop is pressed during `_generate_output` (never outside it).
+
+        A build that runs because of "Generate on stop" started with Stop already pressed, so
+        that press does not count: a second one does (`_output_stopped`, set by the job's stop()).
+        """
+        return bool(getattr(self, '_output_stopped', False)) or (
+            bool(getattr(self, '_download_cancelled', False))
+            and not getattr(self, '_generation_stop_baseline', True))
 
     def _generate_formats(self, data, formats, title, author):
         chapter_exports = {"folder", "zip"}.intersection(formats)

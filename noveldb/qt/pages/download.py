@@ -647,7 +647,9 @@ class DownloadPage(QWidget):
         if stop:
             self.download.setEnabled(True)
             self.download.setText("Stop")
-            self.download.setToolTip("Stop every running and waiting download.")
+            self.download.setToolTip("Stop every running and waiting download.\n"
+                                     "With Generate on stop, what was downloaded is still written: "
+                                     "press Stop again to skip that too.")
             return
         count = len(self._download_lines())
         self.download.setEnabled(count > 0)

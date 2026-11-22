@@ -186,6 +186,75 @@ def test_the_job_says_stopping_once():
     assert job._scraper._stop_requested and not job._downloading
 
 
+def _stoppable_job(generate_on_stop):
+    from dataclasses import replace
+
+    from noveldb.core.events import CancelToken
+    from noveldb.core.external.job import ExternalJob
+    from noveldb.core.settings.model import AppSettings
+
+    settings = AppSettings()
+    settings = replace(settings, shared=replace(settings.shared, generate_on_stop=generate_on_stop))
+    token = CancelToken()
+    job = ExternalJob("https://example.com/b", settings, cancel=token)
+    job.lines = []
+    job._log = job.lines.append
+    return job, token
+
+
+def test_a_second_press_of_stop_gives_up_the_partial_output(monkeypatch):
+    from noveldb.core import events
+
+    clock = [100.0]
+    monkeypatch.setattr(events.time, "monotonic", lambda: clock[0])
+    job, token = _stoppable_job(generate_on_stop=True)
+
+    token.cancel()
+    clock[0] += 0.2
+    token.cancel()  # a double click is one press
+    job.stop()
+    job.stop()  # the dispatcher asks again every quarter second while Stop is in force
+    assert token.presses == 1 and not job._output_stopped
+    # "Generate on stop" builds the output from here: the press that started it does not stop it.
+    job._generation_stop_baseline = True
+    assert not job._generation_stopped()
+
+    clock[0] += 5
+    token.cancel()  # Stop again, while the output is being built
+    job.stop()
+    job.stop()
+    assert job._output_stopped and job._generation_stopped()
+    assert len([line for line in job.lines if "Stop pressed again" in line]) == 1
+
+
+@pytest.mark.parametrize("presses, built", [(1, ["output"]), (2, [])])
+def test_stop_twice_before_the_output_starts_skips_it(presses, built):
+    job, token = _stoppable_job(generate_on_stop=True)
+    data = {"bookname": "Stopped book", "author": "Author", "chapterCount": 2,
+            "chapters": [{"name": "One"}, {"name": "Two"}]}
+    job._scraper = SimpleNamespace(prepare_download_browser=lambda: None, parse_book=lambda url: data,
+                                   _stop_requested=False)
+    job._apply_scraper_options = lambda: None
+    generated = []
+    job._generate_output = lambda: generated.append("output")
+
+    def stopped_after_one(*args, **kwargs):
+        job._chapter_results = [{"chapterName": "One", "contentText": "Downloaded"}, None]
+        token.presses = presses
+        job.stop()
+
+    job._do_download = stopped_after_one
+    ExternalPipelineMixin._do_fetch_and_download(job, "https://example.com/book", 0, 2, False)
+    assert generated == built
+
+
+def test_one_press_of_stop_says_nothing_about_the_output_without_generate_on_stop():
+    job, token = _stoppable_job(generate_on_stop=False)
+    token.presses = 2
+    job.stop()
+    assert job._output_stopped and not any("Stop pressed again" in line for line in job.lines)
+
+
 @pytest.fixture
 def scraper(tmp_path, monkeypatch):
     pytest.importorskip("playwright.sync_api")
