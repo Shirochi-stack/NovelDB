@@ -5,9 +5,48 @@ from html import unescape
 from pathlib import Path
 from queue import Queue
 from tempfile import TemporaryDirectory
-from threading import BoundedSemaphore, Lock
+from threading import BoundedSemaphore, Lock, local
 
 import requests
+
+
+class ProfileSessions:
+    """Image requests signed in as one browser profile.
+
+    A ticket opens a chapter for the account that used it, and the site serves the chapter's
+    images to that account only. So the images of a chapter another profile unlocked are asked
+    for with that profile's cookies, whichever profile the rest of the download uses. Made
+    while that profile's browser is the one in use.
+    """
+
+    def __init__(self, job, book_url):
+        with requests.Session() as template:
+            job._copy_browser_cookies_to_session(template, quiet=True)
+            self._cookies = template.cookies.copy()
+        self._referer = book_url or ""
+        self._local = local()
+        self._lock = Lock()
+        self._sessions = []
+
+    def __bool__(self):
+        return len(self._cookies) > 0
+
+    def session(self):
+        """This thread's session (a requests session is not shared between threads here)."""
+        session = getattr(self._local, "session", None)
+        if session is None:
+            session = self._local.session = requests.Session()
+            session.headers["Referer"] = self._referer
+            session.cookies.update(self._cookies)
+            with self._lock:
+                self._sessions.append(session)
+        return session
+
+    def close(self):
+        with self._lock:
+            sessions, self._sessions = self._sessions, []
+        for session in sessions:
+            session.close()
 
 
 class KpageImages:

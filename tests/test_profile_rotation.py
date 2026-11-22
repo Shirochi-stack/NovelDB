@@ -51,6 +51,113 @@ def test_the_rotation_closes_the_other_browsers_when_it_ends():
     assert released == [1]  # after the selected profile is in use again
 
 
+def _with_addresses(chapters):
+    for number, chapter in enumerate(chapters, 1):
+        chapter["url"] = f"https://example.com/content/7/viewer/{number}"
+    return chapters
+
+
+def test_a_chapter_another_profile_unlocked_gets_its_images_with_that_profiles_sign_in(monkeypatch):
+    import requests
+
+    job = Rotating([1, 1, 1], low=4, high=6)
+    job._copy_browser_cookies_to_session = (
+        lambda session, quiet=False: ExternalPipelineMixin._copy_browser_cookies_to_session(job, session, quiet))
+    # Each profile's browser holds its own account's cookie.
+    job._scraper._context = SimpleNamespace(cookies=lambda: [
+        {"name": "account", "value": str(job.profile), "domain": ".example.com", "path": "/"}])
+    address = "https://img.example.com/{}.jpg?a=1&amp;b=2".format
+    job._scraper.parse_chapter = lambda position, chapter, log_errors=True: {
+        "chapterName": chapter["name"], "images": [{"url": address(chapter["name"])}]}
+    ExternalPipelineMixin._auto_purchase(job, _chapters(8), 0, [None] * 8)
+    assert job.profile == 1  # the rest of the download runs as the selected profile
+    assert not any("browser cookie(s)" in line for line in job.lines)
+
+    asked = []
+
+    def get(self, url, **options):
+        asked.append((url.rsplit("/", 1)[1].split(".")[0], self.cookies.get("account")))
+        return SimpleNamespace(status_code=200, content=b"x" * 200, headers={"content-type": "image/jpeg"})
+
+    monkeypatch.setattr(requests.Session, "get", get)
+    with requests.Session() as selected:
+        selected.cookies.set("account", "1", domain=".example.com")
+        for name in ("c4", "c5", "c6"):
+            assert ExternalPipelineMixin._download_image_python(job, address(name), session=selected, log_success=False)
+        # Profile 1 unlocked chapter 4; chapters 5 and 6 belong to the accounts of profiles 2 and 3.
+        assert asked == [("c4", "1"), ("c5", "2"), ("c6", "3")]
+        ExternalPipelineMixin._forget_image_owners(job)  # the download is over
+        ExternalPipelineMixin._download_image_python(job, address("c5"), session=selected, log_success=False)
+        assert asked[-1] == ("c5", "1")
+
+
+def test_a_profile_that_already_has_a_chapter_open_downloads_it_without_a_ticket():
+    # A second download of the same chapters: every ticket is used up, but profiles 2 and 3 still
+    # have the chapters open that they unlocked the first time.
+    job = Rotating([0, 0, 0], low=4, high=6)
+    chapters = _with_addresses(_chapters(8))
+    has_open = {2: {chapters[4]["url"]}, 3: {chapters[5]["url"], chapters[0]["url"]}}
+    job._scraper.kpage_open_episodes = lambda asked: has_open.get(job.profile, set())
+    fetched = ExternalPipelineMixin._auto_purchase(job, chapters, 0, [None] * 8)
+    assert job.bought == []
+    assert job.read == [(2, "c5"), (3, "c6")]
+    assert sorted(fetched) == [4, 5]  # chapter 4 stays locked: nobody has it or a ticket for it
+    assert chapters[4]["isAccessible"] and not chapters[3]["isAccessible"]
+    assert any("already has c5 open" in line for line in job.lines)
+    assert job.profile == 1
+
+
+def test_a_profile_out_of_tickets_is_still_asked_what_it_has_open():
+    job = Rotating([0, 1, 0], low=4, high=6)
+    chapters = _with_addresses(_chapters(8))
+    job._scraper.kpage_open_episodes = lambda asked: {chapters[5]["url"]} if job.profile == 3 else set()
+    fetched = ExternalPipelineMixin._auto_purchase(job, chapters, 0, [None] * 8)
+    assert job.bought == [(2, "c4")]
+    assert job.read == [(2, "c4"), (3, "c6")]  # profile 3 had no ticket for c5, but had c6 open
+    assert sorted(fetched) == [3, 5]
+
+
+def test_a_chapter_saved_with_another_accounts_sign_in_is_read_again(tmp_path):
+    from tests.test_external_dialog_mpia import Setting, make_download_dialog
+
+    path = tmp_path / "book.json"
+    fetched = []
+
+    def fetch(batch, *, success_callback, **options):
+        fetched.append([chapter["id"] for chapter in batch])
+        result = {"chapterName": "One", "images": [{"url": "https://test.invalid/image"}]}
+        success_callback(0, result)
+        return [result]
+
+    def download(locked):
+        job = make_download_dialog(SimpleNamespace(_context=True, parse_chapter_batch=fetch), {"_kpage": True})
+        job._var_use_cache = Setting(True)
+        job._external_cache_path = lambda: str(path)
+        chapter = {"id": "1", "name": "One", "isVIP": locked, "isPaid": locked, "isAccessible": not locked}
+        ExternalPipelineMixin._do_download(job, [chapter], 0, 1, 0, num_threads=2)
+        return " ".join(str(call.args[0]) for call in job._log.call_args_list)
+
+    download(locked=False)
+    assert "another account" not in download(locked=False) and len(fetched) == 1  # the saved copy is used
+    # The same chapter, locked for the account now in use: its images would all be refused.
+    assert "another account" in download(locked=True)
+    assert len(fetched) == 2
+
+
+def test_a_saved_chapter_whose_image_addresses_ran_out_is_read_again():
+    expired = ExternalPipelineMixin._cached_image_addresses_expired
+    image = "https://img.example.com/1.jpg?kid=a&amp;expires={}&amp;signature=b".format
+    now = 1_795_000_000
+    assert expired({"images": [{"url": image(now - 5)}]}, now)
+    assert expired({"images": [{"url": image(now + 60)}]}, now)  # too little time left to download it
+    assert not expired({"images": [{"url": image(now + 7200)}]}, now)
+    assert expired({"images": [{"url": image((now - 5) * 1000)}]}, now)  # milliseconds
+    assert not expired({"images": [{"url": image(now - 5), "data": "data:image/png;base64,AA=="}]}, now)
+    assert not expired({"images": [{"url": "https://img.example.com/1.jpg?expires=never"}]}, now)
+    assert not expired({"images": [{"url": "https://img.example.com/1.jpg"}], "contentText": "text"}, now)
+    assert not expired({"contentText": "text"}, now) and not expired(None, now)
+
+
 def test_accounts_are_noted_per_profile(tmp_path):
     base = str(tmp_path)
     assert profile_accounts.load(base) == {}
@@ -139,6 +246,25 @@ def test_cleanup_closes_every_kept_open_browser(scraper):
     # A later start works again (a new driver).
     scraper.start()
     assert scraper._page.evaluate("2") == 2
+
+
+def test_the_profile_in_use_says_which_locked_chapters_it_already_has_open(scraper):
+    host = "page." + scraper._KPAGE_COOKIE_DOMAIN
+    episodes = [{"productId": 11, "isAccessible": True, "isFree": False},
+                {"productId": 12, "isAccessible": False, "isFree": False},
+                {"productId": 13, "isAccessible": True, "isFree": False},  # not one that was asked about
+                {"productId": 15, "isAccessible": True, "isFree": True}]
+    asked = []
+    scraper._page = SimpleNamespace(url=f"https://{host}/content/7",
+                                    evaluate=lambda script, series: asked.append((script, series)) or episodes)
+    chapters = [{"url": f"https://{host}/content/7/viewer/{number}"} for number in (11, 12, 15)]
+    assert scraper.kpage_open_episodes(chapters) == {chapters[0]["url"]}
+    assert asked == [(scraper._KPAGE_EPISODES_JS, "7")]
+    assert "product/list" in scraper._KPAGE_EPISODES_JS and scraper._KPAGE_COOKIE_DOMAIN in scraper._KPAGE_EPISODES_JS
+    scraper._page = SimpleNamespace(url=f"https://{host}/content/7", evaluate=lambda *_: 1 / 0)
+    assert scraper.kpage_open_episodes(chapters) == set()  # the site could not be asked
+    scraper._page = None
+    assert scraper.kpage_open_episodes(chapters) == set()
 
 
 def test_the_account_is_only_asked_for_on_the_site(scraper):

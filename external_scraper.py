@@ -16218,67 +16218,7 @@ async (ids) => {
         # browser context to get ALL episodes in a single request.
         self.log("[Kpage] Fetching episode list via API...")
         try:
-            episodes = self._page.evaluate("""
-                async (seriesId) => {
-                    const url = `https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000&sort_opt=asc`;
-                    const resp = await fetch(url, { credentials: 'include' });
-                    const data = await resp.json();
-                    const list = (data.result || {}).list || [];
-                    const hasUserAccessFlag = (obj) => {
-                        const seen = new Set();
-                        const walk = (value, path) => {
-                            if (!value || typeof value !== 'object') return false;
-                            if (seen.has(value)) return false;
-                            seen.add(value);
-                            for (const [rawKey, v] of Object.entries(value)) {
-                                const key = String(rawKey || '').toLowerCase();
-                                const full = path ? `${path}.${key}` : key;
-                                if (/price|count|blocked|lock|free_change/.test(full)) {
-                                    continue;
-                                }
-                                const accessKey = /purchas|bought|owned|rented|rental|ticket|pass|usable|useable|access|viewable|readable/.test(full);
-                                if (accessKey) {
-                                    if (v === true) return true;
-                                    if (typeof v === 'number' && v > 0) return true;
-                                    if (typeof v === 'string') {
-                                        const s = v.trim().toLowerCase();
-                                        if (/^(yes|y|true|1|buy|bought|purchase|purchased|yes[_-]?purchase|yes[_-]?purchased|rent|rented|rental|yes[_-]?rent|yes[_-]?rented|ticket|pass|owned|available|viewable|readable|accessible)$/.test(s)) {
-                                            return true;
-                                        }
-                                        if (/^(false|no|n|none|null|0|not[_-]?purchased|not[_-]?rented|no[_-]?purchase|no[_-]?rent|unowned|unavailable|expired)$/.test(s)) {
-                                            continue;
-                                        }
-                                    }
-                                }
-                                if (v && typeof v === 'object' && walk(v, full)) return true;
-                            }
-                            return false;
-                        };
-                        return walk(obj, '');
-                    };
-                    return list.map(entry => {
-                        const item = entry.item || {};
-                        const fullTitle = item.title || '';
-                        const epMatch = fullTitle.match(/([0-9]+화.*)$/);
-                        const shortName = epMatch ? epMatch[1]
-                            : (fullTitle || 'Episode ' + (item.order_value || 0));
-                        const isFree = !!item.is_free;
-                        const isAccessible = isFree || hasUserAccessFlag(item);
-                        return {
-                            url: `/content/${seriesId}/viewer/${item.product_id}`,
-                            name: shortName,
-                            fullName: fullTitle,
-                            isVIP: !isAccessible,
-                            isPaid: !isAccessible,
-                            isFree: isFree,
-                            isAccessible: isAccessible,
-                            order: item.order_value || 0,
-                            productId: item.product_id || 0,
-                            slideType: item.slide_type || '',
-                        };
-                    });
-                }
-            """, series_id)
+            episodes = self._page.evaluate(self._KPAGE_EPISODES_JS, series_id)
         except Exception as e:
             self.log(f"ERROR: Episode extraction failed: {e}")
             return None
@@ -16718,6 +16658,69 @@ async (ids) => {
         )
         return None
 
+    # A book's episode list as the signed-in account sees it (which episodes it has open).
+    _KPAGE_EPISODES_JS = """
+                async (seriesId) => {
+                    const url = `https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000&sort_opt=asc`;
+                    const resp = await fetch(url, { credentials: 'include' });
+                    const data = await resp.json();
+                    const list = (data.result || {}).list || [];
+                    const hasUserAccessFlag = (obj) => {
+                        const seen = new Set();
+                        const walk = (value, path) => {
+                            if (!value || typeof value !== 'object') return false;
+                            if (seen.has(value)) return false;
+                            seen.add(value);
+                            for (const [rawKey, v] of Object.entries(value)) {
+                                const key = String(rawKey || '').toLowerCase();
+                                const full = path ? `${path}.${key}` : key;
+                                if (/price|count|blocked|lock|free_change/.test(full)) {
+                                    continue;
+                                }
+                                const accessKey = /purchas|bought|owned|rented|rental|ticket|pass|usable|useable|access|viewable|readable/.test(full);
+                                if (accessKey) {
+                                    if (v === true) return true;
+                                    if (typeof v === 'number' && v > 0) return true;
+                                    if (typeof v === 'string') {
+                                        const s = v.trim().toLowerCase();
+                                        if (/^(yes|y|true|1|buy|bought|purchase|purchased|yes[_-]?purchase|yes[_-]?purchased|rent|rented|rental|yes[_-]?rent|yes[_-]?rented|ticket|pass|owned|available|viewable|readable|accessible)$/.test(s)) {
+                                            return true;
+                                        }
+                                        if (/^(false|no|n|none|null|0|not[_-]?purchased|not[_-]?rented|no[_-]?purchase|no[_-]?rent|unowned|unavailable|expired)$/.test(s)) {
+                                            continue;
+                                        }
+                                    }
+                                }
+                                if (v && typeof v === 'object' && walk(v, full)) return true;
+                            }
+                            return false;
+                        };
+                        return walk(obj, '');
+                    };
+                    return list.map(entry => {
+                        const item = entry.item || {};
+                        const fullTitle = item.title || '';
+                        const epMatch = fullTitle.match(/([0-9]+화.*)$/);
+                        const shortName = epMatch ? epMatch[1]
+                            : (fullTitle || 'Episode ' + (item.order_value || 0));
+                        const isFree = !!item.is_free;
+                        const isAccessible = isFree || hasUserAccessFlag(item);
+                        return {
+                            url: `/content/${seriesId}/viewer/${item.product_id}`,
+                            name: shortName,
+                            fullName: fullTitle,
+                            isVIP: !isAccessible,
+                            isPaid: !isAccessible,
+                            isFree: isFree,
+                            isAccessible: isAccessible,
+                            order: item.order_value || 0,
+                            productId: item.product_id || 0,
+                            slideType: item.slide_type || '',
+                        };
+                    });
+                }
+    """
+
     # What each ticket code of the site is, for the log. RT: a rental ticket, TT: one that keeps the
     # episode. Every one of them is a ticket the account already holds; none is bought here.
     _KPAGE_TICKET_NAMES = {
@@ -17090,6 +17093,44 @@ async (ids) => {
         self.log(f"[Kpage] Browser profile #{number} is signed in again.")
         self._backup_storage_state()
         return True
+
+    def kpage_open_episodes(self, chapters):
+        """Of `chapters`, the viewer addresses the account of the profile in use already has open.
+
+        A paid episode the account rented or bought earlier (a ticket used on another download)
+        reads without a new ticket. Asks the site's episode list once; empty when it cannot be
+        asked or the account is signed out.
+        """
+        target = self._page
+        wanted = {}
+        series = site = ''
+        for chapter in chapters or []:
+            url = chapter.get('url') or ''
+            m = re.search(r'/content/(\d+)/viewer/(\d+)', url)
+            if m:
+                series = series or m.group(1)
+                site = site or url.split('/content/')[0]
+                wanted[m.group(2)] = url
+        if target is None or not wanted:
+            return set()
+        try:
+            current = target.url or ''
+        except Exception:
+            current = ''
+        if not current.startswith(site) or 'tab_type=about' in current:
+            try:
+                target.goto(f'{site}/content/{series}', wait_until='domcontentloaded',
+                            timeout=_page_ms(30000))
+                target.wait_for_timeout(200)
+            except Exception:
+                return set()
+        try:
+            episodes = target.evaluate(self._KPAGE_EPISODES_JS, series) or []
+        except Exception:
+            return set()
+        return {wanted[str(episode.get('productId'))] for episode in episodes
+                if episode.get('isAccessible') and not episode.get('isFree')
+                and str(episode.get('productId')) in wanted}
 
     def kpage_auto_purchase(self, chapter):
         """Unlock one paid episode with a ticket the account already holds; True when it opened.

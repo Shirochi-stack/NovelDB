@@ -315,6 +315,27 @@ class ExternalPipelineMixin:
             for image in result.get('images') or []
         )
 
+    @staticmethod
+    def _cached_image_addresses_expired(result, now=None, margin=600):
+        """True when a saved chapter still needs an image whose signed address has run out.
+
+        Some sites sign each image address for a while ("expires=<Unix time>"; kpage: two
+        hours). A chapter saved without its image bytes is then of no use later: every image
+        would be refused, so it is read again for fresh addresses.
+        """
+        import urllib.parse
+
+        now = time.time() if now is None else now
+        for image in (result.get('images') or []) if isinstance(result, dict) else []:
+            if not isinstance(image, dict) or image.get('data'):
+                continue
+            query = urllib.parse.urlsplit(html.unescape(str(image.get('url') or ''))).query
+            for value in urllib.parse.parse_qs(query).get('expires', []):
+                if value.isdigit() and len(value) in (10, 13):
+                    if int(value) / (1000 if len(value) == 13 else 1) < now + margin:
+                        return True
+        return False
+
     def _cache_external_result_images(self, result):
         """Attach downloaded image bytes so cached chapters are self-contained."""
         if not isinstance(result, dict) or not self._var_cache_images.get():
@@ -442,20 +463,57 @@ class ExternalPipelineMixin:
 
         Each locked chapter goes to the next profile in turn; a profile without a ticket (or
         signed out) passes it on to the one after. A ticket opens the chapter for that account
-        only, so the chapter is downloaded straight away, with the profile that unlocked it.
+        only, so the chapter is downloaded straight away, with the profile that unlocked it, and
+        its images are asked for as that account later on. A profile that already has a chapter
+        open (it unlocked it on an earlier download) downloads it without a ticket.
         Returns {position: chapter data}; the selected profile is in use again at the end.
         """
         selected = getattr(self, '_var_browser_profile', None)
         selected = min(max(1, int(selected.get() or 1)), count) if selected is not None else 1
         self._log(f"Auto purchase rotates over {count} browser profiles, starting with #{selected}.")
+        ExternalPipelineMixin._forget_image_owners(self)
         fetched = {}
         current = selected
         pointer = selected
         spent = set()  # profiles with no ticket left for this book, or signed out
+        open_episodes = getattr(self._scraper, 'kpage_open_episodes', None)
+        asked = {selected}  # the selected profile's own episode list is where `wanted` came from
+
+        def read(index, chapter, profile):
+            data = self._scraper.parse_chapter(start + index, chapter, log_errors=False)
+            if not data or data.get('_locked'):
+                return False
+            fetched[index] = data
+            chapter['isVIP'] = chapter['isPaid'] = False
+            chapter['isAccessible'] = True
+            if profile != selected:
+                ExternalPipelineMixin._images_belong_to_profile(self, data, profile)
+            return True
+
+        def take_open(profile):
+            """Read the chapters this profile's account already has open; they need no ticket."""
+            if profile in asked or not callable(open_episodes):
+                return
+            asked.add(profile)
+            left = [(index, chapter) for index, chapter in wanted if index not in fetched]
+            try:
+                has_open = set(open_episodes([chapter for _, chapter in left]) or ())
+            except Exception:
+                return
+            for index, chapter in left:
+                if not self._downloading:
+                    break
+                if chapter.get('url') in has_open and read(index, chapter, profile):
+                    self._log(f"  Profile #{profile} already has "
+                              f"{chapter.get('name') or f'chapter {start + index + 1}'} open; "
+                              "downloaded with that profile, no ticket used.")
+
         try:
             for index, chapter in wanted:
                 if not self._downloading:
                     break
+                if index in fetched:
+                    continue  # a profile that already had it open has downloaded it
                 name = chapter.get('name') or f'chapter {start + index + 1}'
                 for step in range(count):
                     profile = (pointer - 1 + step) % count + 1
@@ -471,17 +529,18 @@ class ExternalPipelineMixin:
                         current = profile
                     if not self._downloading:
                         break  # Stop pressed while that browser opened: no ticket is used after it
+                    take_open(profile)
+                    if not self._downloading:
+                        break
+                    if index in fetched:
+                        pointer = profile % count + 1
+                        break
                     outcome = purchase(chapter)
                     if not self._downloading:
                         break
                     if outcome is True:
                         self._log(f"  Profile #{profile} unlocked {name}; downloading it with that profile.")
-                        data = self._scraper.parse_chapter(start + index, chapter, log_errors=False)
-                        if data and not data.get('_locked'):
-                            fetched[index] = data
-                            chapter['isVIP'] = chapter['isPaid'] = False
-                            chapter['isAccessible'] = True
-                        else:
+                        if not read(index, chapter, profile):
                             self._log(f"  {name} could not be read with profile #{profile} after unlocking it.")
                         pointer = profile % count + 1  # the next chapter goes to the next profile
                         break
@@ -509,6 +568,42 @@ class ExternalPipelineMixin:
                 except Exception:
                     pass
         return fetched
+
+    def _images_belong_to_profile(self, data, profile):
+        """The images of chapter `data` are asked for as browser profile `profile`'s account.
+
+        Called while that profile's browser is the one in use (its cookies are read here). The
+        site serves a chapter's images only to the account that has the chapter open, so asking
+        for them as the selected profile got every one refused.
+        """
+        from noveldb.core.external.kpage_images import ProfileSessions
+
+        sessions = self.__dict__.setdefault('_profile_sessions', {})
+        owner = sessions.get(profile)
+        if owner is None:
+            try:
+                owner = ProfileSessions(self, (getattr(self, '_book_data', None) or {}).get('bookUrl') or '')
+            except Exception:
+                return
+            sessions[profile] = owner
+        if not owner:
+            return
+        owners = self.__dict__.setdefault('_image_owners', {})
+        for image in data.get('images') or []:
+            url = html.unescape(image.get('url') or '').strip() if isinstance(image, dict) else ''
+            if url:
+                owners[url] = owner
+        for url in re.findall(r'<img[^>]+src="(https?://[^"]+)"', data.get('contentHtml') or '', flags=re.IGNORECASE):
+            owners[html.unescape(url).strip()] = owner
+
+    def _forget_image_owners(self):
+        sessions = self.__dict__.pop('_profile_sessions', None) or {}
+        self.__dict__.pop('_image_owners', None)
+        for owner in sessions.values():
+            try:
+                owner.close()
+            except Exception:
+                pass
 
     def _do_download(self, chapters, start, end, interval, num_threads=1,
                       skip_paid=False, retry_passes=5, interval_max=None):
@@ -702,6 +797,7 @@ class ExternalPipelineMixin:
                     return save_checkpoint(key, cached)
             cache_hits = 0
             stale_cache_entries = 0
+            other_account = 0
             if use_cache:
                 for selected_index, chapter in enumerate(selected):
                     cache_key = ExternalPipelineMixin._external_cache_chapter_key(
@@ -711,10 +807,20 @@ class ExternalPipelineMixin:
                     if cached is not None and (
                         not ExternalPipelineMixin._external_cacheable(cached)
                         or (is_kobo and not cache_images)
+                        or ExternalPipelineMixin._cached_image_addresses_expired(cached)
                     ):
                         cache_entries.pop(cache_key, None)
                         save_checkpoint(cache_key, None)
                         stale_cache_entries += 1
+                        continue
+                    if (isinstance(cached, dict) and (self._book_data or {}).get('_kpage')
+                            and (chapter.get('isVIP') or chapter.get('isPaid')) and not chapter.get('isAccessible')
+                            and any(isinstance(image, dict) and image.get('url') and not image.get('data')
+                                    for image in cached.get('images') or [])):
+                        # Saved while another account had the chapter open. Its images are served to
+                        # that account only, so the saved copy cannot be finished with this one: the
+                        # chapter is read again (auto purchase finds the profile that has it open).
+                        other_account += 1
                         continue
                     if isinstance(cached, dict):
                         if cache_images:
@@ -731,6 +837,9 @@ class ExternalPipelineMixin:
                         f"Ignored {stale_cache_entries} stale cached "
                         "chapter(s); checking access again."
                     )
+                if other_account:
+                    self._log(f"{other_account} cached chapter(s) were saved with another account's sign-in "
+                              "and are locked for this one; reading them again.")
                 if cache_hits:
                     self._log(
                         f"Cache hits: {cache_hits}; "
@@ -1439,6 +1548,7 @@ class ExternalPipelineMixin:
             if lookahead:
                 self._kpage_images = None
                 lookahead.close()
+            ExternalPipelineMixin._forget_image_owners(self)
             self._log("Finished.")
             self._msg_queue.put(("finished", None))
 
@@ -2907,7 +3017,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         finally:
             img_session.close()
 
-    def _copy_browser_cookies_to_session(self, session):
+    def _copy_browser_cookies_to_session(self, session, quiet=False):
         """Copy Playwright browser cookies into a requests session."""
         scraper = getattr(self, '_scraper', None)
         context = getattr(scraper, '_context', None)
@@ -2938,7 +3048,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             except Exception:
                 pass
 
-        if copied:
+        if copied and not quiet:
             self._log(f"  Using {copied} browser cookie(s) for image downloads.")
 
     def _remove_kpage_duplicate_cover_pages(self, epub, max_positions=2):
@@ -3080,12 +3190,16 @@ img { display: block; max-width: 100%; max-height: 100%;
             if cached:
                 return cached
 
+        sess = session or _req
+        owner = (getattr(self, "_image_owners", None) or {}).get(url)
+        if owner is not None:
+            sess = owner.session()  # a chapter another browser profile's account unlocked
+
         # Upgrade http to https (many sites serve images on http but
         # support https — and some block http entirely)
         if url.startswith('http://'):
             url = url.replace('http://', 'https://', 1)
 
-        sess = session or _req
         last_status = None
         last_length = None
         last_type = ''
