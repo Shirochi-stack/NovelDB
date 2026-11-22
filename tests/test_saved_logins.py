@@ -240,6 +240,33 @@ def test_a_browser_that_remembers_no_account_goes_to_the_form_only_with_a_saved_
     assert page.chosen == ["Log in with a new account"] and page.typed['input[name="password"]'] == "pw"
 
 
+def test_a_profile_with_nothing_to_sign_in_with_is_noted_for_auto_purchase(scraper):
+    from noveldb.core.external import profile_accounts
+
+    base = os.environ["NPIA_BROWSER_DATA_DIR"]
+    scraper._page = RememberedPage(scraper, remembered=())
+    assert scraper.kpage_restore_sign_in() is False
+    assert profile_accounts.signed_out(base) == {3} and scraper.kpage_profiles_signed_out() == {3}
+    assert any("no account to sign in with" in line for line in scraper.lines)
+    # A sign-in that only needs a person (a captcha) is not that: the profile is asked again.
+    profile_accounts.set_signed_out(3, False, base)
+    scraper._kpage_sign_in_tried = set()
+    scraper.kpage_sign_in = lambda user, password: "the site asked for a captcha"
+    assert scraper.kpage_restore_sign_in() is False
+    assert profile_accounts.signed_out(base) == set()
+
+
+@protected
+def test_an_account_saved_for_a_signed_out_profile_puts_it_back_in_the_rotation(scraper):
+    from noveldb.core.external import profile_accounts
+
+    base = os.environ["NPIA_BROWSER_DATA_DIR"]
+    profile_accounts.set_signed_out(3, True, base)
+    assert scraper.kpage_profiles_signed_out() == {3}
+    saved_logins.save("kpage", 3, "name@example.com", "pw", base)
+    assert scraper.kpage_profiles_signed_out() == set()
+
+
 @protected
 def test_restoring_uses_the_account_saved_for_the_profile_once_per_download(scraper):
     base = os.environ["NPIA_BROWSER_DATA_DIR"]

@@ -12,7 +12,7 @@ import json
 import os
 import sys
 import threading
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 _APP_DATA_NAME = "NpiaDownloader"
 _FILE = "profile_accounts.json"
@@ -52,25 +52,91 @@ def load(base: Optional[str] = None) -> Dict[int, str]:
     return found
 
 
+def _write(known: Dict[int, str], base: Optional[str] = None) -> bool:
+    try:
+        os.makedirs(base or folder(), exist_ok=True)
+        with open(_path(base), "w", encoding="utf-8") as handle:
+            json.dump({str(key): value for key, value in sorted(known.items())}, handle, ensure_ascii=False)
+    except OSError:
+        return False
+    return True
+
+
 def remember(number: int, account: str, base: Optional[str] = None) -> bool:
     """Note `account` for profile `number` ("" when it is signed out). True when that changed it."""
+    number = int(number)
+    account = (account or "").strip()
+    if account:
+        set_signed_out(number, False, base)  # seen signed in
     with _lock:
         known = load(base)
-        number = int(number)
-        account = (account or "").strip()
         if known.get(number, "") == account:
             return False
         if account:
             known[number] = account
         else:
             known.pop(number, None)
+        return _write(known, base)
+
+
+# Profiles a download found signed out with nothing to sign in again with. Auto purchase passes
+# them over without opening their browser, until Enter Browser is opened on them or a download
+# sees them signed in.
+_SIGNED_OUT = "profile_signed_out.json"
+
+
+def signed_out(base: Optional[str] = None) -> Set[int]:
+    try:
+        with open(os.path.join(base or folder(), _SIGNED_OUT), encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return set()
+    found = set()
+    for value in data if isinstance(data, list) else ():
         try:
+            found.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return found
+
+
+def _write_signed_out(numbers: Set[int], base: Optional[str] = None) -> None:
+    path = os.path.join(base or folder(), _SIGNED_OUT)
+    try:
+        if numbers:
             os.makedirs(base or folder(), exist_ok=True)
-            with open(_path(base), "w", encoding="utf-8") as handle:
-                json.dump({str(key): value for key, value in sorted(known.items())}, handle, ensure_ascii=False)
-        except OSError:
-            return False
-        return True
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(sorted(numbers), handle)
+        elif os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def set_signed_out(number: int, out: bool, base: Optional[str] = None) -> None:
+    """Note that profile `number` has no sign-in to use (`out`), or that it may have one again."""
+    with _lock:
+        numbers = signed_out(base)
+        number = int(number)
+        if (number in numbers) == bool(out):
+            return
+        if out:
+            numbers.add(number)
+        else:
+            numbers.discard(number)
+        _write_signed_out(numbers, base)
+
+
+def profile_deleted(number: int, base: Optional[str] = None) -> None:
+    """Profile `number` was deleted and the ones after it moved up one number: the notes follow."""
+    number = int(number)
+
+    def moved(key: int) -> int:
+        return key - 1 if key > number else key
+
+    with _lock:
+        _write({moved(key): value for key, value in load(base).items() if key != number}, base)
+        _write_signed_out({moved(key) for key in signed_out(base) if key != number}, base)
 
 
 def label(number: int, accounts: Optional[Dict[int, str]] = None) -> str:

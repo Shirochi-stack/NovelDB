@@ -4331,6 +4331,13 @@ class ExternalScraper(SiteEnginesMixin):
             user_data_dir = self._get_user_data_dir()
         self.log("Opening browser for login...")
         self.log(f"Browser profile: {user_data_dir}")
+        try:
+            from noveldb.core.external import profile_accounts
+
+            # The profile may be signed in after this: auto purchase asks it again.
+            profile_accounts.set_signed_out(ExternalScraper.browser_profile, False, _get_app_data_dir())
+        except Exception:
+            pass
         if use_regular:
             locked_pids = self._chrome_processes_using_profile(user_data_dir)
             if locked_pids:
@@ -17147,6 +17154,13 @@ async (ids) => {
             # Never signed in here, or the site wants the password again: nothing went wrong.
             self.log(f"[Kpage] Browser profile #{number} has no account to sign in with by itself; "
                      "only free chapters can be read. Sign in with Enter Browser.")
+            try:
+                from noveldb.core.external import profile_accounts
+
+                # Auto purchase passes this profile over from now on, without opening it.
+                profile_accounts.set_signed_out(number, True, _get_app_data_dir())
+            except Exception:
+                pass
             return False
         if reason:
             self.log(f"[Kpage] Automatic sign-in did not finish: {reason}. "
@@ -17155,6 +17169,22 @@ async (ids) => {
         self.log(f"[Kpage] Browser profile #{number} is signed in again.")
         self._backup_storage_state()
         return True
+
+    @staticmethod
+    def kpage_profiles_signed_out():
+        """Profiles a download found signed out with nothing to sign in again with.
+
+        Auto purchase passes them over without opening their browser (that cost a browser start
+        and a sign-in attempt on every download). A profile leaves the list when Enter Browser is
+        opened on it, when an account is saved for it, or when a download sees it signed in.
+        """
+        try:
+            from noveldb.core.external import profile_accounts, saved_logins
+
+            base = _get_app_data_dir()
+            return profile_accounts.signed_out(base) - set(saved_logins.accounts('kpage', base))
+        except Exception:
+            return set()
 
     def kpage_open_episodes(self, chapters):
         """Of `chapters`, the viewer addresses the account of the profile in use already has open.

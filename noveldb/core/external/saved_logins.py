@@ -165,6 +165,42 @@ def remove(site: str, profile: int, base: Optional[str] = None) -> bool:
         return _write(data, base)
 
 
+def profile_deleted(profile: int, base: Optional[str] = None) -> None:
+    """Profile `profile` was deleted and the ones after it moved up one number: its saved
+    sign-in is forgotten and the later ones follow their profiles."""
+    profile = int(profile)
+    with _lock:
+        data = _load(base)
+        if not data:
+            return
+        for site in list(data):
+            entries = data[site] if isinstance(data[site], dict) else {}
+            kept = {}
+            for key in sorted(entries, key=lambda text: int(text) if str(text).isdigit() else 0):
+                entry = entries[key]
+                token = str(entry.get("secret") or "") if isinstance(entry, dict) else ""
+                number = int(key) if str(key).isdigit() else 0
+                if number == profile:
+                    _forget(token)
+                    continue
+                if number > profile:
+                    if not token.startswith("dpapi:"):
+                        # The keychain keeps the password under the profile's number: move it.
+                        password = _reveal(token)
+                        _forget(token)
+                        token = (_protect(f"{site}:{number - 1}", password) if password else None) or ""
+                        if not token:
+                            continue
+                        entry = dict(entry, secret=token)
+                    key = str(number - 1)
+                kept[key] = entry
+            if kept:
+                data[site] = kept
+            else:
+                data.pop(site)
+        _write(data, base)
+
+
 def get(site: str, profile: int, base: Optional[str] = None) -> Optional[Tuple[str, str]]:
     """`(account, password)` saved for `profile` on `site`, or None."""
     entry = (_load(base).get(site) or {}).get(str(int(profile)))

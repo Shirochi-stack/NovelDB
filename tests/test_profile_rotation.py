@@ -117,6 +117,22 @@ def test_a_profile_out_of_tickets_is_still_asked_what_it_has_open():
     assert sorted(fetched) == [3, 5]
 
 
+def test_a_profile_known_to_be_signed_out_is_passed_over_without_opening_it():
+    job = Rotating([1, 1, 1], low=4, high=6)
+    job._scraper.kpage_profiles_signed_out = lambda: {2, 9}  # 9: not one of this run's profiles
+    fetched = ExternalPipelineMixin._auto_purchase(job, _chapters(8), 0, [None] * 8)
+    assert 2 not in job.switches  # its browser is never started
+    assert job.bought == [(1, "c4"), (3, "c5")]  # c6: profiles 1 and 3 have used their tickets
+    assert sorted(fetched) == [3, 4]
+    assert any("#2 passed over: not signed in" in line for line in job.lines)
+
+    # The selected profile is in use already, whatever was noted about it.
+    job = Rotating([1, 1], selected=1, low=4, high=5)
+    job._scraper.kpage_profiles_signed_out = lambda: {1}
+    ExternalPipelineMixin._auto_purchase(job, _chapters(8), 0, [None] * 8)
+    assert job.bought == [(1, "c4"), (2, "c5")]
+
+
 def test_a_chapter_saved_with_another_accounts_sign_in_is_read_again(tmp_path):
     from tests.test_external_dialog_mpia import Setting, make_download_dialog
 

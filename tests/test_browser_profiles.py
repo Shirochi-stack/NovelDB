@@ -128,9 +128,10 @@ def test_new_profile_adds_one_and_selects_it(tmp_path, monkeypatch, qtbot):
     def entries():
         return [action.text() for action in window.download.profile_menu.actions() if not action.isSeparator()]
 
-    assert entries() == ["Profile #1", "New Profile"] and button.text() == "Profile #1"
-    window.download.profile_menu.actions()[-1].trigger()  # New Profile
-    assert entries() == ["Profile #1", "Profile #2", "New Profile"]
+    assert entries() == ["Profile #1", "New Profile", "Delete Profile #1..."] and button.text() == "Profile #1"
+    assert not window.download.delete_profile.isEnabled()  # the only profile stays
+    window.download.profile_menu.actions()[-2].trigger()  # New Profile
+    assert entries() == ["Profile #1", "Profile #2", "New Profile", "Delete Profile #2..."]
     assert button.text() == "Profile #2" and context.settings.sources.browser_profile == 2
     window.download.profile_menu.actions()[0].trigger()  # back to the first
     assert context.settings.sources.browser_profile == 1 and button.text() == "Profile #1"
@@ -162,3 +163,140 @@ def test_a_profile_shows_the_account_a_download_saw_in_it(tmp_path, monkeypatch,
     profile_accounts.remember(2, "a-very-long-account-name-that-would-push-the-row@example.com")
     page._refresh_profiles()
     assert page.profile.text().endswith("…)") and len(page.profile.text()) < 45
+
+def _profile_folders(data_dir, count):
+    """Profiles 1..count, each folder holding a file that says whose it is."""
+    for number in range(1, count + 1):
+        folder = data_dir / ("browser_data" if number == 1 else f"browser_data_{number}")
+        folder.mkdir()
+        (folder / "whose.txt").write_text(f"profile {number}")
+
+
+def _whose(data_dir, number):
+    folder = data_dir / ("browser_data" if number == 1 else f"browser_data_{number}")
+    return (folder / "whose.txt").read_text() if (folder / "whose.txt").exists() else None
+
+
+def test_a_profile_found_signed_out_is_noted_until_it_may_be_signed_in_again(data_dir):
+    from noveldb.core.external import profile_accounts
+
+    base = str(data_dir)
+    assert profile_accounts.signed_out(base) == set()
+    profile_accounts.set_signed_out(3, True, base)
+    profile_accounts.set_signed_out(5, True, base)
+    assert profile_accounts.signed_out(base) == {3, 5}
+    assert ExternalScraper.kpage_profiles_signed_out() == {3, 5}
+    profile_accounts.remember(3, "name@example.com", base)  # a download saw it signed in
+    assert profile_accounts.signed_out(base) == {5}
+    profile_accounts.set_signed_out(5, False, base)  # Enter Browser was opened on it
+    assert profile_accounts.signed_out(base) == set()
+    assert not (data_dir / "profile_signed_out.json").exists()
+
+
+def test_deleting_a_profile_removes_its_folder_and_moves_the_later_ones_up(data_dir):
+    from noveldb.core.external import profile_accounts, profiles, saved_logins
+
+    base = str(data_dir)
+    _profile_folders(data_dir, 4)
+    for number, account in ((1, "one"), (2, "two"), (4, "four")):
+        profile_accounts.remember(number, account, base)
+    profile_accounts.set_signed_out(3, True, base)
+    protected = saved_logins.available()
+    if protected:
+        saved_logins.save("kpage", 2, "two@example.com", "pw2", base)
+        saved_logins.save("kpage", 4, "four@example.com", "pw4", base)
+
+    profiles.delete(2, 4, base)
+    assert [_whose(data_dir, number) for number in (1, 2, 3, 4)] == ["profile 1", "profile 3", "profile 4", None]
+    assert not [name for name in os.listdir(base) if "moving" in name]  # nothing left set aside
+    assert profile_accounts.load(base) == {1: "one", 3: "four"}
+    assert profile_accounts.signed_out(base) == {2}  # the signed-out profile 3 is profile 2 now
+    if protected:
+        assert saved_logins.accounts("kpage", base) == {3: "four@example.com"}
+        assert saved_logins.get("kpage", 3, base) == ("four@example.com", "pw4")
+
+    profiles.delete(1, 3, base)  # the first profile: the next one takes the plain folder
+    assert [_whose(data_dir, number) for number in (1, 2, 3)] == ["profile 3", "profile 4", None]
+    assert profile_accounts.load(base) == {2: "four"}
+
+    with pytest.raises(ValueError):
+        profiles.delete(1, 1, base)  # the only profile stays
+    with pytest.raises(ValueError):
+        profiles.delete(5, 2, base)
+
+
+def test_deleting_the_first_profile_with_no_other_folder_leaves_a_fresh_one(data_dir):
+    from noveldb.core.external import profiles
+
+    _profile_folders(data_dir, 1)  # profile 2 exists in the settings but was never opened
+    profiles.delete(1, 2, str(data_dir))
+    assert _whose(data_dir, 1) is None
+    assert os.listdir(data_dir / "browser_data")  # not empty: an old build's folder is not copied in
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a folder with an open file can only not be moved on Windows")
+def test_a_profile_a_browser_has_open_is_not_deleted_and_nothing_moves(data_dir):
+    from noveldb.core.external import profile_accounts, profiles
+
+    base = str(data_dir)
+    _profile_folders(data_dir, 3)
+    profile_accounts.remember(3, "three", base)
+    with open(data_dir / "browser_data_3" / "whose.txt") as held:  # as a browser holds its files
+        with pytest.raises(profiles.ProfileInUse, match="#3"):
+            profiles.delete(2, 3, base)
+        assert held.read() == "profile 3"
+    assert [_whose(data_dir, number) for number in (1, 2, 3)] == ["profile 1", "profile 2", "profile 3"]
+    assert profile_accounts.load(base) == {3: "three"}
+    profiles.delete(2, 3, base)  # closed: it goes
+    assert [_whose(data_dir, number) for number in (1, 2, 3)] == ["profile 1", "profile 3", None]
+
+
+def test_the_profile_menu_deletes_the_selected_profile(data_dir, tmp_path_factory, monkeypatch, qtbot):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path_factory.mktemp("home")))
+    from PySide6.QtWidgets import QMessageBox
+
+    from noveldb.core.external import profile_accounts
+    from noveldb.qt.context import AppContext
+    from noveldb.qt.pages.download import DownloadPage
+
+    _profile_folders(data_dir, 3)
+    profile_accounts.remember(2, "two@example.com", str(data_dir))
+    profile_accounts.remember(3, "three@example.com", str(data_dir))
+    context = AppContext(start_workers=False)
+    context.update_settings(lambda s: replace(s, sources=replace(s.sources, browser_profiles=3, browser_profile=2)))
+    page = DownloadPage(context)
+    qtbot.addWidget(page)
+    page._refresh_profiles()
+    assert page.delete_profile.text() == "Delete Profile #2..." and page.delete_profile.isEnabled()
+
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: asked.append(args[2]) or QMessageBox.Cancel)
+    page.delete_profile.trigger()
+    assert "two@example.com" in asked[0] and "Profile #3 becomes #2" in asked[0]
+    assert context.settings.sources.browser_profiles == 3 and _whose(data_dir, 2) == "profile 2"  # Cancel: nothing
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.Yes)
+    page.delete_profile.trigger()
+    sources = context.settings.sources
+    assert (sources.browser_profiles, sources.browser_profile) == (2, 2)
+    assert [_whose(data_dir, number) for number in (1, 2, 3)] == ["profile 1", "profile 3", None]
+    assert page.profile.text() == "Profile #2 (three@example.com)"
+
+    # A download in progress uses the profiles: nothing is deleted then.
+    from noveldb.core.queue.model import RUNNING, Job
+
+    context.runner._jobs.append(Job("https://example.com/b", state=RUNNING))
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args: told.append(args[2]))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: pytest.fail("asked during a download"))
+    page.delete_profile.trigger()
+    assert "download" in told[0] and context.settings.sources.browser_profiles == 2
+    context.runner._jobs.clear()
+
+    # The last profile stays.
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.Yes)
+    page.delete_profile.trigger()
+    page._refresh_profiles()
+    assert context.settings.sources.browser_profiles == 1 and not page.delete_profile.isEnabled()
+    context._save_timer.stop()

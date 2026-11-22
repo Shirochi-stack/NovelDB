@@ -527,6 +527,62 @@ class DownloadPage(QWidget):
             action.triggered.connect(lambda _=False, n=number: self._profile_chosen(n))
         menu.addSeparator()
         menu.addAction("New Profile").triggered.connect(lambda _=False: self._profile_chosen(0))
+        # Deletes the selected profile (select another one first to delete that). The last
+        # profile stays: downloads always have one to use.
+        self.delete_profile = menu.addAction(f"Delete Profile #{current}...")
+        self.delete_profile.setEnabled(count > 1)
+        self.delete_profile.triggered.connect(lambda _=False: self._delete_profile())
+
+    def _delete_profile(self) -> None:
+        """Delete the selected profile: its browser data (the sign-ins) is removed and the
+        profiles after it move up one number."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from noveldb.core.external import profile_accounts, profiles
+
+        sources = self.context.settings.sources
+        count = max(1, sources.browser_profiles)
+        number = min(max(1, sources.browser_profile), count)
+        if count < 2:
+            return
+        browser = self.context.browser
+        entering = bool(getattr(getattr(browser, "_scraper", None), "_login_wait_active", False))
+        if entering or getattr(self, "_browser_opening", False) or any(job.active for job in self.context.runner.jobs):
+            QMessageBox.information(
+                self, "Delete profile",
+                ("Enter Browser is open." if entering else "A download is using the browser profiles.")
+                + " Delete the profile when it has finished.")
+            return
+        name = profile_accounts.label(number)
+        later = "" if number == count else (
+            f"\n\nProfile #{number + 1} becomes #{number}." if count == number + 1
+            else f"\n\nProfiles #{number + 1} to #{count} move up one number.")
+        answer = QMessageBox.question(
+            self, "Delete profile",
+            f"Delete {name}?\n\nIts sign-ins on every site are removed from this computer and cannot be "
+            f"brought back.{later}",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        if answer != QMessageBox.Yes:
+            return
+        if browser is not None:
+            # The downloader's own browser may still hold the profile of the last download.
+            try:
+                browser.submit(lambda scraper: scraper.cleanup()).result(timeout=15)
+            except Exception:
+                pass
+        try:
+            profiles.delete(number, count)
+        except profiles.ProfileInUse as error:
+            QMessageBox.information(self, "Delete profile",
+                                    f"Nothing was deleted: {error}. Close its browser window and try again.")
+            return
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Delete profile", f"The profile could not be deleted: {error}")
+            return
+        self.context.update_settings(lambda s: replace(s, sources=replace(
+            s.sources, browser_profiles=count - 1, browser_profile=min(number, count - 1))))
+        self.context.hub.log("", f"{name} deleted." + ("" if number == count else
+                                                      f" The profiles after it moved up one number."))
 
     def _upload(self) -> None:
         from noveldb.qt.uploads import upload_saved

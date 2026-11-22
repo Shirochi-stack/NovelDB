@@ -478,6 +478,19 @@ class ExternalPipelineMixin:
         spent = set()  # profiles with no ticket left for this book, or signed out
         open_episodes = getattr(self._scraper, 'kpage_open_episodes', None)
         asked = {selected}  # the selected profile's own episode list is where `wanted` came from
+        # Profiles already known to be signed out, with nothing to sign in again with, are not
+        # opened at all: each cost a browser start and a sign-in attempt on every download.
+        known_out = getattr(self._scraper, 'kpage_profiles_signed_out', None)
+        try:
+            known_out = {number for number in (known_out() if callable(known_out) else ())
+                         if 1 <= number <= count and number != selected}
+        except Exception:
+            known_out = set()
+        if known_out:
+            spent |= known_out
+            self._log(f"  Profile{'s' if len(known_out) > 1 else ''} "
+                      f"{', '.join(f'#{number}' for number in sorted(known_out))} passed over: not signed in "
+                      "(sign in with Enter Browser to use " + ("them" if len(known_out) > 1 else "it") + ").")
 
         def read(index, chapter, profile):
             data = self._scraper.parse_chapter(start + index, chapter, log_errors=False)
