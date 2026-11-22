@@ -23,6 +23,9 @@ import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 import weakref
 
+# A chapter whose images are still coming in says so this often.
+PROGRESS_SECONDS = 2.0
+
 HOST = "manga.bilibili.com"
 BASE = f"https://{HOST}"
 FINGERPRINT = "https://api.bilibili.com/x/frontend/finger/spi"
@@ -294,7 +297,7 @@ class BiliComicEngine:
         if not self.reading():
             try:
                 began = time.time()
-                result["images"] = self._save_pages(episode, addresses)
+                result["images"] = self._save_pages(episode, addresses, result["chapterName"] or str(episode))
                 # The pages come in while the other chapters are still read: say so, or the log shows
                 # chapter lines only and it looks as if no image is asked for until the last chapter.
                 size = sum(os.path.getsize(page["data"][len("file:"):]) for page in result["images"])
@@ -342,10 +345,27 @@ class BiliComicEngine:
                 weakref.finalize(self, shutil.rmtree, self._folder, True)
             return self._folder
 
-    def _save_pages(self, episode, addresses):
+    def _save_pages(self, episode, addresses, name=""):
         from concurrent.futures import ThreadPoolExecutor  # here: the phones' Python has no threads
 
         folder = self._pages_folder()
+        # Progress while a chapter's pages come in: a line every two seconds, so a slow chapter does
+        # not leave the log silent until its last page.
+        began = time.time()
+        progress = {"pages": 0, "bytes": 0, "said": began}
+        tick = threading.Lock()
+
+        def arrived(size):
+            with tick:
+                progress["pages"] += 1
+                progress["bytes"] += size
+                now = time.time()
+                if now - progress["said"] < PROGRESS_SECONDS or progress["pages"] >= len(addresses):
+                    return
+                progress["said"] = now
+                pages, megabytes = progress["pages"], progress["bytes"] / 1048576
+            self.log(f"    [Bilibili Manga] {name}: {pages}/{len(addresses)} pages "
+                     f"({megabytes:.1f} MB, {megabytes / max(now - began, 0.001):.1f} MB/s)")
 
         def one(item):
             number, url = item
@@ -361,6 +381,7 @@ class BiliComicEngine:
             path = os.path.join(folder, f"{episode}_{number:04d}.{kind}")
             with open(path, "wb") as handle:
                 handle.write(data)
+            arrived(len(data))
             return {"url": url, "name": f"page_{number:04d}.{kind}", "data": "file:" + path}
 
         with ThreadPoolExecutor(max_workers=max(1, min(self.workers, len(addresses)))) as pool:

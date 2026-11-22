@@ -69,7 +69,16 @@ class FolderWriter(override val format: OutputFormat) : BookWriter {
                 val finalExt = encoded?.fileExtension?.takeUnless { it == "bin" } ?: ext
                 target("%03d".format(Locale.ROOT, position), finalExt).writeBytes(encoded?.data ?: bytes)
             }
-            if (stitch != null && images.size > 1 && images.size == chapter.images.size) {
+            val encodingStitch = Writers.encodingChapterStitcher.takeIf { encode != null && options.exportStitchHeight != 0 }
+            if (stitch != null && encodingStitch != null && encode != null && images.size > 1 && images.size == chapter.images.size) {
+                // The strips come out encoded: written where they belong, with no PNG in between.
+                var index = 0
+                encodingStitch(images.map { it.second to it.third }, options.exportStitchHeight, encode) { ext, multiple ->
+                    ensureActive()
+                    if (multiple) useChapterFolder()
+                    target("%03d".format(Locale.ROOT, ++index), ext)
+                }
+            } else if (stitch != null && images.size > 1 && images.size == chapter.images.size) {
                 var index = 0
                 val strips = mutableListOf<File>()
                 stitch(images.map { it.second to it.third }, options.exportStitchHeight) { ext, multiple ->

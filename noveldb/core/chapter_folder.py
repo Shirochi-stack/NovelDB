@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import html
 import io
+import os
 import re
 import shutil
 import struct
 import time
 import zlib
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from functools import partial
 from itertools import chain, islice
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -359,9 +362,18 @@ def _write_full_strip(path, pages, stopped=None):
     return True
 
 
-def stitch_panels(pages, max_height=16_000, *, compression=None, stopped=None):
-    """Combine adjacent slices within a bounded image size. `stopped` is called before every strip
-    and page (it raises to end the stitching)."""
+def stitch_workers():
+    """How many strips of a chapter are rendered at once. Encoding a tall strip is nearly all of the
+    stitching time (WebP: over a second each), and it runs outside the interpreter lock, so strips
+    side by side are that many times faster. Each one holds its canvas (up to about 75 MB) while it
+    is rendered, hence the small number."""
+    return min(4, max(1, (os.cpu_count() or 2) // 2))
+
+
+def stitch_panels(pages, max_height=16_000, *, compression=None, stopped=None, workers=None):
+    """Combine adjacent slices within a bounded image size, in order. `stopped` is called before
+    every strip and page (it raises to end the stitching). `workers`: strips rendered at once
+    (`stitch_workers()` by default); one renders them as they are asked for."""
     from PIL import Image
 
     def render(group, width, height):
@@ -394,24 +406,52 @@ def stitch_panels(pages, max_height=16_000, *, compression=None, stopped=None):
         except (OSError, ValueError, MemoryError):
             return [_compress_panel(page, compression) for page, _ in group]
 
-    group = []
-    width = height = 0
-    for page in pages:
-        try:
-            with Image.open(io.BytesIO(page[1])) as image:
-                w, h = image.size
-        except (OSError, ValueError, Image.DecompressionBombError):
-            w, h = 0, 0
-        limit = min(max_height, 24_000_000 // max(width, w, 1))
-        if group and (w <= 0 or h <= 0 or height + h > limit):
-            yield from render(group, width, height)
-            group, width, height = [], 0, 0
-            limit = min(max_height, 24_000_000 // max(w, 1))
-        if w <= 0 or h <= 0 or h > limit:
-            yield _compress_panel(page, compression)
-            continue
-        width = max(width, w)
-        group.append((page, h))
-        height += h
-    if group:
-        yield from render(group, width, height)
+    def single(page):
+        if stopped:
+            stopped()
+        return [_compress_panel(page, compression)]
+
+    def strips():
+        """The strips to make, in order, each as a call that returns its files."""
+        group = []
+        width = height = 0
+        for page in pages:
+            try:
+                with Image.open(io.BytesIO(page[1])) as image:
+                    w, h = image.size
+            except (OSError, ValueError, Image.DecompressionBombError):
+                w, h = 0, 0
+            limit = min(max_height, 24_000_000 // max(width, w, 1))
+            if group and (w <= 0 or h <= 0 or height + h > limit):
+                yield partial(render, group, width, height)
+                group, width, height = [], 0, 0
+                limit = min(max_height, 24_000_000 // max(w, 1))
+            if w <= 0 or h <= 0 or h > limit:
+                yield partial(single, page)
+                continue
+            width = max(width, w)
+            group.append((page, h))
+            height += h
+        if group:
+            yield partial(render, group, width, height)
+
+    workers = stitch_workers() if workers is None else max(1, workers)
+    if workers == 1:
+        for strip in strips():
+            yield from strip()
+        return
+    # A few strips ahead of the one being written, never the whole chapter: a strip that is done waits
+    # as its (compressed) file, one in the works holds its canvas.
+    pool = ThreadPoolExecutor(max_workers=workers)
+    waiting = deque()
+    try:
+        for strip in strips():
+            waiting.append(pool.submit(strip))
+            if len(waiting) >= workers * 2:
+                yield from waiting.popleft().result()
+        while waiting:
+            yield from waiting.popleft().result()
+    finally:
+        # A Stop (or a failed strip) ends here: the strips not started are dropped, the ones in the
+        # works end at their own stop check.
+        pool.shutdown(wait=True, cancel_futures=True)

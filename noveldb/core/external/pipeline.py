@@ -1067,12 +1067,18 @@ class ExternalPipelineMixin:
                             pending_chapter_logs.clear()
 
                 def chapter_completed(batch_index, data):
+                    # The moment a chapter is read, not when its whole batch is: with as many
+                    # threads as chapters, nothing was downloaded or stitched until the last one.
+                    if isinstance(data, dict) and self._downloading:
+                        numbered(batch_indices[batch_index], data)
+                        ExternalPipelineMixin._offer_read_chapter(self, batch_indices[batch_index], data)
                     if checkpoint_result(batch_indices[batch_index], data, cache_images):
                         saved_in_batch.add(batch_index)
                     if log_on_success:
                         log_chapter_success(batch_index, data)
 
-                if log_on_success or checkpoint is not None:
+                if (log_on_success or checkpoint is not None or getattr(self, "_kpage_images", None)
+                        or getattr(self, "_early_chapters", None)):
                     batch_options['success_callback'] = chapter_completed
                 if interval_max_supplied:
                     batch_options['interval_max'] = interval_max

@@ -512,8 +512,8 @@ public struct DownloadPipeline: Sendable {
         let timings = ChapterTimings()
         context.onChapterTiming = { ref, seconds in timings.record(ref.id, seconds) }
         // An image a source downloads itself while reading a chapter gets its log line as it arrives.
-        context.onImage = { ref, position, filename, bytes, seconds in
-            prefetch?.arrived(ref, position: position, filename: filename, bytes: bytes, seconds: seconds)
+        context.onImage = { ref, position, total, filename, bytes, seconds in
+            prefetch?.arrived(ref, position: position, total: total, filename: filename, bytes: bytes, seconds: seconds)
         }
         context.onChapter = { result in
             prefetch?.offer(result)

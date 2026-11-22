@@ -11,6 +11,9 @@ from threading import Lock, local
 
 import requests
 
+# A chapter whose images are still coming in says so this often.
+PROGRESS_SECONDS = 2.0
+
 # The export step's own image requests carry this (its sessions are made after the chapters).
 _AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
           "Chrome/120.0.0.0 Safari/537.36")
@@ -65,6 +68,7 @@ class _Chapter:
         self.arrived = 0
         self.size = 0
         self.began = time.time()
+        self.said = self.began
 
 
 class ImageLookahead:
@@ -155,13 +159,25 @@ class ImageLookahead:
                     size = path.stat().st_size
                 except OSError:
                     size = 0
+        now = time.time()
         with self._lock:
             group.left -= 1
             if size:
                 group.arrived += 1
                 group.size += size
             last = group.left == 0
-        if not last or not group.arrived or self._job._download_cancelled:
+            # Progress while a chapter's images come in: a line every two seconds, so a slow chapter
+            # does not leave the log silent until its last image.
+            say = not last and size and now - group.said >= PROGRESS_SECONDS
+            if say:
+                group.said = now
+            arrived, megabytes = group.arrived, group.size / 1048576
+        if self._job._download_cancelled:
+            return
+        if say:
+            self._job._log(f"    Images of {group.name or 'a chapter'}: {arrived}/{group.total} "
+                           f"({megabytes:.1f} MB, {megabytes / max(now - group.began, 0.001):.1f} MB/s)")
+        if not last or not group.arrived:
             return
         megabytes = group.size / 1048576
         took = max(time.time() - group.began, 0.001)

@@ -65,8 +65,9 @@ class BiliComicAdapterTest {
             // The pipeline's store: the bytes go to disk and leave the chapter.
             if (result is ChapterResult.Content) ChapterResult.Content(result.content.copy(images = result.content.images.map { it.copy(data = null) }))
             else result
-        }, onImage = { chapter, position, filename, bytes, seconds ->
+        }, onImage = { chapter, position, total, filename, bytes, seconds ->
             assertTrue(seconds >= 0)
+            assertEquals(2, total)
             arrived += "${chapter.index}/$position $filename $bytes"
         })
         val result = BiliComicAdapter().withPages(chapter("a.jpg", "b.jpg"), context)

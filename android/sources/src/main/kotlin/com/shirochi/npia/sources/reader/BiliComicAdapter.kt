@@ -69,7 +69,7 @@ internal class BiliComicAdapter : SourceAdapter {
                             val began = System.nanoTime()
                             // Reported as it arrives: the log shows the pages coming in while the chapters are read.
                             page(image.url, context)?.also {
-                                context.onImage(result.ref, index, image.filename, it.size, (System.nanoTime() - began) / 1e9)
+                                context.onImage(result.ref, index, images.size, image.filename, it.size, (System.nanoTime() - began) / 1e9)
                             }
                         }
                     }

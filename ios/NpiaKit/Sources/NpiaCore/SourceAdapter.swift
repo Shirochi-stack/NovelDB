@@ -12,10 +12,11 @@ public struct SourceContext: Sendable {
     public var onChapter: @Sendable (ChapterResult) -> Void
     public var onChapterTiming: @Sendable (ChapterRef, TimeInterval) -> Void
     /// A source that downloads a chapter's images itself (addresses that run out before the image step)
-    /// reports each one as it arrives, from any task: its position in the chapter (from 0), file name,
-    /// size and the seconds it took. The pipeline writes the image's log line then, while the chapters
-    /// are still being read; without the report the image shows up only at the image step.
-    public var onImage: @Sendable (ChapterRef, Int, String, Int, TimeInterval) -> Void = { _, _, _, _, _ in }
+    /// reports each one as it arrives, from any task: its position in the chapter (from 0), how many
+    /// images the chapter has, the file name, size and the seconds it took. The pipeline writes the
+    /// image's log line then (and the chapter's progress lines), while the chapters are still being
+    /// read; without the report the image shows up only at the image step.
+    public var onImage: @Sendable (ChapterRef, Int, Int, String, Int, TimeInterval) -> Void = { _, _, _, _, _, _ in }
 
     public init(http: any HTTPFetching, web: any WebEngineProviding, secrets: any SecretStore, settings: AppSettings,
                 logger: any JobLogging = NullLogger(), onChapter: @escaping @Sendable (ChapterResult) -> Void = { _ in }) {

@@ -573,7 +573,7 @@ class DownloadPipeline(
         return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger,
             onChapterStarted = { ref -> if (base.settings.shared.chapterTiming) starts[ref.id] = System.nanoTime() },
             // An image a source downloads itself while reading a chapter gets its log line as it arrives.
-            onImage = { ref, position, filename, bytes, seconds -> prefetch?.arrived(ref, position, filename, bytes, seconds) },
+            onImage = { ref, position, total, filename, bytes, seconds -> prefetch?.arrived(ref, position, total, filename, bytes, seconds) },
             keep = store::keep, onChapter = { result ->
             onResult(result)
             onChapter?.let { publish ->

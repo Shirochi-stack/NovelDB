@@ -196,3 +196,95 @@ def test_a_stop_while_chapters_are_read_ends_the_early_stitching(tmp_path):
         assert sum("Stitching chapter" in line for line in messages(job)) == 1
     finally:
         early.close()
+
+def test_a_chapters_images_report_their_progress_while_they_come_in(monkeypatch):
+    # Before, the log was silent from one chapter line to the next, however long its images took.
+    from noveldb.core.engines import bilicomic
+    from noveldb.core.external import kpage_images
+
+    monkeypatch.setattr(kpage_images, "PROGRESS_SECONDS", 0)
+    monkeypatch.setattr(bilicomic, "PROGRESS_SECONDS", 0)
+    lines = []
+
+    class Job:
+        _download_cancelled = False
+
+        def _log(self, message):
+            lines.append(message)
+
+        def _copy_browser_cookies_to_session(self, session):
+            pass
+
+        def _download_image_python(self, url, **options):
+            return b"x" * 1048576
+
+    lookahead = ImageLookahead(Job(), "https://example.test/book", 1)
+    try:
+        lookahead.offer({"chapterName": "Episode 7",
+                         "images": [{"url": f"https://example.test/{number}.png"} for number in range(4)]})
+        assert all(lookahead.read(f"https://example.test/{number}.png") for number in range(4))
+    finally:
+        lookahead.close()
+    assert [line for line in lines if "/4 (" in line] == [
+        f"    Images of Episode 7: {count}/4 ({count}.0 MB, " + line.split(", ")[-1]
+        for count, line in zip((1, 2, 3), [line for line in lines if "/4 (" in line])]
+    assert len([line for line in lines if "/4 (" in line]) == 3
+    assert lines[-1].startswith("  Images of Episode 7: 4 downloaded (4.0 MB")
+
+    # Bilibili Manga, whose pages come in with the chapter.
+    said = []
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 2000
+    engine = bilicomic.BiliComicEngine(fetch=None, log=said.append, download=lambda url: jpeg, workers=1)
+    try:
+        pages = engine._save_pages(9, [f"https://example.test/{number}.jpg" for number in range(3)], "03 Name")
+    finally:
+        engine.close()
+    assert len(pages) == 3
+    assert [line.split(" (")[0] for line in said] == ["    [Bilibili Manga] 03 Name: 1/3 pages",
+                                                      "    [Bilibili Manga] 03 Name: 2/3 pages"]
+
+
+def test_a_fast_chapter_gets_no_progress_lines():
+    lines = []
+
+    class Job:
+        _download_cancelled = False
+
+        def _log(self, message):
+            lines.append(message)
+
+        def _copy_browser_cookies_to_session(self, session):
+            pass
+
+        def _download_image_python(self, url, **options):
+            return b"x" * 1024
+
+    lookahead = ImageLookahead(Job(), "https://example.test/book", 2)
+    try:
+        lookahead.offer({"chapterName": "Quick", "images": [{"url": f"https://example.test/{n}.png"} for n in range(6)]})
+        assert all(lookahead.read(f"https://example.test/{n}.png") for n in range(6))
+    finally:
+        lookahead.close()
+    assert len(lines) == 1 and lines[0].startswith("  Images of Quick: 6 downloaded")
+
+def test_strips_rendered_side_by_side_come_out_in_order_and_unchanged():
+    from noveldb.core.chapter_folder import ExportStopped, stitch_panels, stitch_workers
+
+    assert 1 <= stitch_workers() <= 4
+    colors = ["red", "green", "blue", "white", "black", "yellow", "purple", "orange", "pink", "gray"]
+    pages = [("png", page(color, size=(100, 400))) for color in colors]  # two pages a strip at 800
+    one = list(stitch_panels(iter(pages), 800, compression=("JPEG", 80), workers=1))
+    several = list(stitch_panels(iter(pages), 800, compression=("JPEG", 80), workers=4))
+    assert len(one) == 5 and several == one
+    # A stop reaches the caller from whichever strip meets it, and nothing is left running.
+    import pytest
+
+    calls = []
+
+    def stopped():
+        calls.append(1)
+        if len(calls) > 4:
+            raise ExportStopped()
+
+    with pytest.raises(ExportStopped):
+        list(stitch_panels(iter(pages), 800, compression=("JPEG", 80), stopped=stopped, workers=3))

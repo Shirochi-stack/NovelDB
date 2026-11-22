@@ -72,7 +72,8 @@ public struct FolderWriter: BookWriter {
             }
             func save(_ page: Page, position: Int) throws {
                 try Task.checkCancellation()
-                let encoded = try processor?.process(page.data)
+                // A stitched strip comes out encoded already (straight from memory, no PNG in between).
+                let encoded = page.encoded ? nil : try processor?.process(page.data)
                 let ext = encoded.flatMap { $0.fileExtension == "bin" ? nil : $0.fileExtension } ?? page.ext
                 try (encoded?.data ?? page.data).write(to: target(String(format: "%03d", position), ext))
             }
@@ -90,7 +91,7 @@ public struct FolderWriter: BookWriter {
                         index += 1
                         try save(page, position: index)
                     }
-                    try FolderWriter.stitch(images, maxHeight: options.exportStitchHeight) { page in
+                    try FolderWriter.stitch(images, maxHeight: options.exportStitchHeight, processor: processor) { page in
                         if let pending = first {
                             try useChapterFolder()
                             try saveStrip(pending)
@@ -163,6 +164,8 @@ public struct FolderWriter: BookWriter {
         let number: Int
         let ext: String
         let data: Data
+        /// True for a strip that is already encoded as chapter images are: it is written as it is.
+        var encoded = false
     }
 
     private static func uniqueURL(in directory: URL, stem: String, suffix: String) -> URL {
@@ -175,12 +178,12 @@ public struct FolderWriter: BookWriter {
         return url
     }
 
-    private static func stitch(_ images: [Page], maxHeight: Int, emit: (Page) throws -> Void) throws {
+    private static func stitch(_ images: [Page], maxHeight: Int, processor: ImageProcessor? = nil, emit: (Page) throws -> Void) throws {
         var group: [(Page, Int)] = []
         var width = 0
         var height = 0
         func flush() throws {
-            if group.count > 1, let strip = autoreleasepool(invoking: { render(group, width: width, height: height) }) {
+            if group.count > 1, let strip = autoreleasepool(invoking: { render(group, width: width, height: height, processor: processor) }) {
                 try emit(strip)
             } else {
                 for (page, _) in group { try emit(page) }
@@ -211,7 +214,10 @@ public struct FolderWriter: BookWriter {
         try flush()
     }
 
-    private static func render(_ group: [(Page, Int)], width: Int, height: Int) -> Page? {
+    /// One strip of `group`. With a `processor` it is encoded as chapter images are, straight from
+    /// memory: a strip used to be saved as a PNG, then decoded and encoded again, which was most of
+    /// the stitching time. Android's `ChapterStrips` does the same.
+    private static func render(_ group: [(Page, Int)], width: Int, height: Int, processor: ImageProcessor? = nil) -> Page? {
         guard let canvas = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
         canvas.setFillColor(CGColor(gray: 1, alpha: 1))
@@ -228,9 +234,12 @@ public struct FolderWriter: BookWriter {
             }
             if !drawn { return nil }
         }
+        guard let image = canvas.makeImage() else { return nil }
+        if let encoded = processor?.encodeChapterImage(image), encoded.fileExtension != "bin" {
+            return Page(number: group[0].0.number, ext: encoded.fileExtension, data: encoded.data, encoded: true)
+        }
         let bytes = NSMutableData()
-        guard let image = canvas.makeImage(),
-              let dest = CGImageDestinationCreateWithData(bytes, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        guard let dest = CGImageDestinationCreateWithData(bytes, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, image, nil)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return Page(number: group[0].0.number, ext: "png", data: bytes as Data)

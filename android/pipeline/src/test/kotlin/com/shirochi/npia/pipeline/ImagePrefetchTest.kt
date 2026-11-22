@@ -153,9 +153,12 @@ class ImagePrefetchTest {
             // A source that fetches a chapter's pages itself (Bilibili Manga): it reports each page, then
             // hands the chapter over with the bytes.
             val content = chapter(3, image("p1.png", png), image("p2.png", png + 1))
-            prefetch.arrived(content.ref, 0, "images/p1.png", png.size, 0.5)
-            prefetch.arrived(content.ref, 1, "images/p2.png", png.size + 1, 0.0)
-            assertEquals(listOf("  ✓ [3] Image #1 [Ch 3]: 40 B [80 B/s]", "  ✓ [3] Image #2 [Ch 3]: 41 B [40.0 KB/s]"), lines.toList())
+            prefetch.arrived(content.ref, 0, 2, "images/p1.png", png.size, 0.5)
+            prefetch.arrived(content.ref, 1, 2, "images/p2.png", png.size + 1, 0.0)
+            assertEquals(listOf("  ✓ [3] Image #1 [Ch 3]: 40 B [80 B/s]", "  ✓ [3] Image #2 [Ch 3]: 41 B [40.0 KB/s]"),
+                lines.filter { "✓" in it })
+            // The chapter's own line, once its last image is in.
+            assertTrue(lines.toString(), lines.last().startsWith("  Images of chapter 3: 2 downloaded (81 B, "))
             assertEquals(2, prefetch.started)
             val kept = store.keep(ChapterResult.Content(content)) as ChapterResult.Content
             prefetch.offer(kept)

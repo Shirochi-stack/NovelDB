@@ -5,11 +5,16 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
+import com.shirochi.npia.core.ImageProcessing
+import com.shirochi.npia.images.AndroidImageProcessor
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.io.OutputStream
 import java.nio.ByteBuffer
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.zip.CRC32
 import java.util.zip.Deflater
 import java.util.zip.DeflaterOutputStream
@@ -25,6 +30,83 @@ internal object ChapterStrips {
         val multiple = strips.hasNext()
         target(firstExtension, multiple).writeBytes(firstData)
         for ((extension, data) in strips) target(extension, multiple).writeBytes(data)
+    }
+
+    /**
+     * The same strips, each encoded as chapter images are (`processor`), straight from the bitmap. A
+     * strip used to be saved as a PNG, read back, decoded and encoded again: most of the stitching time.
+     * Two strips are rendered at a time where the device has the cores for it; they are written in order.
+     */
+    fun writeEncoded(pages: List<Pair<String, ByteArray>>, maxHeight: Int, processor: ImageProcessing, target: (String, Boolean) -> File) {
+        val jobs = strips(pages, maxHeight, processor)
+        if (jobs.isEmpty()) return
+        val workers = if (Runtime.getRuntime().availableProcessors() >= 4) 2 else 1
+        val pool = if (workers > 1 && jobs.size > 1) Executors.newFixedThreadPool(workers) else null
+        try {
+            val results = sequence {
+                if (pool == null) {
+                    for (job in jobs) yieldAll(job())
+                } else {
+                    // One strip ahead of the one being written, not the whole chapter.
+                    val waiting = ArrayDeque<Future<List<Pair<String, ByteArray>>>>()
+                    for (job in jobs) {
+                        waiting += pool.submit(Callable { job() })
+                        if (waiting.size > workers) yieldAll(waiting.removeFirst().get())
+                    }
+                    while (waiting.isNotEmpty()) yieldAll(waiting.removeFirst().get())
+                }
+            }.iterator()
+            if (!results.hasNext()) return
+            val (firstExtension, firstData) = results.next()
+            val multiple = results.hasNext()
+            target(firstExtension, multiple).writeBytes(firstData)
+            for ((extension, data) in results) target(extension, multiple).writeBytes(data)
+        } finally {
+            // A stop (the target refuses) leaves here: nothing more is started.
+            pool?.shutdownNow()
+        }
+    }
+
+    /** A page that is not stitched, as the processor encodes chapter images. */
+    private fun processed(page: Pair<String, ByteArray>, processor: ImageProcessing): Pair<String, ByteArray> {
+        val encoded = runCatching { processor.process(page.second) }.getOrNull() ?: return page
+        return (encoded.fileExtension.takeUnless { it == "bin" } ?: page.first) to encoded.data
+    }
+
+    /** The strips to make, in order, each as a call that returns its files. */
+    private fun strips(pages: List<Pair<String, ByteArray>>, maxHeight: Int, processor: ImageProcessing): List<() -> List<Pair<String, ByteArray>>> {
+        val jobs = mutableListOf<() -> List<Pair<String, ByteArray>>>()
+        var group = mutableListOf<Panel>()
+        var width = 0
+        var height = 0
+        fun flush() {
+            if (group.isEmpty()) return
+            val panels = group.toList()
+            val (w, h) = width to height
+            jobs += { render(panels, w, h, processor) }
+            group = mutableListOf()
+            width = 0
+            height = 0
+        }
+        for (page in pages) {
+            val dimensions = bounds(page.second)
+            val w = dimensions.outWidth
+            val h = dimensions.outHeight
+            var limit = minOf(maxHeight, 24_000_000 / maxOf(1, width, w))
+            if (group.isNotEmpty() && (w <= 0 || h <= 0 || height + h > limit)) {
+                flush()
+                limit = minOf(maxHeight, 24_000_000 / maxOf(1, w))
+            }
+            if (w <= 0 || h <= 0 || h > limit) {
+                jobs += { listOf(processed(page, processor)) }
+                continue
+            }
+            width = maxOf(width, w)
+            height += h
+            group += Panel(page, h)
+        }
+        flush()
+        return jobs
     }
 
     private fun bounds(data: ByteArray) = BitmapFactory.Options().apply {
@@ -126,10 +208,15 @@ internal object ChapterStrips {
         writeInt(crc.value.toInt())
     }
 
-    private fun render(group: List<Panel>, width: Int, height: Int): List<Pair<String, ByteArray>> {
-        val originals = group.map { it.image }
+    private fun render(group: List<Panel>, width: Int, height: Int, processor: ImageProcessing? = null): List<Pair<String, ByteArray>> {
+        val originals = if (processor == null) group.map { it.image } else group.map { processed(it.image, processor) }
         if (group.size == 1) return originals
-        val strip = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        // Out of memory for the strip: its pages are kept as they are instead.
+        val strip = try {
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        } catch (e: OutOfMemoryError) {
+            return originals
+        }
         try {
             val canvas = Canvas(strip).apply { drawColor(Color.WHITE) }
             var top = 0
@@ -143,8 +230,17 @@ internal object ChapterStrips {
                 }
                 top += size
             }
+            if (processor != null) {
+                // Encoded as chapter images are, straight from the bitmap.
+                (processor as? AndroidImageProcessor)?.encodeBitmap(strip)?.takeUnless { it.fileExtension == "bin" }
+                    ?.let { return listOf(it.fileExtension to it.data) }
+            }
             val encoded = ByteArrayOutputStream()
-            return if (strip.compress(Bitmap.CompressFormat.PNG, 100, encoded)) listOf("png" to encoded.toByteArray()) else originals
+            if (!strip.compress(Bitmap.CompressFormat.PNG, 100, encoded)) return originals
+            val png = "png" to encoded.toByteArray()
+            return listOf(if (processor == null) png else processed(png, processor))
+        } catch (e: OutOfMemoryError) {
+            return originals
         } finally {
             strip.recycle()
         }

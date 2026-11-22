@@ -204,6 +204,21 @@ final class ImageProcessorTests: XCTestCase {
         XCTAssertEqual(try processor { $0.maxWidth = 8 }.process(gif).data, gif)
     }
 
+    func testAPictureInMemoryIsEncodedAsChapterImagesAre() throws {
+        // A stitched strip: encoded straight from memory, in the chosen format and width.
+        let image = TestImages.cgImage(width: 200, height: 100)
+        let webp = try XCTUnwrap(processor { $0.maxWidth = 100 }.encodeChapterImage(image))
+        XCTAssertEqual(webp.fileExtension, "webp")
+        XCTAssertEqual(ImageProcessor.pixelSize(webp.data)?.width, 100)
+        XCTAssertEqual(ImageProcessor.pixelSize(webp.data)?.height, 50)
+        let jpeg = try XCTUnwrap(processor { $0.format = .jpeg }.encodeChapterImage(image))
+        XCTAssertEqual(jpeg.fileExtension, "jpg")
+        XCTAssertEqual(ImageProcessor.pixelSize(jpeg.data)?.width, 200)
+        // Not here: the caller keeps its own encoding.
+        XCTAssertNil(processor { $0.format = .original }.encodeChapterImage(image))
+        XCTAssertNil(processor { $0.compress = false }.encodeChapterImage(image))
+    }
+
     func testCoverSettings() throws {
         let data = TestImages.png()
         let untouched = try processor { $0.compressCover = false }.process(data, isCover: true)

@@ -36,12 +36,60 @@ final class ImagePrefetch: @unchecked Sendable {
 
     /// An image its source downloaded itself, as part of reading the chapter (`SourceContext.onImage`):
     /// its line is written now, like the ones downloaded here, and the image step does not repeat it.
-    func arrived(_ ref: ChapterRef, position: Int, filename: String, bytes: Int, seconds: TimeInterval) {
+    func arrived(_ ref: ChapterRef, position: Int, total: Int, filename: String, bytes: Int, seconds: TimeInterval) {
         lock.withLock {
             known.insert(filename)
             arrived.insert(filename)
         }
         logger.log(.debug, Self.line(Self.label(ref, position: position), bytes: bytes, seconds: seconds))
+        count(ref, total: total, bytes: bytes)
+    }
+
+    /// One chapter's images as they come in, for its progress lines.
+    private struct Progress {
+        var total: Int
+        var done = 0
+        var missed = 0
+        var bytes = 0
+        var began = Date()
+        var said = Date()
+    }
+
+    private var progress: [String: Progress] = [:]
+    /// A chapter whose images are still coming in says so this often.
+    private static let progressSeconds: TimeInterval = 2
+
+    /// Counts one image of `ref` (`bytes` nil: it could not be downloaded here). While a chapter's
+    /// images come in, a line every two seconds says how far they are, and one more when the last is
+    /// in: without them the log is silent from one chapter line to the next, however long the images
+    /// take. `total`: how many images the chapter has here, when the caller knows (zero: as `offer`
+    /// counted). Android's `ImagePrefetch` writes the same lines.
+    private func count(_ ref: ChapterRef, total: Int, bytes: Int?) {
+        let now = Date()
+        let name = (ref.isNotice ? "notice " : "chapter ") + String(ref.index)
+        let line = lock.withLock { () -> String? in
+            var state = progress[ref.id] ?? Progress(total: total)
+            // The chapter is read again (a page failed): counted from the start.
+            if total > 0, state.done + state.missed >= state.total { state = Progress(total: total) }
+            if total > 0 { state.total = total }
+            if let bytes {
+                state.done += 1
+                state.bytes += bytes
+            } else {
+                state.missed += 1
+            }
+            let last = state.done + state.missed >= state.total
+            let quiet = last ? state.done == 0 : (bytes == nil || now.timeIntervalSince(state.said) < Self.progressSeconds)
+            if !quiet { state.said = now }
+            progress[ref.id] = state
+            if quiet { return nil }
+            let seconds = max(now.timeIntervalSince(state.began), 0.001)
+            let size = ImageStage.formatSize(state.bytes) + ", " + ImageStage.formatSize(Int(Double(state.bytes) / seconds)) + "/s"
+            if !last { return "  Images of \(name): \(state.done)/\(state.total) (\(size))" }
+            return "  Images of \(name): \(state.done) downloaded (\(size))"
+                + (state.missed > 0 ? "; \(state.missed) left for the image step" : "")
+        }
+        if let line { logger.log(.info, line) }
     }
 
     /// The image step's label for an image's log line: "[12] Image #3 [Chapter title]".
@@ -61,16 +109,21 @@ final class ImagePrefetch: @unchecked Sendable {
         let page = content.ref.url
         lock.withLock {
             guard !closed else { return }
+            let ref = content.ref
+            var started = 0
             for (position, image) in content.images.enumerated() {
                 guard image.data == nil, !known.contains(image.filename),
                       let scheme = image.url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { continue }
                 known.insert(image.filename)
-                let label = Self.label(content.ref, position: position)
+                started += 1
+                let label = Self.label(ref, position: position)
                 tasks[image.filename] = Task { [weak self] in
                     guard let self else { return nil }
-                    return await self.fetch(image, page: page, label: label)
+                    return await self.fetch(image, page: page, label: label, ref: ref)
                 }
             }
+            // How many of the chapter's images are on their way here: its progress lines need the total.
+            if started > 0 { progress[ref.id] = Progress(total: started) }
         }
     }
 
@@ -92,10 +145,12 @@ final class ImagePrefetch: @unchecked Sendable {
         for task in open { task.cancel() }
     }
 
-    private func fetch(_ image: ImageRef, page: URL?, label: String) async -> Data? {
+    private func fetch(_ image: ImageRef, page: URL?, label: String, ref: ChapterRef) async -> Data? {
         await gate.acquire()
-        let data = Task.isCancelled ? nil : await download(image, page: page, label: label)
+        let cancelled = Task.isCancelled
+        let data = cancelled ? nil : await download(image, page: page, label: label)
         await gate.release()
+        if !cancelled && !Task.isCancelled { count(ref, total: 0, bytes: data?.count) }
         return data
     }
 

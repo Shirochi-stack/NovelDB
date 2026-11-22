@@ -58,8 +58,9 @@ final class BiliComicAdapterTests: XCTestCase {
         http.on("b.jpg", data: png)
         let arrived = CollectingLogger()
         var context = makeContext(http)
-        context.onImage = { ref, position, filename, bytes, _ in
+        context.onImage = { ref, position, total, filename, bytes, _ in
             arrived.log(.debug, "\(ref.index)/\(position) \(filename) \(bytes)")
+            XCTAssertEqual(total, 2)
         }
         let result = try await BiliComicPages.attach(to: chapter(["a.jpg", "b.jpg"]), context: context)
         // Each page is reported as it arrives, so its log line is written while the chapters are read.

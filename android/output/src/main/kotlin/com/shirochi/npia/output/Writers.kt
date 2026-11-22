@@ -36,6 +36,14 @@ object Writers {
     @Volatile var pdfWriter: BookWriter = PendingWriter(OutputFormat.PDF)
     @Volatile var chapterStitcher: ((List<Pair<String, ByteArray>>, Int, (String, Boolean) -> File) -> Unit)? = null
 
+    /**
+     * Like `chapterStitcher`, for strips that are compressed after stitching: each strip is encoded as
+     * chapter images are, straight from memory. Without it a strip is saved as a PNG, read back, decoded
+     * and encoded again, which was most of the stitching time on a phone.
+     */
+    @Volatile var encodingChapterStitcher:
+        ((List<Pair<String, ByteArray>>, Int, com.shirochi.npia.core.ImageProcessing, (String, Boolean) -> File) -> Unit)? = null
+
     fun writer(format: OutputFormat): BookWriter = when (format) {
         OutputFormat.EPUB -> EpubWriter()
         OutputFormat.TXT -> TxtWriter()

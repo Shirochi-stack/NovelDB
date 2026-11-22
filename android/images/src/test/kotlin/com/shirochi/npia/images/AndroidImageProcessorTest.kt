@@ -76,6 +76,22 @@ class AndroidImageProcessorTest {
     }
 
     @Test
+    fun aBitmapInMemoryIsEncodedAsChapterImagesAre() {
+        // A stitched strip: encoded straight from the bitmap, in the chosen format and width.
+        val strip = bitmap(200, 100, noise = true)
+        val out = AndroidImageProcessor(ImageSettings(maxWidth = 100, format = ImageFormat.JPEG)).encodeBitmap(strip)!!
+        assertEquals("jpg", out.fileExtension)
+        val decoded = BitmapFactory.decodeByteArray(out.data, 0, out.data.size)
+        assertEquals(100 to 50, decoded.width to decoded.height)
+        val webp = AndroidImageProcessor(ImageSettings()).encodeBitmap(strip)!!
+        assertEquals("webp", webp.fileExtension)
+        assertEquals(200, BitmapFactory.decodeByteArray(webp.data, 0, webp.data.size).width)
+        // Not here: the caller goes through `process`.
+        org.junit.Assert.assertNull(AndroidImageProcessor(ImageSettings(format = ImageFormat.ORIGINAL)).encodeBitmap(strip))
+        org.junit.Assert.assertNull(AndroidImageProcessor(ImageSettings(compress = false)).encodeBitmap(strip))
+    }
+
+    @Test
     fun compressOffPassesThrough() {
         val data = png()
         val out = AndroidImageProcessor(ImageSettings(compress = false)).process(data)

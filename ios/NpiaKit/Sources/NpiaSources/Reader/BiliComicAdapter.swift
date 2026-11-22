@@ -80,7 +80,7 @@ enum BiliComicPages {
                 let data = try await BiliComicPages.page(image, context: context)
                 // Reported as it arrives: the log shows the pages coming in while the chapters are read.
                 if let data, image.data == nil {
-                    context.onImage(ref, index, image.filename, data.count, ProcessInfo.processInfo.systemUptime - began)
+                    context.onImage(ref, index, images.count, image.filename, data.count, ProcessInfo.processInfo.systemUptime - began)
                 }
                 return (index, data)
             }

@@ -26,11 +26,13 @@ class SourceContext(
     val keep: (ChapterResult) -> ChapterResult = { it },
     /**
      * A source that downloads a chapter's images itself (addresses that run out before the image step)
-     * reports each one as it arrives, from any thread: `position` in the chapter (from 0), its file
-     * name, size and the seconds it took. The pipeline writes the image's log line then, while the
-     * chapters are still being read; without the report the image shows up only at the image step.
+     * reports each one as it arrives, from any thread: `position` in the chapter (from 0) of `total`,
+     * its file name, size and the seconds it took. The pipeline writes the image's log line then (and
+     * the chapter's progress lines), while the chapters are still being read; without the report the
+     * image shows up only at the image step.
      */
-    val onImage: (chapter: ChapterRef, position: Int, filename: String, bytes: Int, seconds: Double) -> Unit = { _, _, _, _, _ -> },
+    val onImage: (chapter: ChapterRef, position: Int, total: Int, filename: String, bytes: Int, seconds: Double) -> Unit =
+        { _, _, _, _, _, _ -> },
     /**
      * Called once per chapter as soon as its result is known, from any thread. Adapters that
      * override `parseChapters` must call it too, or progress jumps from 0 to done at the end.

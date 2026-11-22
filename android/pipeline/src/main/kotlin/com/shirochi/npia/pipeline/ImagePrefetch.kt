@@ -54,10 +54,54 @@ class ImagePrefetch(
      * An image its source downloaded itself, as part of reading the chapter (`SourceContext.onImage`):
      * its line is written now, like the ones downloaded here, and the image step does not repeat it.
      */
-    fun arrived(ref: ChapterRef, position: Int, filename: String, bytes: Int, seconds: Double) {
+    fun arrived(ref: ChapterRef, position: Int, total: Int, filename: String, bytes: Int, seconds: Double) {
         reported += filename
         arrived += filename
         logger.log(LogLevel.DEBUG, line(label(ref, position), bytes, seconds))
+        count(ref, total, bytes)
+    }
+
+    /** One chapter's images as they come in, for its progress lines. */
+    private class Progress(var total: Int) {
+        var done = 0
+        var missed = 0
+        var bytes = 0L
+        val began = System.nanoTime()
+        var said = began
+    }
+
+    private val progress = HashMap<String, Progress>()
+
+    /**
+     * Counts one image of `ref` (`bytes` below zero: it could not be downloaded here). While a chapter's
+     * images come in, a line every two seconds says how far they are, and one more when the last is in:
+     * without them the log is silent from one chapter line to the next, however long the images take.
+     * `total`: how many images the chapter has here, when the caller knows (zero: as `offer` counted).
+     */
+    private fun count(ref: ChapterRef, total: Int, bytes: Int) {
+        val line: String
+        synchronized(progress) {
+            var state = progress.getOrPut(ref.id) { Progress(total) }
+            // The chapter is read again (a page failed): counted from the start.
+            if (total > 0 && state.done + state.missed >= state.total) state = Progress(total).also { progress[ref.id] = it }
+            if (total > 0) state.total = total
+            if (bytes >= 0) {
+                state.done += 1
+                state.bytes += bytes
+            } else state.missed += 1
+            val now = System.nanoTime()
+            val last = state.done + state.missed >= state.total
+            if (!last && (bytes < 0 || now - state.said < PROGRESS_NANOS)) return
+            if (last && state.done == 0) return
+            state.said = now
+            val seconds = ((now - state.began) / 1e9).coerceAtLeast(0.001)
+            val size = "${ImageStage.formatSize(state.bytes)}, ${ImageStage.formatSize((state.bytes / seconds).toLong())}/s"
+            val name = "${if (ref.isNotice) "notice" else "chapter"} ${ref.index}"
+            line = if (!last) "  Images of $name: ${state.done}/${state.total} ($size)"
+            else "  Images of $name: ${state.done} downloaded ($size)" +
+                (if (state.missed > 0) "; ${state.missed} left for the image step" else "")
+        }
+        logger.log(LogLevel.INFO, line)
     }
 
     /** The image step's label for an image's log line: "[12] Image #3 [Chapter title]". */
@@ -73,18 +117,24 @@ class ImagePrefetch(
     fun offer(result: ChapterResult) {
         if (result !is ChapterResult.Content || !job.isActive) return
         val page = result.ref.url
-        result.content.images.forEachIndexed { position, image ->
-            if (image.data != null || store.holds(image.filename)) return@forEachIndexed
-            if (!image.url.startsWith("http://", ignoreCase = true) && !image.url.startsWith("https://", ignoreCase = true)) return@forEachIndexed
-            if (store.freeBytes() < reserveBytes) return
-            val label = label(result.ref, position)
-            jobs.computeIfAbsent(image.filename) { scope.launch { slots.withPermit { fetch(image, page, label) } } }
+        val ref = result.ref
+        // The images of this chapter that are started here, counted first: the progress lines need the total.
+        val wanted = result.content.images.withIndex().filter { (_, image) ->
+            image.data == null && !store.holds(image.filename) && !jobs.containsKey(image.filename) &&
+                (image.url.startsWith("http://", ignoreCase = true) || image.url.startsWith("https://", ignoreCase = true))
+        }.distinctBy { it.value.filename }
+        if (wanted.isEmpty() || store.freeBytes() < reserveBytes) return
+        synchronized(progress) { progress[ref.id] = Progress(wanted.size) }
+        for ((position, image) in wanted) {
+            val label = label(ref, position)
+            jobs.computeIfAbsent(image.filename) { scope.launch { slots.withPermit { fetch(image, page, label, ref) } } }
         }
     }
 
     /** Like the image step: asked again from the chapter's page when the server wants a Referer (fanfox). */
-    private suspend fun fetch(image: ImageRef, page: String?, label: String) {
+    private suspend fun fetch(image: ImageRef, page: String?, label: String, ref: ChapterRef) {
         val began = System.nanoTime()
+        var size = -1
         try {
             var response = http.get(image.url)
             if ((response.status == 401 || response.status == 403) && !page.isNullOrEmpty()) {
@@ -94,12 +144,19 @@ class ImagePrefetch(
                 store.hold(image.filename, response.body)
                 arrived += image.filename
                 logger.log(LogLevel.DEBUG, line(label, response.body.size, (System.nanoTime() - began) / 1e9))
+                size = response.body.size
             }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             // The image step asks again and reports what it cannot get.
         }
+        count(ref, 0, size)
+    }
+
+    private companion object {
+        /** A chapter whose images are still coming in says so this often. */
+        const val PROGRESS_NANOS = 2_000_000_000L
     }
 
     /** Waits for `filename`'s download when one was started here; its bytes are then held, unless it failed. */

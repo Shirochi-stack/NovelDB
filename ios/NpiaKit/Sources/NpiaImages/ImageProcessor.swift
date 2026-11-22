@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import NpiaCore
 
@@ -76,6 +77,20 @@ public struct ImageProcessor: Sendable {
             return original
         }
         return encoded
+    }
+
+    /// A picture that is already in memory (a stitched strip), encoded as chapter images are: the
+    /// chosen format and quality, scaled down to "Max width". Nil when it cannot be done here (the
+    /// format is Original, or the encoder fails): the caller then goes through `process`.
+    public func encodeChapterImage(_ image: CGImage) -> ProcessedImage? {
+        guard settings.compress, settings.format != .original else { return nil }
+        var decoded = DecodedImage(frames: [image], delays: [0.1], loopCount: 0)
+        let limit = settings.maxImageWidth
+        if limit > 0, decoded.width > limit {
+            guard let scaled = ImageCodec.scaled(decoded, maxWidth: limit) else { return nil }
+            decoded = scaled
+        }
+        return Self.encode(decoded, as: settings.format, quality: settings.quality)
     }
 
     /// Re-encodes an already processed image at a lower quality for `recompressTargetMB`,

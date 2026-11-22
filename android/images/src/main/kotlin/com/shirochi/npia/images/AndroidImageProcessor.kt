@@ -79,6 +79,29 @@ class AndroidImageProcessor(private val settings: ImageSettings) : ImageProcessi
         return if (encoded.data.size < data.size) encoded.data else data
     }
 
+    /**
+     * A picture that is already in memory (a stitched strip), encoded as chapter images are: the
+     * chosen format and quality, scaled down to "Max width". Null when it cannot be done here (the
+     * format is Original, or the encoder refuses the size): the caller then goes through `process`.
+     */
+    fun encodeBitmap(bitmap: Bitmap): ProcessedImage? {
+        if (!settings.compress || settings.format == ImageFormat.ORIGINAL) return null
+        var scaled: Bitmap? = null
+        return try {
+            val limit = settings.maxWidth
+            if (limit > 0 && bitmap.width > limit) {
+                scaled = Bitmap.createScaledBitmap(bitmap, limit, scaledHeight(bitmap.width, bitmap.height, limit), true)
+            }
+            encode(scaled ?: bitmap, settings.format, settings.quality)
+        } catch (e: OutOfMemoryError) {
+            null
+        } catch (e: RuntimeException) {
+            null
+        } finally {
+            scaled?.takeIf { it !== bitmap }?.recycle()
+        }
+    }
+
     private fun staticGif(data: ByteArray): ProcessedImage? {
         if (ImageSniffer.gifFrameCount(data) <= 1) return null
         return ImageSniffer.gifFirstFrame(data)?.let { ProcessedImage(it, "gif") }
