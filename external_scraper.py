@@ -3994,6 +3994,67 @@ class ExternalScraper(SiteEnginesMixin):
         if root:
             shutil.rmtree(root, ignore_errors=True)
 
+    def _keep_signed_in_by_default(self):
+        """Tick "stay signed in" on the kpage sign-in form when Enter Browser shows it.
+
+        Unticked, the sign-in is for the browser session only and has to be done again soon;
+        ticked, the site keeps it for about a month. The box can be cleared before signing in.
+        """
+        script = """
+(() => {
+  if (location.hostname !== 'accounts.__DOMAIN__') return;
+  let tries = 0;
+  const timer = setInterval(() => {
+    const keep = document.querySelector('input[name="saveSignedIn"]');
+    if (keep) {
+      if (!keep.checked) keep.click();
+      clearInterval(timer);
+    } else if (++tries > 40) {
+      clearInterval(timer);
+    }
+  }, 250);
+})();
+""".replace('__DOMAIN__', self._KPAGE_COOKIE_DOMAIN)
+        try:
+            self._context.add_init_script(script=script)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _backup_cookies_to_restore(backup, live, now=None):
+        """The cookies of the storage backup that the profile is missing, or has an older copy of.
+
+        The backup is a guard against a lost profile, so it never replaces what the profile holds
+        with something older. Sites renew their sign-in tokens as they are used, and one that was
+        replaced no longer signs in (using it again can end the session): putting every saved
+        cookie back on each start signed accounts out after the profile had moved on, for
+        instance after signing in again with the regular browser. A renewed token expires later,
+        so the later expiry is the newer cookie. Expired cookies are not put back at all.
+        """
+        now = time.time() if now is None else now
+
+        def key(cookie):
+            return cookie.get('name'), cookie.get('domain'), cookie.get('path') or '/'
+
+        def expiry(cookie):
+            try:
+                return float(cookie.get('expires') or -1)
+            except (TypeError, ValueError):
+                return -1.0
+
+        held = {key(cookie): expiry(cookie) for cookie in live or [] if isinstance(cookie, dict)}
+        wanted = []
+        for cookie in backup or []:
+            if not isinstance(cookie, dict) or not cookie.get('name'):
+                continue
+            expires = expiry(cookie)
+            if 0 < expires <= now:
+                continue  # expired since it was saved
+            if key(cookie) in held and not (expires > 0 and 0 < held[key(cookie)] < expires - 60):
+                continue  # the profile's copy is as new or newer
+            wanted.append(cookie)
+        return wanted
+
     def _restore_storage_state(self):
         """Restore the explicit storage backup into the current context."""
         if not self._context:
@@ -4008,6 +4069,11 @@ class ExternalScraper(SiteEnginesMixin):
             return
 
         cookies = state.get('cookies') or []
+        if cookies:
+            try:
+                cookies = self._backup_cookies_to_restore(cookies, self._context.cookies())
+            except Exception:
+                cookies = []
         if cookies:
             try:
                 self._context.add_cookies(cookies)
@@ -4426,6 +4492,7 @@ class ExternalScraper(SiteEnginesMixin):
                 ignore_https_errors=True,
             )
         self._restore_storage_state()
+        self._keep_signed_in_by_default()
         page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page = page
         # The window is up: say so and load the site first. Finding the window to confirm its place
@@ -16050,9 +16117,13 @@ async (ids) => {
             return None
 
         # Any download notes who the profile is signed in as (the Download page's profile list
-        # shows it), not only an auto purchase.
+        # shows it), not only an auto purchase. A profile the site signed out signs in again
+        # with the account saved for it, so the book is read as that account sees it.
         try:
-            self.kpage_account()
+            self._kpage_sign_in_tried = set()
+            if not self.kpage_account() and self._kpage_signed_out and self.kpage_restore_sign_in():
+                self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
+                self._page.wait_for_timeout(3000)
         except Exception:
             pass
 
@@ -16840,9 +16911,11 @@ async (ids) => {
                 return null;
             };
             const user = find(data) || {};
+            const key = String((data || {}).message_key || '');
             return { status: response.status, email: String(user.email || ''),
                      nickname: String(user.nickname || ''),
-                     id: String(user.user_id || user.account_id || '') };
+                     id: String(user.user_id || user.account_id || ''),
+                     signedOut: response.status === 401 || /authorize|login/i.test(key) };
         } catch (e) {
             return { status: 0, error: String(e) };
         }
@@ -16857,6 +16930,8 @@ async (ids) => {
         """
         if fresh:
             self._kpage_account_logged = set()
+        # True only when the site itself said nobody is signed in (not when it could not be asked).
+        self._kpage_signed_out = False
         page = self._page
         if page is None:
             return ''
@@ -16872,6 +16947,7 @@ async (ids) => {
             return ''
         account = (answer.get('email') or answer.get('nickname') or '').strip()
         if not account:
+            self._kpage_signed_out = bool(answer.get('signedOut'))
             return ''
         number = ExternalScraper.browser_profile
         try:
@@ -16887,6 +16963,133 @@ async (ids) => {
             logged.add((number, account))
             self.log(f"[Kpage] Browser profile #{number} is signed in as {account}.")
         return account
+
+    # What stops a sign-in on the account page: a check only a person can pass, or a refusal.
+    _KPAGE_SIGN_IN_STATE_JS = r"""
+    () => {
+        const shown = (element) => !!element && element.getClientRects().length > 0;
+        const all = (selector) => [...document.querySelectorAll(selector)].filter(shown);
+        const error = all('[class*="error" i], [role="alert"]')
+            .map((element) => (element.innerText || '').trim()).filter(Boolean)[0] || '';
+        return {
+            captcha: all('iframe[src*="captcha" i], [class*="captcha" i], [id*="captcha" i]').length > 0,
+            error: error.slice(0, 160),
+            form: !!document.querySelector('input[name="loginId"]'),
+            path: location.pathname,
+        };
+    }
+    """
+
+    def kpage_sign_in(self, user, password, wait=40.0):
+        """Sign the profile in use in to kpage with a saved account.
+
+        Returns "" once the site shows the profile as signed in, else a short reason. Only the
+        site's own sign-in form is filled in, with "stay signed in" ticked. A check that needs a
+        person (a captcha, a confirmation on the phone) is never answered here: it is reported,
+        and Enter Browser is where to finish it.
+        """
+        page = self._page
+        if page is None:
+            return 'the browser is not open'
+        domain = self._KPAGE_COOKIE_DOMAIN
+
+        def host():
+            try:
+                return urllib.parse.urlparse(page.url or '').hostname or ''
+            except Exception:
+                return ''
+
+        def signed_in():
+            return bool(self.kpage_account(fresh=True)) or (
+                host().startswith('page.') and not self._kpage_signed_out and typed)
+
+        typed = False
+        try:
+            page.goto(f'https://page.{domain}/account/info/', wait_until='domcontentloaded',
+                      timeout=_page_ms(30000))
+            page.wait_for_timeout(1500)
+            if self.kpage_account(fresh=True):
+                return ''
+            # The account page's own sign-in button. With the account's session still alive on
+            # the sign-in host, this alone signs in again; otherwise the form comes up.
+            page.get_by_role('button', name='로그인', exact=True).last.click(timeout=_page_ms(10000))
+        except Exception as e:
+            return f'the sign-in page did not open ({str(e).splitlines()[0][:120]})'
+        deadline = time.monotonic() + wait
+        submitted = 0.0
+        state = {}
+        while time.monotonic() < deadline and not self._stop_requested:
+            try:
+                page.wait_for_timeout(500)
+                current = host()
+                if current.startswith('page.') and current.endswith(domain):
+                    page.wait_for_timeout(800)
+                    if signed_in():
+                        return ''
+                    continue
+                if current != f'accounts.{domain}':
+                    continue
+                if not typed:
+                    account = page.locator('input[name="loginId"]')
+                    if not account.count():
+                        continue
+                    account.first.fill(user)
+                    page.locator('input[name="password"]').first.fill(password)
+                    page.evaluate("""() => {
+                        const keep = document.querySelector('input[name="saveSignedIn"]');
+                        if (keep && !keep.checked) keep.click();
+                    }""")
+                    page.locator('button[type="submit"].submit').first.click()
+                    typed, submitted = True, time.monotonic()
+                    continue
+                if time.monotonic() - submitted < 3:
+                    continue
+                state = page.evaluate(self._KPAGE_SIGN_IN_STATE_JS) or {}
+                if state.get('captcha'):
+                    return 'the site asked for a captcha, which only you can answer'
+                if state.get('error') and state.get('form'):
+                    return f"the site did not accept the account: {state['error']}"
+            except Exception as e:
+                if 'navigation' in str(e).lower() or 'context was destroyed' in str(e).lower():
+                    continue  # the page moved on while it was being read
+                return f'the sign-in page failed ({str(e).splitlines()[0][:120]})'
+        if self._stop_requested:
+            return 'stopped'
+        where = (state.get('path') or '') if host().startswith('accounts.') else host()
+        return (f'the site wants another step ({where}), such as a confirmation on your phone'
+                if typed else 'the sign-in form did not come up')
+
+    def kpage_restore_sign_in(self):
+        """Sign the profile in use in again with the account saved for it (Settings, Saved sessions).
+
+        True when it is signed in afterwards. Tried once per profile for a download, so a refused
+        account is not sent again and again.
+        """
+        number = ExternalScraper.browser_profile
+        tried = getattr(self, '_kpage_sign_in_tried', None)
+        if tried is None:
+            tried = self._kpage_sign_in_tried = set()
+        if number in tried:
+            return False
+        tried.add(number)
+        try:
+            from noveldb.core.external import saved_logins
+
+            saved = saved_logins.get('kpage', number, _get_app_data_dir())
+        except Exception:
+            saved = None
+        if not saved:
+            return False
+        user, password = saved
+        self.log(f"[Kpage] Browser profile #{number} is signed out; signing in again as {user}...")
+        reason = self.kpage_sign_in(user, password)
+        if reason:
+            self.log(f"[Kpage] Automatic sign-in did not finish: {reason}. "
+                     "Sign in once with Enter Browser.")
+            return False
+        self.log(f"[Kpage] Browser profile #{number} is signed in again.")
+        self._backup_storage_state()
+        return True
 
     def kpage_auto_purchase(self, chapter):
         """Unlock one paid episode with a ticket the account already holds; True when it opened.
@@ -16924,6 +17127,10 @@ async (ids) => {
         try:
             answer = target.evaluate(self._KPAGE_TICKET_JS,
                                      [series, product, first, claimed.get(series, [])]) or {}
+            if answer.get('login') and self.kpage_restore_sign_in():
+                # Signed in again with the saved account: ask once more, from the site's pages.
+                answer = target.evaluate(self._KPAGE_TICKET_JS,
+                                         [series, product, first, claimed.get(series, [])]) or {}
         except Exception as e:
             self.log(f"  [Kpage] Auto purchase failed for {name}: {e}")
             return False

@@ -34,6 +34,29 @@ def test_each_profile_has_its_own_folder_and_the_first_keeps_the_old_one(data_di
     assert ExternalScraper._get_user_data_dir() == first
 
 
+def test_the_cookie_backup_never_replaces_a_newer_sign_in():
+    now = 1_000_000.0
+    day = 86400.0
+
+    def cookie(name, expires, value="v", domain=".example.com"):
+        return {"name": name, "value": value, "domain": domain, "path": "/", "expires": expires}
+
+    live = [cookie("token", now + 60 * day, "renewed"), cookie("stale", now + 5 * day, "old"),
+            cookie("session", -1, "live")]
+    backup = [
+        cookie("token", now + 58 * day, "replaced"),   # the profile renewed it since: stays out
+        cookie("stale", now + 30 * day, "newer"),      # the backup is the newer one: restored
+        cookie("session", -1, "saved"),                # the profile has it
+        cookie("lost", now + 9 * day),                 # missing from the profile: restored
+        cookie("gone", -1),                            # a session cookie the profile dropped
+        cookie("expired", now - day),                  # not put back
+    ]
+    restored = ExternalScraper._backup_cookies_to_restore(backup, live, now)
+    assert [(c["name"], c["value"]) for c in restored] == [("stale", "newer"), ("lost", "v"), ("gone", "v")]
+    # An empty profile (a lost one) gets everything that has not expired.
+    assert len(ExternalScraper._backup_cookies_to_restore(backup, [], now)) == 5
+
+
 def test_the_selected_profile_is_saved_and_reaches_the_download():
     settings = AppSettings()
     settings = replace(settings, sources=replace(settings.sources, browser_profiles=3, browser_profile=2))

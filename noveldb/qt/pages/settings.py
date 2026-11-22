@@ -1239,6 +1239,87 @@ class SessionSites(QObject):
         threading.Thread(target=run, name="saved-sessions", daemon=True).start()
 
 
+def saved_sign_in_section(f: Form, context: AppContext) -> None:
+    """Automatic sign-in: the account a browser profile signs in to kpage with again by itself."""
+    from noveldb.core.external import profile_accounts, saved_logins
+
+    f.add_section("Automatic sign-in (kpage)")
+    f.add_hint(
+        "Save a profile's account here and a download that finds the profile signed out signs in again "
+        "by itself. The password is kept encrypted by this computer's own account protection, never as "
+        "text. A captcha or a confirmation on your phone still needs you, in Enter Browser."
+    )
+    profile = ComboBox()
+    account = QLineEdit()
+    account.setPlaceholderText("Account (email or phone number)")
+    password = QLineEdit()
+    password.setEchoMode(QLineEdit.Password)
+    password.setPlaceholderText("Password")
+    save = QPushButton("Save")
+    forget = QPushButton("Forget")
+    status = hint("")
+    f.sign_in = (profile, account, password, save, forget, status)  # reachable for tests
+    f.add(flow(profile, account, password, save, forget, spacing=8))
+    f.add(status)
+
+    def number() -> int:
+        return int(profile.currentData() or 1)
+
+    shown: list = []
+
+    def show(*_args) -> None:
+        saved = saved_logins.accounts("kpage")
+        seen = profile_accounts.load()
+        count = max(1, context.settings.sources.browser_profiles)
+        if shown == [(count, saved, seen)]:
+            return  # another setting changed: what is being typed here stays
+        shown[:] = [(count, saved, seen)]
+        chosen = number() if profile.count() else context.settings.sources.browser_profile
+        profile.blockSignals(True)
+        profile.clear()
+        for n in range(1, count + 1):
+            profile.addItem(profile_accounts.label(n, seen) + ("  ✓" if n in saved else ""), n)
+        profile.setCurrentIndex(max(0, min(count, chosen) - 1))
+        profile.blockSignals(False)
+        picked()
+        if not saved_logins.available():
+            status.setText("This system has no password protection the app can use, so nothing can be saved here.")
+            for widget in (account, password, save):
+                widget.setEnabled(False)
+        elif saved:
+            status.setText("Signs in automatically: " + ", ".join(
+                f"profile #{n} ({name})" for n, name in sorted(saved.items())) + ".")
+        else:
+            status.setText("No account saved yet.")
+
+    def picked(*_args) -> None:
+        saved = saved_logins.accounts("kpage")
+        # The saved account, else the one the profile was last seen signed in with.
+        account.setText(saved.get(number()) or profile_accounts.load().get(number(), ""))
+        password.clear()
+        forget.setEnabled(number() in saved)
+
+    def keep() -> None:
+        if not account.text().strip() or not password.text():
+            status.setText("Enter the account and its password first.")
+            return
+        ok = saved_logins.save("kpage", number(), account.text(), password.text())
+        password.clear()
+        show()
+        if not ok:
+            status.setText("The password could not be protected on this system; nothing was saved.")
+
+    def drop() -> None:
+        saved_logins.remove("kpage", number())
+        show()
+
+    profile.currentIndexChanged.connect(picked)
+    save.clicked.connect(keep)
+    password.returnPressed.connect(keep)
+    forget.clicked.connect(drop)
+    f._refreshers.append(show)
+
+
 def sessions_form(context: AppContext) -> Form:
     """Saved logins, like the mobile Enter App tab: the sfc app session, the shared login browser,
     and a pointer to the npia account."""
@@ -1283,6 +1364,8 @@ def sessions_form(context: AppContext) -> Form:
         "then close it — the logins are saved to the browser profile and reused for downloads."
     )
     f.add(flow(button("Enter Browser", "enter_browser"), spacing=8))
+
+    saved_sign_in_section(f, context)
 
     f.add_section("Sites with saved browser logins")
     f.add_hint("Every site the login browsers keep cookies for, so you can check a login is saved. "
