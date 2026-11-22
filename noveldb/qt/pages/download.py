@@ -166,6 +166,11 @@ class DownloadPage(QWidget):
         self.download.setCursor(Qt.PointingHandCursor)
         self.download.setToolTip("Queue the links above and everything in the link cart.")
         self.download.clicked.connect(self._download)
+        # Upload without a trip to the Queue page: it asks which saved folders and files to send.
+        self.upload = QPushButton("Upload...")
+        self.upload.setToolTip("Upload saved downloads and get share links. It asks which folders and files "
+                               "to send: the finished downloads and everything else in the Save to folder.")
+        self.upload.clicked.connect(self._upload)
         self.summary = hint("")
         # The buttons wrap instead of being cut off when the column is narrow; the summary sits below.
         # The rows are as far apart as the flow's own wrapped rows, so a wrapped Link cart sits evenly
@@ -173,7 +178,7 @@ class DownloadPage(QWidget):
         input_actions = QVBoxLayout()
         input_actions.setSpacing(8)
         # Download sits before the link cart it also queues, so a narrow column wraps the cart button, not it.
-        input_actions.addWidget(flow(paste, clear, tools, self.download, self.cart_button))
+        input_actions.addWidget(flow(paste, clear, tools, self.download, self.cart_button, self.upload))
         input_actions.addWidget(self.summary)
         input_actions.addWidget(browser_row)
         self.summary.hide()
@@ -492,6 +497,11 @@ class DownloadPage(QWidget):
             action.triggered.connect(lambda _=False, n=number: self._profile_chosen(n))
         menu.addSeparator()
         menu.addAction("New Profile").triggered.connect(lambda _=False: self._profile_chosen(0))
+
+    def _upload(self) -> None:
+        from noveldb.qt.uploads import upload_saved
+
+        upload_saved(self.context, self)
 
     def _refresh_profiles(self) -> None:
         sources = self.context.settings.sources

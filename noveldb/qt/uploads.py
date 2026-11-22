@@ -6,6 +6,7 @@ import html
 import os
 import threading
 from dataclasses import replace
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -310,6 +311,134 @@ def upload_jobs(context: AppContext, jobs, parent: Optional[QWidget] = None) -> 
     dialog = UploadDialog(context, items, parent)
     dialog.exec()
     remember_links(context, jobs, dialog.outcomes)
+
+
+def saved_entries(jobs, folder: str) -> list:
+    """What the Download page's Upload button offers: `[(UploadItem, job or None, modified)]`, newest first.
+
+    The files the queue's downloads saved (with their naming details), then everything else in
+    the Save to folder that is a book or a chapter folder.
+    """
+    from noveldb.core import library
+
+    def key(path: str) -> str:
+        return os.path.normcase(os.path.abspath(path))
+
+    def modified(path: str) -> float:
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0.0
+
+    found: dict = {}
+    for job in jobs:
+        for path in job.outputs or []:
+            if path and os.path.exists(path) and key(path) not in found:
+                item = UploadItem(path, book_id_from_url(job.input), job.source or "", job.title or "")
+                found[key(path)] = (item, job, modified(path))
+    try:
+        names = os.listdir(folder) if folder and os.path.isdir(folder) else []
+    except OSError:
+        names = []
+    for name in names:
+        path = os.path.join(folder, name)
+        if name.startswith(".") or name.endswith((".part", ".tmp")) or key(path) in found:
+            continue
+        try:
+            if library._format_of(Path(path)) is None:
+                continue
+        except OSError:
+            continue
+        found[key(path)] = (UploadItem(path), None, modified(path))
+    return sorted(found.values(), key=lambda entry: entry[2], reverse=True)
+
+
+class PickDialog(QDialog):
+    """Asks which saved folders and files to upload."""
+
+    def __init__(self, entries: list, parent: Optional[QWidget] = None) -> None:
+        import time
+
+        from PySide6.QtWidgets import QListWidget, QListWidgetItem
+
+        super().__init__(parent)
+        self.setWindowTitle("Upload and share")
+        self.setModal(True)
+        bind_size(self, min_width=560)
+        self.entries = entries
+        self.list = QListWidget()
+        self.list.setMinimumHeight(300)
+        # The newest download is ticked: it is usually the one just made.
+        newest = next((job for _item, job, _when in entries if job is not None), None)
+        for item, job, when in entries:
+            saved = time.strftime("%Y-%m-%d %H:%M", time.localtime(when)) if when else ""
+            row = QListWidgetItem(f"{os.path.basename(item.path)}    ({format_of(item.path)}, {saved})")
+            row.setToolTip(item.path)
+            row.setFlags(row.flags() | Qt.ItemIsUserCheckable)
+            row.setCheckState(Qt.Checked if job is not None and job is newest else Qt.Unchecked)
+            self.list.addItem(row)
+        self.list.itemChanged.connect(self._changed)
+        everything = QPushButton("Select all")
+        everything.clicked.connect(lambda: self._tick(True))
+        nothing = QPushButton("Select none")
+        nothing.clicked.connect(lambda: self._tick(False))
+        self.count = QLabel("")
+        self.count.setProperty("hint", True)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.upload = buttons.addButton("Upload", QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        row = QHBoxLayout()
+        row.addWidget(everything)
+        row.addWidget(nothing)
+        row.addWidget(self.count, 1)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Which folders and files should be uploaded?"))
+        layout.addWidget(self.list, 1)
+        layout.addLayout(row)
+        layout.addWidget(buttons)
+        self._changed()
+
+    def _tick(self, on: bool) -> None:
+        for index in range(self.list.count()):
+            self.list.item(index).setCheckState(Qt.Checked if on else Qt.Unchecked)
+
+    def chosen(self) -> list:
+        return [entry for index, entry in enumerate(self.entries)
+                if self.list.item(index).checkState() == Qt.Checked]
+
+    def _changed(self, *_args) -> None:
+        count = len(self.chosen())
+        self.count.setText(f"{count} of {len(self.entries)} selected")
+        self.upload.setEnabled(count > 0)
+
+
+def upload_saved(context: AppContext, parent: Optional[QWidget] = None) -> None:
+    """The Download page's Upload button: ask which saved folders and files, then upload them."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from noveldb.core import paths
+
+    folder = context.settings.output.output_dir or str(paths.default_output_dir())
+    entries = saved_entries(context.runner.jobs, folder)
+    if not entries:
+        QMessageBox.information(parent, "Upload and share",
+                                f"There is nothing to upload yet: no finished download, and no book in\n{folder}")
+        return
+    picker = PickDialog(entries, parent)
+    if picker.exec() != QDialog.Accepted:
+        return
+    chosen = picker.chosen()
+    if not chosen or not ensure_agreement(context, parent):
+        return
+    dialog = UploadDialog(context, [item for item, _job, _when in chosen], parent)
+    dialog.exec()
+    jobs = []
+    for _item, job, _when in chosen:
+        if job is not None and job not in jobs:
+            jobs.append(job)
+    if jobs:
+        remember_links(context, jobs, dialog.outcomes)
 
 
 def remember_links(context: AppContext, jobs, outcomes) -> None:

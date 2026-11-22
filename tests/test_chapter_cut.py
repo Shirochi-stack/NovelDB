@@ -155,6 +155,87 @@ def test_upload_chapters_uploads_a_cut_of_the_saved_files_and_queues_no_download
     context._save_timer.stop()
 
 
+def test_the_download_page_uploads_the_folders_that_are_ticked(tmp_path, monkeypatch, qtbot):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
+    from dataclasses import replace
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QDialog, QMessageBox
+
+    from noveldb.core.queue.model import DONE, Job
+    from noveldb.qt import uploads
+    from noveldb.qt.context import AppContext
+    from noveldb.qt.main_window import MainWindow
+
+    books = tmp_path / "books"
+    books.mkdir()
+    context = AppContext(start_workers=False)
+    context.update_settings(lambda s: replace(s, output=replace(s.output, output_dir=str(books))))
+    window = MainWindow(context)
+    qtbot.addWidget(window)
+    page = window.download
+    assert page.upload.text() == "Upload..."
+    monkeypatch.setattr(uploads, "ensure_agreement", lambda context, parent=None: True)
+
+    # Nothing saved yet: said so, no question.
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *args: told.append(args[2]))
+    monkeypatch.setattr(uploads.PickDialog, "exec", lambda self: pytest.fail("asked with nothing to upload"))
+    page.upload.click()
+    assert "nothing to upload" in told[0]
+
+    older = _book(books, "Older", [1])                  # in the Save to folder, from no job in the queue
+    for path in older:
+        os.utime(path, (1_000_000, 1_000_000))
+    (books / "notes.docx").write_text("x")               # not a book
+    (books / ".hidden.folder").mkdir()
+    outputs = _book(books, "Book", [1, 2])
+    job = Job("https://example.com/content/7", source="kpage", state=DONE, title="Book", outputs=outputs)
+    context.runner._jobs.append(job)
+
+    seen, sent = {}, []
+
+    def pick(dialog):
+        qtbot.addWidget(dialog)
+        rows = [dialog.list.item(index) for index in range(dialog.list.count())]
+        seen["names"] = [row.text().split("    ")[0] for row in rows]
+        seen["ticked"] = [row.text().split("    ")[0] for row in rows if row.checkState() == Qt.Checked]
+        assert dialog.upload.isEnabled()
+        for row in rows:  # only the two chapter folders
+            row.setCheckState(Qt.Checked if row.text().startswith(("Book.folder", "Older.folder")) else Qt.Unchecked)
+        assert "2 of 6 selected" in dialog.count.text()
+        return QDialog.Accepted
+
+    class Sending:
+        outcomes = [SimpleNamespace(link="https://example.com/link", titles=["Book"], name="Book.folder")]
+
+        def __init__(self, context, items, parent=None):
+            sent.extend(items)
+
+        def exec(self):
+            return QDialog.Accepted
+
+    monkeypatch.setattr(uploads.PickDialog, "exec", pick)
+    monkeypatch.setattr(uploads, "UploadDialog", Sending)
+    page.upload.click()
+    # Newest first; the job's files are ticked to begin with.
+    assert sorted(seen["names"]) == ["Book.epub", "Book.folder", "Book.zip", "Older.epub", "Older.folder", "Older.zip"]
+    assert seen["names"][3:] and set(seen["names"][:3]) == {"Book.epub", "Book.folder", "Book.zip"}
+    assert set(seen["ticked"]) == {"Book.epub", "Book.folder", "Book.zip"}
+    assert sorted(os.path.basename(item.path) for item in sent) == ["Book.folder", "Older.folder"]
+    by_name = {os.path.basename(item.path): item for item in sent}
+    assert (by_name["Book.folder"].source, by_name["Book.folder"].title) == ("kpage", "Book")
+    assert job.links == ["https://example.com/link"]  # Copy links on the Queue page has it
+
+    # Cancel uploads nothing.
+    sent.clear()
+    monkeypatch.setattr(uploads.PickDialog, "exec", lambda dialog: QDialog.Rejected)
+    page.upload.click()
+    assert sent == []
+    context._save_timer.stop()
+
+
 def test_several_formats_ask_which_to_upload_and_links_are_clickable(tmp_path, monkeypatch, qtbot):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
