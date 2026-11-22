@@ -332,8 +332,11 @@ class QueuePage(QWidget):
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             for job in jobs:
-                # The download already is exactly these chapters: its files go up as they are.
-                if list(job.chapters or []) == [low, high, listed]:
+                # The download already is exactly these chapters: its files go up as they are. (Not
+                # its Folder output: the book's one folder may hold other downloads' chapters too.)
+                if list(job.chapters or []) == [low, high, listed] and not any(
+                        path.lower().endswith(".folder") and not library.file_range(path)
+                        for path in self._existing_outputs(job)):
                     ready.append(job)
                     continue
                 made, failed = chapter_cut.cut_outputs(self._existing_outputs(job), low, high, listed)

@@ -522,7 +522,8 @@ class NpiaPipelineMixin:
 
         def clean_filename(name):
             return "".join(c for c in name if c not in '\\/:*?"<>|').strip()
-        
+
+        self._folder_adds_chapters = False
         if self.var_quick_enable.get() and self.var_quick_path.get():
             folder = self.var_quick_path.get()
             base = clean_filename(default_name)
@@ -534,12 +535,16 @@ class NpiaPipelineMixin:
                 self.var_from_num.get() if self.var_from_enabled.get() else None,
                 self.var_to_num.get() if self.var_to_enabled.get() else None,
             )
+            # The Folder output is the exception: one folder per book, which a download of some
+            # chapters adds them to.
+            whole = os.path.join(folder, f"[{novel_id}] {base}")
             if ranged:
                 base = f"{base}_{ranged}"
             anchor = os.path.join(folder, f"[{novel_id}] {base}")
             self._output_paths = {
-                fmt: f"{anchor}.{fmt}" for fmt in self._output_formats
+                fmt: f"{whole if fmt == 'folder' else anchor}.{fmt}" for fmt in self._output_formats
             }
+            self._folder_adds_chapters = bool(ranged)
         else:
             primary = self._output_formats[0]
             suggested = f"[{novel_id}] {clean_filename(default_name)}.{primary}"
@@ -1473,7 +1478,7 @@ table, th, td {
         stitch = not links_only and webtoon is not None and webtoon.get() and self.var_stitch_images.get()
         height = min(32_000, max(0, self.var_stitch_height.get())) if stitch else None
         compression = self._stitch_output_compression(self._output_formats) if stitch else None
-        with folder_export(self._output_path) as stage:
+        with folder_export(self._output_path, merge=getattr(self, "_folder_adds_chapters", False)) as stage:
             for index, result in enumerate(results):
                 if not result:
                     continue

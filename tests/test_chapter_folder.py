@@ -92,6 +92,62 @@ def test_failed_folder_replacement_keeps_the_existing_export(tmp_path):
     assert keep.read_text(encoding="utf-8") == "original"
 
 
+def test_a_merged_export_keeps_the_other_chapters_and_replaces_the_ones_written_again(tmp_path):
+    target = tmp_path / "Book.folder"
+    with folder_export(target) as stage:
+        (chapter_directory(stage, 1, "One") / "001.png").write_bytes(b"old 1")
+        (stage / "0002 Two - 001.png").write_bytes(b"old 2 page 1")
+        (stage / "0002 Two - 002.png").write_bytes(b"old 2 page 2")
+    with folder_export(target, merge=True, also_zip=True, zip_path=tmp_path / "Book (2-3).zip") as stage:
+        (stage / "0002 Two - 001.png").write_bytes(b"new 2")
+        (chapter_directory(stage, 3, "Three") / "001.png").write_bytes(b"new 3")
+    assert sorted(entry.name for entry in target.iterdir()) == ["0001 One", "0002 Two - 001.png", "0003 Three"]
+    assert (target / "0001 One" / "001.png").read_bytes() == b"old 1"
+    assert (target / "0002 Two - 001.png").read_bytes() == b"new 2"  # its second page went with the old copy
+    # The ZIP is this download alone, under its own name.
+    with ZipFile(tmp_path / "Book (2-3).zip") as archive:
+        assert archive.namelist() == ["0002 Two - 001.png", "0003 Three/001.png"]
+    assert not (tmp_path / "Book.zip").exists()
+    assert [entry.name for entry in tmp_path.iterdir() if entry.name.startswith(".")] == []
+
+    # A download that fails leaves the folder as it was.
+    with pytest.raises(RuntimeError, match="stop"), folder_export(target, merge=True) as stage:
+        (stage / "0004 Four - 001.png").touch()
+        raise RuntimeError("stop")
+    assert sorted(entry.name for entry in target.iterdir()) == ["0001 One", "0002 Two - 001.png", "0003 Three"]
+
+    # Without a range the export is the whole book: it replaces the folder.
+    with folder_export(target) as stage:
+        (stage / "0009 Nine - 001.png").touch()
+    assert [entry.name for entry in target.iterdir()] == ["0009 Nine - 001.png"]
+
+
+def test_ranged_downloads_of_a_book_share_one_folder(tmp_path):
+    from noveldb.core.settings.model import SharedSettings
+
+    def download(chapter, formats=("folder",)):
+        settings = AppSettings(shared=replace(SharedSettings(), range_from=chapter, range_to=chapter))
+        settings = replace(settings, images=replace(settings.images, compress=False))
+        job = ExternalJob("https://example.test/book", settings, output_dir=str(tmp_path))
+        job._book_data = {"bookname": "Book"}
+        job._chapter_number_start = chapter
+        job._chapter_results = [{"chapterName": f"Episode {chapter}", "images": [
+            {"data": "data:image/png;base64," + b64encode(panel("red")[1]).decode("ascii")}]}]
+        job._active_output_formats = formats
+        job._generate_output()
+
+    download(4)
+    download(5, ("folder", "zip"))
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == ["Book (5).zip", "Book.folder"]
+    assert sorted(entry.name for entry in (tmp_path / "Book.folder").iterdir()) == [
+        "0004 Episode 4 - 001.png", "0005 Episode 5 - 001.png"]
+    with ZipFile(tmp_path / "Book (5).zip") as archive:
+        assert archive.namelist() == ["0005 Episode 5 - 001.png"]
+    # A ZIP alone is one file: it keeps the range in its name.
+    download(6, ("zip",))
+    assert (tmp_path / "Book (6).zip").is_file() and len(list((tmp_path / "Book.folder").iterdir())) == 2
+
+
 def test_export_job_uses_manga_by_default_and_applies_webtoon_options(tmp_path):
     settings = AppSettings()
     assert not settings.images.webtoon_export

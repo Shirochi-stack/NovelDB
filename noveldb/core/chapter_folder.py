@@ -16,8 +16,31 @@ from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 
+def _chapter_key(entry: Path) -> str:
+    """"0004 Title" for a chapter's folder and for each of its files ("0004 Title - 001.jpg")."""
+    return entry.name if entry.is_dir() else entry.name.rsplit(" - ", 1)[0]
+
+
+def _carry_over(existing: Path, stage: Path, moved: list) -> None:
+    """Move what `existing` holds and `stage` does not into `stage`: the chapters of earlier
+    downloads of the book. A chapter written again replaces the saved one. `moved` gets each
+    (old place, new place), so a failed export can put them back."""
+    fresh = {_chapter_key(entry) for entry in stage.iterdir()}
+    for entry in sorted(existing.iterdir()):
+        if _chapter_key(entry) in fresh:
+            continue
+        entry.rename(stage / entry.name)
+        moved.append((entry, stage / entry.name))
+
+
 @contextmanager
-def folder_export(path, *, also_zip=False, prepared=None):
+def folder_export(path, *, also_zip=False, prepared=None, merge=False, zip_path=None):
+    """Stage a chapter export and put it in place of the one at `path` when the block ends.
+
+    With `merge` (a download of some chapters), the chapters the existing folder holds stay: the
+    book keeps one folder that every ranged download adds to. `also_zip` packs the staged
+    chapters as well, beside the folder or at `zip_path`.
+    """
     target = Path(path)
     archive = target.suffix.lower() == ".zip"
     if target.suffix.lower() not in {".folder", ".zip"}:
@@ -27,7 +50,7 @@ def folder_export(path, *, also_zip=False, prepared=None):
         raise ValueError("Folder output cannot replace a link")
     if target.exists() and target.is_dir() == archive:
         raise ValueError("The output path is occupied by a different file type")
-    zip_target = target if archive else target.with_suffix(".zip") if also_zip else None
+    zip_target = target if archive else Path(zip_path or target.with_suffix(".zip")) if also_zip else None
     if zip_target is not None and (zip_target.is_dir() or zip_target.is_symlink()):
         raise ValueError("ZIP output requires a regular file path")
     with TemporaryDirectory(dir=target.parent, prefix=".noveldb-folder-") as temp:
@@ -46,14 +69,27 @@ def folder_export(path, *, also_zip=False, prepared=None):
         if archive:
             packed.replace(zip_target)
             return
-        previous = target.with_name(f".{target.name}.{uuid4().hex}.previous")
-        if target.exists():
-            target.rename(previous)
+        carried = []
         try:
-            stage.rename(target)
-        except OSError:
-            if previous.exists():
-                previous.rename(target)
+            # After the ZIP is packed: the ZIP holds this download's chapters only.
+            if merge and target.is_dir():
+                _carry_over(target, stage, carried)
+            previous = target.with_name(f".{target.name}.{uuid4().hex}.previous")
+            if target.exists():
+                target.rename(previous)
+            try:
+                stage.rename(target)
+            except OSError:
+                if previous.exists():
+                    previous.rename(target)
+                raise
+        except BaseException:
+            # The existing folder gets back the chapters taken out of it for the merge.
+            for old, new in reversed(carried):
+                try:
+                    new.rename(old)
+                except OSError:
+                    pass
             raise
         if previous.exists():
             shutil.rmtree(previous)

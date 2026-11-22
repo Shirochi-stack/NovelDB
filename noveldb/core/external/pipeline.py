@@ -1642,7 +1642,8 @@ class ExternalPipelineMixin:
 
         title = _sanitize_filename(data.get('bookname', 'novel'))
         # A ranged download is named after its range ("Title (4-7)"): downloads of different
-        # chapters of one book would otherwise overwrite each other, and the whole book.
+        # chapters of one book would otherwise overwrite each other, and the whole book. The
+        # Folder output is the exception: it is one folder the chapters are added to.
         ranged = ExternalPipelineMixin._range_label(self)
         if ranged:
             title = f"{title} ({ranged})"
@@ -1800,6 +1801,14 @@ class ExternalPipelineMixin:
 
         from noveldb.core.chapter_folder import ChapterWrites, folder_export
 
+        # One folder per book: a download of some chapters adds them to the book's folder, instead
+        # of a "Title (4-7).folder" beside it for every range. (A file cannot be added to, so the
+        # other formats, a ZIP alone included, keep the range in their name.)
+        ranged = ExternalPipelineMixin._range_label(self)
+        merge = bool(ranged) and output_format == "folder" and title.endswith(f" ({ranged})")
+        zip_path = Path(self._get_output_dir()) / f"{title}.zip"
+        if merge:
+            title = title[:-len(f" ({ranged})")]
         path = Path(self._get_output_dir()) / f"{title}.{output_format}"
         data = self._book_data or {}
         workers = min(32, max(1, self._var_ext_image_workers.get()))
@@ -1869,7 +1878,7 @@ class ExternalPipelineMixin:
                     raw = self._compress_image(raw, quality, image_format)
                 return (self._image_ext_from_bytes(raw), raw) if raw else None
 
-            with folder_export(path, also_zip=also_zip,
+            with folder_export(path, also_zip=also_zip, merge=merge, zip_path=zip_path,
                                prepared=early.root if early else None) as stage, ExitStack() as output_workers:
                 if early:
                     writer = early
@@ -1918,7 +1927,7 @@ class ExternalPipelineMixin:
                     self._log("  Packaging the prepared chapter files into ZIP.")
         self._log(f"✅ Saved: {path}")
         if also_zip:
-            self._log(f"✅ Saved: {path.with_suffix('.zip')}")
+            self._log(f"✅ Saved: {zip_path}")
 
     def _get_output_dir(self):
         """Get output directory — respects parent GUI's Quick Download path."""
