@@ -1,3 +1,4 @@
+import sys
 from base64 import b64encode
 from dataclasses import replace
 from io import BytesIO
@@ -7,7 +8,7 @@ from zipfile import ZIP_STORED, ZipFile
 import pytest
 from PIL import Image
 
-from noveldb.core import library
+from noveldb.core import chapter_folder, library
 from noveldb.core.chapter_folder import chapter_directory, folder_export, stitch_panels, write_chapter
 from noveldb.core.external.kpage_images import KpageImages
 from noveldb.core.external.job import ExternalJob
@@ -120,6 +121,45 @@ def test_a_merged_export_keeps_the_other_chapters_and_replaces_the_ones_written_
     with folder_export(target) as stage:
         (stage / "0009 Nine - 001.png").touch()
     assert [entry.name for entry in target.iterdir()] == ["0009 Nine - 001.png"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to move a folder with an open file")
+@pytest.mark.parametrize("merge", [False, True])
+def test_a_folder_that_is_open_elsewhere_is_replaced_chapter_by_chapter(tmp_path, monkeypatch, merge):
+    monkeypatch.setattr(chapter_folder, "MOVE_PAUSE", 0.01)
+    target = tmp_path / "Book.folder"
+    with folder_export(target) as stage:
+        (chapter_directory(stage, 1, "One") / "001.png").write_bytes(b"old 1")
+        (chapter_directory(stage, 2, "Two") / "001.png").write_bytes(b"old 2")
+        (stage / "0003 Three - 001.png").write_bytes(b"old 3")
+        (stage / "0003 Three - 002.png").write_bytes(b"old 3 second page")
+
+    # A viewer has a page of chapter 1 open: the folder cannot be moved ("Access is denied"),
+    # which used to fail the whole export. Chapters 2 and 3 are downloaded again.
+    with open(target / "0001 One" / "001.png", "rb"):
+        with pytest.raises(OSError):
+            target.rename(tmp_path / "moved")
+        with folder_export(target, merge=merge) as stage:
+            (chapter_directory(stage, 2, "Two") / "001.png").write_bytes(b"new 2")
+            (stage / "0003 Three - 001.png").write_bytes(b"new 3")
+        assert (target / "0002 Two" / "001.png").read_bytes() == b"new 2"
+        assert (target / "0003 Three - 001.png").read_bytes() == b"new 3"
+        assert not (target / "0003 Three - 002.png").exists()  # the old copy's extra page went with it
+        assert (target / "0001 One" / "001.png").read_bytes() == b"old 1"  # kept when merging; open, so kept anyway
+    names = sorted(entry.name for entry in target.iterdir())
+    assert names == ["0001 One", "0002 Two", "0003 Three - 001.png"]
+
+    # The open page belongs to a chapter that is downloaded again: that one keeps its saved
+    # copy, the others are replaced, and the error says what to close.
+    with open(target / "0002 Two" / "001.png", "rb"):
+        with pytest.raises(PermissionError, match="0002 Two.*Close the window"):
+            with folder_export(target, merge=True) as stage:
+                (chapter_directory(stage, 2, "Two") / "001.png").write_bytes(b"newer 2")
+                (chapter_directory(stage, 4, "Four") / "001.png").write_bytes(b"new 4")
+    assert (target / "0002 Two" / "001.png").read_bytes() == b"new 2"
+    assert (target / "0004 Four" / "001.png").read_bytes() == b"new 4"
+    assert [entry.name for entry in tmp_path.iterdir() if entry.name != "Book.folder"] == []  # nothing left behind
+    assert not [entry.name for entry in target.iterdir() if entry.name.startswith(".")]
 
 
 def test_ranged_downloads_of_a_book_share_one_folder(tmp_path):

@@ -6,6 +6,7 @@ import io
 import re
 import shutil
 import struct
+import time
 import zlib
 from collections import deque
 from contextlib import contextmanager
@@ -31,6 +32,85 @@ def _carry_over(existing: Path, stage: Path, moved: list) -> None:
             continue
         entry.rename(stage / entry.name)
         moved.append((entry, stage / entry.name))
+
+
+MOVE_TRIES = 4       # a virus scanner or the thumbnail maker holds a new file for a moment
+MOVE_PAUSE = 0.35    # seconds between tries
+
+
+def _set_aside(target: Path):
+    """Move the existing export out of the way; its new place, or None when it cannot be moved.
+
+    Windows refuses to move a folder while a program has it, or a file inside it, open ("Access
+    is denied"). A short hold passes by itself, so the move is tried a few times.
+    """
+    previous = target.with_name(f".{target.name}.{uuid4().hex}.previous")
+    for attempt in range(MOVE_TRIES):
+        try:
+            target.rename(previous)
+            return previous
+        except OSError:
+            if attempt + 1 < MOVE_TRIES:
+                time.sleep(MOVE_PAUSE)
+    return None
+
+
+def _remove(entry: Path) -> None:
+    if entry.is_dir() and not entry.is_symlink():
+        shutil.rmtree(entry)
+    else:
+        entry.unlink()
+
+
+def _update_in_place(target: Path, stage: Path, keep_others: bool) -> None:
+    """Put the staged chapters into `target` itself, each in place of its saved copy.
+
+    For a folder that cannot be moved as a whole. A chapter whose saved copy is open in another
+    program keeps that copy; every other chapter is replaced, and the ones left are named in
+    the error. Without `keep_others` (a whole-book export) what the stage does not hold goes,
+    unless it is open too.
+    """
+    token = uuid4().hex
+    fresh, saved = {}, {}
+    for entry in sorted(stage.iterdir()):
+        fresh.setdefault(_chapter_key(entry), []).append(entry)
+    for entry in sorted(target.iterdir()):
+        saved.setdefault(_chapter_key(entry), []).append(entry)
+    held = []
+    for key, entries in fresh.items():
+        aside = []
+        try:
+            for old in saved.pop(key, []):
+                hidden = old.with_name(f".{old.name}.{token}.previous")
+                old.rename(hidden)
+                aside.append((old, hidden))
+            for entry in entries:
+                entry.rename(target / entry.name)
+        except OSError:
+            for old, hidden in aside:  # the saved copy stays whole
+                try:
+                    hidden.rename(old)
+                except OSError:
+                    pass
+            held.append(key)
+            continue
+        for _, hidden in aside:
+            try:
+                _remove(hidden)
+            except OSError:
+                pass
+    if not keep_others:
+        for entries in saved.values():
+            for old in entries:
+                try:
+                    _remove(old)
+                except OSError:
+                    pass  # open elsewhere and not part of this export: it simply stays
+    if held:
+        named = ", ".join(held[:5]) + (f" and {len(held) - 5} more" if len(held) > 5 else "")
+        raise PermissionError(
+            f"{len(held)} item(s) in {target.name} are open in another program and were not replaced: {named}. "
+            "The rest was saved. Close the window or viewer showing them, then download again.")
 
 
 @contextmanager
@@ -69,30 +149,30 @@ def folder_export(path, *, also_zip=False, prepared=None, merge=False, zip_path=
         if archive:
             packed.replace(zip_target)
             return
-        carried = []
-        try:
-            # After the ZIP is packed: the ZIP holds this download's chapters only.
-            if merge and target.is_dir():
-                _carry_over(target, stage, carried)
-            previous = target.with_name(f".{target.name}.{uuid4().hex}.previous")
-            if target.exists():
-                target.rename(previous)
+        # After the ZIP is packed: the ZIP holds this download's chapters only.
+        previous = _set_aside(target) if target.exists() else None
+        if target.exists():
+            # The folder cannot be moved: something has it open (a window showing it, a viewer
+            # with one of its pages). Its chapters are replaced one by one where they are.
+            _update_in_place(target, stage, keep_others=merge)
+        else:
+            carried = []
             try:
+                if merge and previous is not None:
+                    _carry_over(previous, stage, carried)
                 stage.rename(target)
-            except OSError:
-                if previous.exists():
+            except BaseException:
+                # The existing folder comes back as it was, with the chapters taken out of it.
+                for old, new in reversed(carried):
+                    try:
+                        new.rename(old)
+                    except OSError:
+                        pass
+                if previous is not None and not target.exists():
                     previous.rename(target)
                 raise
-        except BaseException:
-            # The existing folder gets back the chapters taken out of it for the merge.
-            for old, new in reversed(carried):
-                try:
-                    new.rename(old)
-                except OSError:
-                    pass
-            raise
-        if previous.exists():
-            shutil.rmtree(previous)
+            if previous is not None:
+                shutil.rmtree(previous, ignore_errors=True)
         if zip_target is not None:
             packed.replace(zip_target)
 
