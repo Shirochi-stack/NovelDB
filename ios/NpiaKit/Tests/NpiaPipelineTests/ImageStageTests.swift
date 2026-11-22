@@ -121,10 +121,15 @@ final class ImageStageTests: XCTestCase {
         XCTAssertTrue(prefetch.brought("images/0001_01.png"))
         XCTAssertFalse(prefetch.brought("images/0001_03.png"))
 
+        // An image its source downloaded itself counts too, and its line is not written again.
+        prefetch.arrived(content.ref, position: 0, filename: "images/0009_01.png", bytes: png.count, seconds: 0.5)
+        XCTAssertTrue(prefetch.brought("images/0009_01.png"))
+        XCTAssertEqual(prefetch.started, 4)
+
         // After a stop nothing new starts.
         prefetch.close()
         prefetch.offer(.content(chapter(2, images: [ImageRef(url: url("late"), filename: "images/0002_01.png")])))
-        XCTAssertEqual(prefetch.started, 3)
+        XCTAssertEqual(prefetch.started, 4)
     }
 
     func testKeepsNamesWhenExtensionMatches() async throws {

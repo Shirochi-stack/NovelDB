@@ -59,13 +59,19 @@ class BiliComicAdapterTest {
         http.onData("a.jpg", jpeg)
         http.onData("b.jpg", png)
         val kept = ArrayList<ChapterResult>()
+        val arrived = java.util.Collections.synchronizedList(ArrayList<String>())
         val context = SourceContext(http, UnavailableWebEngine, InMemorySecretStore(), AppSettings(), keep = { result ->
             kept += result
             // The pipeline's store: the bytes go to disk and leave the chapter.
             if (result is ChapterResult.Content) ChapterResult.Content(result.content.copy(images = result.content.images.map { it.copy(data = null) }))
             else result
+        }, onImage = { chapter, position, filename, bytes, seconds ->
+            assertTrue(seconds >= 0)
+            arrived += "${chapter.index}/$position $filename $bytes"
         })
         val result = BiliComicAdapter().withPages(chapter("a.jpg", "b.jpg"), context)
+        // Each page is reported as it arrives, so its log line is written while the chapters are read.
+        assertEquals(listOf("1/0 images/0001_01.jpg ${jpeg.size}", "1/1 images/0001_02.jpg ${png.size}"), arrived.sorted())
         val held = (kept.single() as ChapterResult.Content).content.images
         assertArrayEquals(jpeg, held[0].data)
         assertArrayEquals(png, held[1].data)

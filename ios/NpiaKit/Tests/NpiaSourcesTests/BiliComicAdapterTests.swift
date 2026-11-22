@@ -56,7 +56,14 @@ final class BiliComicAdapterTests: XCTestCase {
         let http = RoutedHTTP()
         http.on("a.jpg", data: jpeg)
         http.on("b.jpg", data: png)
-        let result = try await BiliComicPages.attach(to: chapter(["a.jpg", "b.jpg"]), context: makeContext(http))
+        let arrived = CollectingLogger()
+        var context = makeContext(http)
+        context.onImage = { ref, position, filename, bytes, _ in
+            arrived.log(.debug, "\(ref.index)/\(position) \(filename) \(bytes)")
+        }
+        let result = try await BiliComicPages.attach(to: chapter(["a.jpg", "b.jpg"]), context: context)
+        // Each page is reported as it arrives, so its log line is written while the chapters are read.
+        XCTAssertEqual(arrived.lines.sorted(), ["1/0 images/0001_01.jpg \(jpeg.count)", "1/1 images/0001_02.jpg \(png.count)"])
         let images = try XCTUnwrap(content(result)).images
         XCTAssertEqual(images.count, 2)
         XCTAssertEqual(images[0].data, jpeg)

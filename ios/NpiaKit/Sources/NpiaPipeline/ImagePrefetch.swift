@@ -28,27 +28,44 @@ final class ImagePrefetch: @unchecked Sendable {
         self.reserveBytes = reserveBytes
     }
 
-    /// How many images were started here.
+    /// How many images were started while the chapters were read: here, or by the source itself (`arrived`).
     var started: Int { lock.withLock { known.count } }
 
-    /// True when `filename` was downloaded here: its "✓" line is already in the log.
+    /// True when `filename`'s "✓" line is already in the log: it was downloaded here, or its source reported it.
     func brought(_ filename: String) -> Bool { lock.withLock { arrived.contains(filename) } }
+
+    /// An image its source downloaded itself, as part of reading the chapter (`SourceContext.onImage`):
+    /// its line is written now, like the ones downloaded here, and the image step does not repeat it.
+    func arrived(_ ref: ChapterRef, position: Int, filename: String, bytes: Int, seconds: TimeInterval) {
+        lock.withLock {
+            known.insert(filename)
+            arrived.insert(filename)
+        }
+        logger.log(.debug, Self.line(Self.label(ref, position: position), bytes: bytes, seconds: seconds))
+    }
+
+    /// The image step's label for an image's log line: "[12] Image #3 [Chapter title]".
+    private static func label(_ ref: ChapterRef, position: Int) -> String {
+        "[\((ref.isNotice ? "N" : "") + String(ref.index))] Image #\(position + 1) [\(ref.title)]"
+    }
+
+    private static func line(_ label: String, bytes: Int, seconds: TimeInterval) -> String {
+        let speed = ImageStage.formatSize(Int(Double(bytes) / max(seconds, 0.001)))
+        return "  ✓ \(label): \(ImageStage.formatSize(bytes)) [\(speed)/s]"
+    }
 
     /// A chapter that was just read: its images that came without bytes start downloading.
     func offer(_ result: ChapterResult) {
         guard case .content(let content) = result else { return }
         guard Self.freeBytes() >= reserveBytes else { return }
         let page = content.ref.url
-        let number = (content.ref.isNotice ? "N" : "") + String(content.ref.index)
-        let title = content.ref.title
         lock.withLock {
             guard !closed else { return }
             for (position, image) in content.images.enumerated() {
                 guard image.data == nil, !known.contains(image.filename),
                       let scheme = image.url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { continue }
                 known.insert(image.filename)
-                // The image step's label for the image's log line: "[12] Image #3 [Chapter title]".
-                let label = "[\(number)] Image #\(position + 1) [\(title)]"
+                let label = Self.label(content.ref, position: position)
                 tasks[image.filename] = Task { [weak self] in
                     guard let self else { return nil }
                     return await self.fetch(image, page: page, label: label)
@@ -91,9 +108,7 @@ final class ImagePrefetch: @unchecked Sendable {
                 response = try await http.get(image.url, headers: ["Referer": page.absoluteString])
             }
             guard (200..<300).contains(response.status), !response.body.isEmpty else { return nil }
-            let seconds = max(Date().timeIntervalSince(began), 0.001)
-            let speed = ImageStage.formatSize(Int(Double(response.body.count) / seconds))
-            logger.log(.debug, "  ✓ \(label): \(ImageStage.formatSize(response.body.count)) [\(speed)/s]")
+            logger.log(.debug, Self.line(label, bytes: response.body.count, seconds: Date().timeIntervalSince(began)))
             let name = image.filename
             lock.withLock { _ = arrived.insert(name) }
             return Self.onDisk(response.body)

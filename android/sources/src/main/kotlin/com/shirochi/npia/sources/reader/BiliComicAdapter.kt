@@ -30,7 +30,9 @@ import javax.crypto.spec.SecretKeySpec
  * The engine returns a chapter's page addresses, which the site signs for about fifteen minutes. The
  * image step runs after every chapter is read, far later than that, so a download fetches a chapter's
  * pages here, as soon as the chapter is read, and hands the bytes over (`SourceContext.keep` moves them
- * to disk). The Catalog reader shows a chapter at once and takes the addresses (`parseChapter`).
+ * to disk). Each page is reported as it arrives (`SourceContext.onImage`), so the log shows the pages
+ * coming in between the chapter lines; the other chapters' addresses are read meanwhile.
+ * The Catalog reader shows a chapter at once and takes the addresses (`parseChapter`).
  *
  * A chapter the signed-in account has not bought is refused; nothing is bought.
  */
@@ -61,7 +63,17 @@ internal class BiliComicAdapter : SourceAdapter {
             val images = result.content.images
             val limit = Semaphore(context.shared(id).imageWorkers.coerceIn(1, 8))
             val fetched = coroutineScope {
-                images.map { image -> async { image.data ?: limit.withPermit { page(image.url, context) } } }.awaitAll()
+                images.mapIndexed { index, image ->
+                    async {
+                        image.data ?: limit.withPermit {
+                            val began = System.nanoTime()
+                            // Reported as it arrives: the log shows the pages coming in while the chapters are read.
+                            page(image.url, context)?.also {
+                                context.onImage(result.ref, index, image.filename, it.size, (System.nanoTime() - began) / 1e9)
+                            }
+                        }
+                    }
+                }.awaitAll()
             }
             val missing = fetched.indexOfFirst { it == null }
             if (missing >= 0) {

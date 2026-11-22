@@ -144,6 +144,34 @@ class ImagePrefetchTest {
     }
 
     @Test
+    fun anImageItsSourceDownloadedHasItsLineWhenItArrivesAndNotAgainAtTheImageStep() = runTest {
+        val store = ImageStore.create(temp.root)
+        val lines = Collections.synchronizedList(mutableListOf<String>())
+        val logger = com.shirochi.npia.core.JobLogging { _, message -> lines += message }
+        val prefetch = ImagePrefetch(noNetwork, store, workers = 2, parent = coroutineContext, logger = logger)
+        try {
+            // A source that fetches a chapter's pages itself (Bilibili Manga): it reports each page, then
+            // hands the chapter over with the bytes.
+            val content = chapter(3, image("p1.png", png), image("p2.png", png + 1))
+            prefetch.arrived(content.ref, 0, "images/p1.png", png.size, 0.5)
+            prefetch.arrived(content.ref, 1, "images/p2.png", png.size + 1, 0.0)
+            assertEquals(listOf("  ✓ [3] Image #1 [Ch 3]: 40 B [80 B/s]", "  ✓ [3] Image #2 [Ch 3]: 41 B [40.0 KB/s]"), lines.toList())
+            assertEquals(2, prefetch.started)
+            val kept = store.keep(ChapterResult.Content(content)) as ChapterResult.Content
+            prefetch.offer(kept)
+            assertEquals(2, prefetch.started)  // held already: not asked for here
+
+            val output = ImageStage(noNetwork, AppSettings(), SourceId.READER, PassthroughImages, logger, store, prefetch).run(listOf(kept.content))
+            assertEquals(0, output.failed)
+            assertArrayEquals(png + 1, output.images["images/p2.png"])
+            assertEquals(lines.toString(), 2, lines.count { it.contains("✓") })
+        } finally {
+            prefetch.close()
+            store.close()
+        }
+    }
+
+    @Test
     fun withTheDeviceNearlyFullImagesWaitForTheImageStep() = runTest {
         val store = ImageStore.create(temp.root)
         val site = Site(mapOf("https://img.example/a.png" to png))

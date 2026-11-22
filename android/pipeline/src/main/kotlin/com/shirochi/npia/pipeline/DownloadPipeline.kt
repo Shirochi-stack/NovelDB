@@ -160,7 +160,7 @@ class DownloadPipeline(
         // A chapter's images start downloading as soon as it is read, not after the last chapter (ImagePrefetch).
         val prefetch = if (settings.images.saveImageUrlsOnly) null
             else ImagePrefetch(http, store, shared.imageWorkers, coroutineContext, logger = logger)
-        val chapterRun = chapterContext(context, selected.size, onPhase, store) { result ->
+        val chapterRun = chapterContext(context, selected.size, onPhase, store, prefetch) { result ->
             completed[result.ref.id] = result
             prefetch?.offer(result)
         }
@@ -483,12 +483,15 @@ class DownloadPipeline(
         total: Int,
         onPhase: (JobPhase) -> Unit,
         store: ImageStore,
+        prefetch: ImagePrefetch?,
         onResult: (ChapterResult) -> Unit,
     ): SourceContext {
         val done = AtomicInteger()
         val starts = ConcurrentHashMap<String, Long>()
         return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger,
             onChapterStarted = { ref -> if (base.settings.shared.chapterTiming) starts[ref.id] = System.nanoTime() },
+            // An image a source downloads itself while reading a chapter gets its log line as it arrives.
+            onImage = { ref, position, filename, bytes, seconds -> prefetch?.arrived(ref, position, filename, bytes, seconds) },
             keep = store::keep, onChapter = { result ->
             onResult(result)
             onChapter?.let { publish ->

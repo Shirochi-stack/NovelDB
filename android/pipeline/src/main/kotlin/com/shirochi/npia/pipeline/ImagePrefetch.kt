@@ -1,5 +1,6 @@
 package com.shirochi.npia.pipeline
 
+import com.shirochi.npia.core.ChapterRef
 import com.shirochi.npia.core.ChapterResult
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.ImageRef
@@ -41,23 +42,42 @@ class ImagePrefetch(
     private val jobs = ConcurrentHashMap<String, Job>()
     private val arrived = ConcurrentHashMap.newKeySet<String>()
 
-    /** How many images were started here. */
-    val started: Int get() = jobs.size
+    private val reported = ConcurrentHashMap.newKeySet<String>()
 
-    /** True when `filename` was downloaded here: its "✓" line is already in the log. */
+    /** How many images were started while the chapters were read: here, or by the source itself (`arrived`). */
+    val started: Int get() = jobs.size + reported.size
+
+    /** True when `filename`'s "✓" line is already in the log: it was downloaded here, or its source reported it. */
     fun brought(filename: String): Boolean = filename in arrived
+
+    /**
+     * An image its source downloaded itself, as part of reading the chapter (`SourceContext.onImage`):
+     * its line is written now, like the ones downloaded here, and the image step does not repeat it.
+     */
+    fun arrived(ref: ChapterRef, position: Int, filename: String, bytes: Int, seconds: Double) {
+        reported += filename
+        arrived += filename
+        logger.log(LogLevel.DEBUG, line(label(ref, position), bytes, seconds))
+    }
+
+    /** The image step's label for an image's log line: "[12] Image #3 [Chapter title]". */
+    private fun label(ref: ChapterRef, position: Int) =
+        "[${(if (ref.isNotice) "N" else "") + ref.index}] Image #${position + 1} [${ref.title}]"
+
+    private fun line(label: String, bytes: Int, seconds: Double): String {
+        val took = seconds.coerceAtLeast(0.001)
+        return "  ✓ $label: ${ImageStage.formatSize(bytes.toLong())} [${ImageStage.formatSize((bytes / took).toLong())}/s]"
+    }
 
     /** A chapter that was just read: its images that nobody holds yet start downloading. */
     fun offer(result: ChapterResult) {
         if (result !is ChapterResult.Content || !job.isActive) return
         val page = result.ref.url
-        val number = (if (result.ref.isNotice) "N" else "") + result.ref.index
         result.content.images.forEachIndexed { position, image ->
             if (image.data != null || store.holds(image.filename)) return@forEachIndexed
             if (!image.url.startsWith("http://", ignoreCase = true) && !image.url.startsWith("https://", ignoreCase = true)) return@forEachIndexed
             if (store.freeBytes() < reserveBytes) return
-            // The image step's label for the image's log line: "[12] Image #3 [Chapter title]".
-            val label = "[$number] Image #${position + 1} [${result.ref.title}]"
+            val label = label(result.ref, position)
             jobs.computeIfAbsent(image.filename) { scope.launch { slots.withPermit { fetch(image, page, label) } } }
         }
     }
@@ -73,9 +93,7 @@ class ImagePrefetch(
             if (response.status in 200..299 && response.body.isNotEmpty()) {
                 store.hold(image.filename, response.body)
                 arrived += image.filename
-                val seconds = ((System.nanoTime() - began) / 1e9).coerceAtLeast(0.001)
-                logger.log(LogLevel.DEBUG, "  ✓ $label: ${ImageStage.formatSize(response.body.size.toLong())} " +
-                    "[${ImageStage.formatSize((response.body.size / seconds).toLong())}/s]")
+                logger.log(LogLevel.DEBUG, line(label, response.body.size, (System.nanoTime() - began) / 1e9))
             }
         } catch (e: CancellationException) {
             throw e

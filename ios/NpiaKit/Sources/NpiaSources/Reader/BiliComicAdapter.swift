@@ -7,6 +7,8 @@ import NpiaCore
 /// The engine returns a chapter's page addresses, which the site signs for about fifteen minutes. The
 /// image step runs after every chapter is read, far later than that, so a download fetches a chapter's
 /// pages as soon as the chapter is read (`BiliComicDownload`) and the chapter carries their bytes.
+/// Each page is reported as it arrives (`SourceContext.onImage`), so the log shows the pages coming in
+/// between the chapter lines; the other chapters' addresses are read meanwhile.
 /// The Catalog reader shows a chapter at once and takes the addresses (`parseChapter`).
 ///
 /// A chapter the signed-in account has not bought is refused; nothing is bought. Android's
@@ -67,13 +69,19 @@ enum BiliComicPages {
     static func attach(to result: ChapterResult, context: SourceContext) async throws -> ChapterResult {
         guard case .content(var content) = result, content.images.contains(where: { $0.data == nil }) else { return result }
         let images = content.images
+        let ref = content.ref
         let limit = max(1, min(6, context.shared(for: .bilicomic).imageWorkers))
         var fetched = [Data?](repeating: nil, count: images.count)
         var next = 0
         func start(_ index: Int, in group: inout ThrowingTaskGroup<(Int, Data?), Error>) {
             let image = images[index]
             group.addTask {
+                let began = ProcessInfo.processInfo.systemUptime
                 let data = try await BiliComicPages.page(image, context: context)
+                // Reported as it arrives: the log shows the pages coming in while the chapters are read.
+                if let data, image.data == nil {
+                    context.onImage(ref, index, image.filename, data.count, ProcessInfo.processInfo.systemUptime - began)
+                }
                 return (index, data)
             }
         }
