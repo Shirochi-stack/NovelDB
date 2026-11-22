@@ -12,6 +12,7 @@ from noveldb.core.images import (
     _download_image_with_progress,
     _encode_image_bytes,
     _format_size,
+    _resize_to_max_width,
 )
 
 
@@ -80,6 +81,7 @@ def extract_chapter_content_and_images(
     chapter_num=None,
     convert_gifs=False,
     static_only=False,
+    image_max_width=None,
     save_image_urls_only=False,
     strip_leading_spaces=False,
     remove_newlines=False,
@@ -186,19 +188,36 @@ def extract_chapter_content_and_images(
                                 # "Convert GIFs" OR "Static images only", fall through
                                 # to the shared encoder (which flattens when asked and
                                 # preserves animation for WEBP/AVIF/APNG otherwise).
-                                if ext == "gif" and not convert_gifs and not static_only:
+                                if ext == "gif" and not convert_gifs:
+                                    from PIL import ImageSequence
+
+                                    frames = []
+                                    durations = []
+                                    for frame in ImageSequence.Iterator(im):
+                                        frames.append(
+                                            _resize_to_max_width(
+                                                frame.convert("RGBA"), image_max_width
+                                            )
+                                        )
+                                        durations.append(frame.info.get("duration", 100))
+                                        if static_only:
+                                            break
                                     out = io.BytesIO()
-                                    im.save(out, format="GIF", save_all=True, optimize=True)
-                                    img_bytes = out.getvalue()
-                                elif ext == "gif" and not convert_gifs and static_only:
-                                    # Keep the .gif extension but drop to a single frame.
-                                    out = io.BytesIO()
-                                    im.save(out, format="GIF", optimize=True)
+                                    frames[0].save(
+                                        out,
+                                        format="GIF",
+                                        save_all=not static_only and len(frames) > 1,
+                                        append_images=frames[1:] if not static_only else [],
+                                        duration=durations,
+                                        loop=im.info.get("loop", 0),
+                                        optimize=True,
+                                    )
                                     img_bytes = out.getvalue()
                                 else:
                                     img_bytes, ext = _encode_image_bytes(
                                         im, image_format, jpeg_quality,
                                         logger=logger, static_only=static_only,
+                                        max_width=image_max_width,
                                     )
                             except Exception as conv_err:
                                 logger(f"  \u26a0 {lbl}: conversion failed ({conv_err}), keeping original.")

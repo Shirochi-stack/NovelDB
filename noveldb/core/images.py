@@ -227,7 +227,26 @@ def _detect_source_ext(img_bytes, url_hint=""):
     return "jpg"
 
 
-def _encode_image_bytes(im, image_format, quality, logger=None, static_only=False):
+def _resize_to_max_width(image, max_width):
+    """Return ``image`` resized to ``max_width`` while preserving aspect ratio.
+
+    ``None``/``0`` means original dimensions. Images narrower than the selected
+    width are never enlarged.
+    """
+    try:
+        max_width = int(max_width or 0)
+    except (TypeError, ValueError):
+        max_width = 0
+    if max_width <= 0 or image.width <= max_width:
+        return image.copy()
+    height = max(1, round(image.height * max_width / image.width))
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+    return image.resize((max_width, height), resampling)
+
+
+def _encode_image_bytes(
+    im, image_format, quality, logger=None, static_only=False, max_width=None
+):
     """Encode a PIL image to `image_format` and return (bytes, ext).
 
     Preserves animation when the source has multiple frames AND the target
@@ -259,13 +278,14 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
     if is_animated:
         for f in ImageSequence.Iterator(im):
             fr = f.convert(target_mode) if f.mode != target_mode else f.copy()
+            fr = _resize_to_max_width(fr, max_width)
             frames.append(fr)
             durations.append(f.info.get("duration", 100))
     else:
         still = im.convert(target_mode) if im.mode != target_mode else im
         if image_format == "JPEG" and still.mode != "RGB":
             still = still.convert("RGB")
-        frames.append(still)
+        frames.append(_resize_to_max_width(still, max_width))
 
     loop = im.info.get("loop", 0)
     save_animated = is_animated and image_format in ("WEBP", "PNG", "AVIF")
