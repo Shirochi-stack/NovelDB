@@ -164,6 +164,80 @@ class MobileDownloadLiveTest {
     }
 
     /**
+     * Stop, pressed while a Bilibili Manga chapter is being stitched, ends the job within seconds. With
+     * `-e generate true` ("Generate on stop") the first Stop starts the files from what was read, and a
+     * second Stop, pressed while those are stitched, ends that too.
+     */
+    @Test
+    fun aStopEndsTheStitching() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue(arguments.getString("live") == "true")
+        val generate = arguments.getString("generate") == "true"
+        val app = instrumentation.targetContext.applicationContext as NpiaApplication
+        val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        lateinit var model: AppViewModel
+        instrumentation.runOnMainSync { model = ViewModelProvider(activity)[AppViewModel::class.java] }
+        val manager = model.manager
+        val base = AppSettings()
+        val settings = base.copy(
+            shared = SharedSettings(rangeFrom = 1, rangeTo = 8, appendRange = true, threads = 1, intervalMin = 1.0,
+                intervalMax = 2.0, formats = listOf(OutputFormat.FOLDER), generateOnStop = generate),
+            images = base.images.copy(webtoonExport = true, stitchImages = true))
+        fun log(id: String) = manager.jobs.value.first { it.id == id }.log
+        suspend fun waitForStitching(id: String, count: Int) = withTimeout(900_000) {
+            while (log(id).count { "Stitching chapter" in it } < count) delay(200)
+        }
+        try {
+            manager.updateSettings { settings }
+            manager.enqueue(listOf("https://manga.bilibili.com/detail/mc29839")) { settings }
+            val id = manager.jobs.value.first().id
+            instrumentation.runOnMainSync { model.openJob(id) }
+            try {
+                waitForStitching(id, 1)
+                // With "Generate on stop": three chapters read first, so the files have chapters left to stitch.
+                if (generate) withTimeout(900_000) { while (log(id).none { "] Chapter 3:" in it }) delay(200) }
+                delay(3_000)  // in the middle of a chapter's stitching
+                var pressed = System.currentTimeMillis()
+                var linesAtStop = log(id).size
+                manager.cancel(id)
+                if (generate) {
+                    // The files are generated from what was read: wait until that stitches, then Stop again.
+                    withTimeout(900_000) {
+                        while (log(id).drop(linesAtStop).none { "Stitching chapter" in it }) {
+                            assertTrue("the job ended before a second Stop:\n" + log(id).joinToString("\n"),
+                                manager.jobs.value.first { it.id == id }.state.isActive)
+                            delay(200)
+                        }
+                    }
+                    delay(3_000)
+                    pressed = System.currentTimeMillis()
+                    linesAtStop = log(id).size
+                    manager.cancel(id)
+                }
+                withTimeout(120_000) {
+                    while (manager.jobs.value.first { it.id == id }.state.isActive) delay(100)
+                }
+                val seconds = (System.currentTimeMillis() - pressed) / 1000.0
+                val after = log(id).drop(linesAtStop)
+                android.util.Log.i("StopStitchLive", "ended %.1f s after the last Stop; lines after it: %s".format(seconds, after))
+                val finished = manager.jobs.value.first { it.id == id }
+                assertEquals(log(id).joinToString("\n"), JobState.CANCELLED, finished.state)
+                assertTrue("ended $seconds s after Stop", seconds < 15)
+                assertTrue(after.toString(), after.none { "Stitching chapter" in it })
+                assertTrue(finished.files(manager.outputDirectory).isEmpty())
+                // Nothing half written is left beside the outputs.
+                assertTrue(manager.outputDirectory.listFiles { file -> file.name.startsWith(".noveldb-folder-") }.orEmpty().isEmpty())
+            } finally {
+                log(id).forEach { android.util.Log.i("StopStitchLive", it) }
+            }
+        } finally {
+            manager.cancelAll()
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
+    /**
      * A book with pictures at `-e url <address>` (chapters `-e from`..`-e to`, 1-3 by default): its images
      * start downloading while the later chapters are still being read, not after the last one.
      */

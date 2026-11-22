@@ -48,16 +48,21 @@ class FolderWriter(override val format: OutputFormat) : BookWriter {
             val title = CbzWriter.safeName(chapter.ref.title).take(60).trimEnd { it.isHighSurrogate() || it == '.' || it == ' ' }
             val name = "%04d %s".format(Locale.ROOT, maxOf(1, chapter.ref.index), title)
             var folder = stage
+            // What this chapter has written so far: removed again when a stop cuts it short, so a
+            // chapter is in the export whole or not at all.
+            val written = mutableListOf<File>()
             fun useChapterFolder() {
                 if (folder != stage) return
                 folder = uniqueFile(stage, name, "")
                 check(folder.mkdir()) { "Could not create chapter folder." }
+                written += folder
             }
             if (subfolders) useChapterFolder()
             fun target(stem: String, ext: String): File {
                 val prefix = if (folder == stage) "$name - " else ""
-                return uniqueFile(folder, prefix + stem, ".$ext")
+                return uniqueFile(folder, prefix + stem, ".$ext").also { written += it }
             }
+            try {
             fun save(position: Int, ext: String, bytes: ByteArray) {
                 ensureActive()
                 val encoded = encode?.process(bytes)
@@ -85,6 +90,11 @@ class FolderWriter(override val format: OutputFormat) : BookWriter {
             }
             if (text.isNotBlank()) target("chapter", "txt").writeText(text + "\n")
             if (links.isNotEmpty()) target("images", "txt").writeText(links.joinToString("\n", postfix = "\n"))
+            } catch (stopped: kotlinx.coroutines.CancellationException) {
+                written.asReversed().forEach { it.deleteRecursively() }
+                temporary.listFiles { file -> file.name.startsWith("strip-") }?.forEach { it.delete() }
+                throw stopped
+            }
         }
 
         suspend fun pack(): Unit = withContext(Dispatchers.IO) {

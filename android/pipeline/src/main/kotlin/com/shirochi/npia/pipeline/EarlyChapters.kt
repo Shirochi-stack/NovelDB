@@ -12,12 +12,10 @@ import com.shirochi.npia.output.FolderWriter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -57,7 +55,8 @@ class EarlyChapters(
             if (offline) HttpResponse(request.url, 404, emptyMap(), byteArrayOf()) else http.send(request)
     }
 
-    // Not a child of the download: a stop must not cut a chapter off half written.
+    // Not a child of the download: on a stop that generates files, the chapter in the works is finished
+    // (`finish`). `close` is what ends it at once.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val queue = Channel<ChapterContent>(Channel.UNLIMITED)
     private val names = HashSet<String>()
@@ -91,14 +90,13 @@ class EarlyChapters(
             var written = false
             val output = newStage(client).run(listOf(chapter), preserveChapterSources = preserveSources,
                 onChapterReady = { ready, bytes ->
-                    // Never cut short: a chapter is written whole, or left to the pipeline's image step.
-                    withContext(NonCancellable) {
-                        if (stitching && ready.images.size > 1 && ready.images.all { bytes.containsKey(it.filename) }) {
-                            logger.log(LogLevel.INFO, "Stitching chapter ${ready.ref.index}: ${ready.ref.title}")
-                        }
-                        prepared.append(ready, bytes)
-                        written = true
+                    if (stitching && ready.images.size > 1 && ready.images.all { bytes.containsKey(it.filename) }) {
+                        logger.log(LogLevel.INFO, "Stitching chapter ${ready.ref.index}: ${ready.ref.title}")
                     }
+                    // `close` (a stop) ends this between two strips; the writer then removes what it wrote
+                    // of the chapter, so a chapter is in the export whole or not at all.
+                    prepared.append(ready, bytes)
+                    written = true
                 })
             if (written) finished[chapter.ref.id] = Done(output.chapters.single(), output.images, output.failed)
         } catch (e: CancellationException) {
@@ -116,10 +114,12 @@ class EarlyChapters(
         if (stopped) offline = true
         ending = true
         queue.close()
-        withContext(NonCancellable) { worker.join() }
+        // A Stop ends this wait (the caller then calls `close`): it can be long, the chapter in the
+        // works may still be waiting for its images.
+        worker.join()
     }
 
-    /** Drops everything (the job failed or was stopped without output). */
+    /** Ends everything at once, the stitching in progress included (the job failed, or Stop was pressed). */
     fun close() {
         ending = true
         scope.cancel()

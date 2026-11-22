@@ -119,3 +119,80 @@ def test_a_stopped_download_leaves_its_chapters_to_the_export_step(tmp_path):
         assert early.writes.submitted == set()
     finally:
         early.close()
+
+
+def test_a_stop_ends_the_stitching_between_two_strips_and_removes_the_chapters_files(tmp_path):
+    import pytest
+
+    from noveldb.core.chapter_folder import ExportStopped, write_chapter
+
+    pages = [(number, ("png", page("red", size=(100, 400)))) for number in range(1, 9)]  # 8 pages, 2 a strip
+    calls = []
+
+    def stopped():
+        calls.append(1)
+        return len(calls) > 6  # the third strip is never finished
+
+    (tmp_path / "kept.txt").write_text("another chapter's file")
+    with pytest.raises(ExportStopped):
+        write_chapter(tmp_path, 3, "Episode", "Text", pages, max_height=800, chapter_folders=True, stopped=stopped)
+    # Nothing of the chapter is left (its folder too); what was there before stays.
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["kept.txt"]
+    # Without a stop the same chapter is written whole.
+    write_chapter(tmp_path, 3, "Episode", "Text", pages, max_height=800, chapter_folders=True, stopped=lambda: False)
+    assert len(list((tmp_path / "0003 Episode").glob("*.png"))) == 4
+
+
+def test_a_stop_while_files_are_generated_ends_the_chapter_in_the_works(tmp_path):
+    job = make_job(tmp_path, compress=False, webtoon_export=True, stitch_images=True, stitch_height=800)
+    pages = [(number, ("png", page("blue", size=(100, 400)))) for number in range(1, 9)]
+    chapter = {"chapterName": "Episode", "contentText": "", "images": []}
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    # The export step's own chapters: a Stop pressed during the build ends the stitching quietly
+    # (the step then ends at its own check), and leaves no half-written chapter.
+    job._generation_stop_baseline = False
+    strips = []
+    original = job._log
+
+    def log(message):
+        original(message)
+        if "Stitching chapter" in str(message):
+            job._download_cancelled = True  # Stop, right after the stitching began
+
+    job._log = log
+    job._write_export_chapter(stage, 0, chapter, pages, (), 800, False, None)
+    strips = list(stage.rglob("*.png"))
+    assert strips == []
+    assert any("Stitching chapter 1" in line for line in messages(job))
+    # Chapters still queued are not started at all.
+    job._write_export_chapter(stage, 1, chapter, pages, (), 800, False, None)
+    assert sum("Stitching chapter" in line for line in messages(job)) == 1
+
+
+def test_a_stop_while_chapters_are_read_ends_the_early_stitching(tmp_path):
+    job = make_job(tmp_path, compress=False, webtoon_export=True, stitch_images=True, stitch_height=800)
+    saved = []
+    for number in range(8):
+        path = tmp_path / f"p{number}.png"
+        path.write_bytes(page("red", size=(100, 400)))
+        saved.append({"url": f"https://example.test/{number}", "data": f"file:{path}"})
+    original = job._log
+
+    def log(message):
+        original(message)
+        if "Stitching chapter" in str(message):
+            job._download_cancelled = True
+
+    job._log = log
+    job._early_chapters = early = EarlyChapters(job, str(tmp_path))
+    try:
+        job._offer_read_chapter(0, {"chapterName": "One", "contentText": "", "images": saved})
+        job._offer_read_chapter(1, {"chapterName": "Two", "contentText": "", "images": saved})
+        early.finish()
+        # Neither chapter counts as written, and nothing of them is left behind.
+        assert early.writes.submitted == set()
+        assert [path for path in early.writes.root.rglob("*") if path.is_file()] == []
+        assert sum("Stitching chapter" in line for line in messages(job)) == 1
+    finally:
+        early.close()

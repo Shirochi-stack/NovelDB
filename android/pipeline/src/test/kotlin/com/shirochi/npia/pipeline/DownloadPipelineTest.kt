@@ -468,6 +468,96 @@ class DownloadPipelineTest {
         }
     }
 
+    private fun twoChaptersWithAPicture(url: String, beforeChapter: suspend (String) -> Unit = {}) = W2ePage(
+        book = """{"api":1,"engine":"webtoepub","parser":"NovelFullParser","match":"site","bookUrl":"$url","bookname":"The Legendary Mechanic",
+            "author":"Writer","introduction":"","coverUrl":null,"tags":[],"language":"en","chapterCount":2,
+            "chapters":[{"url":"https://novelfull.com/the-legendary-mechanic/chapter-1.html","name":"Chapter 1","number":1,"isVIP":false,"isPaid":false},
+                        {"url":"https://novelfull.com/the-legendary-mechanic/chapter-2.html","name":"Chapter 2","number":2,"isVIP":false,"isPaid":false}],
+            "warnings":[]}""",
+        chapters = mapOf(
+            "chapter-1" to """{"chapterName":"Chapter 1","contentHtml":"<p>One.</p><p><img src=\"https://img.example/a.png\"></p>","contentText":"One.","imageCount":0,"images":[]}""",
+            "chapter-2" to """{"chapterName":"Chapter 2","contentHtml":"<p>Two.</p>","contentText":"Two.","imageCount":0,"images":[]}""",
+        ),
+        beforeChapter = beforeChapter,
+    )
+
+    @Test
+    fun aStopWhileTheFilesAreMadeEndsTheJobInsteadOfStartingTheBuildAgain() = runBlocking {
+        // With "Generate on stop" on, a Stop during the image step or the stitching used to start the
+        // whole build again, in a way no Stop could end.
+        val url = "https://novelfull.com/the-legendary-mechanic.html"
+        val output = Files.createTempDirectory("stop-while-building").toFile()
+        val never = CompletableDeferred<Unit>()
+        val http = object : HttpFetching {
+            override suspend fun send(request: HttpRequest): HttpResponse {
+                never.await()  // the picture never arrives: the image step stays busy
+                error("not reached")
+            }
+        }
+        val making = CompletableDeferred<Unit>()
+        val saved = CompletableDeferred<JobOutcome>()
+        val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val settings = AppSettings(shared = SharedSettings(threads = 1, intervalMin = 0.0, intervalMax = 0.0,
+            formats = listOf(OutputFormat.EPUB), generateOnStop = true))
+        try {
+            val job = launch {
+                saved.complete(DownloadPipeline(InMemorySecretStore(), output, web = WebOf(twoChaptersWithAPicture(url)),
+                    httpFactory = { http }, logger = JobLogging { _, message -> lines += message })
+                    .run(url, settings) { if (it is JobPhase.DownloadingImages) making.complete(Unit) })
+            }
+            withTimeout(10_000) { making.await() }
+            withTimeout(10_000) { job.cancelAndJoin() }
+            assertFalse(saved.isCompleted)
+            assertFalse(lines.toString(), lines.any { it.contains("generating files") })
+            assertTrue(output.listFiles().orEmpty().toList().toString(), output.listFiles().orEmpty().isEmpty())
+        } finally { output.deleteRecursively() }
+    }
+
+    @Test
+    fun aSecondStopEndsTheFilesAStoppedDownloadIsGenerating() = runBlocking {
+        val url = "https://novelfull.com/the-legendary-mechanic.html"
+        val output = Files.createTempDirectory("second-stop").toFile()
+        val firstDone = CompletableDeferred<Unit>()
+        val neverRead = CompletableDeferred<Unit>()
+        val encoding = CompletableDeferred<Unit>()
+        val release = java.util.concurrent.CountDownLatch(1)
+        // The build is busy with the first chapter's picture until the test lets it go.
+        val slow = object : com.shirochi.npia.core.ImageProcessing {
+            override fun process(data: ByteArray, isCover: Boolean): com.shirochi.npia.core.ProcessedImage {
+                encoding.complete(Unit)
+                release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                return com.shirochi.npia.core.ProcessedImage(data, "png")
+            }
+        }
+        val http = object : HttpFetching {
+            override suspend fun send(request: HttpRequest) = HttpResponse(request.url, 200, emptyMap(), PNG)
+        }
+        val saved = CompletableDeferred<JobOutcome>()
+        val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val settings = AppSettings(shared = SharedSettings(threads = 2, intervalMin = 0.0, intervalMax = 0.0,
+            formats = listOf(OutputFormat.EPUB), generateOnStop = true))
+        try {
+            val page = twoChaptersWithAPicture(url) { body -> if (body.contains("chapter-2")) neverRead.await() }
+            val pipeline = DownloadPipeline(InMemorySecretStore(), output, web = WebOf(page), images = slow,
+                httpFactory = { http }, logger = JobLogging { _, message -> lines += message })
+            val job = launch {
+                saved.complete(pipeline.run(url, settings) { if (it == JobPhase.FetchingChapters(1, 2)) firstDone.complete(Unit) })
+            }
+            withTimeout(10_000) { firstDone.await() }
+            job.cancel()  // Stop: the files are generated from the chapter that was read
+            withTimeout(10_000) { encoding.await() }
+            assertTrue(lines.toString(), lines.any { it.contains("generating files") })
+            pipeline.stopOutput()  // Stop again
+            release.countDown()
+            withTimeout(10_000) { job.join() }
+            assertFalse(saved.isCompleted)
+            assertTrue(output.listFiles().orEmpty().toList().toString(), output.listFiles().orEmpty().isEmpty())
+        } finally {
+            release.countDown()
+            output.deleteRecursively()
+        }
+    }
+
     @Test
     fun chapterTimingIsOptionalAndIncludesTheTotalDuration() = runTest {
         for (enabled in listOf(false, true)) {

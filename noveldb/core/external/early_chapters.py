@@ -5,7 +5,7 @@ from html import unescape
 from pathlib import Path
 from threading import Lock
 
-from noveldb.core.chapter_folder import ChapterWrites
+from noveldb.core.chapter_folder import ChapterWrites, ExportStopped
 
 
 class _Left(Exception):
@@ -70,15 +70,19 @@ class EarlyChapters:
                 if self._compress and not self._stitch:
                     raw = job._compress_image(raw, self._quality, self._format)
                 pages.append((position, (job._image_ext_from_bytes(raw), raw)))
-            if job._download_cancelled:
-                raise _Left()
+            # A Stop ends the stitching between two strips; what was written of the chapter is removed.
             job._write_export_chapter(self.writes.root, index, chapter, pages, (), self._height, self._folders,
-                                      self._stitch)
+                                      self._stitch, stopped=self._stopped)
         except Exception as error:
             with self._lock:
                 self.writes.submitted.discard(index)
-            if not isinstance(error, _Left):
+            if not isinstance(error, (_Left, ExportStopped)):
                 job._log(f"  Could not prepare chapter {index + 1} early ({error}); it is written during export.")
+
+    def _stopped(self):
+        """Stop was pressed: while the chapters are read, or (a second time) while files are generated."""
+        job = self._job
+        return bool(job._download_cancelled) or bool(getattr(job, "_output_stopped", False))
 
     def waiting(self):
         """How many chapters are still queued or being written."""

@@ -1975,10 +1975,19 @@ class ExternalPipelineMixin:
 
         return _max_width_value(getattr(getattr(self, "_parent_gui", None), "var_image_max_width", None))
 
-    def _write_export_chapter(self, stage, index, chapter, pages, links, height, chapter_folders, compression):
-        from noveldb.core.chapter_folder import chapter_text, write_chapter
+    def _write_export_chapter(self, stage, index, chapter, pages, links, height, chapter_folders, compression,
+                              stopped=None):
+        """Write (and stitch) one Folder/ZIP chapter. A Stop ends it between two strips: the chapter's
+        files are removed, and nothing is reported (the export step ends at its own check). `stopped`:
+        the caller's own stop test (chapters written while the others are read); `ExportStopped` then
+        reaches the caller."""
+        from noveldb.core.chapter_folder import ExportStopped, chapter_text, write_chapter
 
-        if ExternalPipelineMixin._generation_stopped(self):
+        own = stopped is not None
+        stopped = stopped or (lambda: ExternalPipelineMixin._generation_stopped(self))
+        if stopped():
+            if own:
+                raise ExportStopped()
             return
         number = ExternalPipelineMixin._result_chapter_number(self, index, chapter)
         name = chapter.get("chapterName") or f"Chapter {number}"
@@ -1987,8 +1996,12 @@ class ExternalPipelineMixin:
             text = (chapter.get("contentText") or "").strip()
         action = "Stitching" if height is not None and len(pages) > 1 else "Writing"
         self._log(f"  {action} chapter {number}: {name} ({len(pages)} image(s) ready)")
-        write_chapter(stage, number, name, text, pages, links, max_height=height,
-                      chapter_folders=chapter_folders, compression=compression)
+        try:
+            write_chapter(stage, number, name, text, pages, links, max_height=height,
+                          chapter_folders=chapter_folders, compression=compression, stopped=stopped)
+        except ExportStopped:
+            if own:
+                raise
 
     def _generate_folder(self, title, output_format, *, image_archive=None, also_zip=False, early=None):
         import requests

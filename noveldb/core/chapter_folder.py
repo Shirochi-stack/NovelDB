@@ -215,23 +215,61 @@ def chapter_name(number: int, title: str) -> str:
     return f"{max(1, number):04d} {safe or 'Chapter'}"
 
 
+class ExportStopped(Exception):
+    """Stop was pressed while a chapter was written: what it had written so far is removed."""
+
+
 def write_chapter(root, number, title, text, pages, links=(), *, max_height=None, chapter_folders=False,
-                  compression=None):
-    """Write one chapter without reordering or splitting its source images."""
+                  compression=None, stopped=None):
+    """Write one chapter without reordering or splitting its source images.
+
+    `stopped`: asked before every strip and file; once it answers True the chapter's files are
+    removed and `ExportStopped` is raised, so a Stop does not wait for the chapter to be stitched.
+    """
     if not (text or pages or links):
         return
+    written = []
+    created = []
+    try:
+        _write_chapter(root, number, title, text, pages, links, max_height, chapter_folders, compression,
+                       stopped or (lambda: False), written, created)
+    except ExportStopped:
+        for path in written:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        for folder in created:
+            try:
+                folder.rmdir()
+            except OSError:
+                pass
+        raise
+
+
+def _write_chapter(root, number, title, text, pages, links, max_height, chapter_folders, compression, stopped,
+                   written, created):
+    def check():
+        if stopped():
+            raise ExportStopped()
+
+    check()
     if max_height is not None and compression:
         cap = {"WEBP": 16_383, "AVIF": 16_383, "JPEG": 65_500}.get(compression[0])
         if cap:
             max_height = min(max_height or cap, cap)
     full_strip = max_height == 0 and len(pages) > 1
     if max_height and len(pages) > 1:
-        strips = stitch_panels((page for _, page in pages), max_height, compression=compression)
+        strips = stitch_panels((page for _, page in pages), max_height, compression=compression, stopped=check)
         first = list(islice(strips, 2))
         chapter_folders = chapter_folders or len(first) > 1
         pages = enumerate(chain(first, strips), 1)
         compression = None
-    folder = chapter_directory(root, number, title) if chapter_folders else root
+    if chapter_folders:
+        folder = chapter_directory(root, number, title)
+        created.append(folder)
+    else:
+        folder = root
     prefix = "" if chapter_folders else chapter_name(number, title) + " - "
 
     def target(filename):
@@ -241,15 +279,17 @@ def write_chapter(root, number, title, text, pages, links=(), *, max_height=None
             stem, ext = filename.rsplit(".", 1)
             path = folder / f"{prefix}{stem} ({counter}).{ext}"
             counter += 1
+        written.append(path)
         return path
 
     if text:
         target("chapter.txt").write_text(text + "\n", encoding="utf-8")
     if links:
         target("images.txt").write_text("\n".join(links) + "\n", encoding="utf-8")
-    if full_strip and _write_full_strip(target("001.png"), [page for _, page in pages]):
+    if full_strip and _write_full_strip(target("001.png"), [page for _, page in pages], check):
         return
     for position, page in pages:
+        check()
         extension, raw = _compress_panel(page, compression)
         target(f"{position:03d}.{extension}").write_bytes(raw)
 
@@ -274,7 +314,7 @@ def chapter_text(markup: str) -> str:
     return html.unescape(re.sub(r"<[^>]*>", "", text)).strip()
 
 
-def _write_full_strip(path, pages):
+def _write_full_strip(path, pages, stopped=None):
     """Stream one PNG panel at a time, keeping the complete canvas off the heap."""
     from PIL import Image
 
@@ -300,6 +340,8 @@ def _write_full_strip(path, pages):
         chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
         compressor = zlib.compressobj(3)
         for _, data in pages:
+            if stopped:
+                stopped()
             with Image.open(io.BytesIO(data)) as source:
                 if source.mode == "RGB" and source.width == width:
                     pixels = source.tobytes()
@@ -317,17 +359,22 @@ def _write_full_strip(path, pages):
     return True
 
 
-def stitch_panels(pages, max_height=16_000, *, compression=None):
-    """Combine adjacent slices within a bounded image size."""
+def stitch_panels(pages, max_height=16_000, *, compression=None, stopped=None):
+    """Combine adjacent slices within a bounded image size. `stopped` is called before every strip
+    and page (it raises to end the stitching)."""
     from PIL import Image
 
     def render(group, width, height):
+        if stopped:
+            stopped()
         if len(group) == 1:
             return [_compress_panel(group[0][0], compression)]
         try:
             with Image.new("RGB", (width, height), "white") as strip:
                 top = 0
                 for (_, data), size in group:
+                    if stopped:
+                        stopped()
                     with Image.open(io.BytesIO(data)) as source:
                         origin = ((width - source.width) // 2, top)
                         if source.mode == "RGB":

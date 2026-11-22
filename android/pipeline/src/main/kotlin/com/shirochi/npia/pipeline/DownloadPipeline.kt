@@ -45,8 +45,11 @@ import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploadStem
 import com.shirochi.npia.upload.UploaderCatalog
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -99,6 +102,25 @@ class DownloadPipeline(
     private val onBook: ((List<ChapterRef>) -> Unit)? = null,
     private val onChapter: ((ChapterResult) -> Unit)? = null,
 ) {
+    @Volatile
+    private var outputStopped = false
+
+    @Volatile
+    private var outputBuild: Job? = null
+
+    @Volatile
+    private var earlyChapters: EarlyChapters? = null
+
+    /**
+     * A second Stop, pressed while files are generated from a stopped download ("Generate on stop"):
+     * ends that build too, the stitching in progress included. Nothing is written.
+     */
+    fun stopOutput() {
+        outputStopped = true
+        earlyChapters?.close()
+        outputBuild?.cancel()
+    }
+
     suspend fun run(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit = {}): JobOutcome {
         // Image bytes wait in files until the book is written (see ImageStore).
         val store = ImageStore.create()
@@ -171,20 +193,34 @@ class DownloadPipeline(
                 preserveSources = settings.images.compressAfterStitch && otherImageOutputs(shared),
                 stitching = settings.images.webtoonExport && settings.images.stitchImages, logger = logger)
         }
+        earlyChapters = early
         val chapterRun = chapterContext(context, selected.size, onPhase, store, prefetch) { result ->
             completed[result.ref.id] = result
             prefetch?.offer(result)
             early?.offer(result)
         }
+        // True once every chapter is read and the files are being made.
+        var building = false
         try {
             val results = adapter.parseChapters(selected, book, chapterRun).toMutableList()
             retryFailed(adapter, book, chapterRun, results, shared.maxRetries)
+            building = true
             return finishDownload(book, results, owner.id, shared, settings, http, url, store, started, onPhase,
                 prefetch = prefetch, prepared = chapterExport, early = early)
         } catch (cancelled: CancellationException) {
             // A stop ends the image downloads on their way too; what already arrived is used below.
             prefetch?.close()
-            if (!(generateOnStop?.invoke() ?: shared.generateOnStop) || completed.values.none { it is ChapterResult.Content }) throw cancelled
+            // A Stop while the files are made ends the job at once (the stitching in progress too). It used
+            // to start the whole build again, in a way no Stop could end. Only a Stop while the chapters
+            // are read generates files from what was read.
+            if (building) {
+                early?.close()
+                throw cancelled
+            }
+            if (!(generateOnStop?.invoke() ?: shared.generateOnStop) || completed.values.none { it is ChapterResult.Content }) {
+                early?.close()
+                throw cancelled
+            }
             val results = selected.mapNotNull { completed[it.id] }
             logger.log(LogLevel.INFO, "Stopped: generating files from ${results.count { it is ChapterResult.Content }} downloaded chapters")
             // Use collected text and image bytes. A stop never starts another network request or upload.
@@ -192,9 +228,15 @@ class DownloadPipeline(
                 override suspend fun send(request: HttpRequest) = HttpResponse(request.url, 404, emptyMap(), byteArrayOf())
             }
             return withContext(NonCancellable) {
-                finishDownload(book, results, owner.id, shared, settings.copy(upload = settings.upload.copy(autoUpload = false)),
-                    offline, url, store, started, onPhase, stopped = true, prefetch = prefetch,
-                    prepared = chapterExport, early = early)
+                // A job of its own, so that a second Stop can end this build (`stopOutput`).
+                val build = CoroutineScope(coroutineContext.minusKey(Job) + Job()).async {
+                    finishDownload(book, results, owner.id, shared, settings.copy(upload = settings.upload.copy(autoUpload = false)),
+                        offline, url, store, started, onPhase, stopped = true, prefetch = prefetch,
+                        prepared = chapterExport, early = early)
+                }
+                outputBuild = build
+                if (outputStopped) build.cancel()
+                build.await()
             }
         } finally {
             prefetch?.close()

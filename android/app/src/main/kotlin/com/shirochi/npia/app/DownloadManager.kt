@@ -144,6 +144,9 @@ class DownloadManager(private val app: Application) {
 
     private val running = ConcurrentHashMap<String, Job>()
 
+    /** The running jobs' pipelines: a second Stop ends the files a stopped download is generating. */
+    private val pipelines = ConcurrentHashMap<String, DownloadPipeline>()
+
     /** Looks for a newer build of the app (once a day, if the user allows) and installs it on request. */
     val appUpdater = AppUpdater(app, scope, preferences, settings = { _settings.value })
 
@@ -380,7 +383,12 @@ class DownloadManager(private val app: Application) {
     fun cancel(id: String) {
         val task = running[id]
         if (task != null) {
-            if (job(id)?.stopRequested == true) return
+            if (job(id)?.stopRequested == true) {
+                // Stop again: also ends the files being generated from the stopped download.
+                pipelines[id]?.stopOutput()
+                update(id) { it.copy(status = "Stopping…") }
+                return
+            }
             update(id) { it.copy(stopRequested = true, status = if (_settings.value.shared.generateOnStop) "Stopping and generating files…" else "Stopping…") }
             task.cancel()
         } else if (job(id)?.state == JobState.QUEUED) {
@@ -470,6 +478,7 @@ class DownloadManager(private val app: Application) {
             onBook = live?.let { it::book },
             onChapter = live?.let { it::chapter },
         )
+        pipelines[id] = pipeline
         running[id] = scope.launch {
             try {
                 val downloaded = pipeline.run(job.url, job.settings) { phase -> update(id) { it.applying(phase) } }
@@ -498,6 +507,7 @@ class DownloadManager(private val app: Application) {
                 // see an idle queue without this one in the summary.
                 job(id)?.let { endedInRun(it) }
                 running.remove(id)
+                pipelines.remove(id)
                 startNext()
                 postRunSummaryIfIdle()
             }

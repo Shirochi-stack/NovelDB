@@ -151,7 +151,13 @@ private final class EarlyChapters: @unchecked Sendable {
             ending = true
             return worker
         }
-        await task?.value
+        // A Stop ends the chapter in the works too, instead of this waiting for it (it may still be
+        // waiting for its images).
+        _ = await withTaskCancellationHandler {
+            await task?.value
+        } onCancel: {
+            task?.cancel()
+        }
         return lock.withLock { finished }
     }
 
@@ -359,6 +365,11 @@ public struct DownloadPipeline: Sendable {
         }
         // The chapter being prepared early is finished first; the ones still waiting are done below.
         let earlier = await early?.finish() ?? [:]
+        if Task.isCancelled {
+            // Stop: the chapters already handed to the export queue are not stitched any further.
+            await exportQueue?.cancelAndWait()
+            throw CancellationError()
+        }
 
         var chapters: [ChapterContent] = []
         var skipped: [(ChapterRef, String)] = []
