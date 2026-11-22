@@ -1,6 +1,6 @@
 """Single source of truth for NovelDB build/version names."""
 
-VERSION_NUMBER = 124
+VERSION_NUMBER = 125
 VERSION = str(VERSION_NUMBER)
 
 APP_NAME = f"NovelDB{VERSION}"
