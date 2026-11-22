@@ -56,6 +56,26 @@ class AndroidImageProcessorTest {
     }
 
     @Test
+    fun aWiderChapterImageIsScaledDownToTheMaxWidth() {
+        fun size(data: ByteArray) = BitmapFactory.decodeByteArray(data, 0, data.size).let { it.width to it.height }
+        val wide = png(width = 200, height = 100, noise = true)
+        val scaled = AndroidImageProcessor(ImageSettings(maxWidth = 100, format = ImageFormat.JPEG)).process(wide)
+        assertEquals("jpg", scaled.fileExtension)
+        assertEquals(100 to 50, size(scaled.data))
+        // The same container when the format is Original; a narrower image and the cover keep their size.
+        val kept = AndroidImageProcessor(ImageSettings(maxWidth = 100, format = ImageFormat.ORIGINAL)).process(wide)
+        assertEquals("png", kept.fileExtension)
+        assertEquals(100 to 50, size(kept.data))
+        assertEquals(200 to 100, size(AndroidImageProcessor(ImageSettings(maxWidth = 620)).process(wide).data))
+        val cover = AndroidImageProcessor(ImageSettings(maxWidth = 100, compressCover = true)).process(wide, isCover = true)
+        assertEquals(200 to 100, size(cover.data))
+        // No width chosen: the size is kept, and nothing is scaled with compression off.
+        assertEquals(200 to 100, size(AndroidImageProcessor(ImageSettings()).process(wide).data))
+        assertSame(wide, AndroidImageProcessor(ImageSettings(maxWidth = 100, compress = false)).process(wide).data)
+        assertEquals(67, AndroidImageProcessor.scaledHeight(300, 200, 100))
+    }
+
+    @Test
     fun compressOffPassesThrough() {
         val data = png()
         val out = AndroidImageProcessor(ImageSettings(compress = false)).process(data)

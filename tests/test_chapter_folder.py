@@ -385,8 +385,13 @@ def test_kpage_image_lookahead_reuses_saved_bytes():
     release = Event()
     calls = []
 
+    lines = []
+
     class Job:
         _download_cancelled = False
+
+        def _log(self, message):
+            lines.append(message)
 
         def _copy_browser_cookies_to_session(self, session):
             pass
@@ -400,7 +405,7 @@ def test_kpage_image_lookahead_reuses_saved_bytes():
     lookahead = KpageImages(Job(), "https://example.test/book", 2)
     url = "https://example.test/p1.jpg"
     try:
-        lookahead.offer({"images": [{"url": url}, {"url": url}]})
+        lookahead.offer({"chapterName": "Episode 1", "images": [{"url": url}, {"url": url}]})
         assert started.wait(3)
         release.set()
         assert lookahead.read(url) == b"image"
@@ -411,6 +416,54 @@ def test_kpage_image_lookahead_reuses_saved_bytes():
     finally:
         release.set()
         lookahead.close()
+    # The chapter's images get one line when the last of them has arrived, while chapters are still read.
+    assert len(lines) == 1 and lines[0].startswith("  Images of Episode 1: 1 downloaded (")
+
+
+def test_image_lookahead_has_no_size_limit_and_takes_a_comics_pages_from_its_text():
+    # It stopped after 128 MB, so a long book's images still waited for the last chapter.
+    lines = []
+
+    class Job:
+        _download_cancelled = False
+        _chapter_images = staticmethod(ExternalJob._chapter_images)
+
+        def _log(self, message):
+            lines.append(message)
+
+        def _copy_browser_cookies_to_session(self, session):
+            pass
+
+        def _download_image_python(self, url, **options):
+            return None if url.endswith("/gone.png") else b"x" * (4 * 1024 * 1024)
+
+    from noveldb.core.external.kpage_images import ImageLookahead
+
+    lookahead = ImageLookahead(Job(), "https://example.test/book", 4)
+    try:
+        for chapter in range(40):  # 160 MB in all
+            lookahead.offer({"chapterName": f"Episode {chapter}", "images": [{"url": f"https://example.test/{chapter}.png"}]})
+        # A comic whose pages are <img> tags only, one of them refused, one held already.
+        lookahead.offer({"chapterName": "Pages", "comic": True, "images": [], "contentText": "",
+                         "contentHtml": '<img src="https://example.test/a.png"><img src="https://example.test/gone.png">'})
+        lookahead.offer({"chapterName": "Held", "images": [{"url": "https://example.test/held.png", "data": "file:x"}]})
+        assert lookahead.started == 42
+        assert len(lookahead.read("https://example.test/39.png")) == 4 * 1024 * 1024
+        assert lookahead.read("https://example.test/a.png")
+        assert lookahead.read("https://example.test/gone.png") is None
+        assert lookahead.read("https://example.test/held.png") is None
+    finally:
+        lookahead.close()
+    assert "  Images of Pages: 1 downloaded (4.0 MB" in " ".join(lines) and "; 1 left for the export" in " ".join(lines)
+    assert sum(line.startswith("  Images of Episode") for line in lines) == 40
+
+    # With little room left on the disk, the rest waits for the export step.
+    full = ImageLookahead(Job(), "https://example.test/book", 2, reserve=1 << 62)
+    try:
+        full.offer({"chapterName": "Episode", "images": [{"url": "https://example.test/later.png"}]})
+        assert full.started == 0
+    finally:
+        full.close()
 
 
 @pytest.mark.parametrize("initial_format", ["epub", "cbz", None])

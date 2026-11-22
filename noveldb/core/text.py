@@ -12,6 +12,7 @@ from noveldb.core.images import (
     _download_image_with_progress,
     _encode_image_bytes,
     _format_size,
+    _max_width_value,
     _resize_to_max_width,
 )
 
@@ -188,7 +189,19 @@ def extract_chapter_content_and_images(
                                 # "Convert GIFs" OR "Static images only", fall through
                                 # to the shared encoder (which flattens when asked and
                                 # preserves animation for WEBP/AVIF/APNG otherwise).
-                                if ext == "gif" and not convert_gifs:
+                                narrow = not _max_width_value(image_max_width) or im.width <= _max_width_value(image_max_width)
+                                if ext == "gif" and not convert_gifs and narrow and not static_only:
+                                    # Nothing to scale down: saved as it is, frames and palette untouched.
+                                    out = io.BytesIO()
+                                    im.save(out, format="GIF", save_all=True, optimize=True)
+                                    img_bytes = out.getvalue()
+                                elif ext == "gif" and not convert_gifs and narrow:
+                                    # Keep the .gif extension but drop to a single frame.
+                                    out = io.BytesIO()
+                                    im.save(out, format="GIF", optimize=True)
+                                    img_bytes = out.getvalue()
+                                elif ext == "gif" and not convert_gifs:
+                                    # Wider than the chosen width: every kept frame is scaled down.
                                     from PIL import ImageSequence
 
                                     frames = []

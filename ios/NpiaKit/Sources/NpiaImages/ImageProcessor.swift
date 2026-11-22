@@ -44,10 +44,16 @@ public struct ImageProcessor: Sendable {
             return ProcessedImage(data: gif, fileExtension: "gif")
         }
 
+        // "Max width": a wider chapter image is scaled down (never a cover).
+        let limit = isCover ? 0 : settings.maxImageWidth
+        let wide = limit > 0 && (Self.pixelSize(data)?.width ?? 0) > limit
+
         let target: ImageFormat
         if format == .original {
-            // Only re-encode when animation has to be dropped.
-            guard staticOnly, ImageCodec.frameCount(data) > 1 else { return original }
+            // Only re-encode when animation has to be dropped, or the image has to be scaled down.
+            let animated = ImageCodec.frameCount(data) > 1
+            // (A GIF is only ever flattened here: this encoder would drop its animation.)
+            guard (staticOnly && animated) || (wide && sourceExtension != "gif") else { return original }
             switch sourceExtension {
             case "jpg": target = .jpeg
             case "png": target = .png
@@ -63,9 +69,10 @@ public struct ImageProcessor: Sendable {
 
         let firstFrameOnly = staticOnly || target == .jpeg
         guard let decoded = ImageCodec.decode(data, firstFrameOnly: firstFrameOnly),
-              let encoded = Self.encode(decoded, as: target, quality: quality) else { return original }
-        // Re-encoding into the same container must not make the file bigger.
-        if encoded.fileExtension == sourceExtension, encoded.data.count >= data.count {
+              let sized = wide ? ImageCodec.scaled(decoded, maxWidth: limit) : decoded,
+              let encoded = Self.encode(sized, as: target, quality: quality) else { return original }
+        // Re-encoding into the same container must not make the file bigger (a scaled image is kept either way).
+        if !wide, encoded.fileExtension == sourceExtension, encoded.data.count >= data.count {
             return original
         }
         return encoded

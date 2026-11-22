@@ -160,14 +160,27 @@ class DownloadPipeline(
         // A chapter's images start downloading as soon as it is read, not after the last chapter (ImagePrefetch).
         val prefetch = if (settings.images.saveImageUrlsOnly) null
             else ImagePrefetch(http, store, shared.imageWorkers, coroutineContext, logger = logger)
+        // A Folder or ZIP output: each chapter is prepared (and stitched) as soon as its images are in,
+        // not after the last chapter is read (EarlyChapters).
+        val chapterExport = if (!settings.images.saveImageUrlsOnly &&
+            shared.formats.any { it == OutputFormat.FOLDER || it == OutputFormat.ZIP }) {
+            FolderWriter.Prepared(outputDirectory, settings.images, images)
+        } else null
+        val early = chapterExport?.let { prepared ->
+            EarlyChapters(http, { client -> imageStage(client, settings, owner.id, shared, true, store, prefetch) }, prepared,
+                preserveSources = settings.images.compressAfterStitch && otherImageOutputs(shared),
+                stitching = settings.images.webtoonExport && settings.images.stitchImages, logger = logger)
+        }
         val chapterRun = chapterContext(context, selected.size, onPhase, store, prefetch) { result ->
             completed[result.ref.id] = result
             prefetch?.offer(result)
+            early?.offer(result)
         }
         try {
             val results = adapter.parseChapters(selected, book, chapterRun).toMutableList()
             retryFailed(adapter, book, chapterRun, results, shared.maxRetries)
-            return finishDownload(book, results, owner.id, shared, settings, http, url, store, started, onPhase, prefetch = prefetch)
+            return finishDownload(book, results, owner.id, shared, settings, http, url, store, started, onPhase,
+                prefetch = prefetch, prepared = chapterExport, early = early)
         } catch (cancelled: CancellationException) {
             // A stop ends the image downloads on their way too; what already arrived is used below.
             prefetch?.close()
@@ -180,11 +193,27 @@ class DownloadPipeline(
             }
             return withContext(NonCancellable) {
                 finishDownload(book, results, owner.id, shared, settings.copy(upload = settings.upload.copy(autoUpload = false)),
-                    offline, url, store, started, onPhase, stopped = true, prefetch = prefetch)
+                    offline, url, store, started, onPhase, stopped = true, prefetch = prefetch,
+                    prepared = chapterExport, early = early)
             }
         } finally {
             prefetch?.close()
+            early?.close()
+            chapterExport?.close()
         }
+    }
+
+    private fun otherImageOutputs(shared: SharedSettings) =
+        shared.formats.any { it == OutputFormat.EPUB || it == OutputFormat.CBZ || it == OutputFormat.PDF }
+
+    /** The image step: with a Folder/ZIP export whose strips are compressed after stitching and no other image output, pages stay as they came. */
+    private fun imageStage(
+        http: HttpFetching, settings: AppSettings, source: SourceId, shared: SharedSettings, chapterExport: Boolean,
+        store: ImageStore, prefetch: ImagePrefetch?,
+    ): ImageStage {
+        val compressAfter = chapterExport && settings.images.compressAfterStitch
+        return ImageStage(http, settings, source,
+            if (compressAfter && !otherImageOutputs(shared)) PassthroughImages else images, logger, store, prefetch)
     }
 
     /**
@@ -238,7 +267,10 @@ class DownloadPipeline(
         book: BookInfo, results: List<ChapterResult>, source: SourceId, shared: SharedSettings, settings: AppSettings,
         http: HttpFetching, url: String, store: ImageStore, started: Long, onPhase: (JobPhase) -> Unit,
         stopped: Boolean = false, prefetch: ImagePrefetch? = null,
+        prepared: FolderWriter.Prepared? = null, early: EarlyChapters? = null,
     ): JobOutcome {
+        // The chapter being prepared early is finished first; the ones still waiting are done below.
+        early?.finish(stopped)
 
         val chapters = mutableListOf<ChapterContent>()
         val skipped = mutableListOf<Pair<ChapterRef, String>>()
@@ -255,13 +287,8 @@ class DownloadPipeline(
             "Chapters: ${chapters.size} downloaded" + (if (skipped.isNotEmpty()) ", ${skipped.size} skipped or failed" else ""),
         )
 
-        val chapterExport = if (!settings.images.saveImageUrlsOnly &&
-            shared.formats.any { it == OutputFormat.FOLDER || it == OutputFormat.ZIP }) {
-            FolderWriter.Prepared(outputDirectory, settings.images, images)
-        } else null
-        return chapterExport.use { prepared ->
-            writeOutputs(book, chapters, skipped, source, shared, settings, http, url, store, started, onPhase, prepared, stopped, prefetch)
-        }
+        return writeOutputs(book, chapters, skipped, source, shared, settings, http, url, store, started, onPhase, prepared, stopped,
+            prefetch, early?.done.orEmpty())
     }
 
     private suspend fun writeOutputs(
@@ -271,11 +298,18 @@ class DownloadPipeline(
         prepared: FolderWriter.Prepared?,
         stopped: Boolean,
         prefetch: ImagePrefetch? = null,
+        /** Chapters the Folder/ZIP export already holds (EarlyChapters), by chapter id: their images are done. */
+        earlier: Map<String, EarlyChapters.Done> = emptyMap(),
     ): JobOutcome {
         val compressAfter = prepared != null && settings.images.compressAfterStitch
-        val otherImageOutputs = shared.formats.any { it == OutputFormat.EPUB || it == OutputFormat.CBZ || it == OutputFormat.PDF }
-        val stage = ImageStage(http, settings, source,
-            if (compressAfter && !otherImageOutputs) PassthroughImages else images, logger, store, prefetch)
+        val otherImageOutputs = otherImageOutputs(shared)
+        val stage = imageStage(http, settings, source, shared, prepared != null, store, prefetch)
+        val all = chapters.toList()
+        if (earlier.isNotEmpty()) {
+            chapters.removeAll { it.ref.id in earlier }
+            logger.log(LogLevel.INFO, "${earlier.size} chapter${if (earlier.size == 1) " was" else "s were"} prepared for the " +
+                "Folder/ZIP output while the chapters were read")
+        }
         // The image step finishes after the chapters and can be far longer than them (an illustrated book
         // has several images a chapter). Say so in the log: without these lines the progress bar keeps
         // counting "Images n/total" after the last chapter line, with nothing to show what it counts.
@@ -311,6 +345,12 @@ class DownloadPipeline(
             ready.close()
             writer.join()
             output
+        }.let { output ->
+            if (earlier.isEmpty()) return@let output
+            // The chapters prepared early and the rest, as one result in the book's order.
+            val later = output.chapters.associateBy { it.ref.id }
+            ImageStage.Output(all.mapNotNull { earlier[it.ref.id]?.chapter ?: later[it.ref.id] },
+                JoinedImages(earlier.values.map { it.images } + output.images), output.failed + earlier.values.sumOf { it.failed })
         }
         logger.log(
             if (imageOutput.failed > 0) LogLevel.WARNING else LogLevel.INFO,

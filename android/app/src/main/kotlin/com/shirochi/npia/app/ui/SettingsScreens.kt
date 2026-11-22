@@ -580,9 +580,12 @@ fun ImageSettingsScreen(model: AppViewModel, stitchingOnly: Boolean = false) {
             SwitchRow("Compress chapter images", images.compress, { v -> set { it.copy(compress = v) } })
             ChoiceRow("Format", images.format, ImageFormat.entries, { it.label }, { v -> set { it.copy(format = v) } }, enabled = chapterEnabled)
             StepperRow("Quality", images.quality, 10..100, { v -> set { it.copy(quality = v) } }, step = 5, enabled = chapterEnabled)
+            ChoiceRow("Max width", images.maxWidth, com.shirochi.npia.core.IMAGE_WIDTHS, { if (it == 0) "Original" else "$it px" },
+                { v -> set { it.copy(maxWidth = v) } }, enabled = chapterEnabled)
             SwitchRow("Convert GIFs", images.convertGifs, { v -> set { it.copy(convertGifs = v) } }, enabled = chapterEnabled)
             SwitchRow("Static images only", images.staticOnly, { v -> set { it.copy(staticOnly = v) } }, enabled = chapterEnabled)
             StepperRow("Image Compression Workers", images.compressionWorkers, 1..8, { v -> set { it.copy(compressionWorkers = v) } }, enabled = chapterEnabled)
+            Footnote("Max width scales wider chapter images down when they are compressed; the proportions are kept and smaller images are not enlarged.")
             Footnote("Includes CBZ, Folder and ZIP exports. Animated images keep their animation unless Static images only is on, since Android cannot encode animated WebP or PNG.")
 
             SectionHeader("Cover")

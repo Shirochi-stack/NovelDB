@@ -293,7 +293,14 @@ class BiliComicEngine:
                   "contentHtml": "".join(f'<p><img src="{escape(link)}" alt=""/></p>' for link in addresses)}
         if not self.reading():
             try:
+                began = time.time()
                 result["images"] = self._save_pages(episode, addresses)
+                # The pages come in while the other chapters are still read: say so, or the log shows
+                # chapter lines only and it looks as if no image is asked for until the last chapter.
+                size = sum(os.path.getsize(page["data"][len("file:"):]) for page in result["images"])
+                took = max(time.time() - began, 0.001)
+                self.log(f"  [Bilibili Manga] {result['chapterName'] or episode}: {len(result['images'])} pages "
+                         f"downloaded ({size / 1048576:.1f} MB, {size / 1048576 / took:.1f} MB/s)")
             except Exception:
                 if self.stopped():
                     return None  # Stop was pressed: not a failure to report

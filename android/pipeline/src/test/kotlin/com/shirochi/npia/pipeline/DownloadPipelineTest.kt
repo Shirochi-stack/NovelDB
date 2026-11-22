@@ -156,6 +156,54 @@ class DownloadPipelineTest {
     }
 
     @Test
+    fun aFolderChapterIsWrittenBeforeTheNextChapterIsRead() = runTest {
+        val url = "https://novelfull.com/the-legendary-mechanic.html"
+        val http = object : HttpFetching {
+            override suspend fun send(request: HttpRequest) = HttpResponse(request.url, 200, emptyMap(), PNG)
+        }
+        val output = Files.createTempDirectory("early-folder").toFile()
+        // What the Folder export holds so far (it is prepared beside the output, then moved into place).
+        fun prepared() = output.listFiles { file -> file.name.startsWith(".noveldb-folder-") }.orEmpty()
+            .flatMap { java.io.File(it, "book").walkTopDown().filter(java.io.File::isFile).toList() }
+        val page = W2ePage(
+            book = """{"api":1,"engine":"webtoepub","parser":"NovelFullParser","match":"site","bookUrl":"$url","bookname":"The Legendary Mechanic",
+                "author":"Writer","introduction":"","coverUrl":null,"tags":[],"language":"en","chapterCount":2,
+                "chapters":[{"url":"https://novelfull.com/the-legendary-mechanic/chapter-1.html","name":"Chapter 1","number":1,"isVIP":false,"isPaid":false},
+                            {"url":"https://novelfull.com/the-legendary-mechanic/chapter-2.html","name":"Chapter 2","number":2,"isVIP":false,"isPaid":false}],
+                "warnings":[]}""",
+            chapters = mapOf(
+                "chapter-1" to """{"chapterName":"Chapter 1","contentHtml":"<p>One.</p><p><img src=\"https://img.example/a.png\"></p>","contentText":"One.","imageCount":0,"images":[]}""",
+                "chapter-2" to """{"chapterName":"Chapter 2","contentHtml":"<p>Two.</p><p><img src=\"https://img.example/b.png\"></p>","contentText":"Two.","imageCount":0,"images":[]}""",
+            ),
+            // The second chapter is not read until the first one is in the export: a folder writer that
+            // waits for the last chapter would never get there.
+            beforeChapter = { body ->
+                if (body.contains("chapter-2")) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    withTimeout(10_000) { while (prepared().none { it.name.startsWith("0001") }) kotlinx.coroutines.delay(20) }
+                }
+            },
+        )
+        try {
+            val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val settings = AppSettings(shared = SharedSettings(intervalMin = 0.0, intervalMax = 0.0, threads = 1,
+                formats = listOf(OutputFormat.FOLDER)))
+            val outcome = DownloadPipeline(InMemorySecretStore(), output, web = WebOf(page), httpFactory = { http },
+                logger = JobLogging { _, message -> lines += message }).run(url, settings)
+            assertEquals(emptyList<Any>(), outcome.skipped)
+            assertTrue(lines.toString(), lines.any { Regex("(1 chapter was|2 chapters were) prepared for the Folder/ZIP output").containsMatchIn(it) })
+            // Both chapters are in the folder once, whichever step wrote the second.
+            val folder = outcome.files.single()
+            assertTrue(folder.name, folder.isDirectory && folder.name.endsWith(".folder"))
+            val names = folder.walkTopDown().filter { it.isFile }.map { it.name }.toList()
+            assertEquals(names.toString(), 1, names.count { it.startsWith("0001") && !it.endsWith(".txt") })
+            assertEquals(names.toString(), 1, names.count { it.startsWith("0002") && !it.endsWith(".txt") })
+            assertTrue(prepared().isEmpty())
+        } finally {
+            output.deleteRecursively()
+        }
+    }
+
+    @Test
     fun autoPurchaseAsksOnlyForLockedChaptersInItsRangeAndNeverFailsTheDownload() = runTest {
         val fixture = mechanicPage()
         val output = Files.createTempDirectory("purchase").toFile()

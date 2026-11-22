@@ -249,6 +249,9 @@ data class SharedOverrides(
     )
 }
 
+/** The "Max width" choices in pixels, as on the desktop; zero is the original width. */
+val IMAGE_WIDTHS = listOf(0, 1200, 1024, 840, 620)
+
 @Serializable
 data class ImageSettings(
     val webtoonExport: Boolean = false,
@@ -258,6 +261,8 @@ data class ImageSettings(
     val compress: Boolean = true,
     val quality: Int = 90,
     val format: ImageFormat = ImageFormat.WEBP,
+    /** One of `IMAGE_WIDTHS`: a wider chapter image is scaled down when it is compressed. Zero keeps the width. */
+    val maxWidth: Int = 0,
     @SerialName("convertGIFs") val convertGifs: Boolean = false,
     val staticOnly: Boolean = false,
     @SerialName("recompressTargetMB") val recompressTargetMb: Double? = null,

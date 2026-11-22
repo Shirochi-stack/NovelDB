@@ -89,6 +89,18 @@ class _OutputStopped(BaseException):
 class ExternalPipelineMixin:
     """External-source downloads: fetch, download, batch, cache and output."""
 
+    def _offer_read_chapter(self, index, data):
+        """A chapter that was just read: its images start downloading (`ImageLookahead`) and, for a
+        Folder or ZIP output, it is written and stitched as soon as they are in (`EarlyChapters`)."""
+        if not isinstance(data, dict) or data.get("_locked"):
+            return
+        lookahead = getattr(self, "_kpage_images", None)
+        if lookahead:
+            lookahead.offer(data)
+        early = getattr(self, "_early_chapters", None)
+        if early:
+            early.offer(index, data)
+
     def _publish_live_chapter(self, index, data):
         events = getattr(self, "events", None)
         if events is None:
@@ -851,6 +863,7 @@ class ExternalPipelineMixin:
                                 checkpoint_result(selected_index, cached, True)
                         results[selected_index] = cached
                         ExternalPipelineMixin._publish_live_chapter(self, selected_index, cached)
+                        ExternalPipelineMixin._offer_read_chapter(self, selected_index, cached)
                         cache_hits += 1
                 if stale_cache_entries:
                     self._log(
@@ -906,9 +919,7 @@ class ExternalPipelineMixin:
                 numbered(i, data)
                 results[i] = data
                 ExternalPipelineMixin._publish_live_chapter(self, i, data)
-                lookahead = getattr(self, "_kpage_images", None)
-                if lookahead:
-                    lookahead.offer(data)
+                ExternalPipelineMixin._offer_read_chapter(self, i, data)
                 checkpoint_result(i, data, cache_images)
                 self._log(f"  [{i + 1}/{total}] {data.get('chapterName') or selected[i].get('name', '')}")
 
@@ -1129,9 +1140,8 @@ class ExternalPipelineMixin:
                         log_chapter_success(j, data)
                     results[idx] = data
                     ExternalPipelineMixin._publish_live_chapter(self, idx, data)
-                    lookahead = getattr(self, "_kpage_images", None)
-                    if lookahead and data and not data.get("_locked") and self._downloading:
-                        lookahead.offer(data)
+                    if self._downloading:
+                        ExternalPipelineMixin._offer_read_chapter(self, idx, data)
                     if checkpoint is not None and ExternalPipelineMixin._external_cacheable(data):
                         needs_images = cache_images and any(
                             isinstance(image, dict) and (not image.get('data') or str(image['data']).startswith('file:'))
@@ -1523,17 +1533,35 @@ class ExternalPipelineMixin:
                   + (', skipping paid' if skip_paid else ''))
 
         try:
-            formats = (getattr(self, "_active_output_formats", None) or self._selected_output_formats()) if data.get("_kpage") else ()
-            if (data.get("_kpage") and any(fmt != "txt" for fmt in formats)
+            # A chapter's images start downloading as soon as the chapter is read, not after the last
+            # one (ImageLookahead). Not for the sources whose export asks for images its own way (a
+            # signed session, the browser): those keep downloading during export.
+            own_way = any(data.get(flag) for flag in (
+                "_ntk_novel", "_comix", "_rbooks", "_kobo", "_mpia", "_global_npia", "_npia"))
+            # (A host that does not say its formats, as a test stand-in, gets neither.)
+            selected = getattr(self, "_active_output_formats", None) or (
+                self._selected_output_formats() if hasattr(self, "_selected_output_formats") else ())
+            formats = () if own_way else selected
+            if (any(fmt != "txt" for fmt in formats)
                     and not (getattr(self, "_var_save_image_urls_only", None) and self._var_save_image_urls_only.get())):
-                from noveldb.core.external.kpage_images import KpageImages
+                from noveldb.core.external.kpage_images import _AGENT, ImageLookahead
 
                 workers = min(32, max(1, self._var_ext_image_workers.get()))
                 try:
-                    self._kpage_images = KpageImages(self, data.get("bookUrl") or url, workers)
-                    self._log(f"[Kpage] Downloading images as episode lists arrive ({workers} workers).")
+                    self._kpage_images = ImageLookahead(self, data.get("bookUrl") or url, workers,
+                                                        agent=None if data.get("_kpage") else _AGENT)
+                    self._log(f"Images download while the chapters are read ({workers} workers).")
                 except OSError:
-                    self._log("[Kpage] Temporary image storage unavailable. Images will download during export.")
+                    self._log("Temporary image storage unavailable. Images will download during export.")
+            # A Folder or ZIP output: each chapter is written (and stitched) as soon as its pages are
+            # in, not after the last chapter is read.
+            if {"folder", "zip"}.intersection(selected) and not self._folder_options()[0]:
+                from noveldb.core.external.early_chapters import EarlyChapters
+
+                try:
+                    self._early_chapters = EarlyChapters(self, self._get_output_dir())
+                except OSError:
+                    self._early_chapters = None
             self._do_download(chapters, start, end, interval, num_threads, skip_paid, retry_passes,
                               interval_max=interval_max if interval_max_supplied else None)
 
@@ -1569,6 +1597,10 @@ class ExternalPipelineMixin:
         except Exception as e:
             self._log(f"❌ Output generation error: {e}")
         finally:
+            early = getattr(self, "_early_chapters", None)
+            if early:
+                self._early_chapters = None
+                early.close()
             lookahead = getattr(self, "_kpage_images", None)
             if lookahead:
                 self._kpage_images = None
@@ -1835,7 +1867,19 @@ class ExternalPipelineMixin:
         compression = self._stitch_compression() if height is not None else None
         with ExitStack() as stack:
             early = None
-            if chapter_exports and not links_only and {"epub", "cbz"}.intersection(formats):
+            started = getattr(self, "_early_chapters", None)
+            if started is not None and not links_only:
+                # Chapters were written while the others were read: the export goes on from there.
+                waiting = started.waiting()
+                if waiting:
+                    self._log(f"  Still {'stitching' if height is not None else 'writing'} {waiting} "
+                              f"chapter{'' if waiting == 1 else 's'} for the Folder/ZIP output…")
+                started.finish()
+                early = started.writes
+                if early.submitted:
+                    self._log(f"  {len(early.submitted)} chapter{'' if len(early.submitted) == 1 else 's'} "
+                              f"{'stitched' if height is not None else 'written'} as they arrived.")
+            elif chapter_exports and not links_only and {"epub", "cbz"}.intersection(formats):
                 stage = Path(stack.enter_context(tempfile.TemporaryDirectory(
                     dir=self._get_output_dir(), prefix=".noveldb-chapters-")))
                 pool = stack.enter_context(ThreadPoolExecutor(max_workers=1))
@@ -1922,8 +1966,14 @@ class ExternalPipelineMixin:
         pg = self._parent_gui
         enabled = getattr(pg, "var_compress_images", None)
         if enabled and enabled.get():
-            return pg.var_image_format.get(), pg.var_jpeg_quality.get()
+            return pg.var_image_format.get(), pg.var_jpeg_quality.get(), ExternalPipelineMixin._image_max_width(self)
         return None
+
+    def _image_max_width(self):
+        """The "Max width" image option in pixels, or None for the original width."""
+        from noveldb.core.images import _max_width_value
+
+        return _max_width_value(getattr(getattr(self, "_parent_gui", None), "var_image_max_width", None))
 
     def _write_export_chapter(self, stage, index, chapter, pages, links, height, chapter_folders, compression):
         from noveldb.core.chapter_folder import chapter_text, write_chapter
@@ -2279,7 +2329,7 @@ class ExternalPipelineMixin:
                         cover_ext = self._image_ext_from_bytes(cover_raw)
                         if compress_cover:
                             cover_raw = self._compress_image(
-                                cover_raw, cover_quality, cover_format
+                                cover_raw, cover_quality, cover_format, cover=True
                             )
                             cover_ext = self._format_ext(cover_format)
                         zf.writestr(
@@ -2648,7 +2698,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     # Use cover-specific compression settings
                     if compress_cover:
                         cover_bytes = self._compress_image(
-                            cover_bytes, cover_quality, cover_format
+                            cover_bytes, cover_quality, cover_format, cover=True
                         )
                         # Update ext to match the compressed format
                         ext = cover_format.lower()
@@ -3427,7 +3477,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     ext = img_entry['filename'].rsplit('.', 1)[-1]
                     raw = img_entry['data']
                     if compress:
-                        raw = self._compress_image(raw, quality, fmt)
+                        raw = self._compress_image(raw, quality, fmt, cover=True)
                     epub.add_image(f'cover.{ext}', raw)
                     self._log(
                         f"  📷 Cover fallback: using {img_entry['filename']}"
@@ -3438,12 +3488,19 @@ img { display: block; max-width: 100%; max-height: 100%;
                 continue
         return False
 
-    def _compress_image(self, raw_data, quality, fmt):
+    def _compress_image(self, raw_data, quality, fmt, cover=False):
         """Compress an image using PIL, reusing parent GUI's settings."""
         try:
             from PIL import Image
             import io
             img = Image.open(io.BytesIO(raw_data))
+            # "Max width": a wider image is scaled down, its proportions kept. An animated image is
+            # left alone here (this encoder keeps one frame of it either way).
+            max_width = ExternalPipelineMixin._image_max_width(self)
+            if not cover and max_width and img.width > max_width and not getattr(img, "is_animated", False):
+                from noveldb.core.images import _resize_to_max_width
+
+                img = _resize_to_max_width(img, max_width)
             buf = io.BytesIO()
             if fmt.upper() == 'WEBP':
                 img.save(buf, 'WEBP', quality=quality)

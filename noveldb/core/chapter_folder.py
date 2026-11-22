@@ -257,13 +257,13 @@ def write_chapter(root, number, title, text, pages, links=(), *, max_height=None
 def _compress_panel(page, compression):
     if not compression:
         return page
-    from noveldb.core.images import Image, _encode_image_bytes
+    from noveldb.core.images import Image, _encode_with
 
     if Image is None:
         return page
     try:
         with Image.open(io.BytesIO(page[1])) as source:
-            data, ext = _encode_image_bytes(source, *compression)
+            data, ext = _encode_with(source, compression)
             return ext, data
     except (OSError, ValueError, MemoryError, Image.DecompressionBombError):
         return page
@@ -337,9 +337,9 @@ def stitch_panels(pages, max_height=16_000, *, compression=None):
                                 strip.paste(panel, origin, panel.getchannel("A"))
                     top += size
                 if compression:
-                    from noveldb.core.images import _encode_image_bytes
+                    from noveldb.core.images import _encode_with
 
-                    data, ext = _encode_image_bytes(strip, *compression)
+                    data, ext = _encode_with(strip, compression)
                     return [(ext, data)]
                 encoded = io.BytesIO()
                 strip.save(encoded, "PNG")

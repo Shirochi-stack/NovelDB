@@ -181,6 +181,29 @@ final class ImageProcessorTests: XCTestCase {
         XCTAssertEqual(TestImages.frameCount(result.data), 1)
     }
 
+    func testAWiderChapterImageIsScaledDownToTheMaxWidth() throws {
+        let wide = TestImages.png(width: 200, height: 100)
+        let scaled = try processor { $0.maxWidth = 100; $0.format = .jpeg }.process(wide)
+        XCTAssertEqual(scaled.fileExtension, "jpg")
+        XCTAssertEqual(ImageProcessor.pixelSize(scaled.data)?.width, 100)
+        XCTAssertEqual(ImageProcessor.pixelSize(scaled.data)?.height, 50)
+        // The same container when the format is Original; a narrower image and the cover keep their size.
+        let kept = try processor { $0.maxWidth = 100; $0.format = .original }.process(wide)
+        XCTAssertEqual(kept.fileExtension, "png")
+        XCTAssertEqual(ImageProcessor.pixelSize(kept.data)?.width, 100)
+        let narrow = try processor { $0.maxWidth = 620; $0.format = .jpeg }.process(wide)
+        XCTAssertEqual(ImageProcessor.pixelSize(narrow.data)?.width, 200)
+        let cover = try processor { $0.maxWidth = 100; $0.compressCover = true }.process(wide, isCover: true)
+        XCTAssertEqual(ImageProcessor.pixelSize(cover.data)?.width, 200)
+        // No width chosen (settings saved before the option): the size is kept.
+        XCTAssertEqual(ImageSettings().maxImageWidth, 0)
+        let original = try processor { $0.format = .jpeg }.process(wide)
+        XCTAssertEqual(ImageProcessor.pixelSize(original.data)?.width, 200)
+        // A kept GIF is not touched.
+        let gif = TestImages.animatedGIF()
+        XCTAssertEqual(try processor { $0.maxWidth = 8 }.process(gif).data, gif)
+    }
+
     func testCoverSettings() throws {
         let data = TestImages.png()
         let untouched = try processor { $0.compressCover = false }.process(data, isCover: true)

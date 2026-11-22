@@ -72,6 +72,11 @@ public enum DesktopConfig {
         s.images.compress = bool(c["compress_images"]) ?? s.images.compress
         s.images.quality = int(c["jpeg_quality"]) ?? s.images.quality
         s.images.format = imageFormat(c["image_format"]) ?? s.images.format
+        // "Original" or the width in pixels, as text (the desktop writes it so) or a number.
+        if let stored = c["image_max_width"] {
+            let width = (stored as? Int) ?? Int("\(stored)".trimmingCharacters(in: .whitespaces)) ?? 0
+            s.images.maxWidth = ImageSettings.widths.contains(width) ? width : 0
+        }
         s.images.convertGIFs = bool(c["convert_gifs"]) ?? s.images.convertGIFs
         s.images.staticOnly = bool(c["static_only"]) ?? s.images.staticOnly
         s.images.recompressTargetMB = bool(c["recompress_target_enable"]) == true ? double(c["recompress_target_mb"]) : nil
@@ -205,6 +210,7 @@ public enum DesktopConfig {
         c["compress_images"] = s.images.compress
         c["jpeg_quality"] = s.images.quality
         c["image_format"] = s.images.format.rawValue
+        c["image_max_width"] = s.images.maxImageWidth > 0 ? String(s.images.maxImageWidth) : "Original"
         c["convert_gifs"] = s.images.convertGIFs
         c["static_only"] = s.images.staticOnly
         c["recompress_target_enable"] = s.images.recompressTargetMB != nil

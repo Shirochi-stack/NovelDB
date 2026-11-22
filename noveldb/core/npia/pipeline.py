@@ -29,6 +29,8 @@ from epub_generator import EpubGenerator
 from noveldb.core.chapter_cache import ChapterCache
 from noveldb.core.images import (
     Image,
+    _encode_with,
+    _max_width_value,
     _detect_source_ext,
     _download_image_with_progress,
     _DownloadStats,
@@ -929,12 +931,8 @@ table, th, td {
             )
         image_quality = self.var_jpeg_quality.get()
         image_format = self.var_image_format.get()
-        raw_image_max_width = self.var_image_max_width.get()
-        image_max_width = (
-            int(raw_image_max_width)
-            if str(raw_image_max_width).isdigit()
-            else None
-        )
+        # A host without the option (an older window, a test stand-in) keeps the original width.
+        image_max_width = _max_width_value(getattr(self, "var_image_max_width", None))
         convert_gifs = self.var_convert_gifs.get()
         static_only = self.var_static_only.get()
         strip_leading_spaces = self.var_strip_leading_spaces.get()
@@ -1302,12 +1300,16 @@ table, th, td {
             str(bool(self.var_save_image_urls_only.get())),
             str(int(self.var_jpeg_quality.get() or 0)),
             str(self.var_image_format.get() or ""),
-            str(self.var_image_max_width.get() or "Original"),
             str(bool(self.var_convert_gifs.get())),
             str(bool(self.var_static_only.get())),
             str(bool(self.var_strip_leading_spaces.get())),
             str(bool(self.var_remove_newlines.get())),
         ]
+        # Only a chosen width changes the fingerprint: with the original width it stays what it was,
+        # so the chapters people already cached are not processed again after the update.
+        max_width = _max_width_value(getattr(self, "var_image_max_width", None))
+        if max_width:
+            parts.append(f"w{max_width}")
         return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
 
     def _cover_cache_fingerprint(self):
@@ -1446,7 +1448,8 @@ table, th, td {
         if ({"folder", "zip"}.intersection(formats) and webtoon is not None and webtoon.get()
                 and self.var_stitch_images.get() and self.var_compress_images.get()
                 and not self.var_save_image_urls_only.get()):
-            return self.var_image_format.get(), self.var_jpeg_quality.get()
+            return (self.var_image_format.get(), self.var_jpeg_quality.get(),
+                    _max_width_value(getattr(self, "var_image_max_width", None)))
         return None
 
     def _compress_rich_chapters(self, results, compression):
@@ -1467,7 +1470,7 @@ table, th, td {
                             source.save(buf, "GIF", save_all=not self.var_static_only.get(), optimize=True)
                             data = buf.getvalue()
                         else:
-                            data, encoded_ext = _encode_image_bytes(source, *compression, static_only=self.var_static_only.get())
+                            data, encoded_ext = _encode_with(source, compression, static_only=self.var_static_only.get())
                             ext = "." + encoded_ext
                 except (OSError, ValueError, MemoryError):
                     pass

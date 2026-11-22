@@ -113,6 +113,57 @@ class MobileDownloadLiveTest {
     }
 
     /**
+     * Bilibili Manga to a stitched Folder (chapters `-e from`..`-e to`, 1-4 by default) with the image width
+     * at 840: a chapter is stitched while the later chapters are still being read, and no strip is wider.
+     */
+    @Test
+    fun aBiliComicFolderIsStitchedWhileTheChaptersAreRead() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue(arguments.getString("live") == "true")
+        val app = instrumentation.targetContext.applicationContext as NpiaApplication
+        val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        lateinit var model: AppViewModel
+        instrumentation.runOnMainSync { model = ViewModelProvider(activity)[AppViewModel::class.java] }
+        val manager = model.manager
+        val base = AppSettings()
+        val settings = base.copy(
+            shared = SharedSettings(rangeFrom = arguments.getString("from")?.toIntOrNull() ?: 1,
+                rangeTo = arguments.getString("to")?.toIntOrNull() ?: 4, appendRange = true, threads = 1,
+                intervalMin = 1.0, intervalMax = 2.0, formats = listOf(OutputFormat.FOLDER)),
+            images = base.images.copy(webtoonExport = true, stitchImages = true, maxWidth = 840))
+        try {
+            manager.updateSettings { settings }
+            manager.enqueue(listOf("https://manga.bilibili.com/detail/mc29839")) { settings }
+            val id = manager.jobs.value.first().id
+            instrumentation.runOnMainSync { model.openJob(id) }
+            try {
+                withTimeout(1_200_000) {
+                    while (manager.jobs.value.first { it.id == id }.state.isActive) delay(500)
+                }
+            } finally {
+                manager.jobs.value.first { it.id == id }.log.forEach { android.util.Log.i("EarlyStitchLive", it) }
+            }
+            val finished = manager.jobs.value.first { it.id == id }
+            val log = finished.log.joinToString("\n")
+            assertEquals(log, JobState.FINISHED, finished.state)
+            // A chapter was stitched before the last chapter's line.
+            val firstStitch = finished.log.indexOfFirst { "Stitching chapter" in it }
+            val lastChapter = finished.log.indexOfLast { Regex("\\] Chapter \\d+:").containsMatchIn(it) }
+            assertTrue(log, firstStitch in 0 until lastChapter)
+            assertTrue(log, finished.log.any { "prepared for the Folder/ZIP output while the chapters were read" in it })
+            val folder = finished.files(manager.outputDirectory).single()
+            val strips = folder.walkTopDown().filter { it.isFile && it.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") }.toList()
+            val widths = strips.mapNotNull { com.shirochi.npia.images.AndroidImageProcessor.pixelSize(it.readBytes())?.first }.toSortedSet()
+            android.util.Log.i("EarlyStitchLive", "folder ${folder.name}: ${strips.size} strips, widths $widths")
+            assertTrue("$widths", strips.isNotEmpty() && widths.all { it <= 840 })
+        } finally {
+            manager.cancelAll()
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
+    /**
      * A book with pictures at `-e url <address>` (chapters `-e from`..`-e to`, 1-3 by default): its images
      * start downloading while the later chapters are still being read, not after the last one.
      */

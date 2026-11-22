@@ -20,6 +20,7 @@ from noveldb.core.settings.model import (
     ACCENTS,
     DEFAULT_CATALOG_URL,
     IMAGE_FORMATS,
+    IMAGE_WIDTHS,
     NAMING_MODES,
     NPIA,
     NPIA_ENGINES,
@@ -262,6 +263,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         compress=_first_bool(c, "compress_images", i.compress),
         quality=_int(c.get("jpeg_quality")) or i.quality,
         format=_choice(c.get("image_format"), IMAGE_FORMATS, i.format, upper=True),
+        max_width=_image_width(c.get("image_max_width"), i.max_width),
         convert_gifs=_first_bool(c, "convert_gifs", i.convert_gifs),
         static_only=_first_bool(c, "static_only", i.static_only),
         recompress_target_enable=_first_bool(c, "recompress_target_enable", i.recompress_target_enable),
@@ -433,6 +435,15 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
     )
 
 
+def _image_width(value: Any, default: int) -> int:
+    """`image_max_width`: "Original" (0) or one of the widths, as text or a number."""
+    if value is None:
+        return default
+    text = str(value).strip()
+    width = int(text) if text.isdigit() else 0
+    return width if width in IMAGE_WIDTHS else 0
+
+
 def _first_bool(c: dict, key: str, default: bool) -> bool:
     value = _bool(c.get(key))
     return default if value is None else value
@@ -543,6 +554,8 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["compress_images"] = i.compress
     c["jpeg_quality"] = i.quality
     c["image_format"] = i.format
+    # As the Tk window writes it: "Original" or the width in pixels.
+    c["image_max_width"] = str(i.max_width) if i.max_width else "Original"
     c["convert_gifs"] = i.convert_gifs
     c["static_only"] = i.static_only
     c["recompress_target_enable"] = i.recompress_target_enable

@@ -13,6 +13,8 @@ from typing import Callable, Optional
 
 OUTPUT_FORMATS = ("epub", "txt", "pdf", "cbz", "folder", "zip")
 IMAGE_FORMATS = ("WEBP", "JPEG", "PNG", "AVIF")
+# Widest a compressed chapter image may be, in pixels; 0 keeps the original width.
+IMAGE_WIDTHS = (0, 1200, 1024, 840, 620)
 NAMING_MODES = ("title", "id")
 THEMES = ("system", "light", "dark", "amoled")
 ACCENTS = ("halgakos_rose", "desktop_blue", "library_violet")
@@ -216,6 +218,7 @@ class ImageSettings:
     compress: bool = True
     quality: int = 50
     format: str = "WEBP"
+    max_width: int = 0  # One of IMAGE_WIDTHS; wider chapter images are scaled down when compressed.
     convert_gifs: bool = False
     static_only: bool = False
     recompress_target_enable: bool = False

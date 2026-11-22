@@ -122,6 +122,29 @@ enum ImageCodec {
         return pixels
     }
 
+    /// `decoded` with every frame scaled down to `maxWidth`, its proportions kept; unchanged when it
+    /// is no wider, and nil when a frame cannot be drawn.
+    static func scaled(_ decoded: DecodedImage, maxWidth: Int) -> DecodedImage? {
+        guard maxWidth > 0, decoded.width > maxWidth else { return decoded }
+        let height = max(1, Int((Double(decoded.height) * Double(maxWidth) / Double(decoded.width)).rounded()))
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        var frames: [CGImage] = []
+        for frame in decoded.frames {
+            let alpha = hasAlpha(frame) ? CGImageAlphaInfo.premultipliedLast : CGImageAlphaInfo.noneSkipLast
+            guard let context = CGContext(
+                data: nil, width: maxWidth, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: colorSpace, bitmapInfo: alpha.rawValue
+            ) else { return nil }
+            context.interpolationQuality = .high
+            context.draw(frame, in: CGRect(x: 0, y: 0, width: maxWidth, height: height))
+            guard let image = context.makeImage() else { return nil }
+            frames.append(image)
+        }
+        var result = decoded
+        result.frames = frames
+        return result
+    }
+
     /// Composites onto white so JPEG output does not turn transparent areas black.
     static func flattened(_ image: CGImage) -> CGImage? {
         guard hasAlpha(image) else { return image }

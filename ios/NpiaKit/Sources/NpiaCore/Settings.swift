@@ -172,6 +172,14 @@ public struct ImageSettings: Codable, Sendable, Equatable {
         return min(stitchMaxHeight == 0 ? limit : stitchMaxHeight, limit)
     }
 
+    /// The "Max width" choices in pixels, as on the desktop; zero is the original width.
+    public static let widths = [0, 1200, 1024, 840, 620]
+    /// One of `widths`: a wider chapter image is scaled down when it is compressed.
+    /// Optional on disk so settings saved before the option still decode.
+    public var maxWidth: Int?
+    /// `maxWidth` in pixels; zero keeps the original width.
+    public var maxImageWidth: Int { max(0, maxWidth ?? 0) }
+
     public var compress = true
     public var quality = 90
     public var format: ImageFormat = .webp

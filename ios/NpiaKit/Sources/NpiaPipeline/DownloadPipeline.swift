@@ -55,6 +55,117 @@ private actor ChapterExportQueue {
     }
 }
 
+/// Prepares Folder and ZIP chapters (images encoded, strips stitched) while the other chapters are
+/// still being read. The image step and the folder writer used to start only after the last chapter,
+/// so a long comic was stitched in one go at the very end. Android's `EarlyChapters` does the same.
+///
+/// Every chapter that was read is handed over (`offer`); one task takes them a chapter at a time,
+/// runs the image step for that chapter alone (it waits for the chapter's images, which started
+/// downloading when the chapter was read) and hands it to the export queue. The pipeline's own image
+/// step then handles only the chapters `finish` does not return: it ends the early work after the
+/// chapter in the works, and leaves the ones still waiting to that step, which has the whole book's
+/// progress and runs chapters side by side.
+private final class EarlyChapters: @unchecked Sendable {
+    /// A chapter that is already with the export queue: as the image step returned it.
+    struct Done: Sendable {
+        var chapter: ChapterContent
+        var images: [String: Data]
+        var failed: Int
+    }
+
+    private let stage: ImageStage
+    private let queue: ChapterExportQueue
+    private let preserveSources: Bool
+    private let logger: any JobLogging
+    private let lock = NSLock()
+    private var names = Set<String>()
+    private var waiting: [ChapterContent] = []
+    private var finished: [String: Done] = [:]
+    private var ending = false
+    private var worker: Task<Void, Never>?
+
+    init(stage: ImageStage, queue: ChapterExportQueue, preserveSources: Bool, logger: any JobLogging) {
+        self.stage = stage
+        self.queue = queue
+        self.preserveSources = preserveSources
+        self.logger = logger
+    }
+
+    /// A chapter that was just read, from any task.
+    func offer(_ result: ChapterResult) {
+        guard case .content(let chapter) = result else { return }
+        lock.withLock { () -> Void in
+            guard !ending else { return }
+            let files = chapter.images.map { $0.filename }
+            // An image two chapters share belongs to the image step that has every chapter at once.
+            let shared = files.contains { names.contains($0) }
+            names.formUnion(files)
+            guard !shared else { return }
+            waiting.append(chapter)
+            if worker == nil {
+                worker = Task<Void, Never> { [weak self] in
+                    guard let self else { return }
+                    await self.drain()
+                }
+            }
+        }
+    }
+
+    private func next() -> ChapterContent? {
+        lock.withLock { () -> ChapterContent? in
+            if ending || waiting.isEmpty {
+                worker = nil
+                return nil
+            }
+            return waiting.removeFirst()
+        }
+    }
+
+    private func drain() async {
+        while let chapter = next() {
+            await prepare(chapter)
+        }
+    }
+
+    private func prepare(_ chapter: ChapterContent) async {
+        do {
+            let queue = self.queue
+            // The image step hands a chapter over once all its images are done, so a return means it was handed over.
+            let output = try await stage.run([chapter], preserveChapterSources: preserveSources, onChapterReady: { ready, images in
+                try await queue.submit(ready, images: images)
+            })
+            guard let prepared = output.chapters.first else { return }
+            let done = Done(chapter: prepared, images: output.images, failed: output.failed)
+            let id = chapter.ref.id
+            lock.withLock { finished[id] = done }
+        } catch is CancellationError {
+            // The job ended: nothing to report.
+        } catch {
+            logger.log(.warning, "Chapter \(chapter.ref.index) could not be prepared early (\(error)); it is written with the rest.")
+        }
+    }
+
+    /// Ends the early work, waits for the chapter in the works, and returns the chapters done, by chapter id.
+    func finish() async -> [String: Done] {
+        let task = lock.withLock { () -> Task<Void, Never>? in
+            ending = true
+            return worker
+        }
+        await task?.value
+        return lock.withLock { finished }
+    }
+
+    /// Drops everything (the job failed or was cancelled).
+    func cancel() async {
+        let task = lock.withLock { () -> Task<Void, Never>? in
+            ending = true
+            return worker
+        }
+        task?.cancel()
+        await task?.value
+    }
+}
+
 /// Turns upload events into short job status text such as "book.epub - Gofile 42%", so the
 /// queue shows which host is being tried and how far it got.
 private final class UploadStatusRelay: @unchecked Sendable {
@@ -208,20 +319,46 @@ public struct DownloadPipeline: Sendable {
         let prefetch = settings.images.saveImageURLsOnly ? nil
             : ImagePrefetch(http: client, workers: shared.imageWorkers, logger: logger)
         defer { prefetch?.close() }
-        let chapterRun = chapterContext(context, total: selected.count, onPhase: onPhase, prefetch: prefetch)
-        var results = try await adapter.parseChapters(selected, book: book, context: chapterRun)
-        // Failed chapters (not refused ones) get more passes, each after a longer pause.
-        let passes = min(max(shared.maxRetries, 0), Self.maxRetryPasses)
-        if passes > 0 {
-            for pass in 1...passes {
-                let failed = results.indices.filter { if case .failed = results[$0] { return true } else { return false } }
-                if failed.isEmpty { break }
-                logger.log(.info, "Retrying \(failed.count) failed chapter\(failed.count == 1 ? "" : "s") (pass \(pass) of \(passes))")
-                try await Task.sleep(nanoseconds: UInt64(retryPause * Double(pass) * 1_000_000_000))
-                let again = try await adapter.parseChapters(failed.map { results[$0].ref }, book: book, context: chapterRun)
-                for (offset, result) in again.enumerated() where offset < failed.count { results[failed[offset]] = result }
-            }
+        let processor = ImageProcessor(settings: settings.images)
+        let prepared = !settings.images.saveImageURLsOnly && shared.formats.contains(where: { $0 == .folder || $0 == .zip })
+            ? try FolderWriter.Prepared(directory: outputDirectory, options: settings.images) : nil
+        defer { prepared?.close() }
+        let compressAfter = prepared != nil && settings.images.compressAfterStitch
+        let otherImageOutputs = shared.formats.contains { $0 == .epub || $0 == .cbz || $0 == .pdf }
+        var stageSettings = settings
+        if compressAfter && !otherImageOutputs { stageSettings.images.compress = false }
+        var staged = ImageStage(http: client, settings: stageSettings, source: source, logger: logger)
+        staged.prefetch = prefetch
+        let stage = staged
+        // A Folder or ZIP output: each chapter is prepared (and stitched) as soon as its images are in,
+        // not after the last chapter is read (EarlyChapters).
+        let exportQueue = prepared.map { ChapterExportQueue(output: $0, options: settings.images, logger: logger) }
+        let early = exportQueue.map {
+            EarlyChapters(stage: stage, queue: $0, preserveSources: compressAfter && otherImageOutputs, logger: logger)
         }
+        let chapterRun = chapterContext(context, total: selected.count, onPhase: onPhase, prefetch: prefetch, early: early)
+        var results: [ChapterResult]
+        do {
+            results = try await adapter.parseChapters(selected, book: book, context: chapterRun)
+            // Failed chapters (not refused ones) get more passes, each after a longer pause.
+            let passes = min(max(shared.maxRetries, 0), Self.maxRetryPasses)
+            if passes > 0 {
+                for pass in 1...passes {
+                    let failed = results.indices.filter { if case .failed = results[$0] { return true } else { return false } }
+                    if failed.isEmpty { break }
+                    logger.log(.info, "Retrying \(failed.count) failed chapter\(failed.count == 1 ? "" : "s") (pass \(pass) of \(passes))")
+                    try await Task.sleep(nanoseconds: UInt64(retryPause * Double(pass) * 1_000_000_000))
+                    let again = try await adapter.parseChapters(failed.map { results[$0].ref }, book: book, context: chapterRun)
+                    for (offset, result) in again.enumerated() where offset < failed.count { results[failed[offset]] = result }
+                }
+            }
+        } catch {
+            await early?.cancel()
+            await exportQueue?.cancelAndWait()
+            throw error
+        }
+        // The chapter being prepared early is finished first; the ones still waiting are done below.
+        let earlier = await early?.finish() ?? [:]
 
         var chapters: [ChapterContent] = []
         var skipped: [(ChapterRef, String)] = []
@@ -234,17 +371,11 @@ public struct DownloadPipeline: Sendable {
         onPhase(.fetchingChapters(done: chapters.count, total: selected.count))
         logger.log(skipped.isEmpty ? .info : .warning, "Read \(chapters.count) of \(selected.count) chapters" + (skipped.isEmpty ? "" : ", \(skipped.count) skipped"))
 
-        let processor = ImageProcessor(settings: settings.images)
-        let prepared = !settings.images.saveImageURLsOnly && shared.formats.contains(where: { $0 == .folder || $0 == .zip })
-            ? try FolderWriter.Prepared(directory: outputDirectory, options: settings.images) : nil
-        defer { prepared?.close() }
-        let compressAfter = prepared != nil && settings.images.compressAfterStitch
-        let otherImageOutputs = shared.formats.contains { $0 == .epub || $0 == .cbz || $0 == .pdf }
-        var stageSettings = settings
-        if compressAfter && !otherImageOutputs { stageSettings.images.compress = false }
-        var staged = ImageStage(http: client, settings: stageSettings, source: source, logger: logger)
-        staged.prefetch = prefetch
-        let stage = staged
+        let allChapters = chapters
+        if !earlier.isEmpty {
+            chapters.removeAll { earlier[$0.ref.id] != nil }
+            logger.log(.info, "\(earlier.count) chapter\(earlier.count == 1 ? " was" : "s were") prepared for the Folder/ZIP output while the chapters were read")
+        }
         // The image step finishes after the chapters and can be far longer than them: say what it counts.
         let imageFiles = Set(chapters.flatMap { $0.images.map { $0.filename } }).count
         if imageFiles > 0 && !settings.images.saveImageURLsOnly {
@@ -257,16 +388,25 @@ public struct DownloadPipeline: Sendable {
             onPhase(.downloadingImages(done: done, total: total))
         }
         let imageOutput: ImageStage.Output
-        if let prepared {
-            let queue = ChapterExportQueue(output: prepared, options: settings.images, logger: logger)
+        if let queue = exportQueue {
             do {
                 let selectedChapters = chapters
                 imageOutput = try await withTaskCancellationHandler {
-                    let output = try await stage.run(selectedChapters, preserveChapterSources: compressAfter && otherImageOutputs,
+                    var output = try await stage.run(selectedChapters, preserveChapterSources: compressAfter && otherImageOutputs,
                                                      onChapterReady: { chapter, images in
                         try await queue.submit(chapter, images: images)
                     }, onProgress: progress)
                     try await queue.finish()
+                    if !earlier.isEmpty {
+                        // The chapters prepared early and the rest, as one result in the book's order.
+                        var later: [String: ChapterContent] = [:]
+                        for chapter in output.chapters { later[chapter.ref.id] = chapter }
+                        output.chapters = allChapters.compactMap { earlier[$0.ref.id]?.chapter ?? later[$0.ref.id] }
+                        for done in earlier.values {
+                            output.images.merge(done.images) { first, _ in first }
+                            output.failed += done.failed
+                        }
+                    }
                     return output
                 } onCancel: {
                     Task { await queue.requestCancellation() }
@@ -355,7 +495,7 @@ public struct DownloadPipeline: Sendable {
     /// Logs each chapter result and advances progress immediately, including results from retries.
     private func chapterContext(_ base: SourceContext, total: Int,
                                 onPhase: @escaping @Sendable (JobPhase) -> Void,
-                                prefetch: ImagePrefetch? = nil) -> SourceContext {
+                                prefetch: ImagePrefetch? = nil, early: EarlyChapters? = nil) -> SourceContext {
         var context = base
         let counter = ChapterCounter()
         let timings = ChapterTimings()
@@ -366,6 +506,7 @@ public struct DownloadPipeline: Sendable {
         }
         context.onChapter = { result in
             prefetch?.offer(result)
+            early?.offer(result)
             onChapter?(result)
             let elapsed = timings.take(result.ref.id)
             let suffix = base.settings.shared.chapterTiming ? elapsed.map { String(format: " (%.2f s)", $0) } ?? "" : ""

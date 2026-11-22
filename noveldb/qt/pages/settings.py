@@ -46,6 +46,7 @@ from noveldb.core.settings.model import (
     ENGINE_LABELS,
     ENGINE_W2E,
     IMAGE_FORMATS,
+    IMAGE_WIDTHS,
     NAMING_MODES,
     OUTPUT_FORMATS,
     SITE_ENGINES,
@@ -900,6 +901,9 @@ def images_form(context: AppContext, panel: bool = False) -> Form:
     compress.setToolTip("Re-encode chapter images using the format and quality below, including for CBZ, Folder and ZIP.")
     quality = left.spin("Quality", "images.quality", 1, 100)
     fmt = left.combo("Format", "images.format", {k: k for k in IMAGE_FORMATS})
+    width = left.combo("Max width", "images.max_width", {w: f"{w} px" if w else "Original" for w in IMAGE_WIDTHS})
+    width.setToolTip("Chapter images wider than this are scaled down when they are compressed. "
+                     "The proportions are kept and smaller images are not enlarged.")
     workers = left.spin("Workers (npia)", "images.compression_workers", 1, 32)
     target = left.check("Recompress to fit a size", "images.recompress_target_enable")
     target_mb = left.dspin("Target size", "images.recompress_target_mb", 1, 2000, 1, " MB")
@@ -956,7 +960,7 @@ def images_form(context: AppContext, panel: bool = False) -> Form:
             widget.setEnabled(on)
         height_row.setEnabled(on and s.images.stitch_images)
         stitch_folders.setEnabled(on and s.images.stitch_images)
-        for widget in (quality, fmt):
+        for widget in (quality, fmt, width):
             widget.setEnabled(on and s.images.compress)
         target_mb.setEnabled(on and s.images.recompress_target_enable)
         cover_quality.setEnabled(on and s.images.compress_cover)

@@ -104,6 +104,7 @@ final class SettingsTests: XCTestCase {
             "ext_threads": 4, "ext_interval": 1.0, "ext_interval_max": 2.0,
             "ext_formats": ["epub", "txt"], "ext_from_enabled": false, "ext_to_enabled": true, "ext_from": 89, "ext_to": 92,
             "image_format": "WEBP", "jpeg_quality": 90, "recompress_target_enable": false, "recompress_target_mb": 20.0,
+            "image_max_width": "840",
             "ext_\(legacyKpage)_dedupe_leading_images": 3, "ext_kpage_keep_filler": true,
         ]
         let (settings, secrets) = DesktopConfig.importConfig(config)
@@ -121,6 +122,12 @@ final class SettingsTests: XCTestCase {
         XCTAssertNil(settings.overrides["npia"]?.threads, "equal values are not stored as overrides")
 
         XCTAssertEqual(settings.images.format, .webp)
+        // The image width as the desktop writes it: the pixels as text, or "Original".
+        XCTAssertEqual(settings.images.maxImageWidth, 840)
+        XCTAssertEqual(DesktopConfig.exportConfig(settings, onto: [:])["image_max_width"] as? String, "840")
+        XCTAssertEqual(DesktopConfig.importConfig(["image_max_width": "Original"]).0.images.maxImageWidth, 0)
+        XCTAssertEqual(DesktopConfig.importConfig(["image_max_width": 1200]).0.images.maxImageWidth, 1200)
+        XCTAssertEqual(DesktopConfig.exportConfig(AppSettings(), onto: [:])["image_max_width"] as? String, "Original")
         XCTAssertNil(settings.images.recompressTargetMB)
         XCTAssertEqual(settings.sources.kpage.dedupeLeadingImages, 3)
         XCTAssertTrue(settings.sources.kpage.keepFiller)

@@ -80,6 +80,8 @@ def npia_values(settings: AppSettings, novel_input: str, output_dir: Optional[st
         "var_compress_images": images.compress,
         "var_jpeg_quality": images.quality,
         "var_image_format": images.format,
+        # As the Tk window holds it: "Original" or the width in pixels.
+        "var_image_max_width": str(images.max_width) if images.max_width else "Original",
         "var_convert_gifs": images.convert_gifs,
         "var_static_only": images.static_only,
         "var_save_image_urls_only": images.save_image_urls_only,
@@ -168,6 +170,7 @@ def external_values(
             "var_compress_images": images.compress,
             "var_jpeg_quality": images.quality,
             "var_image_format": images.format,
+            "var_image_max_width": str(images.max_width) if images.max_width else "Original",
             "var_compress_cover": images.compress_cover,
             "var_cover_quality": images.cover_quality,
             "var_cover_format": images.cover_format,

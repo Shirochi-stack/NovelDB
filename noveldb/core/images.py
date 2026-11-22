@@ -233,15 +233,32 @@ def _resize_to_max_width(image, max_width):
     ``None``/``0`` means original dimensions. Images narrower than the selected
     width are never enlarged.
     """
-    try:
-        max_width = int(max_width or 0)
-    except (TypeError, ValueError):
-        max_width = 0
-    if max_width <= 0 or image.width <= max_width:
-        return image.copy()
+    max_width = _max_width_value(max_width)
+    if not max_width or image.width <= max_width:
+        return image  # nothing to do: no copy, so an unchanged image costs no memory
     height = max(1, round(image.height * max_width / image.width))
     resampling = getattr(Image, "Resampling", Image).LANCZOS
     return image.resize((max_width, height), resampling)
+
+
+def _encode_with(image, compression, **options):
+    """`_encode_image_bytes` for a stitched export's `compression`: (format, quality[, max width])."""
+    image_format, quality, *rest = compression
+    return _encode_image_bytes(image, image_format, quality, max_width=rest[0] if rest else None, **options)
+
+
+def _max_width_value(setting):
+    """The "Image width" option as pixels, or None for the original width.
+
+    Takes the option's value or the object holding it (a Tk variable, or the settings stand-in the
+    queue jobs use): "Original", "840", 840, None. A host without the option keeps the original.
+    """
+    value = setting.get() if hasattr(setting, "get") else setting
+    try:
+        width = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return width if width > 0 else None
 
 
 def _encode_image_bytes(

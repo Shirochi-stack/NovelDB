@@ -77,6 +77,11 @@ object DesktopConfig {
             compress = c.bool("compress_images") ?: i.compress,
             quality = c.int("jpeg_quality") ?: i.quality,
             format = c.string("image_format")?.let(ImageFormat::fromRaw) ?: i.format,
+            // "Original" or the width in pixels, as text (the desktop writes it so) or a number.
+            maxWidth = c["image_max_width"]?.let { value ->
+                ((value as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()?.toIntOrNull() ?: 0)
+                    .takeIf { it in IMAGE_WIDTHS } ?: 0
+            } ?: i.maxWidth,
             convertGifs = c.bool("convert_gifs") ?: i.convertGifs,
             staticOnly = c.bool("static_only") ?: i.staticOnly,
             recompressTargetMb = if (c.bool("recompress_target_enable") == true) c.double("recompress_target_mb") else null,
@@ -232,6 +237,7 @@ object DesktopConfig {
         put("compress_images", i.compress)
         put("jpeg_quality", i.quality)
         put("image_format", i.format.raw)
+        put("image_max_width", if (i.maxWidth > 0) i.maxWidth.toString() else "Original")
         put("convert_gifs", i.convertGifs)
         put("static_only", i.staticOnly)
         put("recompress_target_enable", i.recompressTargetMb != null)

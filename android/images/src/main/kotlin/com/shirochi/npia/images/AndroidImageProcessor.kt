@@ -41,9 +41,12 @@ class AndroidImageProcessor(private val settings: ImageSettings) : ImageProcessi
         }
 
         val animated = ImageSniffer.isAnimated(data)
+        // "Max width": a wider chapter image is scaled down (never a cover, never an animation that is kept).
+        val limit = if (isCover) 0 else settings.maxWidth
+        val wide = limit > 0 && (pixelSize(data)?.first ?: 0) > limit
         val target = if (format == ImageFormat.ORIGINAL) {
-            // Only re-encode when animation has to be dropped.
-            if (!(staticOnly && animated)) return original
+            // Only re-encode when animation has to be dropped, or the image has to be scaled down.
+            if (!(staticOnly && animated) && !(wide && !animated)) return original
             when (sourceExtension) {
                 "jpg" -> ImageFormat.JPEG
                 "png" -> ImageFormat.PNG
@@ -55,9 +58,9 @@ class AndroidImageProcessor(private val settings: ImageSettings) : ImageProcessi
         }
         if (animated && !staticOnly && target != ImageFormat.JPEG) return original
 
-        val encoded = decodeAndEncode(data, target, quality) ?: return original
-        // Re-encoding into the same container must not make the file bigger.
-        if (encoded.fileExtension == sourceExtension && encoded.data.size >= data.size) return original
+        val encoded = decodeAndEncode(data, target, quality, if (wide) limit else 0) ?: return original
+        // Re-encoding into the same container must not make the file bigger (a scaled image is kept either way).
+        if (!wide && encoded.fileExtension == sourceExtension && encoded.data.size >= data.size) return original
         return encoded
     }
 
@@ -81,19 +84,25 @@ class AndroidImageProcessor(private val settings: ImageSettings) : ImageProcessi
         return ImageSniffer.gifFirstFrame(data)?.let { ProcessedImage(it, "gif") }
     }
 
-    private fun decodeAndEncode(data: ByteArray, target: ImageFormat, quality: Int): ProcessedImage? {
+    /** `maxWidth` above zero: a wider image is scaled down to it first, its proportions kept. */
+    private fun decodeAndEncode(data: ByteArray, target: ImageFormat, quality: Int, maxWidth: Int = 0): ProcessedImage? {
         val bitmap = try {
             decode(data)
         } catch (e: OutOfMemoryError) {
             null
         } ?: return null
+        var scaled: Bitmap? = null
         return try {
-            encode(bitmap, target, quality)
+            if (maxWidth > 0 && bitmap.width > maxWidth) {
+                scaled = Bitmap.createScaledBitmap(bitmap, maxWidth, scaledHeight(bitmap.width, bitmap.height, maxWidth), true)
+            }
+            encode(scaled ?: bitmap, target, quality)
         } catch (e: OutOfMemoryError) {
             null
         } catch (e: RuntimeException) {
             null
         } finally {
+            scaled?.takeIf { it !== bitmap }?.recycle()
             bitmap.recycle()
         }
     }
@@ -104,6 +113,10 @@ class AndroidImageProcessor(private val settings: ImageSettings) : ImageProcessi
 
         /** Images above this many pixels are left alone rather than risking an OOM on a phone. */
         const val MAX_PIXELS = 60_000_000L
+
+        /** The height of a `width` x `height` image scaled to `maxWidth`, rounded as the desktop rounds it. */
+        fun scaledHeight(width: Int, height: Int, maxWidth: Int): Int =
+            Math.round(height.toDouble() * maxWidth / width).toInt().coerceAtLeast(1)
 
         /** Width and height from the header, without decoding pixels. */
         fun pixelSize(data: ByteArray): Pair<Int, Int>? {

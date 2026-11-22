@@ -617,11 +617,21 @@ struct ImageSettingsForm: View {
                             ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
                         }
                         Stepper("Quality: \(model.settings.images.quality)", value: $model.settings.images.quality, in: 10...100, step: 5)
+                        Picker("Max width", selection: Binding(
+                            get: { model.settings.images.maxImageWidth },
+                            set: { model.settings.images.maxWidth = $0 }
+                        )) {
+                            ForEach(ImageSettings.widths, id: \.self) { width in
+                                Text(width == 0 ? "Original" : "\(width) px").tag(width)
+                            }
+                        }
                         Toggle("Convert GIFs", isOn: $model.settings.images.convertGIFs)
                         Toggle("Static images only", isOn: $model.settings.images.staticOnly)
                         Stepper("Image Compression Workers: \(model.settings.images.compressionWorkers)", value: $model.settings.images.compressionWorkers, in: 1...8)
                     }
                     .disabled(!model.settings.images.compress || model.settings.images.saveImageURLsOnly)
+                    Text("Max width scales wider chapter images down when they are compressed; the proportions are kept and smaller images are not enlarged.")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Text("Includes CBZ, Folder and ZIP exports.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Cover") {

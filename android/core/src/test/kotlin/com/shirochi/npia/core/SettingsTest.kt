@@ -132,9 +132,15 @@ class SettingsTest {
              "ext_threads": 4, "ext_interval": 1.0, "ext_interval_max": 2.0,
              "ext_formats": ["epub", "txt"], "ext_from_enabled": false, "ext_to_enabled": true, "ext_from": 89, "ext_to": 92,
              "image_format": "WEBP", "jpeg_quality": 90, "recompress_target_enable": false, "recompress_target_mb": 20.0,
+             "image_max_width": "840",
              "ext_${legacyKpage}_dedupe_leading_images": 3, "ext_kpage_keep_filler": true}
         """
         val (settings, secrets) = DesktopConfig.import(config)
+        // The image width as the desktop writes it: the pixels as text, or "Original".
+        assertEquals(840, settings.images.maxWidth)
+        assertEquals(0, DesktopConfig.import("""{"image_max_width": "Original"}""").first.images.maxWidth)
+        assertEquals(1200, DesktopConfig.import("""{"image_max_width": 1200}""").first.images.maxWidth)
+        assertEquals(0, DesktopConfig.import("""{"image_max_width": "900"}""").first.images.maxWidth)
         assertEquals(4, settings.shared.threads)
         assertEquals(1.0, settings.shared.intervalMin, 0.0)
         assertEquals(2.0, settings.shared.intervalMax, 0.0)
