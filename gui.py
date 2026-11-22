@@ -303,6 +303,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         self.var_save_image_urls_only = tk.BooleanVar(value=False)
         self.var_jpeg_quality = tk.IntVar(value=50)
         self.var_image_format = tk.StringVar(value="WEBP")  # WEBP, JPEG, PNG, AVIF
+        self.var_image_max_width = tk.StringVar(value="Original")
         # When False (default) GIF sources are preserved as .gif (animation kept).
         # When True, GIFs are re-encoded to the selected image_format
         # (animation preserved when format supports it: WEBP/AVIF/APNG).
@@ -397,6 +398,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         # loses their preference if the app crashes before normal save paths run.
         self.var_convert_gifs.trace_add("write", lambda *_: self._save_config())
         self.var_static_only.trace_add("write", lambda *_: self._save_config())
+        self.var_image_max_width.trace_add("write", lambda *_: self._save_config())
         self._poll_log_queue()
         if self.var_auto_login.get():
             self._auto_login()
@@ -642,8 +644,27 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
             "flattened to its first frame regardless of format. Smallest files possible.",
         )
 
+        resize_frame = ttk.Frame(dl_inner)
+        resize_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
+        lbl_image_max_width = ttk.Label(resize_frame, text="Image width")
+        lbl_image_max_width.pack(side="left")
+        image_width_cb = ttk.Combobox(
+            resize_frame,
+            textvariable=self.var_image_max_width,
+            values=["Original", "1200", "1024", "840", "620"],
+            state="readonly",
+            width=9,
+        )
+        image_width_cb.pack(side="left", padx=(8, 5))
+        ttk.Label(resize_frame, text="px").pack(side="left")
+        ToolTip(
+            image_width_cb,
+            "Maximum width for chapter images. Aspect ratio is preserved,\n"
+            "smaller images are not enlarged, and Original keeps source dimensions.",
+        )
+
         cover_frame = ttk.Frame(dl_inner)
-        cover_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
+        cover_frame.grid(row=7, column=0, columnspan=3, sticky="w", pady=2)
         chk_compress_cover = ttk.Checkbutton(cover_frame, text="Compress Cover", variable=self.var_compress_cover)
         chk_compress_cover.pack(side="left")
         lbl_cover_quality = ttk.Label(cover_frame, text="Quality")
@@ -658,7 +679,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
 
         # --- Target-size recompression row ---
         target_frame = ttk.Frame(dl_inner)
-        target_frame.grid(row=10, column=0, columnspan=3, sticky="w", pady=2)
+        target_frame.grid(row=11, column=0, columnspan=3, sticky="w", pady=2)
         chk_target = ttk.Checkbutton(
             target_frame,
             text="Recompress to meet target size",
@@ -682,7 +703,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         ToolTip(spn_target, "Desired maximum size of the final EPUB/PDF, in megabytes.")
 
         shutdown_frame = ttk.Frame(dl_inner)
-        shutdown_frame.grid(row=11, column=0, columnspan=3, sticky="w", pady=2)
+        shutdown_frame.grid(row=12, column=0, columnspan=3, sticky="w", pady=2)
         chk_shutdown = ttk.Checkbutton(
             shutdown_frame,
             text="Shut down computer after successful download",
@@ -697,7 +718,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         )
 
         notices_frame = ttk.Frame(dl_inner)
-        notices_frame.grid(row=7, column=0, columnspan=3, sticky="w", pady=2)
+        notices_frame.grid(row=8, column=0, columnspan=3, sticky="w", pady=2)
         ttk.Checkbutton(notices_frame, text="Download Author Notices", variable=self.var_include_notices).pack(side="left")
         ttk.Label(notices_frame, text="Retries").pack(side="left", padx=(15, 3))
         spn_retries = ttk.Spinbox(
@@ -731,6 +752,8 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
             (img_fmt_cb, "readonly"),
             (chk_convert_gifs, "normal"),
             (chk_static_only, "normal"),
+            (lbl_image_max_width, "normal"),
+            (image_width_cb, "readonly"),
             (chk_compress_cover, "normal"),
             (lbl_cover_quality, "normal"),
             (spn_cover_quality, "normal"),
@@ -757,7 +780,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         )
 
         pdf_group = ttk.LabelFrame(dl_inner, text="PDF Settings", padding=(6, 4))
-        pdf_group.grid(row=8, column=0, columnspan=3, sticky="w", pady=4)
+        pdf_group.grid(row=9, column=0, columnspan=3, sticky="w", pady=4)
         chk_pdf_toc = ttk.Checkbutton(pdf_group, text="Table of Contents", variable=self.var_pdf_toc)
         chk_pdf_toc.pack(side="left")
         chk_pdf_toc_pages = ttk.Checkbutton(pdf_group, text="TOC Page Numbers", variable=self.var_pdf_counter_layout)
@@ -771,7 +794,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
 
         # Batch Download Button (Bottom Right of DL frame)
         batch_btn_frame = ttk.Frame(dl_inner)
-        batch_btn_frame.grid(row=9, column=0, columnspan=3, sticky="e", pady=10)
+        batch_btn_frame.grid(row=10, column=0, columnspan=3, sticky="e", pady=10)
         self.btn_tag_retrieval = ttk.Button(batch_btn_frame, text="Tag Retrieval", command=self.action_tag_retrieval)
         self.btn_tag_retrieval.pack(side="left", padx=(0, 5))
         # Paste Batch: paste a list of IDs/URLs inline instead of using a file.
@@ -1965,6 +1988,10 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
                 self.var_save_image_urls_only.set(cfg.get("save_image_urls_only", False))
                 self.var_jpeg_quality.set(cfg.get("jpeg_quality", 50))
                 self.var_image_format.set(cfg.get("image_format", "WEBP"))
+                image_max_width = str(cfg.get("image_max_width", "Original"))
+                if image_max_width not in {"Original", "1200", "1024", "840", "620"}:
+                    image_max_width = "Original"
+                self.var_image_max_width.set(image_max_width)
                 self.var_convert_gifs.set(cfg.get("convert_gifs", False))
                 self.var_static_only.set(cfg.get("static_only", False))
                 self.var_recompress_target_enable.set(cfg.get("recompress_target_enable", False))
@@ -2102,6 +2129,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
             "save_image_urls_only": self.var_save_image_urls_only.get(),
             "jpeg_quality": self.var_jpeg_quality.get(),
             "image_format": self.var_image_format.get(),
+            "image_max_width": self.var_image_max_width.get(),
             "convert_gifs": self.var_convert_gifs.get(),
             "static_only": self.var_static_only.get(),
             "recompress_target_enable": self.var_recompress_target_enable.get(),

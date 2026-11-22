@@ -929,6 +929,12 @@ table, th, td {
             )
         image_quality = self.var_jpeg_quality.get()
         image_format = self.var_image_format.get()
+        raw_image_max_width = self.var_image_max_width.get()
+        image_max_width = (
+            int(raw_image_max_width)
+            if str(raw_image_max_width).isdigit()
+            else None
+        )
         convert_gifs = self.var_convert_gifs.get()
         static_only = self.var_static_only.get()
         strip_leading_spaces = self.var_strip_leading_spaces.get()
@@ -1039,6 +1045,7 @@ table, th, td {
                 chapter_num=idx + 1,
                 convert_gifs=convert_gifs,
                 static_only=static_only,
+                image_max_width=image_max_width,
                 save_image_urls_only=save_image_urls_only,
                 strip_leading_spaces=strip_leading_spaces,
                 remove_newlines=remove_newlines,
@@ -1295,6 +1302,7 @@ table, th, td {
             str(bool(self.var_save_image_urls_only.get())),
             str(int(self.var_jpeg_quality.get() or 0)),
             str(self.var_image_format.get() or ""),
+            str(self.var_image_max_width.get() or "Original"),
             str(bool(self.var_convert_gifs.get())),
             str(bool(self.var_static_only.get())),
             str(bool(self.var_strip_leading_spaces.get())),
