@@ -32,6 +32,7 @@ enum Accent: String, CaseIterable, Identifiable {
     case halgakosRose = "halgakos_rose"
     case desktopBlue = "desktop_blue"
     case libraryViolet = "library_violet"
+    case gold = "gold"
 
     static let storageKey = "accent"
     var id: String { rawValue }
@@ -41,6 +42,7 @@ enum Accent: String, CaseIterable, Identifiable {
         case .halgakosRose: return "Halgakos Rose"
         case .desktopBlue: return "Desktop Blue"
         case .libraryViolet: return "Library Violet"
+        case .gold: return "Gold"
         }
     }
 
@@ -49,6 +51,7 @@ enum Accent: String, CaseIterable, Identifiable {
         case .halgakosRose: return Color(hex: 0xE18F98)
         case .desktopBlue: return Color(hex: 0x5A9FD4)
         case .libraryViolet: return Color(hex: 0x6C63FF)
+        case .gold: return Color(hex: 0xD7BC6D)
         }
     }
 
@@ -72,6 +75,10 @@ enum Accent: String, CaseIterable, Identifiable {
             return Palette(primary: .dynamic(0x5C5A8B, 0xC5C2EE),
                            background: .dynamic(0xF6F2FA, 0x0E0E12),
                            row: .dynamic(0xFFFFFF, 0x1F1F26))
+        case .gold:
+            return Palette(primary: .dynamic(0x6E5B10, 0xD7BC6D),
+                           background: .dynamic(0xF8F3E6, 0x1B1D21),
+                           row: .dynamic(0xFFFFFF, 0x2B2D31))
         }
     }
 }
@@ -95,6 +102,10 @@ extension Accent {
             tones = ["accent": (0x5C5A8B, 0xC5C2EE), "accentInk": (0xFFFFFF, 0x2D2B5A), "bg": (0xF6F2FA, 0x0E0E12),
                      "panel": (0xFFFFFF, 0x1F1F26), "ink": (0x1B1B21, 0xE4E1E9), "ink2": (0x47464F, 0xC8C5D0),
                      "line": (0xDDD9E4, 0x3D3C46), "chip": (0xECE8F3, 0x2E2D36)]
+        case .gold:
+            tones = ["accent": (0x6E5B10, 0xD7BC6D), "accentInk": (0xFFFFFF, 0x3A2F00), "bg": (0xFDFBF3, 0x1B1D21),
+                     "panel": (0xFFFFFF, 0x232528), "ink": (0x1C1B14, 0xFCFCFC), "ink2": (0x4B4639, 0xC3C6CB),
+                     "line": (0xCDC6B4, 0x5F646D), "chip": (0xECE7D9, 0x3E4046)]
         }
         let fields = tones.keys.sorted().map { key -> String in
             let tone = tones[key]!

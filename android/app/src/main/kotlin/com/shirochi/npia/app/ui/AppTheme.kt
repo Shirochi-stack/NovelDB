@@ -27,6 +27,7 @@ enum class Accent(val raw: String, val label: String, val seed: Color) {
     HALGAKOS_ROSE("halgakos_rose", "Halgakos Rose", Color(0xFFE18F98)),
     DESKTOP_BLUE("desktop_blue", "Desktop Blue", Color(0xFF5A9FD4)),
     LIBRARY_VIOLET("library_violet", "Library Violet", Color(0xFF6C63FF)),
+    GOLD("gold", "Gold", Color(0xFFD7BC6D)),
     WALLPAPER("wallpaper", "Wallpaper", Color(0xFF808080));
 
     companion object {
@@ -46,6 +47,7 @@ fun appColorScheme(context: Context, accent: Accent, mode: ThemeMode, systemDark
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         accent == Accent.DESKTOP_BLUE -> if (dark) desktopBlueDark else desktopBlueLight
         accent == Accent.LIBRARY_VIOLET -> if (dark) libraryVioletDark else libraryVioletLight
+        accent == Accent.GOLD -> if (dark) goldDark else goldLight
         else -> if (dark) halgakosRoseDark else halgakosRoseLight
     }
     if (mode != ThemeMode.AMOLED) return base
@@ -284,5 +286,83 @@ private val libraryVioletDark = darkColorScheme(
     surfaceContainer = Color(0xFF19191F),
     surfaceContainerHigh = Color(0xFF1F1F26),
     surfaceContainerHighest = Color(0xFF26252E),
+    scrim = Color(0xFF000000),
+)
+
+// Dark charcoal and gold. The dark scheme is the requested palette verbatim (gold primary, blue secondary
+// accents, green tertiary); the light scheme is a warm cream with a darker gold for contrast.
+private val goldLight = lightColorScheme(
+    primary = Color(0xFF6E5B10),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFBE08A),
+    onPrimaryContainer = Color(0xFF231B00),
+    secondary = Color(0xFF246377),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFBBEAFF),
+    onSecondaryContainer = Color(0xFF001F28),
+    tertiary = Color(0xFF3C6B43),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFBEF0C5),
+    onTertiaryContainer = Color(0xFF002110),
+    error = Color(0xFFA83836),
+    onError = Color(0xFFFFF7F6),
+    errorContainer = Color(0xFFFA746F),
+    onErrorContainer = Color(0xFF6E0A12),
+    background = Color(0xFFFDFBF3),
+    onBackground = Color(0xFF1C1B14),
+    surface = Color(0xFFFDFBF3),
+    onSurface = Color(0xFF1C1B14),
+    surfaceVariant = Color(0xFFEBE2CC),
+    onSurfaceVariant = Color(0xFF4B4639),
+    outline = Color(0xFF7C7767),
+    outlineVariant = Color(0xFFCDC6B4),
+    inverseSurface = Color(0xFF313028),
+    inverseOnSurface = Color(0xFFF5F0E2),
+    inversePrimary = Color(0xFFD7BC6D),
+    surfaceDim = Color(0xFFDED9CC),
+    surfaceBright = Color(0xFFFDFBF3),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF8F3E6),
+    surfaceContainer = Color(0xFFF2EDDF),
+    surfaceContainerHigh = Color(0xFFECE7D9),
+    surfaceContainerHighest = Color(0xFFE6E1D4),
+    scrim = Color(0xFF000000),
+)
+
+private val goldDark = darkColorScheme(
+    primary = Color(0xFFD7BC6D),
+    onPrimary = Color(0xFF3A2F00),
+    primaryContainer = Color(0xFF574B22),
+    onPrimaryContainer = Color(0xFFF5E0A3),
+    secondary = Color(0xFF75DBFF),
+    onSecondary = Color(0xFF003542),
+    secondaryContainer = Color(0xFF16495A),
+    onSecondaryContainer = Color(0xFFAEE9FF),
+    tertiary = Color(0xFFA0D5AB),
+    onTertiary = Color(0xFF0A3818),
+    tertiaryContainer = Color(0xFF234B2B),
+    onTertiaryContainer = Color(0xFFBCF0C5),
+    error = Color(0xFFFA746F),
+    onError = Color(0xFF490006),
+    errorContainer = Color(0xFF871F21),
+    onErrorContainer = Color(0xFFFF9993),
+    background = Color(0xFF1B1D21),
+    onBackground = Color(0xFFFCFCFC),
+    surface = Color(0xFF1B1D21),
+    onSurface = Color(0xFFFCFCFC),
+    surfaceVariant = Color(0xFF232528),
+    onSurfaceVariant = Color(0xFFC3C6CB),
+    outline = Color(0xFF9EA2A9),
+    outlineVariant = Color(0xFF5F646D),
+    inverseSurface = Color(0xFFE8E8EC),
+    inverseOnSurface = Color(0xFF2D2F33),
+    inversePrimary = Color(0xFF6E5B10),
+    surfaceDim = Color(0xFF1B1D21),
+    surfaceBright = Color(0xFF3A3D42),
+    surfaceContainerLowest = Color(0xFF0A0B0D),
+    surfaceContainerLow = Color(0xFF0E0F12),
+    surfaceContainer = Color(0xFF232528),
+    surfaceContainerHigh = Color(0xFF2B2D31),
+    surfaceContainerHighest = Color(0xFF3E4046),
     scrim = Color(0xFF000000),
 )

@@ -17,7 +17,7 @@ IMAGE_FORMATS = ("WEBP", "JPEG", "PNG", "AVIF")
 IMAGE_WIDTHS = (0, 1200, 1024, 840, 620)
 NAMING_MODES = ("title", "id")
 THEMES = ("system", "light", "dark", "amoled")
-ACCENTS = ("halgakos_rose", "desktop_blue", "library_violet")
+ACCENTS = ("halgakos_rose", "desktop_blue", "library_violet", "gold")
 NPIA_ENGINES = ("native", "browser")
 
 # Site engines, tried in the user's order until one returns chapters: the app's own scrapers, the
