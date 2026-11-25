@@ -54,6 +54,8 @@ import com.shirochi.npia.sources.session.SessionSite
 import com.shirochi.npia.sources.session.SessionStatus
 import com.shirochi.npia.sources.session.SiteSessions
 import com.shirochi.npia.sources.sfc.SfcAdapter
+import com.shirochi.npia.sources.tapas.TapasAppApi
+import com.shirochi.npia.sources.webtoons.WebtoonsAppApi
 import com.shirochi.npia.upload.LocalTestUploader
 import com.shirochi.npia.upload.PlannedUpload
 import com.shirochi.npia.upload.UploadContext
@@ -737,9 +739,20 @@ class DownloadManager(private val app: Application) {
     private val _sfcWorking = MutableStateFlow(false)
     val sfcWorking: StateFlow<Boolean> = _sfcWorking.asStateFlow()
 
+    private val _tapasWorking = MutableStateFlow(false)
+    val tapasWorking: StateFlow<Boolean> = _tapasWorking.asStateFlow()
+
+    private val _webtoonsWorking = MutableStateFlow(false)
+    val webtoonsWorking: StateFlow<Boolean> = _webtoonsWorking.asStateFlow()
+
     init {
         // A session cookie the web view dropped when the app was killed comes back from the saved copy.
-        scope.launch { HardSessions.all.forEach { sessions.restoreOnce(it) } }
+        scope.launch {
+            HardSessions.all.forEach { sessions.restoreOnce(it) }
+            // tapas and webtoons are not SourceId adapters; their saved logins go back the same way.
+            TapasAppApi.session.restore(secrets, SharedCookies.store)
+            WebtoonsAppApi.session.restore(secrets, SharedCookies.store)
+        }
     }
 
     fun siteStatus(site: SessionSite): SessionStatus = sessions.status(site)
@@ -817,6 +830,75 @@ class DownloadManager(private val app: Application) {
         SfcAdapter.signOut(secrets)
         _sessionVersion.update { it + 1 }
         message("Signed out of sfc")
+    }
+
+    // tapas and webtoons: credential logins for sites the generic engine downloads; the cookie lives in
+    // the shared cookie store (see TapasAppApi / WebtoonsAppApi), not in a SourceId adapter.
+
+    fun tapasSignedIn(): Boolean = TapasAppApi.session.hasSession(secrets)
+
+    fun signInToTapas(username: String, password: String) {
+        if (!_tapasWorking.compareAndSet(false, true)) return
+        scope.launch {
+            val ok = try {
+                TapasAppApi.login(username, password, sourceContext().http, secrets, SharedCookies.store)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            } finally {
+                _tapasWorking.value = false
+                _sessionVersion.update { it + 1 }
+            }
+            message(if (ok) "Signed in to tapas" else "tapas sign-in failed: check the email and password, or sign in with the Browser tab")
+        }
+    }
+
+    fun saveTapasCookie(cookie: String): Boolean {
+        val ok = TapasAppApi.session.save(cookie, secrets, SharedCookies.store)
+        _sessionVersion.update { it + 1 }
+        message(if (ok) "tapas cookie saved" else "That cookie has no name=value pairs")
+        return ok
+    }
+
+    fun signOutOfTapas() {
+        TapasAppApi.session.signOut(secrets, SharedCookies.store)
+        scope.launch { web.flushCookies() }
+        _sessionVersion.update { it + 1 }
+        message("Signed out of tapas")
+    }
+
+    fun webtoonsSignedIn(): Boolean = WebtoonsAppApi.session.hasSession(secrets)
+
+    fun signInToWebtoons(email: String, password: String) {
+        if (!_webtoonsWorking.compareAndSet(false, true)) return
+        scope.launch {
+            val ok = try {
+                WebtoonsAppApi.login(email, password, sourceContext().http, secrets, SharedCookies.store)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            } finally {
+                _webtoonsWorking.value = false
+                _sessionVersion.update { it + 1 }
+            }
+            message(if (ok) "Signed in to webtoons" else "webtoons sign-in failed: check the email and password, or sign in with the Browser tab")
+        }
+    }
+
+    fun saveWebtoonsCookie(cookie: String): Boolean {
+        val ok = WebtoonsAppApi.session.save(cookie, secrets, SharedCookies.store)
+        _sessionVersion.update { it + 1 }
+        message(if (ok) "webtoons cookie saved" else "That cookie has no name=value pairs")
+        return ok
+    }
+
+    fun signOutOfWebtoons() {
+        WebtoonsAppApi.session.signOut(secrets, SharedCookies.store)
+        scope.launch { web.flushCookies() }
+        _sessionVersion.update { it + 1 }
+        message("Signed out of webtoons")
     }
 
     // Uploads

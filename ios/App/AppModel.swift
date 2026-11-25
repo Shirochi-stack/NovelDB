@@ -87,6 +87,9 @@ final class AppModel {
     private(set) var sessionVersion = 0
     /// An sfc app sign-in is running.
     private(set) var sfcWorking = false
+    /// A tapas or webtoons sign-in is running.
+    private(set) var tapasWorking = false
+    private(set) var webtoonsWorking = false
     private(set) var googleDriveWorking = false
     private(set) var googleDriveError: String?
 
@@ -878,6 +881,9 @@ final class AppModel {
     /// cookies). Done once per run, at start; it never overwrites a cookie the browser has.
     func restoreSessions() async {
         for site in HardSessions.all { await sessions.restoreOnce(site) }
+        // tapas and webtoons are not SourceID adapters; their saved logins go back the same way.
+        await TapasAppAPI.session.restore(secrets, cookies: web.sessionCookies)
+        await WebtoonsAppAPI.session.restore(secrets, cookies: web.sessionCookies)
         sessionVersion += 1
     }
 
@@ -946,6 +952,65 @@ final class AppModel {
         SfcAdapter.signOut(secrets)
         sessionVersion += 1
         message = "Signed out of sfc"
+    }
+
+    // MARK: - Enter App: tapas and webtoons
+
+    // Credential logins for sites the generic engine downloads; the cookie lives in the shared cookie store
+    // (see TapasAppAPI / WebtoonsAppAPI), not in a SourceID adapter.
+
+    private func loginClient() -> URLSessionHTTPClient {
+        URLSessionHTTPClient(maxRetries: 1, minTimeout: TimeInterval(settings.shared.requestTimeoutSeconds))
+    }
+
+    var tapasSignedIn: Bool { TapasAppAPI.session.hasSession(secrets) }
+
+    func signInToTapas(username: String, password: String) async {
+        guard !tapasWorking else { return }
+        tapasWorking = true
+        let ok = await TapasAppAPI.login(username: username, password: password, http: loginClient(), secrets: secrets, cookies: web.sessionCookies)
+        tapasWorking = false
+        sessionVersion += 1
+        message = ok ? "Signed in to tapas" : "tapas sign-in failed: check the email and password, or sign in with the Browser tab"
+    }
+
+    @discardableResult
+    func saveTapasCookie(_ cookie: String) async -> Bool {
+        let ok = await TapasAppAPI.session.save(cookie, secrets: secrets, cookies: web.sessionCookies)
+        sessionVersion += 1
+        message = ok ? "tapas cookie saved" : "That cookie has no name=value pairs"
+        return ok
+    }
+
+    func signOutOfTapas() async {
+        await TapasAppAPI.session.signOut(secrets, cookies: web.sessionCookies)
+        sessionVersion += 1
+        message = "Signed out of tapas"
+    }
+
+    var webtoonsSignedIn: Bool { WebtoonsAppAPI.session.hasSession(secrets) }
+
+    func signInToWebtoons(email: String, password: String) async {
+        guard !webtoonsWorking else { return }
+        webtoonsWorking = true
+        let ok = await WebtoonsAppAPI.login(email: email, password: password, http: loginClient(), secrets: secrets, cookies: web.sessionCookies)
+        webtoonsWorking = false
+        sessionVersion += 1
+        message = ok ? "Signed in to webtoons" : "webtoons sign-in failed: check the email and password, or sign in with the Browser tab"
+    }
+
+    @discardableResult
+    func saveWebtoonsCookie(_ cookie: String) async -> Bool {
+        let ok = await WebtoonsAppAPI.session.save(cookie, secrets: secrets, cookies: web.sessionCookies)
+        sessionVersion += 1
+        message = ok ? "webtoons cookie saved" : "That cookie has no name=value pairs"
+        return ok
+    }
+
+    func signOutOfWebtoons() async {
+        await WebtoonsAppAPI.session.signOut(secrets, cookies: web.sessionCookies)
+        sessionVersion += 1
+        message = "Signed out of webtoons"
     }
 
     // MARK: - Site engines

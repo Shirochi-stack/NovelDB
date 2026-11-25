@@ -13,6 +13,12 @@ struct EnterAppView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var cookie = ""
+    @State private var tapasUsername = ""
+    @State private var tapasPassword = ""
+    @State private var tapasCookie = ""
+    @State private var webtoonsUsername = ""
+    @State private var webtoonsPassword = ""
+    @State private var webtoonsCookie = ""
     @State private var statuses: [SourceID: SessionStatus] = [:]
     @FocusState private var typing: Bool
 
@@ -21,6 +27,32 @@ struct EnterAppView: View {
         let version = model.sessionVersion
         Form {
             sfcSection(signedIn: model.sfcSignedIn, site: statuses[.sfc])
+            credentialSection(
+                title: "tapas",
+                signedIn: model.tapasSignedIn,
+                working: model.tapasWorking,
+                summary: model.tapasSignedIn ? "Signed in. Episodes you have unlocked with your account download too." : "Not signed in. Free episodes still download.",
+                help: "Sign in with your tapas email and password. (Or open tapas in the Browser tab and sign in there; downloads use that login too.)",
+                cookiePlaceholder: "name=value; ...",
+                cookieHelp: "Or paste the cookie header from a signed-in tapas session.",
+                username: $tapasUsername, password: $tapasPassword, cookie: $tapasCookie,
+                onSignIn: { name, secret in Task { await model.signInToTapas(username: name, password: secret) } },
+                onSaveCookie: { value in Task { if await model.saveTapasCookie(value) { tapasCookie = "" } } },
+                onSignOut: { Task { await model.signOutOfTapas() } }
+            )
+            credentialSection(
+                title: "webtoons",
+                signedIn: model.webtoonsSignedIn,
+                working: model.webtoonsWorking,
+                summary: model.webtoonsSignedIn ? "Signed in. Paid episodes you own download with your account." : "Not signed in. Free episodes still download.",
+                help: "Sign in with your WEBTOON email and password. Google, Facebook and Apple sign-ins are not supported here — use the Browser tab for those.",
+                cookiePlaceholder: "NEO_SES=...",
+                cookieHelp: "Or paste the cookie header from a signed-in webtoons session (it should contain NEO_SES).",
+                username: $webtoonsUsername, password: $webtoonsPassword, cookie: $webtoonsCookie,
+                onSignIn: { name, secret in Task { await model.signInToWebtoons(email: name, password: secret) } },
+                onSaveCookie: { value in Task { if await model.saveWebtoonsCookie(value) { webtoonsCookie = "" } } },
+                onSignOut: { Task { await model.signOutOfWebtoons() } }
+            )
             ForEach(HardSessions.all.filter { $0.source != .sfc }, id: \.source) { site in
                 browserSection(site)
             }
@@ -103,6 +135,59 @@ struct EnterAppView: View {
         if site?.usable == true { return "Signed in on the website: VIP chapters you bought download from it." }
         if site?.hasSavedCopy == true { return "Not signed in on the website. A saved copy exists and is restored when the app starts." }
         return "Not signed in. Only free chapters download."
+    }
+
+    // MARK: tapas and webtoons
+
+    /// A source that signs in with an email/username and password through its own app endpoint, like the
+    /// sfc section but for sites with no `SourceID` adapter: the login lives in the shared cookie store the
+    /// generic engine reads. A pasted cookie header is also accepted.
+    @ViewBuilder
+    private func credentialSection(
+        title: String, signedIn: Bool, working: Bool, summary: String, help: String,
+        cookiePlaceholder: String, cookieHelp: String,
+        username: Binding<String>, password: Binding<String>, cookie: Binding<String>,
+        onSignIn: @escaping (String, String) -> Void,
+        onSaveCookie: @escaping (String) -> Void,
+        onSignOut: @escaping () -> Void
+    ) -> some View {
+        Section {
+            Text(help)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Email or username", text: username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            SecureField("Password", text: password)
+                .textContentType(.password)
+            Button(working ? "Signing in..." : "Sign in") {
+                let name = username.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let secret = password.wrappedValue
+                password.wrappedValue = ""
+                onSignIn(name, secret)
+            }
+            .disabled(working || username.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.wrappedValue.isEmpty)
+            TextField(cookiePlaceholder, text: cookie, axis: .vertical)
+                .lineLimit(2...4)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.callout)
+            Text(cookieHelp)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Save cookie") { onSaveCookie(cookie.wrappedValue) }
+                .disabled(cookie.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if signedIn {
+                Button("Sign out", role: .destructive) { onSignOut() }
+            }
+        } header: {
+            Text(title)
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(summary)
+                Text("Stored only in the iOS Keychain, never in settings files or exports.")
+            }
+        }
     }
 
     // MARK: qdn and rbooks

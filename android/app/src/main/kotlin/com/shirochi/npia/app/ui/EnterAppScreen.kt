@@ -38,6 +38,10 @@ fun EnterAppScreen(model: AppViewModel) {
     val sfcWorking by manager.sfcWorking.collectAsStateWithLifecycle()
     val sfcSignedIn = remember(version) { manager.sfcSignedIn() }
     val sfcSite = remember(version) { manager.siteStatus(HardSessions.sfc) }
+    val tapasWorking by manager.tapasWorking.collectAsStateWithLifecycle()
+    val tapasSignedIn = remember(version) { manager.tapasSignedIn() }
+    val webtoonsWorking by manager.webtoonsWorking.collectAsStateWithLifecycle()
+    val webtoonsSignedIn = remember(version) { manager.webtoonsSignedIn() }
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -100,6 +104,34 @@ fun EnterAppScreen(model: AppViewModel) {
         }
         Footnote("Stored only in encrypted app storage, never in settings files or exports.")
 
+        CredentialSession(
+            label = "tapas",
+            signedIn = tapasSignedIn,
+            working = tapasWorking,
+            status = if (tapasSignedIn) "Signed in. Episodes you have unlocked with your account download too."
+            else "Not signed in. Free episodes still download.",
+            help = "Sign in with your tapas email and password. (Or open tapas in the Browser tab and sign in there; downloads use that login too.)",
+            cookiePlaceholder = "name=value; ...",
+            cookieHelp = "Or paste the cookie header from a signed-in tapas session.",
+            onSignIn = { user, pass -> manager.signInToTapas(user, pass) },
+            onSaveCookie = { manager.saveTapasCookie(it) },
+            onSignOut = { manager.signOutOfTapas() },
+        )
+        CredentialSession(
+            label = "webtoons",
+            signedIn = webtoonsSignedIn,
+            working = webtoonsWorking,
+            status = if (webtoonsSignedIn) "Signed in. Paid episodes you own download with your account."
+            else "Not signed in. Free episodes still download.",
+            help = "Sign in with your WEBTOON email and password. Google, Facebook and Apple sign-ins are not supported here — " +
+                "use the Browser tab for those.",
+            cookiePlaceholder = "NEO_SES=...",
+            cookieHelp = "Or paste the cookie header from a signed-in webtoons session (it should contain NEO_SES).",
+            onSignIn = { user, pass -> manager.signInToWebtoons(user, pass) },
+            onSaveCookie = { manager.saveWebtoonsCookie(it) },
+            onSignOut = { manager.signOutOfWebtoons() },
+        )
+
         BrowserSession(model, "qdn", HardSessions.qdn, version,
             "Opens your qdn account in the app's browser, which asks you to sign in. Sign in there, then tap Done; if the site shows " +
                 "a verification, complete it first. qdn keeps this login only for the browser session, so the app also saves a copy " +
@@ -108,6 +140,64 @@ fun EnterAppScreen(model: AppViewModel) {
             "Opens the rbooks sign-in page in the app's browser. Sign in there (and finish adult verification if asked), then tap Done.")
         Footnote("Downloads use the same browser, so a login here is a login for downloads. Chapters your account has not bought are skipped; nothing is ever purchased.")
     }
+}
+
+/**
+ * A source that signs in with a username/email and password through its own app endpoint (tapas, webtoons),
+ * like the sfc section above but for sites with no `SourceId` adapter: the login lives in the shared cookie
+ * store the generic engine reads. A pasted cookie header is also accepted.
+ */
+@Composable
+private fun CredentialSession(
+    label: String,
+    signedIn: Boolean,
+    working: Boolean,
+    status: String,
+    help: String,
+    cookiePlaceholder: String,
+    cookieHelp: String,
+    onSignIn: (String, String) -> Unit,
+    onSaveCookie: (String) -> Boolean,
+    onSignOut: () -> Unit,
+) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var cookie by remember { mutableStateOf("") }
+    SectionHeader(label)
+    Footnote(status)
+    Footnote(help)
+    OutlinedTextField(
+        value = username, onValueChange = { username = it }, label = { Text("Email or username") }, singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+    OutlinedTextField(
+        value = password, onValueChange = { password = it }, label = { Text("Password") }, singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+    Row(Modifier.padding(start = 8.dp)) {
+        TextButton(
+            enabled = !working && username.isNotBlank() && password.isNotEmpty(),
+            onClick = {
+                onSignIn(username.trim(), password)
+                password = ""
+            },
+        ) { Text(if (working) "Signing in…" else "Sign in") }
+    }
+    OutlinedTextField(
+        value = cookie, onValueChange = { cookie = it }, label = { Text("Cookie") },
+        placeholder = { Text(cookiePlaceholder) }, minLines = 2, maxLines = 4,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+    Footnote(cookieHelp)
+    Row(Modifier.padding(start = 8.dp)) {
+        TextButton(enabled = cookie.isNotBlank(), onClick = { if (onSaveCookie(cookie)) cookie = "" }) { Text("Save cookie") }
+        if (signedIn) {
+            TextButton(onClick = onSignOut) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+        }
+    }
+    Footnote("Stored only in encrypted app storage, never in settings files or exports.")
 }
 
 @Composable
