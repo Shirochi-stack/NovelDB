@@ -28,7 +28,43 @@
     quality=clampQuality(quality);resolution=clampQuality(resolution);
     try {localStorage.setItem('noveldb.imageResolution',String(resolution));} catch (_) {}
     let authorCovers = null, authorCoversRequest = null, authorCoversRetry = 0;
-    async function preferredUrl(value, signal) {
+    // An npia work's true full-size cover is a recorded original upload — often
+    // different art than the catalogue thumbnail, and not derivable from it. The
+    // map is sharded by id % 64 (scripts/npia_cover_originals.py); each shard is
+    // fetched once, only for works whose cover is shown at full size.
+    const NPIA_ORIGINAL_SHARDS = 64, npiaOriginalShards = new Map();
+    function npiaCoverOriginals(id) {
+        const shard = String(Number(id) % NPIA_ORIGINAL_SHARDS).padStart(2, '0');
+        if (!npiaOriginalShards.has(shard)) npiaOriginalShards.set(shard, (async () => {
+            const response = await fetch(new URL(`data/npia_cover_originals_${shard}.json.gz`, document.baseURI), {credentials:'omit'});
+            if (!response.ok) {await response.body?.cancel();throw new Error(`Cover originals HTTP ${response.status}`);}
+            const stream = new Blob([await response.arrayBuffer()]).stream().pipeThrough(new DecompressionStream('gzip'));
+            const data = JSON.parse(await new Response(stream).text());
+            if (data?.version !== 1 || !data.covers || typeof data.covers !== 'object') throw new Error('Invalid cover originals');
+            return data.covers;
+        })().catch(() => {npiaOriginalShards.delete(shard);return null;}));
+        return npiaOriginalShards.get(shard);
+    }
+    async function npiaOriginalUrl(value, id) {
+        if (!/^[1-9][0-9]*$/.test(String(id))) return null;
+        let base;
+        try {base = new URL(value);} catch (_) {return null;}
+        // The recorded path is only valid on the image host the thumbnail uses.
+        if (base.protocol !== 'https:' || !base.pathname.startsWith('/imagebox/')) return null;
+        const covers = await npiaCoverOriginals(id), path = covers && Object.hasOwn(covers, String(id)) ? covers[String(id)] : null;
+        if (typeof path !== 'string' || !/^\/imagebox\/[A-Za-z0-9_.\/-]+$/.test(path) || path.includes('..')) return null;
+        const url = base.origin + path;
+        return url === value ? null : url;
+    }
+    async function preferredUrl(value, signal, img) {
+        // Npia full-size covers resolve to the recorded original upload, the same
+        // image the Details view shows; tiny mode keeps the thumbnail as-is.
+        const npiaId = img && img.dataset ? img.dataset.npiaOriginalId : '';
+        if (coverSize === 'full' && npiaId) {
+            const original = await npiaOriginalUrl(value, npiaId).catch(() => null);
+            if (signal?.aborted) throw new DOMException('Cover cancelled', 'AbortError');
+            if (original) return original;
+        }
         let standard;
         try {standard = new URL(value);} catch (_) {return value;}
         const hosts = ['rs.\u0073\u0066\u0061\u0063\u0067.com', 'rss.\u0073\u0066\u0061\u0063\u0067.com'];
@@ -116,6 +152,7 @@
         canvas.width = Math.max(1,Math.round(width*scale)); canvas.height = Math.max(1,Math.round(height*scale));
         canvas.className = img.className;
         canvas.dataset.src = img.dataset.src;
+        if (img.dataset.npiaOriginalId) canvas.dataset.npiaOriginalId = img.dataset.npiaOriginalId;
         canvas.setAttribute('aria-hidden','true');
         const context = canvas.getContext('2d');
         if (!context) throw new Error('Cover canvas unavailable');
@@ -131,6 +168,7 @@
         if (blob) {
             const thumbnail = document.createElement('img'), url = URL.createObjectURL(blob);
             thumbnail.className = img.className; thumbnail.dataset.src = img.dataset.src;
+            if (img.dataset.npiaOriginalId) thumbnail.dataset.npiaOriginalId = img.dataset.npiaOriginalId;
             thumbnail.alt = img.alt || ''; thumbnail.decoding = 'async';
             thumbnail._coverOptions = img._coverOptions; thumbnail._coverFallback = img._coverFallback;
             thumbnail.src = url;
@@ -158,6 +196,7 @@
         // options.src lets a caller decode a different image (e.g. the other cover
         // size) behind the current one and swap it in without a loading frame.
         img.className = 'card-cover'; img.dataset.src = options.src || cover.dataset.src;
+        if (cover.dataset.npiaOriginalId) img.dataset.npiaOriginalId = cover.dataset.npiaOriginalId;
         img.alt = cover.alt || options.alt || ''; img.decoding = 'async';
         img._coverFallback = options.fallback || cover._coverFallback;
         const stage = document.createElement('span');
@@ -284,7 +323,7 @@
     async function load(job,controller) {
         const {img,ready,missing,fallback} = job;
         let preferred;
-        try {preferred = await preferredUrl(img.dataset.src,controller.signal);}
+        try {preferred = await preferredUrl(img.dataset.src,controller.signal,img);}
         catch (_) {return;}
         const attempts = [[preferred,'no-referrer'],[preferred,'strict-origin-when-cross-origin']];
         if (preferred !== img.dataset.src) attempts.push([img.dataset.src,'no-referrer'],[img.dataset.src,'strict-origin-when-cross-origin']);

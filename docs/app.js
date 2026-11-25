@@ -6294,8 +6294,11 @@
             ? ((n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT)
             : "");
 
+        // Npia cards carry their work id so the loader can fetch the recorded
+        // full-size original for full-size mode (see cover-loader preferredUrl).
+        const npiaCoverId = (novelSource === "npia" && /^[1-9][0-9]*$/.test(String(n.id))) ? ` data-npia-original-id="${escHtml(String(n.id))}"` : "";
         const coverHTML = coverSrc
-            ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" referrerpolicy="no-referrer">`
+            ? `<img class="card-cover" data-src="${escHtml(coverSrc)}"${npiaCoverId} alt="" decoding="async" referrerpolicy="no-referrer">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortOptions().sortBy;
