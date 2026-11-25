@@ -404,6 +404,12 @@ main {
 .novel-details-image img { display: block; width: 100%; height: auto; }
 .novel-details-image img[hidden] { display: none; }
 .novel-details-image figcaption { color: var(--text-secondary); font-size: .8rem; margin: .5rem 0; }
+.details-cover-mode { display: inline-flex; margin: .1rem 0 .2rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.details-cover-mode[hidden] { display: none; }
+.details-cover-mode-btn { appearance: none; background: var(--bg-card); color: var(--text-secondary); border: 0; padding: .4rem .8rem; font-size: .82rem; cursor: pointer; transition: background .15s, color .15s; }
+.details-cover-mode-btn + .details-cover-mode-btn { border-left: 1px solid var(--border); }
+.details-cover-mode-btn:hover:not(.active) { color: var(--text-primary); }
+.details-cover-mode-btn.active { background: var(--accent); color: #fff; }
 .novel-details-actions { grid-column: 1; grid-row: 2; display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .8rem; align-self: start; }
 .novel-details-actions .page-btn { min-width: 140px; white-space: nowrap; }
 .novel-details-actions a { color: var(--accent-hover); font-size: .85rem; }

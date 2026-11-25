@@ -15,12 +15,14 @@
         });
     }
     const objectUrls = new Map(), recoverable = new WeakMap();
-    let lowResolution = true, quality=72, resolution=72;
+    let lowResolution = true, quality=72, resolution=72, coverSize='full';
     try {
         lowResolution=localStorage.getItem('noveldb.lowResCovers') !== 'false';
         quality=Number(localStorage.getItem('noveldb.imageQuality') || 72);
         // Preserve the former combined slider's appearance on first upgrade.
         resolution=Number(localStorage.getItem('noveldb.imageResolution') ?? quality);
+        // "tiny" keeps the small catalogue cover; "full" upgrades to the big artwork.
+        coverSize=localStorage.getItem('noveldb.coverSize') === 'tiny' ? 'tiny' : 'full';
     } catch (_) {}
     const clampQuality=value=>Number.isFinite(Number(value)) ? Math.min(100,Math.max(20,Math.round(Number(value)))) : 72;
     quality=clampQuality(quality);resolution=clampQuality(resolution);
@@ -60,6 +62,9 @@
     }
     function sourceUrls(value, source) {
         const original = value || '';
+        // Tiny-cover mode keeps the catalogue thumbnail; some works use different
+        // art for the big and small covers, so this is not only a resolution change.
+        if (coverSize === 'tiny') return {src:original,fallback:''};
         try {
             const url = new URL(original);
             if (!['https:','http:'].includes(url.protocol) || url.username || url.password) return {src:original,fallback:''};
@@ -306,6 +311,16 @@
         sourceUrls,
         preferredUrl,
         get lowResolutionEnabled() { return lowResolution; },
+        get coverSize() { return coverSize; },
+        setCoverSize(value) {
+            // The grid re-renders from app.js (the cover URL, baked into each card's
+            // data-src, changes), so this only records the choice.
+            const next = value === 'tiny' ? 'tiny' : 'full';
+            if (next === coverSize) return false;
+            coverSize = next;
+            try {localStorage.setItem('noveldb.coverSize',coverSize);} catch (_) {}
+            return true;
+        },
         get resolution() {return resolution;},
         setResolution(value) {
             const next=clampQuality(value);

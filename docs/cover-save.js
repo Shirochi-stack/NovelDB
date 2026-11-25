@@ -177,7 +177,23 @@
     const image=document.createElement('img');image.alt='Original cover';image.referrerPolicy='no-referrer';
     const imageStatus=document.createElement('figcaption');imageStatus.setAttribute('role','status');
     const detailDownload=document.createElement('button');detailDownload.type='button';detailDownload.className='page-btn';detailDownload.textContent='Download Image';
-    figure.append(image,imageStatus);
+    // Full size / Tiny cover switch: a work can use different art for its big and small
+    // covers, so Details can show either. Only shown where a small cover exists (npia).
+    const coverModeWrap=document.createElement('div');coverModeWrap.className='details-cover-mode';coverModeWrap.hidden=true;
+    coverModeWrap.setAttribute('role','group');coverModeWrap.setAttribute('aria-label','Cover size');
+    const coverFullBtn=document.createElement('button'),coverTinyBtn=document.createElement('button');
+    coverFullBtn.type=coverTinyBtn.type='button';coverFullBtn.className=coverTinyBtn.className='details-cover-mode-btn';
+    coverFullBtn.textContent='Full size';coverTinyBtn.textContent='Tiny cover';
+    coverModeWrap.append(coverFullBtn,coverTinyBtn);
+    let setDetailMode=null;
+    function syncCoverButtons(mode) {
+        for(const [button,value] of [[coverFullBtn,'full'],[coverTinyBtn,'tiny']]) {
+            button.classList.toggle('active',mode===value);button.setAttribute('aria-pressed',String(mode===value));
+        }
+    }
+    coverFullBtn.addEventListener('click',()=>setDetailMode?.('full'));
+    coverTinyBtn.addEventListener('click',()=>setDetailMode?.('tiny'));
+    figure.append(image,imageStatus,coverModeWrap);
     const detailNovel=document.createElement('a');detailNovel.textContent='Open novel ↗';detailNovel.dataset.field='canonicalUrl';
     detailNovel.target='_blank';detailNovel.rel='noopener';detailNovel.hidden=true;
     // The work's verified title and its NovelUpdates page (title-addresses.js): read on the first
@@ -319,51 +335,76 @@
             if(entry.url) {detailTitles.href=entry.url;detailTitles.hidden=false;}
             verifiedTitle=entry.title;showVerifiedTitle();
         });
-        image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
-        imageStatus.textContent='Loading original image…';
-        let attempt=0, imageTimer, upgrading=false;
-        const imageAttempts=[], fullSize=new Image();
+        image.hidden=false;detailDownload.disabled=false;
+        // The tiny cover is the catalogue thumbnail; "full size" loads the recorded original upload.
+        const tinySrc=card._record?.cover || '';
+        const canTiny=(card.dataset.source==='npia' || card._record?.source==='npia') && !!tinySrc;
+        coverModeWrap.hidden=!canTiny;
+        let detailMode=canTiny && window.NovelCovers.coverSize==='tiny' ? 'tiny' : 'full';
+        let imageTimer, upgrading=false, fullSize=null;
         const finishImage=text=>{clearTimeout(imageTimer);imageStatus.textContent=text;};
-        const nextImage=()=>{
-            const next=imageAttempts[attempt++];
-            if(next) {image.referrerPolicy=next[1];image.src=next[0];}
-            else {image.hidden=true;finishImage('The original image could not load.');}
-        };
-        // The cover shows at once; a recorded full-size upload replaces it when it has loaded.
-        const describe=()=>finishImage(`Original image · ${image.naturalWidth} × ${image.naturalHeight}${upgrading ? ' · loading full size…' : ''}`);
-        image.onload=describe;
-        image.onerror=()=>{
-            if(signal.aborted) return;
-            nextImage();
-        };
         signal.addEventListener('abort',()=>{
-            clearTimeout(imageTimer);image.onload=image.onerror=fullSize.onload=fullSize.onerror=null;
-            image.removeAttribute('src');fullSize.removeAttribute('src');
+            clearTimeout(imageTimer);image.onload=image.onerror=null;
+            if(fullSize){fullSize.onload=fullSize.onerror=null;fullSize.removeAttribute('src');}
+            image.removeAttribute('src');
         },{once:true});
-        (async()=>{
-            try {
-                const standard=originalUrl(card), preferred=await standardPreferredUrl(card,signal);
-                if(signal.aborted || sequence!==viewSequence) return;
-                imageAttempts.push([preferred,'no-referrer'],[preferred,'strict-origin-when-cross-origin']);
-                if(preferred!==standard) imageAttempts.push([standard,'no-referrer'],[standard,'strict-origin-when-cross-origin']);
-                imageTimer=setTimeout(()=>{image.removeAttribute('src');image.hidden=true;finishImage('The original image did not load in time. Reopen Details to retry.');},20000);
-                nextImage();
-                const full=await recordedOriginal(card,standard).catch(()=>null);
-                if(!full || full===preferred || signal.aborted || sequence!==viewSequence) return;
-                upgrading=true;
-                if(image.complete && image.naturalWidth) describe();
-                fullSize.decoding='async';fullSize.referrerPolicy='no-referrer';
-                fullSize.onload=()=>{
-                    // Decoded and cached: the visible image takes it without a blank frame.
-                    upgrading=false;clearTimeout(imageTimer);image.onerror=null;image.hidden=false;
-                    image.referrerPolicy='no-referrer';image.src=full;
-                };
-                fullSize.onerror=()=>{upgrading=false;if(image.complete && image.naturalWidth && !image.hidden) describe();};
-                fullSize.src=full;
-            } catch(error) {
-                if(!signal.aborted && sequence===viewSequence) {image.hidden=true;detailDownload.disabled=true;finishImage(error.message);}
+        function renderCoverImage() {
+            if(signal.aborted || sequence!==viewSequence) return;
+            clearTimeout(imageTimer);upgrading=false;
+            if(fullSize){fullSize.onload=fullSize.onerror=null;fullSize.removeAttribute('src');fullSize=null;}
+            image.onload=image.onerror=null;image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
+            if(detailMode==='tiny') {
+                imageStatus.textContent='Loading cover…';
+                image.onload=()=>finishImage(`Tiny cover · ${image.naturalWidth} × ${image.naturalHeight}`);
+                image.onerror=()=>{if(signal.aborted)return;image.hidden=true;finishImage('The cover image could not load.');};
+                image.referrerPolicy='no-referrer';image.src=tinySrc;
+                return;
             }
-        })();
+            imageStatus.textContent='Loading original image…';
+            let attempt=0;const imageAttempts=[];
+            // The cover shows at once; a recorded full-size upload replaces it when it has loaded.
+            const describe=()=>finishImage(`Original image · ${image.naturalWidth} × ${image.naturalHeight}${upgrading ? ' · loading full size…' : ''}`);
+            const nextImage=()=>{
+                const next=imageAttempts[attempt++];
+                if(next) {image.referrerPolicy=next[1];image.src=next[0];}
+                else {image.hidden=true;finishImage('The original image could not load.');}
+            };
+            image.onload=describe;
+            image.onerror=()=>{if(signal.aborted) return;nextImage();};
+            (async()=>{
+                try {
+                    const standard=originalUrl(card), preferred=await standardPreferredUrl(card,signal);
+                    if(signal.aborted || sequence!==viewSequence || detailMode!=='full') return;
+                    imageAttempts.push([preferred,'no-referrer'],[preferred,'strict-origin-when-cross-origin']);
+                    if(preferred!==standard) imageAttempts.push([standard,'no-referrer'],[standard,'strict-origin-when-cross-origin']);
+                    imageTimer=setTimeout(()=>{image.removeAttribute('src');image.hidden=true;finishImage('The original image did not load in time. Reopen Details to retry.');},20000);
+                    nextImage();
+                    const full=await recordedOriginal(card,standard).catch(()=>null);
+                    if(!full || full===preferred || signal.aborted || sequence!==viewSequence || detailMode!=='full') return;
+                    upgrading=true;
+                    if(image.complete && image.naturalWidth) describe();
+                    const upgrade=fullSize=new Image();
+                    upgrade.decoding='async';upgrade.referrerPolicy='no-referrer';
+                    upgrade.onload=()=>{
+                        // Decoded and cached: the visible image takes it without a blank frame.
+                        if(signal.aborted || detailMode!=='full') return;
+                        upgrading=false;clearTimeout(imageTimer);image.onerror=null;image.hidden=false;
+                        image.referrerPolicy='no-referrer';image.src=full;
+                    };
+                    upgrade.onerror=()=>{upgrading=false;if(image.complete && image.naturalWidth && !image.hidden) describe();};
+                    upgrade.src=full;
+                } catch(error) {
+                    if(!signal.aborted && sequence===viewSequence && detailMode==='full') {image.hidden=true;detailDownload.disabled=true;finishImage(error.message);}
+                }
+            })();
+        }
+        setDetailMode=(mode)=>{
+            const next=mode==='tiny' ? 'tiny' : 'full';
+            if(!canTiny || next===detailMode) return;
+            detailMode=next;syncCoverButtons(detailMode);renderCoverImage();
+        };
+        syncCoverButtons(detailMode);
+        renderCoverImage();
         if(!dialog.open) dialog.showModal();
         close.focus({preventScroll:true});
         try {
@@ -378,6 +419,7 @@
     dialog.addEventListener('close',()=>{
         const source=detailCard?.dataset.source,id=detailCard?.dataset.novelId,focus=returnFocus;
         viewSequence++;viewController?.abort();viewController=null;detailCard=null;clearMetadata();clearTitles();returnFocus=null;
+        setDetailMode=null;coverModeWrap.hidden=true;
         if(focus?.isConnected)focus.focus({preventScroll:true});
         else requestAnimationFrame(()=>{
             if(dialog.open || (document.activeElement!==document.body && document.activeElement?.isConnected))return;

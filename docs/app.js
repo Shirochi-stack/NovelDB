@@ -6587,7 +6587,7 @@
 
             const existing = new Map(Array.from(resultsEl.querySelectorAll(".novel-card"),
                 card => [`${card.dataset.source}:${card.dataset.novelId}`, card]));
-            const context = JSON.stringify([sortSelect.value, [...andTags], [...orTags], focusedCard]);
+            const context = JSON.stringify([sortSelect.value, [...andTags], [...orTags], focusedCard, window.NovelCovers.coverSize]);
             const wanted = new Set();
             for (let i = start; i < end; i++) {
                 const novel = filtered[i];
@@ -6615,7 +6615,7 @@
 
     const mobileFeed = new window.NovelMobileFeed({
         host:resultsEl, controls:document.querySelector('.controls'), load:mobileFeedPage,
-        card:(novel,card)=>updateNovelCard(novel,card,JSON.stringify([sortSelect.value,[...andTags],[...orTags],focusedCard])),
+        card:(novel,card)=>updateNovelCard(novel,card,JSON.stringify([sortSelect.value,[...andTags],[...orTags],focusedCard,window.NovelCovers.coverSize])),
         mounted:mountedCards,
         activity:()=>{if(catalogWorker&&!activeCatalogController&&!workerRequests.size)scheduleCatalogIdle();}
     });
@@ -7792,6 +7792,17 @@ const worker = new Worker("catalog-worker.js?v=19");
         window.NovelCovers.setLowResolution(lowResToggle.checked);
         observeCovers();
     });
+    const coverSizeToggle = document.getElementById('coverSizeTiny');
+    if (coverSizeToggle) {
+        coverSizeToggle.checked = window.NovelCovers.coverSize === 'tiny';
+        coverSizeToggle.addEventListener('change', () => {
+            // The cover URL is part of each card's render signature, so the cards
+            // rebuild with the new (big or small) image when the grid re-renders.
+            if (!window.NovelCovers.setCoverSize(coverSizeToggle.checked ? 'tiny' : 'full')) return;
+            if (mobileFeed.enabled) { mobileFeed.dirty = true; mobileFeed.schedule(); }
+            else render();
+        });
+    }
     const clearCacheButton = document.getElementById('clearCache');
     const cacheStatus = document.getElementById('cacheStatus');
     let cacheChannel = null, cacheNeedsReload = false, peerClearTimer;
