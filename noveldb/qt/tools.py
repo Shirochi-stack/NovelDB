@@ -127,31 +127,43 @@ class TapasSessionDialog(QDialog):
 
 
 class WebtoonsSessionDialog(QDialog):
-    """webtoons logs in through a browser (OAuth), so there is no password field here: open the login
-    in Enter Browser and sign in, then either keep that browser profile or paste the session cookie."""
+    """Sign in to the webtoons app API with an email + password (the app's own login, which returns
+    a session), or paste a session cookie, or open the browser login in Enter Browser as a fallback."""
 
     openLogin = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("webtoons session")
+        self.email = QLineEdit()
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.Password)
         self.cookie = QPlainTextEdit()
         bind_size(self.cookie, max_height=90)
-        self.cookie.setPlaceholderText("name=value; name=value  (from a signed-in browser)")
-        open_btn = QPushButton("Open the webtoons login in Enter Browser")
+        self.cookie.setPlaceholderText("NEO_SES=...  (from a signed-in browser, instead of a password)")
+        open_btn = QPushButton("Can't sign in here? Open the login in Enter Browser")
         open_btn.clicked.connect(self.openLogin)
         form = QFormLayout()
+        form.addRow("Email", self.email)
+        form.addRow("Password", self.password)
         form.addRow("Cookie", self.cookie)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
+        self.error = QLabel("")
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(
-            "Sign in to webtoons in Enter Browser (its login is a browser flow, not a typed password)."
-            "\nKeep that browser profile selected to use the login, or paste the session cookie to save it."))
-        layout.addWidget(open_btn)
         layout.addLayout(form)
+        layout.addWidget(QLabel(
+            "Sign in with your webtoons account (email login only), or paste a session cookie."))
+        layout.addWidget(open_btn)
+        layout.addWidget(self.error)
         layout.addWidget(buttons)
+
+    def _accept(self) -> None:
+        if not self.cookie.toPlainText().strip() and not (self.email.text().strip() and self.password.text()):
+            self.error.setText("Enter an email and password, or paste a session cookie.")
+            return
+        self.accept()
 
 
 class Tools(QObject):
@@ -301,10 +313,12 @@ class Tools(QObject):
         if dialog.exec() != QDialog.Accepted:
             return
         cookie = dialog.cookie.toPlainText().strip()
-        if not cookie:
-            return
-        self.context.hub.log("", "Importing the webtoons session cookie...")
-        self._submit("webtoons_app", lambda scraper: scraper.save_webtoons_cookie(cookie))
+        email, password = dialog.email.text().strip(), dialog.password.text()
+        self.context.hub.log("", "Importing the webtoons session cookie..." if cookie else "Signing in to webtoons...")
+        if cookie:
+            self._submit("webtoons_app", lambda scraper: scraper.save_webtoons_cookie(cookie))
+        else:
+            self._submit("webtoons_app", lambda scraper: scraper.login_webtoons_app(email, password))
 
     def _sfc_android_open(self) -> None:
         self._submit_android("sfc_android_open", lambda scraper: scraper.open_android_emulator())

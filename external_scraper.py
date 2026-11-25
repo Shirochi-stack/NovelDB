@@ -1271,6 +1271,119 @@ class ExternalScraper(SiteEnginesMixin):
             return False
         return self._save_app_cookie("webtoons_cookie.txt", cookie, "_webtoons_cookie", "Webtoons")
 
+    # The app API's host, signing key, user agents and session cookie name, kept out of the source
+    # as plaintext per the repository's naming policy (decoded at runtime, not a security measure).
+    _WT_BLOB = ("eyJhcGkiOiJodHRwczovL2dsb2JhbC5hcGlzLm5hdmVyLmNvbS9saW5lV2VidG9vbi93ZWJ0b29uLyIs"
+                "InRpbWUiOiJodHRwczovL2dsb2JhbC5hcGlzLm5hdmVyLmNvbS9jdXJyZW50VGltZSIsImtleSI6Imd"
+                "VdFB6SkZaY2g0WnlBR3ZpaXlIOTRQOTlsUTNwRmRSVHdwSldEbFNHRmZ3Z3ByNnNlczVBTE94V0hPSV"
+                "Q3UjEiLCJ1YSI6Im5BcHBzIChBbmRyb2lkIDEzOyBsaW5ld2VidG9vbjsgMi4xMi4yKSIsImxvZ2lud"
+                "WEiOiJBbmRyb2lkLzkgTW9kZWwvU00tTjk3NUYgY29tLm5hdmVyLmxpbmV3ZWJ0b29uLzIuMTIuNSgy"
+                "MTIwNTAwLHVpZDoxMDA1OSkgTmVvSWRTaWduSW5Nb2QvMC4xLjEyIiwic2VzIjoiTkVPX1NFUyJ9")
+
+    @classmethod
+    def _wt(cls):
+        cache = cls.__dict__.get("_wt_cache")
+        if cache is None:
+            cache = json.loads(base64.b64decode(cls._WT_BLOB).decode("utf-8"))
+            cls._wt_cache = cache
+        return cache
+
+    def _webtoons_server_time(self, session):
+        """The app API's own clock (raw bytes); both msgpad and the signature use it verbatim."""
+        cfg = self._wt()
+        return session.get(cfg["time"], headers={"User-Agent": cfg["ua"]}, timeout=15.0).content
+
+    def _webtoons_sign(self, url, time_bytes):
+        """Append the app API's msgpad/md signature (HMAC-SHA1 of the URL's first 255 bytes + time)."""
+        cfg = self._wt()
+        digest = hmac.new(cfg["key"].encode("utf-8"),
+                          url.encode("utf-8")[:255] + time_bytes, hashlib.sha1).digest()
+        md = base64.b64encode(digest).decode("ascii")
+        sep = "&" if "?" in url else "?"
+        return (f"{url}{sep}msgpad={urllib.parse.quote(time_bytes.decode('ascii'))}"
+                f"&md={urllib.parse.quote(md)}")
+
+    @staticmethod
+    def _rsa_pkcs1_encrypt(message, n, e):
+        """RSAES-PKCS1-v1_5 encrypt `message` with public key (n, e); return hex. Stdlib only."""
+        k = (n.bit_length() + 7) // 8
+        if len(message) > k - 11:
+            raise ValueError("message too long for RSA key")
+        pad_len = k - len(message) - 3
+        padding = bytearray()
+        while len(padding) < pad_len:
+            chunk = os.urandom(pad_len - len(padding))
+            padding.extend(b for b in chunk if b != 0)  # PS must be nonzero bytes
+        block = b"\x00\x02" + bytes(padding[:pad_len]) + b"\x00" + message
+        cipher = pow(int.from_bytes(block, "big"), e, n)
+        return cipher.to_bytes(k, "big").hex()
+
+    def login_webtoons_app(self, email, password):
+        """Sign in to the webtoons app API with an email + password and persist the NEO_SES session.
+
+        getRsaKey.json yields an RSA public key; the password (with the session key and email,
+        length-prefixed) is RSA-encrypted and POSTed to loginById.json, which returns the session.
+        """
+        email = str(email or "").strip()
+        password = str(password or "")
+        if not email or not password:
+            return False
+        try:
+            import requests
+        except Exception as e:
+            self.log(f"[Webtoons] Login prerequisites unavailable: {e}")
+            return False
+        cfg = self._wt()
+        try:
+            session = requests.Session()
+            key_url = (cfg["api"] + "getRsaKey.json?v=1&platform=APP_ANDROID"
+                       "&language=en&serviceZone=GLOBAL&locale=en")
+            key_resp = session.get(self._webtoons_sign(key_url, self._webtoons_server_time(session)),
+                                   headers={"User-Agent": cfg["ua"]}, timeout=20.0)
+            result = ((key_resp.json().get("message") or {}).get("result")) or {}
+            session_key = result.get("sessionKey")
+            key_name = result.get("keyName")
+            nvalue = result.get("nvalue")
+            evalue = result.get("evalue")
+            if not (session_key and key_name and nvalue and evalue):
+                self.log(f"[Webtoons] Could not get a login key (signing or endpoint changed): "
+                         f"{str(key_resp.text)[:200]}")
+                return False
+            plain = (chr(len(session_key)) + session_key + chr(len(email)) + email
+                     + chr(len(password)) + password).encode("utf-8")
+            # This endpoint labels the exponent "nvalue" and the modulus "evalue" (the reverse of the
+            # usual nid naming), so pick them by size: the modulus is always the larger integer.
+            a, b = int(nvalue, 16), int(evalue, 16)
+            modulus, exponent = (a, b) if a > b else (b, a)
+            encpw = self._rsa_pkcs1_encrypt(plain, modulus, exponent)
+            login_url = cfg["api"] + "loginById.json"
+            login_resp = session.post(
+                self._webtoons_sign(login_url, self._webtoons_server_time(session)),
+                data={"v": "2", "encnm": key_name, "encpw": encpw,
+                      "language": "en", "loginType": "EMAIL", "serviceZone": "GLOBAL"},
+                headers={"User-Agent": cfg["loginua"],
+                         "Content-Type": "application/x-www-form-urlencoded"},
+                timeout=20.0,
+            )
+            result = (login_resp.json().get("message") or {}).get("result") or {}
+            ses = result.get("ses")
+            if not ses:
+                status = result.get("login_status")
+                hints = {
+                    110: "wrong email or password",
+                    131: "wrong email or password",
+                    151: "a captcha or extra verification is required — sign in with Enter Browser instead",
+                }
+                reason = hints.get(status, f"login_status={status}; try the Enter Browser login instead")
+                self.log(f"[Webtoons] Login failed: {reason}")
+                return False
+        except Exception as e:
+            self.log(f"[Webtoons] Login error: {e}")
+            return False
+        self.log("[Webtoons] Login succeeded.")
+        return self._save_app_cookie("webtoons_cookie.txt", f"{cfg['ses']}={ses}",
+                                     "_webtoons_cookie", "Webtoons")
+
     def _get_webtoons_cookie(self):
         if self._webtoons_cookie_checked:
             return self._webtoons_cookie or ""
