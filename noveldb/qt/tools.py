@@ -1,4 +1,5 @@
-"""Download page tools: tag search, batch files, Enter Browser, the sfc app session, folders."""
+"""Download page tools: tag search, batch files, Enter Browser, the sfc/tapas/webtoons app
+sessions, folders."""
 
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -26,8 +28,8 @@ from noveldb.core.sources import detect_source, split_inputs
 from noveldb.qt.context import AppContext
 from noveldb.qt.scale import bind_size
 
-# The Tools menu. Enter Browser has its own button on the Download page; Enter App (sfc) sits here
-# with the other sfc session tools.
+# The Tools menu. Enter Browser has its own button on the Download page; the Enter App entries sit
+# here with the other session tools.
 TOOLS = (
     ("tag_search", "npia tag search..."),
     ("batch_file", "Open a list of links or IDs..."),
@@ -36,6 +38,9 @@ TOOLS = (
     ("sfc_android_open", "Open the Android emulator (sfc)"),
     ("sfc_android_import", "Import the sfc session from the emulator"),
     ("sfc_copy", "Copy the sfc app cookie (to paste on the phone)"),
+    ("-", ""),
+    ("tapas_app", "Enter App (tapas)..."),
+    ("webtoons_app", "Enter App (webtoons)..."),
     ("-", ""),
     ("cache_folder", "Open the cache folder"),
     ("downloads_folder", "Open the downloads folder"),
@@ -85,6 +90,68 @@ class SfcSessionDialog(QDialog):
             self.error.setText("Enter a username and password, or paste an app cookie.")
             return
         self.accept()
+
+
+class TapasSessionDialog(QDialog):
+    """Sign in to tapas with an email + password (no captcha unless tapas asks for one), or paste a
+    session cookie copied from a signed-in browser."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("tapas session")
+        self.email = QLineEdit()
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.Password)
+        self.cookie = QPlainTextEdit()
+        bind_size(self.cookie, max_height=90)
+        self.cookie.setPlaceholderText("name=value; name=value  (from a signed-in browser)")
+        form = QFormLayout()
+        form.addRow("Email", self.email)
+        form.addRow("Password", self.password)
+        form.addRow("Cookie", self.cookie)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        self.error = QLabel("")
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(QLabel("Sign in with your tapas account, or paste a session cookie."))
+        layout.addWidget(self.error)
+        layout.addWidget(buttons)
+
+    def _accept(self) -> None:
+        if not self.cookie.toPlainText().strip() and not (self.email.text().strip() and self.password.text()):
+            self.error.setText("Enter an email and password, or paste a session cookie.")
+            return
+        self.accept()
+
+
+class WebtoonsSessionDialog(QDialog):
+    """webtoons logs in through a browser (OAuth), so there is no password field here: open the login
+    in Enter Browser and sign in, then either keep that browser profile or paste the session cookie."""
+
+    openLogin = Signal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("webtoons session")
+        self.cookie = QPlainTextEdit()
+        bind_size(self.cookie, max_height=90)
+        self.cookie.setPlaceholderText("name=value; name=value  (from a signed-in browser)")
+        open_btn = QPushButton("Open the webtoons login in Enter Browser")
+        open_btn.clicked.connect(self.openLogin)
+        form = QFormLayout()
+        form.addRow("Cookie", self.cookie)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Sign in to webtoons in Enter Browser (its login is a browser flow, not a typed password)."
+            "\nKeep that browser profile selected to use the login, or paste the session cookie to save it."))
+        layout.addWidget(open_btn)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
 
 
 class Tools(QObject):
@@ -216,6 +283,29 @@ class Tools(QObject):
         else:
             self._submit("sfc_app", lambda scraper: scraper.login_sfc_app(username, password))
 
+    def _tapas_app(self) -> None:
+        dialog = TapasSessionDialog(self.window)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        cookie = dialog.cookie.toPlainText().strip()
+        email, password = dialog.email.text().strip(), dialog.password.text()
+        self.context.hub.log("", "Importing the tapas session cookie..." if cookie else "Signing in to tapas...")
+        if cookie:
+            self._submit("tapas_app", lambda scraper: scraper.save_tapas_app_cookie(cookie))
+        else:
+            self._submit("tapas_app", lambda scraper: scraper.login_tapas_app(email, password))
+
+    def _webtoons_app(self) -> None:
+        dialog = WebtoonsSessionDialog(self.window)
+        dialog.openLogin.connect(lambda: self.enter_browser("https://www.webtoons.com/member/login"))
+        if dialog.exec() != QDialog.Accepted:
+            return
+        cookie = dialog.cookie.toPlainText().strip()
+        if not cookie:
+            return
+        self.context.hub.log("", "Importing the webtoons session cookie...")
+        self._submit("webtoons_app", lambda scraper: scraper.save_webtoons_cookie(cookie))
+
     def _sfc_android_open(self) -> None:
         self._submit_android("sfc_android_open", lambda scraper: scraper.open_android_emulator())
 
@@ -270,6 +360,16 @@ class Tools(QObject):
         elif tool == "sfc_android_import":
             text = "sfc app session imported from the emulator." if result else \
                    "No sfc app session found in the emulator. Sign in to the sfc app there first."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
+        elif tool == "tapas_app":
+            text = "tapas session saved." if result else \
+                   "The tapas session was not saved. Check the email/password or cookie; see the log."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
+        elif tool == "webtoons_app":
+            text = "webtoons session saved." if result else \
+                   "The webtoons session was not saved. See the log."
             self.context.hub.log("", text)
             self.context.hub.message.emit(text)
         elif tool.startswith("sfc"):

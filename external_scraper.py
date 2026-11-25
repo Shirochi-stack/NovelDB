@@ -358,6 +358,10 @@ class ExternalScraper(SiteEnginesMixin):
         self._sfc_app_cookie = None
         self._sfc_app_cookie_checked = False
         self._sfc_app_prefer_logged = False
+        self._tapas_app_cookie = None
+        self._tapas_app_cookie_checked = False
+        self._webtoons_cookie = None
+        self._webtoons_cookie_checked = False
         self._1qxs_cookies = {}
         self._1qxs_request_lock = threading.Lock()
         self._1qxs_next_request_at = 0.0
@@ -460,6 +464,22 @@ class ExternalScraper(SiteEnginesMixin):
                         if part.split("=", 1)[0].strip() != name
                     ]
                     cookie_parts.append(item)
+            netloc = parsed_url.netloc.lower()
+            saved_header = ""
+            if netloc == "tapas.io" or netloc.endswith(".tapas.io"):
+                saved_header = self._tapas_app_cookie_header()
+            elif netloc == "webtoons.com" or netloc.endswith(".webtoons.com"):
+                saved_header = self._webtoons_cookie_header()
+            for item in self._split_cookie_header(saved_header):
+                name = item.split("=", 1)[0].strip()
+                if not name:
+                    continue
+                cookie_parts = [
+                    part
+                    for part in cookie_parts
+                    if part.split("=", 1)[0].strip() != name
+                ]
+                cookie_parts.append(item)
             if cookie_parts:
                 headers["Cookie"] = "; ".join(cookie_parts)
 
@@ -1153,6 +1173,163 @@ class ExternalScraper(SiteEnginesMixin):
         self._sfc_app_cookie_checked = True
         self.log("[SFC] App cookie imported.")
         return True
+
+    # -- tapas app session -----------------------------------------------------------------------
+
+    _TAPAS_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                 "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+    @staticmethod
+    def _tapas_logged_in(response):
+        """True when a tapas authenticate POST landed signed-in (it redirects away from the
+        sign-in page; a bad login re-renders the sign-in form with a 200)."""
+        try:
+            path = urllib.parse.urlparse(getattr(response, "url", "") or "").path.lower()
+        except Exception:
+            path = ""
+        if path.startswith("/account/signin") or path.startswith("/account/authenticate"):
+            return False
+        body = (getattr(response, "text", "") or "")[:40000].lower()
+        # The sign-in form posts to /account/authenticate; its presence means we are still on it.
+        return "/account/authenticate" not in body
+
+    def _tapas_login(self, username, password):
+        """Log in through tapas.io's web endpoint; return a Cookie header ('' on failure)."""
+        username = str(username or "").strip()
+        password = str(password or "")
+        if not username or not password:
+            return ""
+        try:
+            import requests
+        except Exception as e:
+            self.log(f"[Tapas] requests unavailable: {e}")
+            return ""
+        try:
+            session = requests.Session()
+            session.headers.update({"User-Agent": self._TAPAS_UA})
+            # Prime the session cookies the form expects (JSESSIONID, AWSALB).
+            session.get("https://tapas.io/account/signin", timeout=30.0)
+            response = session.post(
+                "https://tapas.io/account/authenticate",
+                data={"from": "", "email": username, "password": password, "offsetTime": "0"},
+                headers={"Referer": "https://tapas.io/account/signin"},
+                timeout=30.0,
+                allow_redirects=True,
+            )
+        except Exception as e:
+            self.log(f"[Tapas] Login request failed: {e}")
+            return ""
+        if not self._tapas_logged_in(response):
+            self.log("[Tapas] Login failed: wrong email/password, or a reCAPTCHA is now required "
+                     "(sign in with Enter Browser once, then retry).")
+            return ""
+        cookies = requests.utils.dict_from_cookiejar(session.cookies)
+        header = "; ".join(f"{name}={value}" for name, value in cookies.items() if value)
+        if not header:
+            self.log("[Tapas] Login reported success but no session cookie was set.")
+            return ""
+        self.log("[Tapas] Login succeeded.")
+        return header
+
+    def login_tapas_app(self, username, password):
+        """Log in through tapas.io and persist the session cookie."""
+        cookie = self._tapas_login(username, password)
+        if not cookie:
+            return False
+        return self._save_app_cookie("tapas_app_cookie.txt", cookie, "_tapas_app_cookie", "Tapas")
+
+    def save_tapas_app_cookie(self, cookie):
+        """Persist a user-supplied tapas session cookie header."""
+        cookie = str(cookie or "").strip()
+        if not any("=" in item for item in self._split_cookie_header(cookie)):
+            self.log("[Tapas] Cookie import failed: no name=value pairs found.")
+            return False
+        return self._save_app_cookie("tapas_app_cookie.txt", cookie, "_tapas_app_cookie", "Tapas")
+
+    def _get_tapas_app_cookie(self):
+        if self._tapas_app_cookie_checked:
+            return self._tapas_app_cookie or ""
+        self._tapas_app_cookie_checked = True
+        self._tapas_app_cookie = self._read_saved_cookie(
+            "NPIA_TAPAS_COOKIE", "tapas_app_cookie.txt", "tapas_cookie")
+        return self._tapas_app_cookie or ""
+
+    def _tapas_app_cookie_header(self):
+        return self._get_tapas_app_cookie()
+
+    def tapas_app_cookie_header(self):
+        """The saved tapas session cookie (for copying), or '' when none is saved."""
+        return self._tapas_app_cookie_header()
+
+    # -- webtoons session ------------------------------------------------------------------------
+
+    def save_webtoons_cookie(self, cookie):
+        """Persist a user-supplied webtoons.com session cookie header."""
+        cookie = str(cookie or "").strip()
+        if not any("=" in item for item in self._split_cookie_header(cookie)):
+            self.log("[Webtoons] Cookie import failed: no name=value pairs found.")
+            return False
+        return self._save_app_cookie("webtoons_cookie.txt", cookie, "_webtoons_cookie", "Webtoons")
+
+    def _get_webtoons_cookie(self):
+        if self._webtoons_cookie_checked:
+            return self._webtoons_cookie or ""
+        self._webtoons_cookie_checked = True
+        self._webtoons_cookie = self._read_saved_cookie(
+            "NPIA_WEBTOONS_COOKIE", "webtoons_cookie.txt", "webtoons_cookie")
+        return self._webtoons_cookie or ""
+
+    def _webtoons_cookie_header(self):
+        return self._get_webtoons_cookie()
+
+    def webtoons_cookie_header(self):
+        """The saved webtoons session cookie, or '' when none is saved."""
+        return self._webtoons_cookie_header()
+
+    # -- shared cookie storage -------------------------------------------------------------------
+
+    def _save_app_cookie(self, filename, cookie, attr, label):
+        """Write `cookie` to `filename` in the app data dir and cache it on `attr`."""
+        try:
+            os.makedirs(_get_app_data_dir(), exist_ok=True)
+            with open(os.path.join(_get_app_data_dir(), filename), "w", encoding="utf-8") as f:
+                f.write(cookie)
+        except Exception as e:
+            self.log(f"[{label}] Could not save cookie: {e}")
+            return False
+        setattr(self, attr, cookie)
+        setattr(self, f"{attr}_checked", True)
+        self.log(f"[{label}] Session saved.")
+        return True
+
+    def _read_saved_cookie(self, env_var, filename, config_key):
+        """A saved cookie header: env var, then the app-data/base-dir file, then config.json."""
+        cookie = (os.environ.get(env_var) or "").strip()
+        if not cookie:
+            for path in (
+                os.path.join(_get_base_dir(), filename),
+                os.path.join(_get_app_data_dir(), filename),
+            ):
+                try:
+                    if os.path.exists(path):
+                        cookie = open(path, encoding="utf-8").read().strip()
+                        if cookie:
+                            break
+                except Exception:
+                    pass
+        if not cookie:
+            try:
+                try:
+                    from noveldb.core import paths as _paths
+                    cfg_path = str(_paths.config_path(_get_base_dir()))
+                except Exception:
+                    cfg_path = os.path.join(_get_base_dir(), "config.json")
+                if os.path.exists(cfg_path):
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        cookie = str(json.load(f).get(config_key) or "").strip()
+            except Exception:
+                pass
+        return cookie
 
     @staticmethod
     def _android_sdk_default_dir():
