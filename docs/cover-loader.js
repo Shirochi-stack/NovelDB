@@ -155,7 +155,9 @@
         const wrap = cover.parentElement;
         if (!wrap || wrap.querySelector(':scope > .cover-replacement')) return;
         const img = document.createElement('img');
-        img.className = 'card-cover'; img.dataset.src = cover.dataset.src;
+        // options.src lets a caller decode a different image (e.g. the other cover
+        // size) behind the current one and swap it in without a loading frame.
+        img.className = 'card-cover'; img.dataset.src = options.src || cover.dataset.src;
         img.alt = cover.alt || options.alt || ''; img.decoding = 'async';
         img._coverFallback = options.fallback || cover._coverFallback;
         const stage = document.createElement('span');
@@ -313,13 +315,30 @@
         get lowResolutionEnabled() { return lowResolution; },
         get coverSize() { return coverSize; },
         setCoverSize(value) {
-            // The grid re-renders from app.js (the cover URL, baked into each card's
-            // data-src, changes), so this only records the choice.
+            // app.js swaps the visible covers in place (see swapSource), so this
+            // only records the choice; sourceUrls then returns the chosen size.
             const next = value === 'tiny' ? 'tiny' : 'full';
             if (next === coverSize) return false;
             coverSize = next;
             try {localStorage.setItem('noveldb.coverSize',coverSize);} catch (_) {}
             return true;
+        },
+        // Decode a new image behind a shown cover and swap it in one paint — no
+        // loading placeholder — reusing the card's own ready/missing callbacks.
+        swapSource(cover, src, fallback, callbacks) {
+            if (!cover || !cover.isConnected || !src || cover.dataset.src === src) return;
+            const wrap = cover.parentElement;
+            if (!wrap || wrap.querySelector(':scope > .cover-replacement')) return;
+            const options = {...(cover._coverOptions || {}), ...(callbacks || {}), src, fallback: fallback || ''};
+            replaceCover(cover, options);
+        },
+        // Stop a pending/active load so the image can be retargeted to another size.
+        cancel(img) {
+            if (!img) return;
+            active.get(img)?.abort();
+            const index = queue.findIndex(job => job.img === img);
+            if (index >= 0) queue.splice(index, 1);
+            img._coverQueued = false;
         },
         get resolution() {return resolution;},
         setResolution(value) {

@@ -6128,6 +6128,30 @@
         }
     }
 
+    // Switch every shown cover between the full-size and tiny image without a
+    // re-render: a drawn cover is swapped in place once its new size has decoded
+    // (no loading placeholder); one not yet drawn is simply retargeted. Fresh
+    // cards built later read the current size through sourceUrls, so nothing is
+    // left at the old size.
+    function reskinCovers() {
+        for (const card of resultsEl.querySelectorAll(".novel-card")) {
+            const record = card._record;
+            if (!record) continue;
+            const source = record.source || currentSource;
+            const { src, fallback } = window.NovelCovers.sourceUrls(record.cover, source);
+            if (!src) continue; // empty cover → the source's default, identical in both sizes
+            const cover = card.querySelector(".card-cover[data-src]");
+            if (!cover || cover.classList.contains("no-img") || cover.dataset.src === src) continue;
+            if (cover.classList.contains("loaded")) {
+                window.NovelCovers.swapSource(cover, src, fallback, { ready: markCoverReady, missing: showMissingCover });
+            } else {
+                window.NovelCovers.cancel(cover);
+                cover.dataset.src = src; cover._coverFallback = fallback; cover.removeAttribute("src");
+            }
+        }
+        observeCovers();
+    }
+
     const compactCardsToggle = document.getElementById("compactCards");
     const synopsisLinesControl = document.getElementById("synopsisLines");
     const tagRowsControl = document.getElementById("tagRows");
@@ -6587,7 +6611,7 @@
 
             const existing = new Map(Array.from(resultsEl.querySelectorAll(".novel-card"),
                 card => [`${card.dataset.source}:${card.dataset.novelId}`, card]));
-            const context = JSON.stringify([sortSelect.value, [...andTags], [...orTags], focusedCard, window.NovelCovers.coverSize]);
+            const context = JSON.stringify([sortSelect.value, [...andTags], [...orTags], focusedCard]);
             const wanted = new Set();
             for (let i = start; i < end; i++) {
                 const novel = filtered[i];
@@ -6615,7 +6639,7 @@
 
     const mobileFeed = new window.NovelMobileFeed({
         host:resultsEl, controls:document.querySelector('.controls'), load:mobileFeedPage,
-        card:(novel,card)=>updateNovelCard(novel,card,JSON.stringify([sortSelect.value,[...andTags],[...orTags],focusedCard,window.NovelCovers.coverSize])),
+        card:(novel,card)=>updateNovelCard(novel,card,JSON.stringify([sortSelect.value,[...andTags],[...orTags],focusedCard])),
         mounted:mountedCards,
         activity:()=>{if(catalogWorker&&!activeCatalogController&&!workerRequests.size)scheduleCatalogIdle();}
     });
@@ -7796,11 +7820,10 @@ const worker = new Worker("catalog-worker.js?v=19");
     if (coverSizeToggle) {
         coverSizeToggle.checked = window.NovelCovers.coverSize === 'tiny';
         coverSizeToggle.addEventListener('change', () => {
-            // The cover URL is part of each card's render signature, so the cards
-            // rebuild with the new (big or small) image when the grid re-renders.
+            // Swap the shown covers in place: seamless, and it works while the
+            // Settings dialog is open (a re-render of the feed would not).
             if (!window.NovelCovers.setCoverSize(coverSizeToggle.checked ? 'tiny' : 'full')) return;
-            if (mobileFeed.enabled) { mobileFeed.dirty = true; mobileFeed.schedule(); }
-            else render();
+            reskinCovers();
         });
     }
     const clearCacheButton = document.getElementById('clearCache');
