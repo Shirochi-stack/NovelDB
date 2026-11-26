@@ -22878,7 +22878,8 @@ async (items) => {
         native = self._native_book_parser(url)
         if ENGINE_NATIVE not in order:
             native = None
-        native_comic = native is not None and (self.is_comix(url) or self.is_mangak(url))
+        native_comic = native is not None and (self.is_comix(url) or self.is_mangak(url)
+                                                or self.is_webtoons(url))
         # A built-in scraper owns this site: the rule engines only follow it
         # when they list the site, so a clear failure (DRM, sign-in) is not
         # followed by two browser attempts that cannot work.
@@ -23078,6 +23079,15 @@ async (items) => {
     def _bilicomic_parse_book(self, url):
         return self._python_parse_book("bilicomic", url)
 
+    @staticmethod
+    def is_webtoons(url):
+        from noveldb.core.engines.webtoons import knows
+
+        return knows(url)
+
+    def _webtoons_parse_book(self, url):
+        return self._python_parse_book("webtoons", url)
+
     def _native_book_parser(self, url):
         """(log line, parse function) of the built-in scraper for ``url``, or None."""
         if self.is_comix(url):
@@ -23087,6 +23097,10 @@ async (items) => {
         if self.is_bilicomic(url):
             return ("[Bilibili Manga] Using the built-in scraper (the site's app API).",
                     self._bilicomic_parse_book)
+        if self.is_webtoons(url):
+            return ("[Webtoons] Using the built-in scraper (the mobile app API lists every episode, "
+                    "including fast-pass episodes you have unlocked).",
+                    self._webtoons_parse_book)
         if self.is_sfc(url):
             return (
                 '[SFC] Detected novel URL, using the native app API scraper.',

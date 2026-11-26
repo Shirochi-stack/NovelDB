@@ -106,7 +106,7 @@ PAGE_SCRIPTS = {
 PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_MANGAPEAK, ENGINE_TAKO, ENGINE_GENERIC)
 PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GDL: "_gallerydl",
                 ENGINE_MANGAPEAK: "_mangapeak", ENGINE_TAKO: "_tako", "mangak": "_mangak",
-                "bilicomic": "_bilicomic", ENGINE_GENERIC: "_generic"}
+                "bilicomic": "_bilicomic", "webtoons": "_webtoons", ENGINE_GENERIC: "_generic"}
 
 
 def _image_kind(data_base64: str) -> str:
@@ -871,6 +871,13 @@ class SiteEnginesMixin:
                     fetch=self.engine_fetch, log=self.log,
                     stopped=lambda: bool(getattr(self, "_stop_requested", False)),
                     reading=lambda: self.__dict__.get("on_image") is not None)
+            elif engine == "webtoons":
+                from noveldb.core.engines.webtoons import WebtoonsEngine
+                engines[engine] = WebtoonsEngine(
+                    fetch=self.engine_fetch, log=self.log,
+                    stopped=lambda: bool(getattr(self, "_stop_requested", False)),
+                    reading=lambda: self.__dict__.get("on_image") is not None,
+                    cookie=lambda: self._webtoons_cookie_header())
             elif engine == ENGINE_TAKO:
                 from noveldb.core.engines.tako import TakoEngine
                 engines[engine] = TakoEngine(fetch=self.engine_fetch, log=self.log)
