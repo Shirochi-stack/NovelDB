@@ -108,21 +108,6 @@ def _author(info):
     return ", ".join(seen)
 
 
-def _is_locked_episode(ep):
-    """True when an episode row is paid/fast-pass and not readable by the account in use.
-
-    The app API omits an episode's images for a locked episode, so this only pre-marks the clearly
-    paid rows; the chapter read is the final word.
-    """
-    if not isinstance(ep, dict):
-        return False
-    for flag in ("dailyPassEpisode", "rewardAdEpisode", "passUseRestrictEpisode"):
-        if ep.get(flag):
-            return True
-    product = ep.get("productType") or ep.get("viewingType") or ""
-    return str(product).upper() in ("PAID", "CHARGE", "PREVIEW")
-
-
 class WebtoonsEngine:
     label = "Webtoons app API"
     knows = staticmethod(knows)
@@ -164,8 +149,9 @@ class WebtoonsEngine:
         return (f"{url}{sep}msgpad={urllib.parse.quote(time_bytes.decode('ascii'))}"
                 f"&md={urllib.parse.quote(md)}")
 
-    def _api(self, path):
-        """GET a signed app-API endpoint and return its ``message.result`` object."""
+    def _api(self, path, allow_empty=False):
+        """GET a signed app-API endpoint and return its ``message.result`` object. A locked episode
+        answers with no result and no error; `allow_empty` returns None for it instead of raising."""
         cfg = _cfg()
         url = cfg["api"] + path
         time_bytes = self._server_time()
@@ -184,13 +170,19 @@ class WebtoonsEngine:
             raise RuntimeError("the app API answered with no message")
         data = message.get("result")
         if data is None:
+            if allow_empty:
+                return None
             error = message.get("error") or {}
             raise RuntimeError(error.get("errorMessage") or "the app API returned no result")
         return data
 
     def _episode_rows(self, title_no):
-        """Every SERVICE episode of a title, oldest first, paging the app API's list."""
-        episodes, total, start = {}, None, 1
+        """The free (SERVICE) episodes keyed by episodeNo, and the title's TOTAL episode count.
+
+        The app's episode list only returns the free episodes; fast-pass/paid episodes are left out
+        of it but counted in ``totalCountInTitle``, so the total is what the download must span.
+        """
+        episodes, service_total, total, start = {}, 0, 0, 1
         for _ in range(200):  # safety bound on pages
             if self.stopped():
                 break
@@ -198,17 +190,18 @@ class WebtoonsEngine:
                 f"episodeList.json?v=5&titleNo={title_no}&startIndex={start}&pageSize=100&{_COMMON}")
             block = data.get("episodeList") or {}
             batch = block.get("episode") or []
+            service_total = block.get("totalServiceEpisodeCount") or service_total
+            total = block.get("totalCountInTitle") or total
             if not batch:
                 break
             for ep in batch:
                 number = ep.get("episodeNo") if isinstance(ep, dict) else None
                 if isinstance(number, int) and str(ep.get("serviceStatus")) == "SERVICE":
                     episodes[number] = ep
-            total = block.get("totalServiceEpisodeCount") or total
             start += len(batch)
-            if (total and len(episodes) >= total) or len(batch) < 100:
+            if (service_total and len(episodes) >= service_total) or len(batch) < 100:
                 break
-        return [episodes[number] for number in sorted(episodes)]
+        return episodes, int(total or 0)
 
     # -- the book --------------------------------------------------------------------------------
 
@@ -221,20 +214,28 @@ class WebtoonsEngine:
             info = self._api(f"titleInfo.json?titleNo={title_no}&{_COMMON}").get("titleInfo") or {}
         except Exception:
             info = {}
-        rows = self._episode_rows(title_no)
-        if not rows:
+        free_rows, total = self._episode_rows(title_no)
+        highest = max(free_rows) if free_rows else 0
+        total = max(total, highest, int(info.get("totalEpisodeCount") or 0))
+        if total <= 0:
             return None
         book_url = f"https://www.webtoons.com/en/list?title_no={title_no}"
-        chapters, locked = [], 0
-        for index, ep in enumerate(rows, 1):
-            number = ep.get("episodeNo")
-            closed = _is_locked_episode(ep)
-            locked += closed
-            title = str(ep.get("episodeTitle") or "").strip() or f"Episode {number}"
+        chapters, fastpass = [], 0
+        for episode_no in range(1, total + 1):
+            ep = free_rows.get(episode_no)
+            if ep is not None:
+                name = str(ep.get("episodeTitle") or "").strip() or f"Episode {episode_no}"
+                paid = False  # in the free service list
+            else:
+                # Beyond the free list: a fast-pass/paid episode. Still listed and attempted, so the
+                # ones the saved session has unlocked download; the rest are reported locked.
+                name = f"Episode {episode_no}"
+                paid = True
+                fastpass += 1
             chapters.append({
-                "url": f"https://www.webtoons.com/en/viewer?title_no={title_no}&episode_no={number}",
-                "name": title, "number": index, "bookUrl": book_url,
-                "isVIP": closed, "isPaid": closed, "isAccessible": not closed,
+                "url": f"https://www.webtoons.com/en/viewer?title_no={title_no}&episode_no={episode_no}",
+                "name": name, "number": episode_no, "bookUrl": book_url,
+                "isVIP": paid, "isPaid": paid, "isAccessible": True,
             })
         with self._lock:
             if self._title != title_no:
@@ -245,11 +246,11 @@ class WebtoonsEngine:
         if isinstance(genre, dict) and genre.get("name"):
             tags.append(str(genre["name"]))
         warnings = []
-        if locked:
+        if fastpass:
             warnings.append(
-                f"{locked} of {len(chapters)} episodes are fast-pass/paid and not unlocked for the "
-                "account in use. Save a webtoons session (Tools > Enter App (webtoons)) to read the "
-                "ones you have unlocked.")
+                f"{fastpass} of {len(chapters)} episodes are fast-pass/paid. The ones your saved "
+                "webtoons session (Tools > Enter App (webtoons)) has unlocked will download; the rest "
+                'are reported locked. Turn off "Skip paid" to include the ones you own.')
         cover = info.get("thumbnailImageUrl") or info.get("thumbnail") or ""
         return {
             "bookUrl": book_url,
@@ -266,8 +267,9 @@ class WebtoonsEngine:
 
     def _image_addresses(self, title_no, episode_no):
         data = self._api(
-            f"episodeInfo.json?v=5&titleNo={title_no}&episodeNo={episode_no}&{_COMMON}")
-        info = data.get("episodeInfo") or {}
+            f"episodeInfo.json?v=5&titleNo={title_no}&episodeNo={episode_no}&{_COMMON}",
+            allow_empty=True)
+        info = (data or {}).get("episodeInfo") or {}
         images = info.get("imageInfo") or []
         addresses = []
         for item in sorted((i for i in images if isinstance(i, dict)),
