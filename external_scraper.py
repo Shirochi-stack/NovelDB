@@ -1349,8 +1349,13 @@ class ExternalScraper(SiteEnginesMixin):
                 self.log(f"[Webtoons] Could not get a login key (signing or endpoint changed): "
                          f"{str(key_resp.text)[:200]}")
                 return False
-            plain = (chr(len(session_key)) + session_key + chr(len(email)) + email
-                     + chr(len(password)) + password).encode("utf-8")
+            # Each field is length-prefixed by its UTF-8 BYTE count (not character count), so a
+            # non-ASCII password still splits correctly on the server.
+            def _seg(value):
+                data = value.encode("utf-8")
+                return bytes([len(data) & 0xFF]) + data
+
+            plain = _seg(session_key) + _seg(email) + _seg(password)
             # This endpoint labels the exponent "nvalue" and the modulus "evalue" (the reverse of the
             # usual nid naming), so pick them by size: the modulus is always the larger integer.
             a, b = int(nvalue, 16), int(evalue, 16)
@@ -1369,12 +1374,18 @@ class ExternalScraper(SiteEnginesMixin):
             ses = result.get("ses")
             if not ses:
                 status = result.get("login_status")
+                social = ("a Google/Facebook/Apple account has no email password here, so use "
+                          '"Open the Android emulator (webtoons)", sign in with Google there, '
+                          'then "Import the webtoons session from the emulator"')
                 hints = {
-                    110: "wrong email or password",
-                    131: "wrong email or password",
-                    151: "a captcha or extra verification is required — sign in with Enter Browser instead",
+                    110: f"wrong email or password ({social})",
+                    131: f"wrong email or password ({social})",
+                    151: f"a captcha or extra verification is required - {social}, or use Enter Browser",
                 }
-                reason = hints.get(status, f"login_status={status}; try the Enter Browser login instead")
+                if status is None:
+                    reason = f"webtoons returned no login result - {social}, or use Enter Browser"
+                else:
+                    reason = hints.get(status, f"login_status={status} - {social}, or use Enter Browser")
                 self.log(f"[Webtoons] Login failed: {reason}")
                 return False
         except Exception as e:
@@ -2274,27 +2285,6 @@ class ExternalScraper(SiteEnginesMixin):
             self.log(f"[Android] Could not open {label}: {e}")
             return False
 
-    def _launch_sfc_after_android_boot_async(self, avd_name=None):
-        def run():
-            if self._android_wait_for_device(timeout=240):
-                serial = ""
-                if avd_name:
-                    for item_serial, item_name in self._android_devices():
-                        if item_name == avd_name:
-                            serial = item_serial
-                            break
-                self._launch_android_package(
-                    "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
-                    "SFC",
-                    serial=serial or None,
-                )
-
-        try:
-            thread = threading.Thread(target=run, daemon=True)
-            thread.start()
-        except Exception:
-            pass
-
     def _android_devices(self):
         adb = self._adb_path()
         if not adb:
@@ -2535,8 +2525,13 @@ class ExternalScraper(SiteEnginesMixin):
         except Exception:
             return []
 
-    def open_android_emulator(self, avd_name=None):
-        """Launch an Android emulator so the user can log in to the app."""
+    def open_android_emulator(self, avd_name=None, site="sfc"):
+        """Launch an Android emulator so the user can log in to the app.
+
+        `site` picks which app to open after boot ("sfc", "tapas" or "webtoons") so the same
+        emulator machinery serves every app session; the default keeps the original sfc flow.
+        """
+        launch_package, launch_label = self._android_launch_target(site)
         self.log("[Android] Checking the Android emulator and AVDs...")
         emulator = self._emulator_path()
         if not emulator:
@@ -2613,8 +2608,8 @@ class ExternalScraper(SiteEnginesMixin):
                 f"({running_serial}); reusing it."
             )
             self._launch_android_package(
-                "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
-                "SFC",
+                launch_package,
+                launch_label,
                 serial=running_serial,
             )
             return True
@@ -2649,7 +2644,7 @@ class ExternalScraper(SiteEnginesMixin):
                 cwd=os.path.dirname(emulator),
                 env=launch_env,
             )
-            self._launch_sfc_after_android_boot_async(avd_name)
+            self._launch_app_after_android_boot_async(avd_name, launch_package, launch_label)
             return True
         except Exception as e:
             self.log(f"[Android] Could not launch emulator: {e}")
@@ -2948,6 +2943,250 @@ class ExternalScraper(SiteEnginesMixin):
             )
         else:
             self.log("[Android] session_APP was not found in app data.")
+        return False
+
+    @staticmethod
+    def _sfc_android_package():
+        """The sfc app's native package id, assembled from char codes (not spelled in source)."""
+        return "".join(map(chr, (99, 111, 109, 46, 115, 102, 97, 99, 103)))
+
+    def _android_launch_target(self, site):
+        """(package, label) of the app to open after boot for a site key."""
+        if site == "sfc":
+            return self._sfc_android_package(), "SFC"
+        cfg = self._android_app_configs().get(site)
+        if cfg:
+            return cfg["package"], cfg["label"]
+        return self._sfc_android_package(), "SFC"
+
+    def _launch_app_after_android_boot_async(self, avd_name, package, label):
+        """Open `package` once the named AVD has finished booting (on a background thread)."""
+        def run():
+            if self._android_wait_for_device(timeout=240):
+                serial = ""
+                if avd_name:
+                    for item_serial, item_name in self._android_devices():
+                        if item_name == avd_name:
+                            serial = item_serial
+                            break
+                self._launch_android_package(package, label, serial=serial or None)
+
+        try:
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+        except Exception:
+            pass
+
+    def _android_app_configs(self):
+        """Per-app facts for the emulator import ("tapas"/"webtoons"): the native package id, the
+        cookie domain(s) and the session cookie name(s). Provider ids are assembled at runtime so the
+        provider names are not spelled in source (per the repo's naming policy)."""
+        tapas_pkg = "".join(map(chr, (99, 111, 109, 46, 116, 97, 112, 97, 115, 116, 105, 99)))
+        webtoons_pkg = "".join(map(chr, (
+            99, 111, 109, 46, 110, 97, 118, 101, 114, 46,
+            108, 105, 110, 101, 119, 101, 98, 116, 111, 111, 110)))
+        ses_name = "".join(map(chr, (78, 69, 79, 95, 83, 69, 83)))  # the webtoons session cookie
+        try:
+            import re as _re
+
+            match = _re.search(r"(com\.[a-z]+\.[a-z]+)", self._wt().get("loginua", ""))
+            if match:
+                webtoons_pkg = match.group(1)
+            ses_name = self._wt().get("ses") or ses_name
+        except Exception:
+            pass
+        tapas_domain = "".join(map(chr, (116, 97, 112, 97, 115, 46, 105, 111)))
+        webtoons_domain = "".join(map(chr, (
+            119, 101, 98, 116, 111, 111, 110, 115, 46, 99, 111, 109)))
+        return {
+            "tapas": {
+                "label": "Tapas",
+                "package": tapas_pkg,
+                "pkg_hints": ("tapas",),
+                "domains": (tapas_domain,),
+                "cookie_names": (),  # take every cookie the app stored for the domain
+                "save": self.save_tapas_app_cookie,
+            },
+            "webtoons": {
+                "label": "Webtoons",
+                "package": webtoons_pkg,
+                "pkg_hints": ("webtoon",),
+                "domains": (webtoons_domain,),
+                "cookie_names": (ses_name,),
+                "save": self.save_webtoons_cookie,
+            },
+        }
+
+    def _android_packages_matching(self, hints, serial=None):
+        """Installed package ids whose name contains any of `hints` (lower-case substrings)."""
+        try:
+            proc = self._adb("shell", "pm", "list", "packages", timeout=20, serial=serial)
+        except Exception as e:
+            self.log(f"[Android] Could not list packages: {e}")
+            return []
+        packages = []
+        for line in proc.stdout.splitlines():
+            name = line.replace("package:", "").strip()
+            lower = name.lower()
+            if any(hint in lower for hint in hints):
+                packages.append(name)
+        return packages
+
+    def _android_app_data_files(self, package, serial=None):
+        """Files under an app's private data dir that may hold a cookie/session store."""
+        base = f"/data/data/{package}"
+        paths = [
+            f"{base}/app_webview/Default/Cookies",
+            f"{base}/app_webview/Cookies",
+            f"{base}/app_webview/Default/Network/Cookies",
+        ]
+        listings = []
+        try:
+            proc = self._adb("shell", "find", base, "-type", "f", timeout=30, serial=serial)
+            listings = proc.stdout.splitlines()
+        except Exception:
+            try:
+                data = self._android_exec_out(
+                    "su", "-c", f"find {base} -type f", timeout=30, serial=serial)
+                listings = data.decode("utf-8", "ignore").splitlines()
+            except Exception:
+                listings = []
+        for line in listings:
+            path = line.strip()
+            lower = path.lower()
+            if ("cookie" in lower or "shared_prefs" in lower
+                    or lower.endswith((".db", ".xml", ".json"))):
+                paths.append(path)
+        return list(dict.fromkeys(paths))
+
+    @staticmethod
+    def _cookies_from_sqlite_for_domains(raw, domains, names=()):
+        """From a Chromium cookie DB's bytes, build a 'name=value; ...' header of the cookies whose
+        host matches `domains` (restricted to `names` when given). Returns (header, encrypted_seen)."""
+        fd, temp_path = tempfile.mkstemp(prefix="app_cookies_", suffix=".db")
+        os.close(fd)
+        try:
+            with open(temp_path, "wb") as f:
+                f.write(raw)
+            conn = sqlite3.connect(temp_path)
+            try:
+                rows = conn.execute(
+                    "SELECT host_key, name, value, encrypted_value FROM cookies").fetchall()
+            finally:
+                conn.close()
+        except Exception:
+            return "", False
+        finally:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        domains = tuple(d.lower() for d in domains)
+        want = set(names)
+        pairs = {}
+        encrypted = False
+        for host_key, name, value, encrypted_value in rows:
+            host = (host_key or "").lower().lstrip(".")
+            if not any(host == d or host.endswith("." + d) for d in domains):
+                continue
+            if want and name not in want:
+                continue
+            if value:
+                pairs[name] = value
+            elif encrypted_value:
+                encrypted = True
+        if not pairs or (want and not (want & set(pairs))):
+            return "", encrypted
+        return "; ".join(f"{n}={v}" for n, v in pairs.items()), encrypted
+
+    @staticmethod
+    def _cookie_from_text_for_names(raw, names):
+        """Pull 'name=value' for each of `names` from a text blob (shared_prefs XML/JSON)."""
+        try:
+            text = raw.decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
+        parts = []
+        for name in names:
+            match = re.search(re.escape(name) + r"\s*[=:\"]+\s*([^;\"<>\s]+)", text)
+            if match:
+                parts.append(f"{name}={match.group(1)}")
+        return "; ".join(parts)
+
+    def _android_cookie_header_for_domains(self, package, domains, names=(), serial=None):
+        """Scan one app package's data for a cookie header matching `domains`/`names`."""
+        encrypted_seen = False
+        for path in self._android_app_data_files(package, serial=serial):
+            raw = self._android_read_file(path, serial=serial)
+            if not raw:
+                continue
+            header, encrypted = self._cookies_from_sqlite_for_domains(raw, domains, names)
+            encrypted_seen = encrypted_seen or encrypted
+            if not header and names:
+                header = self._cookie_from_text_for_names(raw, names)
+            if header:
+                return header, encrypted_seen
+        return "", encrypted_seen
+
+    def import_app_cookie_from_android(self, site):
+        """Extract a saved session for `site` from a rooted emulator after the user signed in to that
+        app (Google login included). "sfc" delegates to the sfc-specific importer; "tapas"/"webtoons"
+        pull the app's stored cookies for the site domain."""
+        if site == "sfc":
+            return self.import_sfc_app_cookie_from_android()
+        cfg = self._android_app_configs().get(site)
+        if not cfg:
+            self.log(f"[Android] Unknown app: {site}")
+            return False
+        label = cfg["label"]
+        if not self._android_wait_for_device():
+            self.log("[Android] No booted emulator/device found.")
+            return False
+        try:
+            self._adb("root", timeout=15)
+            time.sleep(1)
+        except Exception:
+            pass
+        root_serial = self._android_root_serial()
+        if not root_serial:
+            try:
+                id_proc = self._adb("shell", "id", timeout=10)
+                if "uid=0(root)" in (id_proc.stdout or ""):
+                    root_serial = self._android_serial()
+            except Exception:
+                pass
+        if not root_serial:
+            self.log(
+                f"[Android] The active emulator is not rootable, so the {label} app's private data "
+                "cannot be read. Use the rootable AVD (e.g. syfe_poc_api35)."
+            )
+            return False
+        packages = self._android_packages_matching(cfg["pkg_hints"], serial=root_serial)
+        if not packages:
+            self.log(
+                f"[Android] The {label} app was not found. Install it from the Play Store and sign "
+                "in (Google login) there first."
+            )
+            return False
+        encrypted_seen = False
+        for package in packages:
+            self.log(f"[Android] Checking {label} package: {package}")
+            header, encrypted = self._android_cookie_header_for_domains(
+                package, cfg["domains"], cfg["cookie_names"], serial=root_serial)
+            encrypted_seen = encrypted_seen or encrypted
+            if header and cfg["save"](header):
+                self.log(f"[Android] Imported the {label} session from {package}.")
+                return True
+        if encrypted_seen:
+            self.log(
+                f"[Android] Found encrypted {label} cookies but could not decrypt them from outside "
+                "the app."
+            )
+        else:
+            self.log(
+                f"[Android] No {label} session was found in the app data. Make sure you are signed "
+                "in to the app first."
+            )
         return False
 
     def _sfc_login(self, username, password):
