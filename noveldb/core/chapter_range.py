@@ -1,7 +1,8 @@
 """A chapter range typed in one field, the way a print dialog takes pages: `4` or `4-7`.
 
-`4` is chapter 4 alone, `4-7` chapters 4 to 7 and `4,7` chapters 4 and 7. Text that is not a
-range keeps its first number: `7-3` is chapter 7 and `3-` chapter 3. No number at all is no range.
+`4` is chapter 4 alone, `4-7` chapters 4 to 7 and `4,7` chapters 4 and 7. `4-End` (or `4-end`) runs
+from chapter 4 to the last chapter. Text that is not a range keeps its first number: `7-3` is
+chapter 7 and `3-` chapter 3. No number at all is no range.
 The mobile apps read the same text the same way (`ChapterRangeText`).
 """
 
@@ -14,8 +15,10 @@ Range = Tuple[Optional[int], Optional[int]]
 
 _FIRST = re.compile(r"\d+")
 _SECOND = re.compile(r"\s*[-–—~]\s*(\d+)")
+# An open end: a dash/tilde followed by "end" (`4-End`, `4-end`), running to the last chapter.
+_OPEN_END = re.compile(r"\s*[-–—~]\s*end\b", re.I)
 
-PLACEHOLDER = "All  (4, 4-7 or 4,7)"
+PLACEHOLDER = "All  (4, 4-7, 4-End or 4,7)"
 PURCHASE_PLACEHOLDER = "4, 4-7 or 4,7"
 
 
@@ -115,8 +118,12 @@ def parse(text: str) -> Range:
     if low < 1:
         return None, None
     second = _SECOND.match(text, first.end())
-    high = int(second.group(1)) if second else low
-    return low, (high if high >= low else low)
+    if second:
+        high = int(second.group(1))
+        return low, (high if high >= low else low)
+    if _OPEN_END.match(text, first.end()):
+        return low, None  # `4-End` / `4-`: an open end, to the last chapter
+    return low, low
 
 
 def text(low: Optional[int], high: Optional[int]) -> str:

@@ -18,6 +18,7 @@ from noveldb.core.settings.model import AppSettings, SharedSettings
     ("4", (4, 4)), (" 4 ", (4, 4)), ("4-7", (4, 7)), ("4 - 7", (4, 7)), ("4–7", (4, 7)),
     ("7-3", (7, 7)), ("3-", (3, 3)), ("-7", (7, 7)), ("", (None, None)), ("all", (None, None)),
     ("0", (None, None)), ("4-7-9", (4, 7)), ("ch 12", (12, 12)),
+    ("4-End", (4, None)), ("4-end", (4, None)), ("190 - End", (190, None)),
 ])
 def test_a_range_is_typed_like_pages_and_bad_ranges_keep_their_first_number(typed, expected):
     assert chapter_range.parse(typed) == expected
