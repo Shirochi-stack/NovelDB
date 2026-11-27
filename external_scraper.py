@@ -16778,11 +16778,22 @@ async (ids) => {
                 time.sleep(0.2)
         return results
 
+    def _kpage_wait(self, ms):
+        """Wait up to `ms` ms for the SPA to settle, returning the moment a Stop is pressed so the
+        download does not sit through a fixed delay. False when a stop was requested."""
+        deadline = time.time() + max(0, ms) / 1000.0
+        while time.time() < deadline:
+            if self._stop_requested:
+                return False
+            time.sleep(min(0.1, max(0.0, deadline - time.time())))
+        return not self._stop_requested
+
     def _kpage_parse_book(self, url):
         """Scrape book metadata + episode list from a Kpage content page.
 
         Uses Playwright DOM scraping instead of novel-downloader JS rules.
-        Returns the standard book data dict or None on error.
+        Returns the standard book data dict or None on error. Checks for a Stop between steps
+        (and during the SPA waits) so pressing Stop during the book read ends it promptly.
         """
         if not self._page:
             self.start()
@@ -16801,10 +16812,12 @@ async (ids) => {
 
         try:
             self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
-            # Wait for the SPA to render content
-            self._page.wait_for_timeout(3000)
+            # Wait for the SPA to render content (interruptible, so Stop is prompt).
+            self._kpage_wait(3000)
         except Exception as e:
             self.log(f"ERROR: Page load failed: {e}")
+            return None
+        if self._stop_requested:
             return None
 
         # Any download notes who the profile is signed in as (the Download page's profile list
@@ -16814,10 +16827,12 @@ async (ids) => {
             self._kpage_sign_in_tried = set()
             if not self.kpage_account() and self._kpage_signed_out and self.kpage_restore_sign_in():
                 self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
-                self._page.wait_for_timeout(3000)
+                self._kpage_wait(3000)
         except Exception:
             pass
 
+        if self._stop_requested:
+            return None
         self.log("[Kpage] Extracting metadata...")
 
         # --- Extract metadata via JS ---
@@ -16907,6 +16922,8 @@ async (ids) => {
         # The DOM only shows ~5-6 episodes initially and expanding is
         # unreliable.  Instead, call the BFF API directly from the
         # browser context to get ALL episodes in a single request.
+        if self._stop_requested:
+            return None
         self.log("[Kpage] Fetching episode list via API...")
         try:
             episodes = self._page.evaluate(self._KPAGE_EPISODES_JS, series_id)
@@ -16947,13 +16964,15 @@ async (ids) => {
                 "episode(s) as accessible."
             )
 
+        if self._stop_requested:
+            return None
         # --- Extract tags from the About tab ---
         tags = []
         try:
             about_url = re.sub(r'(\?.*)?$', '?tab_type=about', url)
             self._page.goto(about_url, wait_until="domcontentloaded",
                             timeout=_page_ms(15000))
-            self._page.wait_for_timeout(2000)
+            self._kpage_wait(2000)
             tags = self._page.evaluate("""
                 (function() {
                     // Tags appear as "#태그" links under the 키워드 heading
