@@ -46,6 +46,7 @@ TOOLS = (
     ("tapas_android_import", "Import the tapas session from the emulator"),
     ("tapas_copy", "Copy the tapas app cookie (to paste on the phone)"),
     ("-", ""),
+    ("webtoons_app", "Enter App (webtoons)..."),
     ("webtoons_android_open", "Open the Android emulator (webtoons)"),
     ("webtoons_emulator_toggle", "Emulator Download (webtoon)"),
     ("webtoons_android_import", "Import the webtoons session from the emulator"),
@@ -170,6 +171,51 @@ class TapasSessionDialog(QDialog):
         layout.addWidget(_session_status(saved))
         layout.addLayout(form)
         layout.addWidget(QLabel("Sign in with your tapas account, or paste a session cookie."))
+        layout.addWidget(self.error)
+        layout.addWidget(buttons)
+
+    def _accept(self) -> None:
+        if not self.cookie.toPlainText().strip() and not (self.email.text().strip() and self.password.text()):
+            self.error.setText("Enter an email and password, or paste a session cookie.")
+            return
+        self.accept()
+
+
+class WebtoonsSessionDialog(QDialog):
+    """Sign in to the webtoons app API with an email + password (the app's own login, which returns
+    a session), or paste a session cookie, or open the browser login in Enter Browser as a fallback."""
+
+    openLogin = Signal()
+
+    def __init__(self, parent: Optional[QWidget] = None, saved: str = "") -> None:
+        super().__init__(parent)
+        self.setWindowTitle("webtoons session")
+        self.email = QLineEdit()
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.Password)
+        self.cookie = QPlainTextEdit()
+        bind_size(self.cookie, max_height=90)
+        self.cookie.setPlaceholderText("NEO_SES=...  (from a signed-in browser, instead of a password)")
+        if saved:
+            self.cookie.setPlainText(saved)
+        open_btn = QPushButton("Can't sign in here? Open the login in Enter Browser")
+        open_btn.clicked.connect(self.openLogin)
+        form = QFormLayout()
+        form.addRow("Email", self.email)
+        form.addRow("Password", self.password)
+        form.addRow("Cookie", self.cookie)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        self.error = QLabel("")
+        layout = QVBoxLayout(self)
+        layout.addWidget(_session_status(saved))
+        layout.addLayout(form)
+        layout.addWidget(QLabel(
+            "Sign in with an email+password webtoons account, or paste a session cookie.\n"
+            "A Google/Facebook/Apple account has no password here: use Tools > "
+            "\"Open the Android emulator (webtoons)\", sign in with Google, then \"Import\"."))
+        layout.addWidget(open_btn)
         layout.addWidget(self.error)
         layout.addWidget(buttons)
 
@@ -332,6 +378,20 @@ class Tools(QObject):
         else:
             self._submit("tapas_app", lambda scraper: scraper.login_tapas_app(email, password))
 
+    def _webtoons_app(self) -> None:
+        dialog = WebtoonsSessionDialog(
+            self.window, saved=self._saved_app_cookie("webtoons_cookie_header"))
+        dialog.openLogin.connect(lambda: self.enter_browser("https://www.webtoons.com/member/login"))
+        if dialog.exec() != QDialog.Accepted:
+            return
+        cookie = dialog.cookie.toPlainText().strip()
+        email, password = dialog.email.text().strip(), dialog.password.text()
+        self.context.hub.log("", "Importing the webtoons session cookie..." if cookie else "Signing in to webtoons...")
+        if cookie:
+            self._submit("webtoons_app", lambda scraper: scraper.save_webtoons_cookie(cookie))
+        else:
+            self._submit("webtoons_app", lambda scraper: scraper.login_webtoons_app(email, password))
+
     def _sfc_android_open(self) -> None:
         self._submit_android("sfc_android_open", lambda scraper: scraper.open_android_emulator())
 
@@ -427,6 +487,9 @@ class Tools(QObject):
         elif tool == "tapas_app":
             text = "tapas session saved." if result else \
                    "The tapas session was not saved. Check the email/password or cookie; see the log."
+        elif tool == "webtoons_app":
+            text = "webtoons session saved." if result else \
+                   "The webtoons session was not saved. See the log."
         elif tool.startswith("sfc"):
             text = "sfc session saved." if result else "The sfc session was not saved."
         else:

@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import re
 import shutil
 import tempfile
@@ -47,6 +48,9 @@ _CFG = None
 _IMG_HOST = "https://swebtoon-phinf.pstatic.net"
 _COMMON = "serviceZone=GLOBAL&language=en&platform=APP_ANDROID&locale=en"
 _HOSTS = ("webtoons.com", "www.webtoons.com", "m.webtoons.com")
+# The app registers a random 32-char device key (setDeviceInfo) and sends it on every call as the
+# ``wtu`` header; the session's NEO_CHK cookie is bound to it.
+_DEVICE_KEY_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 
 def _cfg():
@@ -113,12 +117,14 @@ class WebtoonsEngine:
     knows = staticmethod(knows)
 
     def __init__(self, fetch, log=lambda _: None, stopped=lambda: False, reading=lambda: False,
-                 cookie=lambda: "", workers=8):
+                 cookie=lambda: "", device_key=lambda: "", workers=8):
         self.fetch = fetch
         self.log = log
         self.stopped = stopped
         self.reading = reading  # the Catalog reader shows pages at once: it takes their addresses
         self._cookie = cookie
+        self._device_key_fn = device_key
+        self._device_key_cache = None
         self.workers = workers
         self._lock = threading.Lock()
         self._title = None
@@ -139,6 +145,26 @@ class WebtoonsEngine:
         result = self.fetch(cfg["time"], headers={"User-Agent": cfg["ua"]}, binary=True)
         return (result or {}).get("content") or b""
 
+    def _device_key(self):
+        """The ``wtu`` device-key header the app sends with every call. The app API rejects a signed
+        request that carries a NEO_SES/NEO_CHK session but no device, so the header is always sent:
+        the saved session's own key when one is provided, else a stable random key for this run.
+
+        A session imported from the app is bound (via NEO_CHK) to that app's device key, so reading
+        the account's paid/unlocked episodes without the emulator needs that same key carried here;
+        a random key is enough for the public endpoints.
+        """
+        if callable(self._device_key_fn):
+            try:
+                value = (self._device_key_fn() or "").strip()
+            except Exception:
+                value = ""
+            if value:
+                return value
+        if self._device_key_cache is None:
+            self._device_key_cache = "".join(random.choice(_DEVICE_KEY_CHARS) for _ in range(32))
+        return self._device_key_cache
+
     def _sign(self, url, time_bytes):
         """Append the app API's msgpad/md signature (HMAC-SHA1 of the url's first 255 bytes + time)."""
         cfg = _cfg()
@@ -157,8 +183,12 @@ class WebtoonsEngine:
         time_bytes = self._server_time()
         if not time_bytes:
             raise RuntimeError("the app API clock did not answer")
+        headers = {"User-Agent": cfg["ua"]}
+        device = self._device_key()
+        if device:
+            headers["wtu"] = device  # the app sends its device key on every call
         result = self.fetch(self._sign(url, time_bytes),
-                            headers={"User-Agent": cfg["ua"]}, cookie=self._cookie() or "")
+                            headers=headers, cookie=self._cookie() or "")
         if not result:
             raise RuntimeError("the app API did not answer")
         try:
