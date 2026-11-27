@@ -701,37 +701,34 @@ class DownloadPage(QWidget):
         self._update_enter_browser()
 
     def _add_webtoons_emulator_toggle(self, menu, label, available) -> None:
-        """A styled on/off switch row in the Tools menu that enables the (experimental, high-ban-risk)
-        webtoons Emulator Download route. Turning it on the first time shows the one-time warning."""
-        from PySide6.QtWidgets import QWidgetAction
-        from noveldb.qt.widgets import ToggleSwitch
+        """A full-width checkable Tools-menu item that enables the (experimental, high-ban-risk)
+        webtoons Emulator Download route. The whole row is clickable and the label reads "On"/"Off";
+        turning it on the first time shows the one-time warning."""
         from noveldb.qt.tools import warn_webtoons_emulator
 
-        holder = QWidget()
-        row = QHBoxLayout(holder)
-        row.setContentsMargins(18, 4, 18, 4)
-        row.setSpacing(10)
-        row.addWidget(QLabel(label))
-        row.addStretch(1)
-        switch = ToggleSwitch(self.context.settings.sources.webtoons_emulator_download)
-        row.addWidget(switch)
+        action = menu.addAction(label)
+        action.setCheckable(True)
         ok, reason = available("webtoons_android_open")  # same Windows-only gate as the emulator tools
-        holder.setEnabled(ok)
-        holder.setToolTip(reason or "Fetch paid webtoons episodes through a rooted Android emulator. "
+        action.setEnabled(ok)
+        action.setToolTip(reason or "Fetch paid webtoons episodes through a rooted Android emulator. "
                                     "Experimental and untested — high risk the account is banned.")
-        self._webtoons_emulator_switch = switch
+        self._webtoons_emulator_action = action
 
-        def on_toggle(on):
+        def show(on):
+            action.setChecked(on)
+            action.setText(f"{label}:  {'On' if on else 'Off'}")
+
+        show(self.context.settings.sources.webtoons_emulator_download)
+
+        def on_triggered(on):
             if on and not warn_webtoons_emulator(self, self.context):
-                switch.set_quietly(False)
+                show(False)  # user declined the warning — revert
                 return
             self.context.update_settings(
                 lambda s: replace(s, sources=replace(s.sources, webtoons_emulator_download=on)))
+            show(on)
 
-        switch.toggled.connect(on_toggle)
-        action = QWidgetAction(menu)
-        action.setDefaultWidget(holder)
-        menu.addAction(action)
+        action.triggered.connect(on_triggered)
 
     def _update_enter_browser(self) -> None:
         downloading = any(job.active for job in self.context.runner.jobs)
