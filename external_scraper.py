@@ -2136,6 +2136,29 @@ class ExternalScraper(SiteEnginesMixin):
         return os.path.isdir(full) and os.path.exists(os.path.join(full, "system.img"))
 
     @classmethod
+    def _android_avd_is_playstore(cls, avd_name):
+        """True when the AVD runs a Google Play Store image (so its Play Store can actually sign in
+        and install apps). A plain google_apis image carries only a non-functional store stub."""
+        avd_dir = cls._android_avd_dir(avd_name)
+        if not avd_dir:
+            return False
+        try:
+            with open(os.path.join(avd_dir, "config.ini"), "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().lower()
+                    if key == "PlayStore.enabled":
+                        return value in ("yes", "true", "1")
+                    if key in ("tag.id", "tag.ids") and "google_apis_playstore" in value:
+                        return True
+                    if key == "image.sysdir.1" and "google_apis_playstore" in value.lower():
+                        return True
+        except Exception:
+            return False
+        return False
+
+    @classmethod
     def _avd_system_image_package(cls, avd_name):
         """The sdkmanager package (``system-images;android-N;tag;abi``) an AVD's config.ini references,
         so a missing image can be downloaded for it."""
@@ -2665,13 +2688,23 @@ class ExternalScraper(SiteEnginesMixin):
             if avd_name in skipped:
                 self.log(f"[Android] AVD {avd_name} has no system image; choosing another.")
             avd_name = ""
-        # Prefer an sfc/rootable AVD (its session can be imported), then a Play Store one, then any.
-        avd_name = (
-            avd_name
-            or next((name for name in valid if any(hint in name.lower() for hint in ("sfc", "syfe", "poc"))), "")
-            or next((name for name in valid if "play" in name.lower()), "")
-            or (valid[0] if valid else "")
-        )
+        if site == "webtoons":
+            # Webtoons needs the app installed and signed in, not root — so prefer an AVD with a
+            # working Play Store (it can install the app and sign in to Google), then any other.
+            avd_name = (
+                avd_name
+                or next((name for name in valid if self._android_avd_is_playstore(name)), "")
+                or next((name for name in valid if "play" in name.lower()), "")
+                or (valid[0] if valid else "")
+            )
+        else:
+            # Prefer an sfc/rootable AVD (its session can be imported), then a Play Store one, then any.
+            avd_name = (
+                avd_name
+                or next((name for name in valid if any(hint in name.lower() for hint in ("sfc", "syfe", "poc"))), "")
+                or next((name for name in valid if "play" in name.lower()), "")
+                or (valid[0] if valid else "")
+            )
         if not avd_name:
             self.log("[Android] No Android Virtual Devices found; creating one...")
             try:
