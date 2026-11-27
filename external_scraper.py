@@ -17079,6 +17079,37 @@ async (ids) => {
             'images': images,
         }
 
+    @staticmethod
+    def _kpage_images_from_html(content_html):
+        """Pull the inline-illustration images out of built chapter HTML.
+
+        _kpage_extract_from_json emits each non-cover illustration as an
+        <img class="kpage-inline-image" ... data-kpage-filename="..."> tag.
+        Collecting the download list from the final HTML (rather than during
+        parsing) keeps it aligned with the paragraphs actually kept — colophon
+        and filler chunks are dropped first. Returns [{'url','name'}, ...],
+        deduped by URL in document order, matching the image-chapter format.
+        """
+        images = []
+        seen = set()
+        for tag in re.findall(r'<img\b[^>]*\bclass="kpage-inline-image"[^>]*>',
+                              content_html or ''):
+            src = re.search(r'\bsrc="([^"]+)"', tag)
+            if not src:
+                continue
+            url = html.unescape(src.group(1)).strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            name_match = re.search(r'\bdata-kpage-filename="([^"]*)"', tag)
+            name = html.unescape(name_match.group(1)) if name_match else ''
+            name = urllib.parse.unquote(name).split('?', 1)[0].split('&', 1)[0]
+            name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
+            if not name or '.' not in name:
+                name = f'kpage_image_{len(images) + 1:04d}.jpg'
+            images.append({'url': url, 'name': name})
+        return images
+
     def _kpage_load_all_episodes(self, expected_count):
         """Expand the episode list on a Kpage content page.
 
@@ -17306,7 +17337,7 @@ async (ids) => {
                     } catch(e) { return null; }
                 });
                 const results = (await Promise.all(fetches)).filter(r => r !== null);
-                return { locked: false, chunks: results, imageFiles: [],
+                return { locked: false, chunks: results, imageFiles: [], baseUrl,
                          httpStatus, msg, msgKey, resultCode, pageUrl: location.href };
             }
             """, [s_id, p_id])
@@ -17343,8 +17374,9 @@ async (ids) => {
 
                 raw_chunks = api_result.get('chunks', [])
                 json_chunks = [r.encode('utf-8') for r in raw_chunks]
+                base_url = api_result.get('baseUrl') or ''
                 para_tuples, content_css = self._kpage_extract_from_json(
-                    json_chunks)
+                    json_chunks, base_url)
                 if para_tuples:
                     full_text, content_html = self._kpage_build_output(
                         para_tuples)
@@ -17356,7 +17388,9 @@ async (ids) => {
                         'contentText': full_text,
                         'contentHtml': content_html,
                         'contentCss': content_css,
-                        'images': [],
+                        # Inline illustrations (삽화 / 지도 maps) embedded in a text
+                        # chapter: resolved from the paragraph IMG nodes.
+                        'images': self._kpage_images_from_html(content_html),
                     }
 
         self.log(
@@ -18120,7 +18154,9 @@ async (ids) => {
             p_style = item[3] if len(item) > 3 else {}
             p_attrs = item[4] if len(item) > 4 else {}
             p_meta = item[5] if len(item) > 5 else {}
-            if not plain.strip() and '<br' not in html_frag.lower():
+            html_lower = html_frag.lower()
+            if (not plain.strip() and '<br' not in html_lower
+                    and '<img' not in html_lower):
                 continue
             tag = _tag_for(p_type)
 
@@ -18262,7 +18298,7 @@ async (ids) => {
         self._kpage_css_cache[cache_key] = css
         return css
 
-    def _kpage_extract_from_json(self, json_chunks):
+    def _kpage_extract_from_json(self, json_chunks, base_url=''):
         """Parse paragraphList from intercepted JSON API responses.
 
         Each JSON chunk has structure:
@@ -18371,13 +18407,49 @@ async (ids) => {
                 h = f'<span{"".join(attr_parts)}>{h}</span>'
             return h
 
+        def _img_html(node):
+            """An inline illustration (삽화) or map (지도) as an <img> tag.
+
+            Kpage delivers these as IMG paragraph nodes carrying an
+            image.imageSrcKey; the picture is served from the chapter's ATS
+            resource host as base_url + imageSrcKey (the same base the text
+            chunks use). The per-chapter cover repeats on every chunk and is
+            skipped. Without a base URL or a key the node yields nothing, as
+            before.
+            """
+            image = node.get('image') or {}
+            if not isinstance(image, dict) or image.get('isCover'):
+                return ''
+            key = str(image.get('imageSrcKey')
+                      or image.get('image_src_key') or '').strip()
+            if not key or not base_url:
+                return ''
+            url = base_url + key
+            filename = str(image.get('imageFilename')
+                           or image.get('image_filename') or '').strip()
+            alt = str((node.get('attributes') or {}).get('alt') or '')
+            size = ''
+            for dim, names in (('width', ('imageWidth', 'image_width')),
+                               ('height', ('imageHeight', 'image_height'))):
+                value = next((image.get(n) for n in names if image.get(n)), None)
+                try:
+                    if value:
+                        size += f' {dim}="{int(value)}"'
+                except (TypeError, ValueError):
+                    pass
+            return (f'<img class="kpage-inline-image" src="{_esc(url, quote=True)}" '
+                    f'alt="{_esc(alt, quote=True)}"{size} '
+                    f'data-kpage-filename="{_esc(filename, quote=True)}" '
+                    f'style="display:block;max-width:100%;height:auto;'
+                    f'margin:0.5rem auto" />')
+
         def _collect_html(node, is_root=False):
             """Recursively collect HTML from a paragraph node and children."""
             n_type = (node.get('type') or '').upper()
             if n_type == 'BR':
                 return '<br />'
             if n_type == 'IMG':
-                return ''
+                return _img_html(node)
 
             text = (node.get('text') or '')
             children = node.get('childParagraphList') or []
@@ -18418,12 +18490,6 @@ async (ids) => {
                 parts.extend(_collect_text(child))
             return parts
 
-        def _node_has_image(node):
-            if (node.get('type') or '').upper() == 'IMG':
-                return True
-            return any(_node_has_image(child)
-                       for child in (node.get('childParagraphList') or []))
-
         parsed_chunks = []
         css_parts = []
         seen_css = set()
@@ -18447,9 +18513,10 @@ async (ids) => {
                     p_attrs = p.get('attributes') or {}
                     plain = ''.join(_collect_text(p))
                     html_frag = _collect_html(p, is_root=True)
-                    if _node_has_image(p) and not plain.strip():
-                        continue
-                    if plain.strip() or '<br' in html_frag.lower():
+                    html_lower = html_frag.lower()
+                    # Keep text, inline illustrations (<img>), and blank-line <br>.
+                    if (plain.strip() or '<img' in html_lower
+                            or '<br' in html_lower):
                         chunk_paras.append(
                             (chunk_index, content_id, p_id, plain,
                              html_frag, p_type, p_style, p_attrs))
