@@ -51,6 +51,7 @@ TOOLS = (
     ("webtoons_emulator_toggle", "Emulator Download (webtoon)"),
     ("webtoons_android_import", "Import the webtoons session from the emulator"),
     ("webtoons_copy", "Copy the webtoons app cookie (to paste on the phone)"),
+    ("webtoons_logout", "Log out of webtoons"),
     ("-", ""),
     ("cache_folder", "Open the cache folder"),
     ("downloads_folder", "Open the downloads folder"),
@@ -440,6 +441,17 @@ class Tools(QObject):
     def _webtoons_copy(self) -> None:
         self._submit("webtoons_copy", lambda scraper: scraper.webtoons_cookie_header())
 
+    def _webtoons_logout(self) -> None:
+        answer = QMessageBox.question(
+            self.window,
+            "Log out of webtoons",
+            "Clear the saved webtoons app session and its custom-engine session?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer == QMessageBox.Yes:
+            self._submit("webtoons_logout", lambda scraper: scraper.logout_webtoons_app())
+
     # The emulator open/import and copy tools work the same for every app, so they share one handler.
     _COPY_TOOLS = {"sfc_copy": "sfc", "tapas_copy": "tapas", "webtoons_copy": "webtoons"}
     _OPEN_TOOLS = {"sfc_android_open": "sfc", "tapas_android_open": "tapas",
@@ -490,6 +502,9 @@ class Tools(QObject):
         elif tool == "webtoons_app":
             text = "webtoons session saved." if result else \
                    "The webtoons session was not saved. See the log."
+        elif tool == "webtoons_logout":
+            text = "Logged out of webtoons and cleared the saved session." if result else \
+                   "Could not clear the saved webtoons session. See the log."
         elif tool.startswith("sfc"):
             text = "sfc session saved." if result else "The sfc session was not saved."
         else:

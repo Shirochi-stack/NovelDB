@@ -29,6 +29,7 @@ def test_enter_app_is_in_the_tools_menu_not_on_the_page(window):
     tools = next(b for b in page.findChildren(QToolButton) if b.text() == "Tools")
     labels = [action.text() for action in tools.menu().actions()]
     assert "Enter App (sfc)..." in labels
+    assert "Log out of webtoons" in labels
     assert labels.index("Enter App (sfc)...") + 1 == labels.index("Open the Android emulator (sfc)")
     requested = []
     page.toolRequested.disconnect()  # the window would open the real (modal) sign-in dialog
