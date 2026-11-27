@@ -83,7 +83,8 @@ class ExternalJob(ExternalPipelineMixin):
         # The Enter Browser profile selected when this job started: its sign-in sessions are used.
         switch = getattr(scraper, "use_profile", None)
         if callable(switch):
-            switch(self._var_browser_profile.get())
+            # Pass the URL so the kpage account is only named for a kpage download.
+            switch(self._var_browser_profile.get(), self._url_var.get())
         previous_timing = getattr(scraper, "chapter_timing", False)
         scraper.chapter_timing = bool(self._var_chapter_timing.get())
         refresh = getattr(scraper, "refresh_net_timeouts", None)

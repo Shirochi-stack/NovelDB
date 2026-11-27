@@ -3380,10 +3380,15 @@ class ExternalScraper(SiteEnginesMixin):
     # earlier build used.
     browser_profile = 1
 
-    def use_profile(self, number):
+    def use_profile(self, number, url=None):
         """Switch this scraper to Enter Browser profile `number` (call on the browser thread).
 
         An open browser belongs to the profile it was started with, so it is closed first.
+
+        The profile's remembered account is a kpage sign-in (profile_accounts), so the
+        "profile #N (account) in use" line is only shown for kpage (or when no URL is given,
+        e.g. Enter Browser); a non-kpage download would otherwise print the kpage email for
+        an unrelated site.
         """
         try:
             number = max(1, int(number or 1))
@@ -3395,7 +3400,8 @@ class ExternalScraper(SiteEnginesMixin):
             except Exception:
                 pass
             ExternalScraper.browser_profile = number
-            self.log(f"Browser {self._profile_name(number)} in use.")
+            if url is None or self.is_kpage(url):
+                self.log(f"Browser {self._profile_name(number)} in use.")
         return number
 
     @staticmethod
