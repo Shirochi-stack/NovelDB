@@ -973,11 +973,15 @@ class ExternalPipelineMixin:
                     else:
                         self._log(f"  Skipped {skipped} paid chapter(s).")
 
-            if (is_webtoons and self._downloading and not skip_paid
+            emulator_download = bool(getattr(self, "_var_webtoons_emulator_download", None)
+                                     and self._var_webtoons_emulator_download.get())
+            if (is_webtoons and self._downloading and not skip_paid and emulator_download
                     and any(result is None and (chapter.get("isPaid") or chapter.get("isVIP"))
                             for result, chapter in zip(results, selected))
                     and self._scraper.webtoons_cookie_header(refresh=True)):
-                self._log("[Webtoons] Opening the Android app before requesting paid episodes.")
+                self._log("[Webtoons] ⚠ Emulator Download is ON — an EXPERIMENTAL route that has "
+                          "NOT been properly tested. WEBTOON appears to auto-ban accounts used on a rooted "
+                          "emulator, so use a throwaway account. Opening the Android app for paid episodes...")
                 if not self._scraper.open_android_emulator(site="webtoons"):
                     self._log("[Webtoons] Could not open the app. Continuing with the saved session.")
 

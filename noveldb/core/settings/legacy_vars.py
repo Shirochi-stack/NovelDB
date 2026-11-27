@@ -147,6 +147,7 @@ def external_values(
         "_var_blank_paragraph_lines": text.blank_paragraph_lines,
         "_var_kobo_horizontal_layout": sources.kobo_horizontal_layout,
         "_var_regular_browser": sources.regular_browser,
+        "_var_webtoons_emulator_download": sources.webtoons_emulator_download,
         "_var_browser_profile": sources.browser_profile,
         # One profile to the pipeline when rotation is off: auto purchase then stays on the selected one.
         "_var_browser_profiles": 1 if sources.disable_profile_rotation else sources.browser_profiles,

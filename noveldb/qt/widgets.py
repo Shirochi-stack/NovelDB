@@ -16,6 +16,7 @@ from PySide6.QtCore import (
     QTimer,
 )
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QAbstractScrollArea,
     QComboBox,
     QDoubleSpinBox,
@@ -133,6 +134,47 @@ class Chip(QPushButton):
         self.blockSignals(True)
         self.setChecked(checked)
         self.blockSignals(False)
+
+
+class ToggleSwitch(QAbstractButton):
+    """A small styled on/off switch (an iOS-style sliding toggle). Checkable; `toggled(bool)` fires
+    on user clicks. `set_quietly` changes it without emitting (e.g. to revert a cancelled toggle)."""
+
+    def __init__(self, checked: bool = False, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(checked)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(46, 26)
+        self.toggled.connect(lambda _on: self.update())
+
+    def set_quietly(self, checked: bool) -> None:
+        self.blockSignals(True)
+        self.setChecked(checked)
+        self.blockSignals(False)
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        return QSize(46, 26)
+
+    def paintEvent(self, _event) -> None:
+        from PySide6.QtGui import QColor, QPainter
+
+        on = self.isChecked()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        track = QColor("#34c759") if on else QColor("#b7bcc4")
+        if not self.isEnabled():
+            track.setAlpha(90)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        radius = rect.height() / 2
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(track)
+        painter.drawRoundedRect(rect, radius, radius)
+        diameter = rect.height() - 6
+        x = rect.right() - diameter - 3 if on else rect.left() + 3
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(x, rect.top() + 3, diameter, diameter)
 
 
 def section(text: str) -> QLabel:

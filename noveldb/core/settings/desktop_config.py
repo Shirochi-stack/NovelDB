@@ -335,6 +335,8 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         kobo_horizontal_layout=_first_bool(c, "ext_kobo_horizontal_layout", s.kobo_horizontal_layout),
         regular_browser=_first_bool(c, "ext_regular_browser", s.regular_browser),
         disable_profile_rotation=_first_bool(c, "ext_disable_profile_rotation", s.disable_profile_rotation),
+        webtoons_emulator_download=_first_bool(c, "ext_webtoons_emulator_download", s.webtoons_emulator_download),
+        webtoons_emulator_warned=_first_bool(c, "ext_webtoons_emulator_warned", s.webtoons_emulator_warned),
         browser_profiles=max(1, _int(c.get("ext_browser_profiles")) or s.browser_profiles),
         browser_profile=max(1, min(max(1, _int(c.get("ext_browser_profiles")) or s.browser_profiles),
                                    _int(c.get("ext_browser_profile")) or s.browser_profile)),
@@ -606,6 +608,8 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["ext_browser_profiles"] = src.browser_profiles
     c["ext_browser_profile"] = src.browser_profile
     c["ext_disable_profile_rotation"] = src.disable_profile_rotation
+    c["ext_webtoons_emulator_download"] = src.webtoons_emulator_download
+    c["ext_webtoons_emulator_warned"] = src.webtoons_emulator_warned
 
     c["quick_enable"] = not s.output.ask_each_time
     c["quick_path"] = s.output.output_dir

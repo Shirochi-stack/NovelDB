@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from dataclasses import replace
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -45,12 +47,40 @@ TOOLS = (
     ("tapas_copy", "Copy the tapas app cookie (to paste on the phone)"),
     ("-", ""),
     ("webtoons_android_open", "Open the Android emulator (webtoons)"),
+    ("webtoons_emulator_toggle", "Emulator Download (webtoon)"),
     ("webtoons_android_import", "Import the webtoons session from the emulator"),
     ("webtoons_copy", "Copy the webtoons app cookie (to paste on the phone)"),
     ("-", ""),
     ("cache_folder", "Open the cache folder"),
     ("downloads_folder", "Open the downloads folder"),
 )
+
+
+def warn_webtoons_emulator(parent, context) -> bool:
+    """Show the one-time ban-risk warning for the webtoons Emulator Download route, the first time
+    it is enabled or the emulator is opened. Returns True to go ahead (already acknowledged earlier,
+    or the user accepted the risk now); False to abort. Acknowledging it records the flag so it is
+    shown only once."""
+    if context.settings.sources.webtoons_emulator_warned:
+        return True
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Warning)
+    box.setWindowTitle("Webtoons Emulator Download — high ban risk")
+    box.setText("This route is experimental and has NOT been properly tested.")
+    box.setInformativeText(
+        "Downloading paid webtoons episodes drives a rooted Android emulator running the WEBTOON "
+        "app. WEBTOON appears to auto-ban accounts used on a rooted emulator — there is a HIGH "
+        "RISK the account you sign in with will be banned and any coins you bought lost.\n\n"
+        "Use a throwaway account, and only continue if you accept that risk.")
+    box.setStandardButtons(QMessageBox.Cancel | QMessageBox.Ok)
+    ok_button = box.button(QMessageBox.Ok)
+    ok_button.setText("I understand the risk")
+    box.setDefaultButton(QMessageBox.Cancel)
+    if box.exec() != QMessageBox.Ok:
+        return False
+    context.update_settings(
+        lambda s: replace(s, sources=replace(s.sources, webtoons_emulator_warned=True)))
+    return True
 
 
 def available(tool: str) -> tuple[bool, str]:
@@ -339,6 +369,8 @@ class Tools(QObject):
         self._submit("tapas_copy", lambda scraper: scraper.tapas_app_cookie_header())
 
     def _webtoons_android_open(self) -> None:
+        if not warn_webtoons_emulator(self.window, self.context):
+            return
         self._submit_android("webtoons_android_open", lambda scraper: scraper.open_android_emulator(site="webtoons"))
 
     def _webtoons_android_import(self) -> None:

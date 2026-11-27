@@ -113,6 +113,9 @@ class DownloadPage(QWidget):
             if tool == "-":
                 tools_menu.addSeparator()
                 continue
+            if tool == "webtoons_emulator_toggle":
+                self._add_webtoons_emulator_toggle(tools_menu, label, available)
+                continue
             action = tools_menu.addAction(label)
             ok, reason = available(tool)
             action.setEnabled(ok)
@@ -696,6 +699,39 @@ class DownloadPage(QWidget):
         else:
             self.enter_browser.setText("Enter Browser")
         self._update_enter_browser()
+
+    def _add_webtoons_emulator_toggle(self, menu, label, available) -> None:
+        """A styled on/off switch row in the Tools menu that enables the (experimental, high-ban-risk)
+        webtoons Emulator Download route. Turning it on the first time shows the one-time warning."""
+        from PySide6.QtWidgets import QWidgetAction
+        from noveldb.qt.widgets import ToggleSwitch
+        from noveldb.qt.tools import warn_webtoons_emulator
+
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(18, 4, 18, 4)
+        row.setSpacing(10)
+        row.addWidget(QLabel(label))
+        row.addStretch(1)
+        switch = ToggleSwitch(self.context.settings.sources.webtoons_emulator_download)
+        row.addWidget(switch)
+        ok, reason = available("webtoons_android_open")  # same Windows-only gate as the emulator tools
+        holder.setEnabled(ok)
+        holder.setToolTip(reason or "Fetch paid webtoons episodes through a rooted Android emulator. "
+                                    "Experimental and untested — high risk the account is banned.")
+        self._webtoons_emulator_switch = switch
+
+        def on_toggle(on):
+            if on and not warn_webtoons_emulator(self, self.context):
+                switch.set_quietly(False)
+                return
+            self.context.update_settings(
+                lambda s: replace(s, sources=replace(s.sources, webtoons_emulator_download=on)))
+
+        switch.toggled.connect(on_toggle)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(holder)
+        menu.addAction(action)
 
     def _update_enter_browser(self) -> None:
         downloading = any(job.active for job in self.context.runner.jobs)

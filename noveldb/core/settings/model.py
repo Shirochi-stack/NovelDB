@@ -278,6 +278,12 @@ class SourceOptions:
     # Auto purchase normally gives each locked chapter to the next profile in turn; on, it only
     # ever uses the selected profile.
     disable_profile_rotation: bool = False
+    # Webtoons "Emulator Download": drive a rooted Android emulator running the WEBTOON app to fetch
+    # paid/fast-pass episodes. Off by default -- experimental, not properly tested, and high ban risk
+    # (WEBTOON appears to auto-ban accounts used on a rooted emulator). `..._warned` records that the
+    # one-time risk warning has been acknowledged, so it is shown only once.
+    webtoons_emulator_download: bool = False
+    webtoons_emulator_warned: bool = False
 
 
 @dataclass(frozen=True)
