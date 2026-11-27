@@ -1983,7 +1983,12 @@ class ExternalPipelineMixin:
         links = getattr(self, "_var_save_image_urls_only", None)
         links_only = bool(links and links.get())
         webtoon = getattr(self, "_var_webtoon_export", None)
-        stitch = not links_only and webtoon is not None and webtoon.get() and self._var_stitch_images.get()
+        # Stitching joins a webtoon's vertical strips into tall pages. A kpage novel is text with
+        # the occasional inline illustration (삽화) or map (지도) — a plain image, never a strip —
+        # so it is written as-is, not stitched (no "Stitching" pass, whatever the webtoon settings).
+        is_kpage = bool(self._book_data and self._book_data.get("_kpage"))
+        stitch = (not links_only and not is_kpage and webtoon is not None
+                  and webtoon.get() and self._var_stitch_images.get())
         height = min(32_000, max(0, self._var_stitch_height.get())) if stitch else None
         return links_only, height, bool(stitch and self._var_stitch_chapter_folders.get())
 
