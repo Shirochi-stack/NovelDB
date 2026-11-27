@@ -25,11 +25,14 @@ PURCHASE_PLACEHOLDER = "4, 4-7 or 4,7"
 def parse_list(value: str) -> list:
     """Every range in a comma list such as `4,7` or `1-3,9`, as `(first, last)` pairs in order,
     with overlapping and touching ones joined. Each part is read like a single range."""
-    ranges = sorted(pair for pair in (parse(part) for part in re.split(r"[,;，、]", value or "")) if pair[0] is not None)
+    parts = (parse(part) for part in re.split(r"[,;，、]", value or ""))
+    ranges = sorted((pair for pair in parts if pair[0] is not None), key=lambda pair: pair[0])
     joined: list = []
     for low, high in ranges:
+        if joined and joined[-1][1] is None:
+            break
         if joined and low <= joined[-1][1] + 1:
-            joined[-1] = (joined[-1][0], max(joined[-1][1], high))
+            joined[-1] = (joined[-1][0], None if high is None else max(joined[-1][1], high))
         else:
             joined.append((low, high))
     return joined
@@ -64,7 +67,7 @@ def selects(low: Optional[int], high: Optional[int], spec: str, number: int) -> 
     """True when chapter `number` is chosen by the range and its comma list; no range chooses nothing."""
     ranges = _listed(low, high, spec)
     if ranges:
-        return any(first <= number <= last for first, last in ranges)
+        return any(contains(first, last, number) for first, last in ranges)
     return contains(low, high, number)
 
 
@@ -127,13 +130,13 @@ def parse(text: str) -> Range:
 
 
 def text(low: Optional[int], high: Optional[int]) -> str:
-    """The field's text for a stored range. An open end (older settings) shows as `4-` or `1-7`."""
+    """The field's text for a stored range, including an explicit open end."""
     if low is None and high is None:
         return ""
     if low is None:
         return f"1-{high}"
     if high is None:
-        return f"{low}-"
+        return f"{low}-END"
     return str(low) if high <= low else f"{low}-{high}"
 
 

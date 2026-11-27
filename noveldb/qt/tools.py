@@ -439,7 +439,10 @@ class Tools(QObject):
                         "emulator, or use Enter Browser first.")
         elif tool in self._OPEN_TOOLS:
             site = self._OPEN_TOOLS[tool]
-            if result:
+            if tool == "webtoons_android_open":
+                text = (f"Opened {site} on the emulator. You can sign in there." if result else
+                        f"Could not open {site} on the emulator. See the Android log for details.")
+            elif result:
                 text = ("Opening the Android emulator. Sign in to the "
                         f"{site} app there (Google login works), then use "
                         f"\"Import the {site} session from the emulator\".")

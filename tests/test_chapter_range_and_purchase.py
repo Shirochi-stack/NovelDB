@@ -25,9 +25,9 @@ def test_a_range_is_typed_like_pages_and_bad_ranges_keep_their_first_number(type
 
 
 def test_a_stored_range_shows_as_the_text_that_gives_it_back():
-    for stored in ((4, 4), (4, 7), (None, None)):
+    for stored in ((4, 4), (4, 7), (4, None), (None, None)):
         assert chapter_range.parse(chapter_range.text(*stored)) == stored
-    assert chapter_range.text(4, None) == "4-"  # an open end of older settings
+    assert chapter_range.text(4, None) == "4-END"
     assert chapter_range.text(None, 7) == "1-7"
     assert chapter_range.label(4, None) == "4-end"
     assert chapter_range.label(4, 4) == "4" and chapter_range.label(4, 7) == "4-7"

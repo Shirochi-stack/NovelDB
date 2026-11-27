@@ -706,7 +706,9 @@ class ExternalPipelineMixin:
             is_nweb_novel = bool(
                 self._book_data and self._book_data.get("_nweb_novel")
             )
+            is_webtoons = bool(self._book_data and self._book_data.get("_webtoons"))
             if (self._scraper and not self._scraper._context
+                    and not is_webtoons
                     and not is_ntk and not is_yeduji and not is_npia
                     and not is_mpia
                     and not is_rbooks
@@ -943,6 +945,8 @@ class ExternalPipelineMixin:
                             )
                         )
                         unavailable += int(inaccessible)
+                    elif is_webtoons:
+                        should_skip = bool(ch.get("isPaid") or ch.get("isVIP"))
                     else:
                         should_skip = (
                             ch.get('isVIP', False)
@@ -968,6 +972,14 @@ class ExternalPipelineMixin:
                             )
                     else:
                         self._log(f"  Skipped {skipped} paid chapter(s).")
+
+            if (is_webtoons and self._downloading and not skip_paid
+                    and any(result is None and (chapter.get("isPaid") or chapter.get("isVIP"))
+                            for result, chapter in zip(results, selected))
+                    and self._scraper.webtoons_cookie_header(refresh=True)):
+                self._log("[Webtoons] Opening the Android app before requesting paid episodes.")
+                if not self._scraper.open_android_emulator(site="webtoons"):
+                    self._log("[Webtoons] Could not open the app. Continuing with the saved session.")
 
             last_download_index = (
                 max((i for i, result in enumerate(results) if result is None),
@@ -1314,7 +1326,10 @@ class ExternalPipelineMixin:
                     f"Download complete: {succeeded} succeeded, "
                     f"{', '.join(incomplete)}, {failed} failed."
                 )
-                if locked:
+                if locked and is_webtoons:
+                    self._log("[Webtoons] The API did not grant access with the saved session. "
+                              "Check whether the episode opens in the Android app for this account.")
+                elif locked:
                     self._log(
                         "⚠ Locked chapters require a subscription "
                         "or ticket purchase to access."

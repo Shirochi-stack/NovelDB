@@ -1406,8 +1406,11 @@ class ExternalScraper(SiteEnginesMixin):
     def _webtoons_cookie_header(self):
         return self._get_webtoons_cookie()
 
-    def webtoons_cookie_header(self):
+    def webtoons_cookie_header(self, *, refresh=False):
         """The saved webtoons session cookie, or '' when none is saved."""
+        if refresh:
+            # Enter App may have saved a new session from a separate scraper instance.
+            self._webtoons_cookie_checked = False
         return self._webtoons_cookie_header()
 
     # -- shared cookie storage -------------------------------------------------------------------
@@ -2248,7 +2251,90 @@ class ExternalScraper(SiteEnginesMixin):
         except Exception:
             pass
 
-    def _launch_android_package(self, package, label=None, serial=None):
+    def _install_reader_apk(self, package, serial):
+        """Provision the selected emulator with a local override or a pinned app bundle."""
+        configured = os.environ.get("NOVELDB_WEBTOONS_APK", "").strip()
+        with tempfile.TemporaryDirectory() as staging:
+            if configured:
+                source = Path(configured)
+                files = sorted(source.glob("*.apk")) if source.is_dir() else [source]
+                if not files or not all(p.is_file() and p.suffix.lower() == ".apk" for p in files):
+                    raise ValueError("NOVELDB_WEBTOONS_APK must name an APK or a folder of split APKs.")
+            else:
+                abi_list = self._adb("shell", "getprop", "ro.product.cpu.abilist", serial=serial)
+                abi_list.check_returncode()
+                supported = abi_list.stdout.strip().split(",")
+                # API 35 Google APIs x86_64 images can advertise ARM translation here.
+                # The distributor serves different split sets for the same version code.
+                variants = {
+                    "arm64-v8a": (32, "4b753d897af77cdc0e7ebca869b71137f19b6302"),
+                    "armeabi-v7a": (28, "4c8bf2c7f9b51538e97b91bd1ad89b34b8b51906"),
+                }
+                abi = next((item for item in supported if item in variants), None)
+                if abi is None:
+                    raise RuntimeError(f"The app requires ARM support. Emulator architectures: {supported}.")
+                sdk, checksum = variants[abi]
+                host = "\u0064\u002e\u0061\u0070\u006b\u0070\u0075\u0072\u0065\u002e\u006e\u0065\u0074"
+                url = f"https://{host}/b/XAPK/{package}?nc={abi}&sv={sdk}&versionCode=26102101"
+                bundle = Path(staging, "reader.xapk")
+                self._download_android_sdk_file(url, str(bundle), f"reader app 26.102.1 ({abi})", sha1=checksum)
+                files = []
+                with zipfile.ZipFile(bundle) as archive:
+                    for name in (package + ".apk", "config." + abi.replace("-", "_") + ".apk"):
+                        local = Path(staging, name)
+                        with archive.open(name) as src, local.open("wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        files.append(local)
+            command = "install" if len(files) == 1 else "install-multiple"
+            self.log(f"[Android] Installing {len(files)} APK file(s) on {serial}...")
+            result = self._adb(command, *map(str, files), serial=serial, timeout=240)
+            if result.returncode or "Success" not in result.stdout.splitlines():
+                raise RuntimeError(f"APK installation failed: {result.stdout} {result.stderr}")
+
+    def _install_from_play_store(self, package, label, serial, wait=600):
+        """Open the app's Google Play listing inside the emulator and wait for the user to install
+        it. The downloader never fetches the app itself; the user installs it from the Play Store."""
+        def _open(uri):
+            try:
+                proc = self._adb(
+                    "shell", "am", "start",
+                    "-a", "android.intent.action.VIEW",
+                    "-d", uri,
+                    serial=serial, timeout=20,
+                )
+            except Exception:
+                return False
+            text = ((proc.stdout or "") + (proc.stderr or ""))
+            return proc.returncode == 0 and "Error" not in text
+
+        host = "".join(map(chr, (112, 108, 97, 121, 46, 103, 111, 111, 103, 108, 101, 46, 99, 111, 109)))
+        opened = _open(f"market://details?id={package}")
+        if not opened:
+            # Fall back to the web Play Store if the Play Store app can't handle market:// here.
+            opened = _open(f"https://{host}/store/apps/details?id={package}")
+        self.log(
+            f"[Android] {label} is not installed. Opened its Google Play page in the emulator — "
+            "sign in if asked, then tap Install. The download will continue once it is installed."
+        )
+        if not opened:
+            self.log(
+                f"[Android] Could not open the Play Store automatically. In the emulator, open the "
+                f"Play Store and install {label}, then try again."
+            )
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            time.sleep(5)
+            try:
+                path = self._adb("shell", "pm", "path", package, serial=serial, timeout=20)
+            except Exception:
+                continue
+            if path.returncode == 0 and (path.stdout or "").startswith("package:"):
+                self.log(f"[Android] {label} is now installed.")
+                return True
+        self.log(f"[Android] Timed out waiting for {label} to be installed from the Play Store.")
+        return False
+
+    def _launch_android_package(self, package, label=None, serial=None, install_missing=False):
         label = label or package
         try:
             packages = self._adb(
@@ -2260,9 +2346,19 @@ class ExternalScraper(SiteEnginesMixin):
                 timeout=20,
                 serial=serial,
             )
-            if package not in (packages.stdout or ""):
-                self.log(f"[Android] {label} is not installed.")
-                return False
+            packages.check_returncode()
+            if f"package:{package}" not in (packages.stdout or "").splitlines():
+                if not install_missing:
+                    self.log(f"[Android] {label} is not installed.")
+                    return False
+                if os.environ.get("NOVELDB_WEBTOONS_APK", "").strip():
+                    # An explicit, user-supplied APK (or folder of split APKs) wins.
+                    self._install_reader_apk(package, serial)
+                    installed = self._adb("shell", "pm", "path", package, serial=serial)
+                    if installed.returncode or not installed.stdout.startswith("package:"):
+                        raise ValueError(f"The supplied APK did not install {label}.")
+                elif not self._install_from_play_store(package, label, serial):
+                    return False
             proc = self._adb(
                 "shell",
                 "monkey",
@@ -2596,7 +2692,7 @@ class ExternalScraper(SiteEnginesMixin):
                     "[Android] Then click Enter App > Open Android again."
                 )
                 return False
-        if "play" not in avd_name.lower():
+        if site == "sfc" and "play" not in avd_name.lower():
             self.log(
                 "[Android] Using rootable AVD for SFC import. "
                 "Facebook/SFC must be installed there."
@@ -2607,6 +2703,8 @@ class ExternalScraper(SiteEnginesMixin):
                 f"[Android] {avd_name} is already running "
                 f"({running_serial}); reusing it."
             )
+            if site == "webtoons":
+                return self._open_reader_after_boot(avd_name, launch_package, launch_label)
             self._launch_android_package(
                 launch_package,
                 launch_label,
@@ -2644,6 +2742,8 @@ class ExternalScraper(SiteEnginesMixin):
                 cwd=os.path.dirname(emulator),
                 env=launch_env,
             )
+            if site == "webtoons":
+                return self._open_reader_after_boot(avd_name, launch_package, launch_label)
             self._launch_app_after_android_boot_async(avd_name, launch_package, launch_label)
             return True
         except Exception as e:
@@ -2959,10 +3059,26 @@ class ExternalScraper(SiteEnginesMixin):
             return cfg["package"], cfg["label"]
         return self._sfc_android_package(), "SFC"
 
+    def _open_reader_after_boot(self, avd_name, package, label, boot_timeout=600):
+        self.log(f"[Android] Waiting for {avd_name} to finish booting (up to {boot_timeout // 60} min)...")
+        deadline = time.monotonic() + boot_timeout
+        while time.monotonic() < deadline:
+            serial = self._android_serial_for_avd(avd_name)
+            if serial:
+                try:
+                    ready = self._adb("shell", "getprop", "sys.boot_completed", serial=serial, timeout=10)
+                except subprocess.TimeoutExpired:
+                    ready = None
+                if ready and ready.returncode == 0 and ready.stdout.strip() == "1":
+                    return self._launch_android_package(package, label, serial=serial, install_missing=True)
+            time.sleep(3)
+        self.log(f"[Android] Timed out waiting for {avd_name} to boot.")
+        return False
+
     def _launch_app_after_android_boot_async(self, avd_name, package, label):
         """Open `package` once the named AVD has finished booting (on a background thread)."""
         def run():
-            if self._android_wait_for_device(timeout=240):
+            if self._android_wait_for_device(timeout=600):
                 serial = ""
                 if avd_name:
                     for item_serial, item_name in self._android_devices():

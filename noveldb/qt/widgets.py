@@ -244,24 +244,29 @@ class RangeField(QLineEdit):
     (noveldb.core.chapter_range). `on_change(first, last, list)` runs when the typed range changes;
     `list` is the comma list ("4,7") when the field names separate ranges, else ""."""
 
-    def __init__(self, on_change: Callable, placeholder: str = "") -> None:
+    def __init__(self, on_change: Callable, placeholder: str = "", *, allow_bare_end: bool = False) -> None:
         super().__init__()
         from noveldb.core import chapter_range
         from noveldb.qt.scale import bind_size
 
         self._ranges = chapter_range
+        self._allow_bare_end = allow_bare_end
         self._on_change = on_change
         self._range = (None, None, "")
         self.setPlaceholderText(placeholder or chapter_range.PLACEHOLDER)
         self.setToolTip("One chapter (4), a range (4-7) or a list (4,7). Empty: no range.")
+        if allow_bare_end:
+            self.setToolTip("4-END starts at chapter 4 and continues through the last chapter. "
+                            "END starts at chapter 1. You can also enter 4, 4-7 or 4,7.")
         self.setClearButtonEnabled(True)
         bind_size(self, min_width=150, max_width=190)
         self.editingFinished.connect(self._edited)
         self.textChanged.connect(self._cleared)
 
     def _edited(self) -> None:
-        parsed = self._ranges.read(self.text())
-        if self.text().strip() == self._ranges.shown(*self._range):
+        typed = self.text().strip()
+        parsed = (1, None, "") if self._allow_bare_end and typed.upper() == "END" else self._ranges.read(typed)
+        if typed == self._shown():
             return  # untouched (an open-ended range of older settings stays as it is)
         self.set_range(*parsed, force=True)
         self._on_change(*parsed)
@@ -272,12 +277,17 @@ class RangeField(QLineEdit):
             self._range = (None, None, "")
             self._on_change(None, None, "")
 
+    def _shown(self) -> str:
+        if self._allow_bare_end and self._range == (1, None, ""):
+            return "END"
+        return self._ranges.shown(*self._range)
+
     def set_range(self, low, high, listed: str = "", force: bool = False) -> None:
         """Show a stored range (not while the user is typing in the field)."""
         self._range = (low, high, listed or "")
         if self.hasFocus() and not force:
             return
-        value = self._ranges.shown(low, high, listed or "")
+        value = self._shown()
         if value != self.text():
             self.blockSignals(True)
             self.setText(value)

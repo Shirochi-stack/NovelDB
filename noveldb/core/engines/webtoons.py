@@ -248,9 +248,8 @@ class WebtoonsEngine:
         warnings = []
         if fastpass:
             warnings.append(
-                f"{fastpass} of {len(chapters)} episodes are fast-pass/paid. The ones your saved "
-                "webtoons session (Tools > Enter App (webtoons)) has unlocked will download; the rest "
-                'are reported locked. Turn off "Skip paid" to include the ones you own.')
+                f"{fastpass} of {len(chapters)} episodes are fast-pass/paid. "
+                'Turn off "Skip paid" to request them with your saved app session.')
         cover = info.get("thumbnailImageUrl") or info.get("thumbnail") or ""
         return {
             "bookUrl": book_url,
@@ -290,7 +289,7 @@ class WebtoonsEngine:
         if not addresses:
             # No images: a paid/fast-pass episode the account has not unlocked, or an empty episode.
             if chapter.get("isPaid") or info.get("productInfo") or info.get("product"):
-                raise Locked("not unlocked by the account in use")
+                raise Locked("the API returned no pages for this paid episode with the current session")
             raise RuntimeError("the episode returned no images")
         result = {
             "chapterName": chapter.get("name") or "", "contentText": "", "comic": True,

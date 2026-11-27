@@ -219,7 +219,8 @@ class DownloadPage(QWidget):
                         field_group("Retries", self.retries), spacing=18)
 
         # One field each, typed like pages in a print dialog (4 or 4-7), so both fit on a row.
-        self.range = RangeField(lambda low, high, listed: self._run(range_from=low, range_to=high, range_list=listed))
+        self.range = RangeField(lambda low, high, listed: self._run(range_from=low, range_to=high, range_list=listed),
+                                allow_bare_end=True)
         self.auto_purchase = Chip("Auto purchase", on_change=lambda on: self._run(auto_purchase=on))
         self.auto_purchase.setToolTip(
             "Unlocks the paid chapters in its range with the account's free tickets before downloading "
