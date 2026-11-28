@@ -143,7 +143,7 @@ import requests
 import customtkinter as ctk
 
 class ApiClient:
-    def send_request(self): pass
+    def send_request(self): return None
     def get_signed_url(self): pass
     def __getattr__(self, name): return lambda **kwargs: {}
 
