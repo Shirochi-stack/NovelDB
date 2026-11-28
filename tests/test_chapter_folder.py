@@ -284,6 +284,32 @@ def test_epub_and_webtoon_use_original_panels_for_stitching(tmp_path):
         assert image.getpixel((12, 500))[0] > 230
         assert image.getpixel((12, 1_500))[2] > 230
 
+def test_kpage_webtoon_chapters_stitch_but_kpage_novel_chapters_do_not(tmp_path):
+    settings = AppSettings()
+    images = replace(settings.images, compress=False, webtoon_export=True)
+    job = ExternalJob("https://example.test/book", replace(settings, images=images), output_dir=str(tmp_path))
+    job._book_data = {"bookname": "Book", "_kpage": True}
+
+    def page(color):
+        return {"data": "data:image/png;base64," + b64encode(panel(color)[1]).decode("ascii"), "name": color + ".png"}
+
+    job._chapter_results = [
+        {"chapterName": "Webtoon", "contentText": "[Image 1]\n[Image 2]", "images": [page("red"), page("blue")],
+         "contentHtml": '<div class="kpage-image-chapter"><div class="kpage-image-page"><img src="a.png"/></div>'
+                        '<div class="kpage-image-page"><img src="b.png"/></div></div>'},
+        {"chapterName": "Novel", "contentText": "Prose", "images": [page("red"), page("blue")],
+         "contentHtml": '<p>Prose</p><img src="a.png"/><img src="b.png"/>'},
+    ]
+    job._try_cover_from_images = lambda *_args: False
+    job._generate_formats(job._book_data, ("folder",), "Book", "Author")
+
+    folder = tmp_path / "Book.folder"
+    with Image.open(folder / "0001 Webtoon - 001.png") as strip:
+        assert strip.size == (24, 2_000)
+    novel = sorted(file.name for file in folder.iterdir() if file.name.startswith("0002"))
+    assert len([name for name in novel if name.endswith(".png")]) == 2
+
+
 @pytest.mark.parametrize("initial_format", ["epub", "cbz", None])
 def test_stitching_starts_while_the_next_chapter_downloads(tmp_path, monkeypatch, initial_format):
     from noveldb.core import chapter_folder

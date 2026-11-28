@@ -1983,12 +1983,9 @@ class ExternalPipelineMixin:
         links = getattr(self, "_var_save_image_urls_only", None)
         links_only = bool(links and links.get())
         webtoon = getattr(self, "_var_webtoon_export", None)
-        # Stitching joins a webtoon's vertical strips into tall pages. A kpage novel is text with
-        # the occasional inline illustration (삽화) or map (지도) — a plain image, never a strip —
-        # so it is written as-is, not stitched (no "Stitching" pass, whatever the webtoon settings).
-        is_kpage = bool(self._book_data and self._book_data.get("_kpage"))
-        stitch = (not links_only and not is_kpage and webtoon is not None
-                  and webtoon.get() and self._var_stitch_images.get())
+        # kpage serves webtoons as well as novels, so a kpage book is not excluded here: a novel's
+        # chapters are left unstitched one by one (`_unstitched_chapter`).
+        stitch = not links_only and webtoon is not None and webtoon.get() and self._var_stitch_images.get()
         height = min(32_000, max(0, self._var_stitch_height.get())) if stitch else None
         return links_only, height, bool(stitch and self._var_stitch_chapter_folders.get())
 
@@ -2004,6 +2001,13 @@ class ExternalPipelineMixin:
         from noveldb.core.images import _max_width_value
 
         return _max_width_value(getattr(getattr(self, "_parent_gui", None), "var_image_max_width", None))
+
+    def _unstitched_chapter(self, chapter, text):
+        """True for a kpage novel chapter: text with the occasional inline illustration (삽화) or map
+        (지도) — a plain image, never a webtoon strip — written as-is, not stitched. A kpage webtoon
+        chapter is images only and is stitched like any webtoon."""
+        data = getattr(self, "_book_data", None)
+        return bool(data and data.get("_kpage") and (text or "").strip())
 
     def _write_export_chapter(self, stage, index, chapter, pages, links, height, chapter_folders, compression,
                               stopped=None):
@@ -2024,7 +2028,9 @@ class ExternalPipelineMixin:
         text = chapter_text(chapter.get("contentHtml") or "")
         if not text and not ExternalPipelineMixin._chapter_images(chapter):
             text = (chapter.get("contentText") or "").strip()
-        action = "Stitching" if height is not None and len(pages) > 1 else "Writing"
+        if height is not None and ExternalPipelineMixin._unstitched_chapter(self, chapter, text):
+            height, chapter_folders, compression = None, False, None
+        action ="Stitching" if height is not None and len(pages) > 1 else "Writing"
         self._log(f"  {action} chapter {number}: {name} ({len(pages)} image(s) ready)")
         try:
             write_chapter(stage, number, name, text, pages, links, max_height=height,
