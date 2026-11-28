@@ -102,14 +102,16 @@ def test_download_button_releases_profile_before_parsing(monkeypatch, batch):
     scraper = SimpleNamespace(
         prepare_download_browser=lambda: events.append('release'),
         parse_book=lambda url: events.append('parse') or None,
+        _context=None,
     )
     # Select a native site so this GUI regression needs no real browser.
     scraper.__dict__.update({
         name: (lambda url, chosen=name: chosen == 'is_rbooks')
         for name in (
             'is_ntk_novel', 'is_qdn', 'is_yeduji', 'is_1qxs', 'is_69shuba',
-            'is_floo', 'is_xiyuwx', 'is_global_npia', 'is_rbooks', 'is_kobo',
-            'is_mpia', 'is_jara', 'is_nweb_series', 'is_nweb_novel', 'is_npia',
+            'is_floo', 'is_fenrir', 'is_maru', 'is_xiyuwx', 'is_global_npia',
+            'is_rbooks', 'is_kobo', 'is_mpia', 'is_jara', 'is_nweb_series',
+            'is_nweb_novel', 'is_npia', 'is_bilicomic',
         )
     })
     dialog = SimpleNamespace(
